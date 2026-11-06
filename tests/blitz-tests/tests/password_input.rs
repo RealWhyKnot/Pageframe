@@ -81,6 +81,30 @@ fn replacing_a_selection_and_pasting_edit_the_real_value() {
 }
 
 #[test]
+fn word_and_selection_deletes_edit_the_real_value() {
+    let mut harness = Harness::from_html(
+        r#"<html><body><input type="PASSWORD" value="one 😀two" autofocus></body></html>"#,
+    );
+    assert_eq!(shown(&harness), bullets(8));
+    harness.press(Key::Named(NamedKey::End));
+    harness.press_with(Key::Named(NamedKey::Backspace), ACTION_MOD);
+    assert_eq!(
+        shown(&harness).chars().count(),
+        value(&harness).chars().count()
+    );
+    assert!("one 😀two".starts_with(&value(&harness)));
+    assert_ne!(value(&harness), "one 😀two");
+
+    harness.press_with(Key::Character("a".into()), ACTION_MOD);
+    harness.type_text("😀b");
+    harness.press(Key::Named(NamedKey::ArrowLeft));
+    harness.press_with(Key::Named(NamedKey::ArrowLeft), Modifiers::SHIFT);
+    harness.press(Key::Named(NamedKey::Backspace));
+    assert_eq!(value(&harness), "b");
+    assert_eq!(shown(&harness), bullets(1));
+}
+
+#[test]
 fn ime_composition_is_not_shown_in_password_input() {
     let mut harness =
         Harness::from_html(r#"<html><body><input type="password" autofocus></body></html>"#);

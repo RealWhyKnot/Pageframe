@@ -125,11 +125,6 @@ impl TextInputData {
         }
     }
 
-    /// Recompute [`Self::scroll_offset`] so that the caret stays visible within the input's
-    /// content box.
-    ///
-    /// `content_box_width` and `content_box_height` are the dimensions of the input's content
-    /// box in CSS (unscaled) pixels.
     pub fn value(&self) -> &str {
         match &self.password {
             Some(password) => password,
@@ -168,6 +163,11 @@ impl TextInputData {
         replace_chars(password, cursor..cursor + removed, "");
     }
 
+    /// Recompute [`Self::scroll_offset`] so that the caret stays visible within the input's
+    /// content box.
+    ///
+    /// `content_box_width` and `content_box_height` are the dimensions of the input's content
+    /// box in CSS (unscaled) pixels.
     pub fn clamp_scroll_offset(&mut self, content_box_width: f32, content_box_height: f32) {
         let Some(layout) = self.editor.try_layout() else {
             return;

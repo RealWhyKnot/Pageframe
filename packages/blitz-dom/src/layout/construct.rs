@@ -425,10 +425,12 @@ fn collect_layout_children_with_wrap(
         // Handle text inputs
         let tag_name = el.name.local.as_ref();
         if matches!(tag_name, "input" | "textarea") {
-            let type_attr: Option<&str> = doc.nodes[container_node_id]
+            let type_attr = doc.nodes[container_node_id]
                 .data
                 .downcast_element()
-                .and_then(|el| el.attr(local_name!("type")));
+                .and_then(|el| el.attr(local_name!("type")))
+                .map(str::to_ascii_lowercase);
+            let type_attr = type_attr.as_deref();
             if tag_name == "textarea" {
                 create_text_editor(doc, container_node_id, true);
                 return;
@@ -876,7 +878,10 @@ fn create_text_editor(doc: &mut BaseDocument, input_element_id: NodeId, is_multi
         node.attr(local_name!("value")).unwrap_or("").to_string()
     };
     let is_focussed = node.is_focussed();
-    let is_password = !is_multiline && node.attr(local_name!("type")) == Some("password");
+    let is_password = !is_multiline
+        && node
+            .attr(local_name!("type"))
+            .is_some_and(|kind| kind.eq_ignore_ascii_case("password"));
     let element = &mut node.data.downcast_element_mut().unwrap();
     if !matches!(element.special_data, SpecialElementData::TextInput(_)) {
         let mut text_input_data = TextInputData::new(is_multiline);

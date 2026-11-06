@@ -164,11 +164,17 @@ fn utf16_to_byte(text: &str, utf16_offset: usize) -> usize {
 fn selection_utf16_range(doc: &blitz_dom::BaseDocument, node_id: NodeId) -> Option<(usize, usize)> {
     let input = doc.get_node(node_id)?.element_data()?.text_input_data()?;
     let text = input.editor.raw_text();
+    let value = input.value();
     let range = input.editor.raw_selection().text_range();
-    Some((
-        byte_to_utf16(text, range.start),
-        byte_to_utf16(text, range.end),
-    ))
+    let to_utf16 = |byte: usize| {
+        let chars = text[..byte.min(text.len())].chars().count();
+        let value_byte = value
+            .char_indices()
+            .nth(chars)
+            .map_or(value.len(), |(b, _)| b);
+        byte_to_utf16(value, value_byte)
+    };
+    Some((to_utf16(range.start), to_utf16(range.end)))
 }
 
 /// Set the node's text editor selection from UTF-16 offsets
@@ -178,10 +184,24 @@ fn set_selection_utf16_range(
     start: usize,
     end: usize,
 ) {
+    let Some(value) = doc
+        .get_node(node_id)
+        .and_then(|node| node.element_data())
+        .and_then(|element| element.text_input_data())
+        .map(|input| input.value().to_string())
+    else {
+        return;
+    };
     doc.with_text_input(node_id, |mut driver| {
         let text = driver.editor.raw_text().to_string();
-        let start_byte = utf16_to_byte(&text, start);
-        let end_byte = utf16_to_byte(&text, start.max(end));
+        let to_byte = |utf16: usize| {
+            let chars = value[..utf16_to_byte(&value, utf16)].chars().count();
+            text.char_indices()
+                .nth(chars)
+                .map_or(text.len(), |(b, _)| b)
+        };
+        let start_byte = to_byte(start);
+        let end_byte = to_byte(start.max(end));
         driver.select_byte_range(start_byte, end_byte);
     });
 }

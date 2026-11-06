@@ -585,6 +585,48 @@ fn input_selection_offsets() {
     assert_eq!(text_of_selector(&doc, "#out"), "true|1-3|2-5|null");
 }
 
+#[test]
+fn password_selection_offsets_count_the_real_value() {
+    let mut doc = ScriptDocument::from_html(
+        r#"
+        <html><body>
+            <input id="field" type="password" value="ab😀cd">
+            <div id="out"></div>
+            <script>
+                const f = document.getElementById("field");
+                f.setSelectionRange(4, 6);
+                document.getElementById("out").textContent =
+                    `${f.value}|${f.selectionStart}-${f.selectionEnd}`;
+            </script>
+        </body></html>
+        "#,
+        DocumentConfig {
+            viewport: Some(blitz_traits::shell::Viewport::new(
+                800,
+                600,
+                1.0,
+                blitz_traits::shell::ColorScheme::Light,
+            )),
+            ..Default::default()
+        },
+    );
+    doc.execute_scripts();
+    assert_eq!(text_of_selector(&doc, "#out"), "ab😀cd|4-6");
+    let inner = doc.inner();
+    let field = inner.query_selector("#field").unwrap().unwrap();
+    let input = inner
+        .get_node(field)
+        .unwrap()
+        .element_data()
+        .unwrap()
+        .text_input_data()
+        .unwrap();
+    let shown = input.editor.raw_text();
+    let range = input.editor.raw_selection().text_range();
+    assert_eq!(shown[..range.start].chars().count(), 3);
+    assert_eq!(shown[..range.end].chars().count(), 5);
+}
+
 // Interface constructors referenced by `instanceof` probes exist as globals.
 #[test]
 fn interface_constructor_globals() {
