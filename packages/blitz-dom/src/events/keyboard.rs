@@ -6,7 +6,6 @@ use blitz_traits::{
     events::{BlitzInputEvent, BlitzKeyEvent, DomEvent, DomEventData},
 };
 use keyboard_types::{Key, Modifiers, NamedKey};
-use markup5ever::local_name;
 
 pub(super) enum KeyboardOrTextInputEvent {
     KeyPress(BlitzKeyEvent),
@@ -144,9 +143,9 @@ fn implicit_form_submission(doc: &BaseDocument, text_target: NodeId) {
         .filter(|(_control_id, form_id)| *form_id == form_owner_id)
         .filter_map(|(control_id, _)| doc.nodes[*control_id].element_data())
         .filter(|element_data| {
-            element_data.attr(local_name!("type")).is_some_and(|t| {
+            element_data.input_type().is_some_and(|t| {
                 matches!(
-                    t,
+                    &*t,
                     "text"
                         | "search"
                         | "email"

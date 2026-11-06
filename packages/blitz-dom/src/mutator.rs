@@ -4,6 +4,7 @@ use blitz_traits::devtools::{
 };
 use blitz_traits::node_id::NodeId;
 use markup5ever::LocalName;
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::mem;
 use std::ops::{Deref, DerefMut, Range};
@@ -1528,7 +1529,8 @@ impl<'doc> DocumentMutator<'doc> {
         };
 
         let tagname = data.name.local.as_ref();
-        let type_attr = data.attr(local_name!("type"));
+        let type_attr = data.input_type().map(Cow::into_owned);
+        let type_attr = type_attr.as_deref();
         let value = data.attr(local_name!("value"));
 
         // Checkbox state must exist even if the input never gets a box (e.g. `display: none`

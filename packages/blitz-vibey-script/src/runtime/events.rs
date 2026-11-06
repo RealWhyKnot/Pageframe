@@ -201,7 +201,7 @@ impl ScriptRuntime {
             .is_some_and(|element| {
                 element.name.local == blitz_dom::local_name!("input")
                     && matches!(
-                        element.attr(blitz_dom::local_name!("type")),
+                        element.input_type().as_deref(),
                         Some("checkbox") | Some("radio")
                     )
             })

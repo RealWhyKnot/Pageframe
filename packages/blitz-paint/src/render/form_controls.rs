@@ -16,7 +16,7 @@ impl ElementCx<'_, '_> {
             return;
         };
 
-        let type_attr = self.node.attr(local_name!("type"));
+        let type_attr = self.element.input_type();
         let disabled = self.node.attr(local_name!("disabled")).is_some();
 
         // TODO this should be coming from css accent-color, but I couldn't find how to retrieve it
@@ -33,7 +33,7 @@ impl ElementCx<'_, '_> {
 
         let frame = self.frame.border_box.to_rounded_rect(scale * 2.0);
 
-        match type_attr {
+        match type_attr.as_deref() {
             Some("checkbox") => {
                 draw_checkbox(scene, checked, frame, self.transform, accent_color, scale);
             }

@@ -312,7 +312,13 @@ impl TextInputData {
                 return Some(GeneratedTextInputEvent::Select);
             }
             Key::Named(NamedKey::ArrowLeft) => {
-                if action_mod {
+                if action_mod && password.is_some() {
+                    if shift {
+                        driver.select_to_text_start()
+                    } else {
+                        driver.move_to_text_start()
+                    }
+                } else if action_mod {
                     if shift {
                         driver.select_word_left()
                     } else {
@@ -326,7 +332,13 @@ impl TextInputData {
                 return Some(GeneratedTextInputEvent::Select);
             }
             Key::Named(NamedKey::ArrowRight) => {
-                if action_mod {
+                if action_mod && password.is_some() {
+                    if shift {
+                        driver.select_to_text_end()
+                    } else {
+                        driver.move_to_text_end()
+                    }
+                } else if action_mod {
                     if shift {
                         driver.select_word_right()
                     } else {
@@ -384,7 +396,12 @@ impl TextInputData {
                 return Some(GeneratedTextInputEvent::Select);
             }
             Key::Named(NamedKey::Delete) => {
-                if action_mod {
+                if action_mod && password.is_some() {
+                    if driver.editor.raw_selection().is_collapsed() {
+                        driver.select_to_text_end();
+                    }
+                    driver.delete_selection()
+                } else if action_mod {
                     driver.delete_word()
                 } else {
                     driver.delete()
@@ -395,7 +412,12 @@ impl TextInputData {
             // On macOS this is handled by the apple standard keybindings
             #[cfg(not(target_os = "macos"))]
             Key::Named(NamedKey::Backspace) => {
-                if action_mod {
+                if action_mod && password.is_some() {
+                    if driver.editor.raw_selection().is_collapsed() {
+                        driver.select_to_text_start();
+                    }
+                    driver.delete_selection()
+                } else if action_mod {
                     driver.backdelete_word()
                 } else {
                     driver.backdelete()
@@ -536,12 +558,26 @@ impl TextInputData {
             }
             // Deletes content from the insertion point to the end of the current paragraph.
             "deleteWordBackward:" => {
-                driver.backdelete_word();
+                if password.is_some() {
+                    if driver.editor.raw_selection().is_collapsed() {
+                        driver.select_to_text_start();
+                    }
+                    driver.delete_selection();
+                } else {
+                    driver.backdelete_word();
+                }
                 return Some(GeneratedTextInputEvent::Input);
             }
             // Deletes the word preceding the current insertion point.
             "deleteWordForward:" => {
-                driver.delete_word();
+                if password.is_some() {
+                    if driver.editor.raw_selection().is_collapsed() {
+                        driver.select_to_text_end();
+                    }
+                    driver.delete_selection();
+                } else {
+                    driver.delete_word();
+                }
                 return Some(GeneratedTextInputEvent::Input);
             }
             // Deletes the current selection, placing it in a temporary buffer, such as the Clipboard.
@@ -717,35 +753,67 @@ impl TextInputData {
 
             // Moving the Selection by Word Boundaries
             "moveWordBackward:" => {
-                driver.move_word_left();
+                if password.is_some() {
+                    driver.move_to_text_start();
+                } else {
+                    driver.move_word_left();
+                }
                 return Some(GeneratedTextInputEvent::Select);
             }
             "moveWordBackwardAndModifySelection:" => {
-                driver.select_word_left();
+                if password.is_some() {
+                    driver.select_to_text_start();
+                } else {
+                    driver.select_word_left();
+                }
                 return Some(GeneratedTextInputEvent::Select);
             }
             "moveWordForward:" => {
-                driver.move_word_right();
+                if password.is_some() {
+                    driver.move_to_text_end();
+                } else {
+                    driver.move_word_right();
+                }
                 return Some(GeneratedTextInputEvent::Select);
             }
             "moveWordForwardAndModifySelection:" => {
-                driver.select_word_right();
+                if password.is_some() {
+                    driver.select_to_text_end();
+                } else {
+                    driver.select_word_right();
+                }
                 return Some(GeneratedTextInputEvent::Select);
             }
             "moveWordLeft:" => {
-                driver.move_word_left();
+                if password.is_some() {
+                    driver.move_to_text_start();
+                } else {
+                    driver.move_word_left();
+                }
                 return Some(GeneratedTextInputEvent::Select);
             }
             "moveWordLeftAndModifySelection:" => {
-                driver.select_word_left();
+                if password.is_some() {
+                    driver.select_to_text_start();
+                } else {
+                    driver.select_word_left();
+                }
                 return Some(GeneratedTextInputEvent::Select);
             }
             "moveWordRight:" => {
-                driver.move_word_right();
+                if password.is_some() {
+                    driver.move_to_text_end();
+                } else {
+                    driver.move_word_right();
+                }
                 return Some(GeneratedTextInputEvent::Select);
             }
             "moveWordRightAndModifySelection:" => {
-                driver.select_word_right();
+                if password.is_some() {
+                    driver.select_to_text_end();
+                } else {
+                    driver.select_word_right();
+                }
                 return Some(GeneratedTextInputEvent::Select);
             }
 

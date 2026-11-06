@@ -406,8 +406,8 @@ fn role_from_element_data(element_data: &ElementData) -> Option<Role> {
         "iframe" => Some(Role::Iframe),
 
         "input" => {
-            let ty = element_data.attr(local_name!("type")).unwrap_or("text");
-            match ty {
+            let ty = element_data.input_type();
+            match ty.as_deref().unwrap_or("text") {
                 "button" | "submit" | "reset" => Some(Role::Button),
                 "checkbox" => Some(Role::CheckBox),
                 "color" => Some(Role::ColorWell),

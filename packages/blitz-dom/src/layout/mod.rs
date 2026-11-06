@@ -328,7 +328,7 @@ impl LayoutPassState<'_> {
                 }
 
                 if *element_data.name.local == *"input" {
-                    match element_data.attr(local_name!("type")) {
+                    match element_data.input_type().as_deref() {
                         // if the input type is hidden, hide it
                         Some("hidden") => {
                             return taffy::LayoutOutput::HIDDEN;

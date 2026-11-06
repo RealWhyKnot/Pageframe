@@ -992,7 +992,7 @@ pub(crate) fn find_inline_layout_embedded_boxes(
             NodeData::Element(element_data) | NodeData::AnonymousBlock(element_data) => {
                 // if the input type is hidden, hide it
                 if *element_data.name.local == *"input" {
-                    if let Some("hidden") = element_data.attr(local_name!("type")) {
+                    if element_data.input_type().as_deref() == Some("hidden") {
                         return;
                     }
                 }

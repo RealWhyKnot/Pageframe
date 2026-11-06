@@ -92,7 +92,7 @@ fn word_and_selection_deletes_edit_the_real_value() {
         shown(&harness).chars().count(),
         value(&harness).chars().count()
     );
-    assert!("one 😀two".starts_with(&value(&harness)));
+    assert_eq!(value(&harness), "");
     assert_ne!(value(&harness), "one 😀two");
 
     harness.press_with(Key::Character("a".into()), ACTION_MOD);
@@ -102,6 +102,14 @@ fn word_and_selection_deletes_edit_the_real_value() {
     harness.press(Key::Named(NamedKey::Backspace));
     assert_eq!(value(&harness), "b");
     assert_eq!(shown(&harness), bullets(1));
+
+    harness.press(Key::Named(NamedKey::End));
+    harness.type_text("c d");
+    harness.press_with(Key::Named(NamedKey::ArrowLeft), ACTION_MOD);
+    harness.type_text("a");
+    assert_eq!(value(&harness), "abc d");
+    harness.press_with(Key::Named(NamedKey::Delete), ACTION_MOD);
+    assert_eq!(value(&harness), "a");
 }
 
 #[test]
