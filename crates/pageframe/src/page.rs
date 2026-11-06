@@ -1,17 +1,18 @@
 use blitz_dom::{DocGuard, DocGuardMut, Document, EventDriver, EventHandler};
 use blitz_html::HtmlDocument;
 use blitz_traits::NodeId;
-use blitz_traits::events::{DomEvent, DomEventKind, EventState, UiEvent};
+use blitz_traits::events::{DomEvent, EventState, UiEvent};
 use selectors::SelectorList;
 use style::selector_parser::SelectorImpl;
 
 use crate::event::Event;
+use crate::events::EventKind;
 use crate::ui::Ui;
 
 pub(crate) type Callback<S> = Box<dyn FnMut(&mut S, &mut Ui<'_>, &mut Event<'_>)>;
 
 pub(crate) struct Handler<S> {
-    pub(crate) kind: DomEventKind,
+    pub(crate) kind: EventKind,
     pub(crate) selector: SelectorList<SelectorImpl>,
     pub(crate) callback: Callback<S>,
 }

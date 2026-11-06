@@ -1,9 +1,11 @@
 use blitz_traits::NodeId;
-use blitz_traits::events::{DomEventData, DomEventKind, EventState};
+use blitz_traits::events::EventState;
 use keyboard_types::Key;
 
+use crate::events::{EventData, EventKind};
+
 pub struct Event<'e> {
-    data: &'e DomEventData,
+    data: &'e EventData,
     target: NodeId,
     current: NodeId,
     state: &'e mut EventState,
@@ -11,7 +13,7 @@ pub struct Event<'e> {
 
 impl<'e> Event<'e> {
     pub(crate) fn new(
-        data: &'e DomEventData,
+        data: &'e EventData,
         target: NodeId,
         current: NodeId,
         state: &'e mut EventState,
@@ -24,11 +26,11 @@ impl<'e> Event<'e> {
         }
     }
 
-    pub fn kind(&self) -> DomEventKind {
+    pub fn kind(&self) -> EventKind {
         self.data.kind()
     }
 
-    pub fn data(&self) -> &DomEventData {
+    pub fn data(&self) -> &EventData {
         self.data
     }
 
@@ -42,14 +44,14 @@ impl<'e> Event<'e> {
 
     pub fn value(&self) -> Option<&str> {
         match self.data {
-            DomEventData::Input(input) => Some(&input.value),
+            EventData::Input(input) => Some(&input.value),
             _ => None,
         }
     }
 
     pub fn key(&self) -> Option<&Key> {
         match self.data {
-            DomEventData::KeyDown(key) | DomEventData::KeyUp(key) | DomEventData::KeyPress(key) => {
+            EventData::KeyDown(key) | EventData::KeyUp(key) | EventData::KeyPress(key) => {
                 Some(&key.key)
             }
             _ => None,

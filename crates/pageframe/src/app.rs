@@ -6,7 +6,6 @@ use anyrender_vello::VelloWindowRenderer;
 use blitz_dom::{DocumentConfig, LocalName, QualName, UserAgentStylesheet, ns};
 use blitz_html::{HtmlDocument, HtmlProvider};
 use blitz_shell::{BlitzApplication, BlitzShellProxy, WindowConfig, create_default_event_loop};
-use blitz_traits::events::DomEventKind;
 use blitz_traits::shell::{ColorScheme, Viewport};
 use url::Url;
 use winit::dpi::LogicalSize;
@@ -14,6 +13,7 @@ use winit::window::WindowAttributes;
 
 use crate::error::Error;
 use crate::event::Event;
+use crate::events::EventKind;
 use crate::net::{EMBEDDED_BASE, LocalNet};
 use crate::page::{Callback, Handler, Page};
 use crate::ui::Ui;
@@ -22,7 +22,7 @@ type Start<S> = Box<dyn FnOnce(&mut S, &mut Ui<'_>)>;
 
 struct PendingHandler<S> {
     selector: String,
-    kind: DomEventKind,
+    kind: EventKind,
     callback: Callback<S>,
 }
 
@@ -100,7 +100,7 @@ impl<S: 'static> App<S> {
     pub fn on(
         mut self,
         selector: &str,
-        kind: DomEventKind,
+        kind: EventKind,
         callback: impl FnMut(&mut S, &mut Ui<'_>, &mut Event<'_>) + 'static,
     ) -> Self {
         self.handlers.push(PendingHandler {
