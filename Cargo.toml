@@ -16,9 +16,6 @@ members = [
     "packages/dioxus-native-dom",
     "packages/blitz-test-harness",
     "packages/parley_code_editor",
-    "apps/browser",
-    "apps/browser/persistence",
-    "apps/readme",
     "wpt/runner",
     "tests/blitz-tests",
     "examples/counter",
@@ -56,7 +53,6 @@ dioxus-native = { version = "0.7.0", path = "./packages/dioxus-native", default-
 dioxus-native-dom = { version = "0.7.0", path = "./packages/dioxus-native-dom", default-features = false }
 debug_timer = { version = "0.1.2", path = "./packages/debug_timer" }
 accesskit_xplat = { version = "0.2", path = "./packages/accesskit_xplat", default-features = false }
-browser-persistence = { path = "./apps/browser/persistence" }
 blitz-test-harness = { path = "./packages/blitz-test-harness" }
 
 # Servo dependencies

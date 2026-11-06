@@ -114,12 +114,6 @@
             );
         in
         {
-          # The example browser app (`apps/browser`), whose binary is `blitz`.
-          packages.browser = rustPackage "browser" {
-            binary = "blitz";
-          };
-          packages.default = self'.packages.browser;
-
           devShells.default = pkgs.mkShell {
             name = "blitz-dev";
             buildInputs = rustBuildInputs;
