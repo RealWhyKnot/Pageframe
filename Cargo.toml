@@ -16,6 +16,7 @@ members = [
     "packages/dioxus-native-dom",
     "packages/blitz-test-harness",
     "packages/parley_code_editor",
+    "crates/pageframe",
     "examples",
     "wpt/runner",
     "tests/blitz-tests",
@@ -56,6 +57,8 @@ dioxus-native-dom = { version = "0.7.0", path = "./packages/dioxus-native-dom", 
 debug_timer = { version = "0.1.2", path = "./packages/debug_timer" }
 accesskit_xplat = { version = "0.2", path = "./packages/accesskit_xplat", default-features = false }
 blitz-test-harness = { path = "./packages/blitz-test-harness" }
+pageframe = { path = "./crates/pageframe" }
+thiserror = "2"
 
 # Servo dependencies
 style = { version = "0.23.0", git = "https://github.com/servo/stylo", rev = "2dca34592ced37c6aa01733e94206a767194cf9d", package = "stylo" }
@@ -200,6 +203,42 @@ icu_locale_core = { version = "2.3", default-features = false }
 icu_properties = { version = "2.3", default-features = false, features = ["compiled_data"] }
 icu_segmenter = { version = "2.3", default-features = false, features = ["compiled_data"] }
 writeable = { version = "0.6", default-features = false }
+
+[workspace.lints.rust]
+unknown_lints = "deny"
+unreachable_pub = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+undocumented_unsafe_blocks = "deny"
+unnecessary_safety_comment = "deny"
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+self_named_module_files = "deny"
+ref_option = "deny"
+needless_pass_by_value = "deny"
+fn_params_excessive_bools = "deny"
+clone_on_ref_ptr = "deny"
+redundant_clone = "deny"
+match_wildcard_for_single_variants = "deny"
+cast_possible_truncation = "deny"
+cast_possible_wrap = "deny"
+cast_sign_loss = "deny"
+cast_lossless = "deny"
+cast_precision_loss = "deny"
+as_conversions = "deny"
+map_err_ignore = "deny"
+format_push_string = "deny"
+needless_collect = "deny"
+significant_drop_tightening = "deny"
+manual_assert_eq = "deny"
+assert_is_empty = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
 
 [profile.profile]
 inherits = "release"

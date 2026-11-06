@@ -1,0 +1,33 @@
+[package]
+name = "pageframe"
+description = "Build native Rust apps with HTML and CSS"
+version = "0.1.0"
+license.workspace = true
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[dependencies]
+anyrender_vello = { workspace = true }
+blitz-dom = { workspace = true, features = ["default"] }
+blitz-html = { workspace = true }
+blitz-shell = { workspace = true, features = ["accessibility"] }
+blitz-traits = { workspace = true }
+data-url = { workspace = true }
+keyboard-types = { workspace = true }
+selectors = { workspace = true }
+style = { workspace = true }
+style_dom = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+winit = { workspace = true }
+
+[dev-dependencies]
+anyrender = { workspace = true }
+anyrender_vello_cpu = { workspace = true }
+blitz-paint = { workspace = true }
+blitz-test-harness = { workspace = true }
+
+[lints]
+workspace = true

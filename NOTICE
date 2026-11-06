@@ -1,0 +1,9 @@
+Pageframe
+
+Pageframe is a fork of Blitz (https://github.com/DioxusLabs/blitz) by
+DioxusLabs and the Blitz contributors, used under the MIT and Apache-2.0
+licenses. The code in packages/, examples/, tests/, wpt/ and docs/ comes from
+Blitz, with changes.
+
+Some dependencies, including Stylo from the Servo project, are licensed under
+MPL-2.0. See docs/licensing.md.

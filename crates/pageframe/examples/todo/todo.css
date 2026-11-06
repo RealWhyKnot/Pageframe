@@ -1,0 +1,122 @@
+:root {
+  --color-page: #f6f5f2;
+  --color-surface: #fff;
+  --color-text: #24221f;
+  --color-muted: #6f6a62;
+  --color-line: #dedad3;
+  --color-accent: #2f6f5e;
+  --color-accent-text: #fff;
+  --color-focus: #8cc2b2;
+  --font-body: "Segoe UI", system-ui, sans-serif;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  background: var(--color-page);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.5rem;
+}
+
+.heading {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.entry {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.entry-field {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem;
+  border: 1px solid var(--color-line);
+  border-radius: 0.375rem;
+  background: var(--color-surface);
+  font-size: 1rem;
+}
+
+.button {
+  padding: 0.5rem 1rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  font-size: 1rem;
+}
+
+.entry-field:focus-visible,
+.button:focus-visible {
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 3px var(--color-focus);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 20rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--color-line);
+  border-radius: 0.375rem;
+  background: var(--color-surface);
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row[data-done="true"] .title {
+  color: var(--color-muted);
+  text-decoration: line-through;
+}
+
+.toggle,
+.remove {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--color-line);
+  border-radius: 0.25rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.875rem;
+}
+
+.toggle[aria-pressed="true"] {
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+}
+
+.empty,
+.left {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}

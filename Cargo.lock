@@ -5462,6 +5462,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c45bb4a6ae1280ec0803b1ef9d3455eb50f01efbbe1447ab020f1d54fba9d8"
 
 [[package]]
+name = "pageframe"
+version = "0.1.0"
+dependencies = [
+ "anyrender",
+ "anyrender_vello",
+ "anyrender_vello_cpu",
+ "blitz-dom",
+ "blitz-html",
+ "blitz-paint",
+ "blitz-shell",
+ "blitz-test-harness",
+ "blitz-traits",
+ "data-url",
+ "keyboard-types",
+ "selectors",
+ "stylo",
+ "stylo_dom",
+ "thiserror 2.0.21",
+ "tracing",
+ "url",
+ "winit",
+]
+
+[[package]]
 name = "parking"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

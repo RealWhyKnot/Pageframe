@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>To-do</title>
+  </head>
+  <body>
+    <main class="app">
+      <h1 class="heading">To-do</h1>
+      <div class="entry">
+        <input id="new" class="entry-field" maxlength="200" placeholder="What needs doing?" />
+        <button id="add" class="button">Add</button>
+      </div>
+      <ul id="list" class="list"></ul>
+      <p id="empty" class="empty">Nothing here yet.</p>
+      <p id="left" class="left">0 items left</p>
+    </main>
+    <template id="row-template">
+      <li class="row" data-done="false">
+        <button class="toggle" aria-pressed="false">Done</button>
+        <span class="title"></span>
+        <button class="remove" aria-label="Remove">✕</button>
+      </li>
+    </template>
+  </body>
+</html>
