@@ -113,6 +113,32 @@ fn word_and_selection_deletes_edit_the_real_value() {
 }
 
 #[test]
+fn word_selection_extends_an_existing_selection() {
+    let mut harness = Harness::from_html(
+        r#"<html><body><input type="password" value="abc def" autofocus></body></html>"#,
+    );
+    harness.press(Key::Named(NamedKey::End));
+    harness.press_with(Key::Named(NamedKey::ArrowLeft), Modifiers::SHIFT);
+    harness.press_with(
+        Key::Named(NamedKey::ArrowLeft),
+        ACTION_MOD | Modifiers::SHIFT,
+    );
+    harness.type_text("z");
+    assert_eq!(value(&harness), "z");
+
+    harness.type_text("ab");
+    harness.press(Key::Named(NamedKey::Home));
+    harness.press(Key::Named(NamedKey::ArrowRight));
+    harness.press_with(Key::Named(NamedKey::ArrowRight), Modifiers::SHIFT);
+    harness.press_with(
+        Key::Named(NamedKey::ArrowRight),
+        ACTION_MOD | Modifiers::SHIFT,
+    );
+    harness.type_text("y");
+    assert_eq!(value(&harness), "zy");
+}
+
+#[test]
 fn ime_composition_is_not_shown_in_password_input() {
     let mut harness =
         Harness::from_html(r#"<html><body><input type="password" autofocus></body></html>"#);
