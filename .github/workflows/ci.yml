@@ -16,13 +16,52 @@ env:
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: "sparse"
   CARGO_PROFILE_DEV_DEBUG: "line-tables-only"
 
+permissions:
+  contents: read
+
 jobs:
+
+  checks:
+    permissions:
+      contents: read
+    uses: RealWhyKnot/workflows/.github/workflows/repo-checks.yml@v1
+
+  style:
+    name: Pageframe style and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install check dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s inherit_errexit
+          sudo apt-get update
+          sudo apt-get install -y shellcheck shfmt libfontconfig1-dev
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: npm
+      - run: npm ci
+      - uses: RealWhyKnot/workflows/setup-pssa@v1
+      - uses: RealWhyKnot/workflows/setup-rust@v1
+        with:
+          toolchain: '1.99.1'
+          components: rustfmt, clippy
+          cache-key: cargo-style
+      - name: Check style and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s inherit_errexit
+          bash .githooks/pre-push
 
   licenses:
     name: Dependency licenses
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           rust-version: stable
@@ -39,19 +78,23 @@ jobs:
     name: "MSRV Build [Rust 1.91]"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@v7
+      - uses: RealWhyKnot/workflows/setup-rust@v1
         with:
-          toolchain: 1.91
+          toolchain: '1.91'
+          cache-key: cargo-msrv
       - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
-      - run: cargo build --workspace
+      - run: cargo build --workspace --exclude pageframe
 
   build-features-default:
     name: "Build [default features]"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v7
+      - uses: RealWhyKnot/workflows/setup-rust@v1
+        with:
+          toolchain: stable
+          cache-key: cargo-default
       - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
       - run: cargo build --workspace
 
@@ -61,11 +104,12 @@ jobs:
     name: "Build wasm examples"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@v7
+      - uses: RealWhyKnot/workflows/setup-rust@v1
         with:
           toolchain: stable
           targets: wasm32-unknown-unknown
+          cache-key: cargo-wasm
       - name: Build wasm_hello
         run: cargo build --target wasm32-unknown-unknown
         working-directory: examples/wasm_hello
@@ -78,39 +122,47 @@ jobs:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@v7
+      - uses: RealWhyKnot/workflows/setup-rust@v1
         with:
           toolchain: stable
           components: rustfmt
+          cache: 'false'
       - run: cargo fmt --all --check
 
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
+    env:
+      CLIPPY_CONF_DIR: ${{ github.workspace }}/../upstream-clippy
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@v7
+      - uses: RealWhyKnot/workflows/setup-rust@v1
         with:
           toolchain: stable
           components: clippy
+          cache-key: cargo-clippy
       - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
-      - run: cargo clippy --workspace -- -D warnings
+      - run: mkdir -p "$CLIPPY_CONF_DIR"
+      - run: cargo clippy --workspace --exclude pageframe -- -D warnings
       - run: cargo clippy -p blitz-dom --no-default-features --features svg,woff,accessibility,system-fonts,file-input,custom-widget --all-targets -- -D warnings
 
   ci-scripts:
     name: "Test CI scripts"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: python3 -m unittest discover -s .github/scripts
 
   doc:
     name: Documentation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v7
+      - uses: RealWhyKnot/workflows/setup-rust@v1
+        with:
+          toolchain: stable
+          cache-key: cargo-doc
       - run: cargo doc
 
   matrix_test:
@@ -125,7 +177,7 @@ jobs:
           - {
               name: windows,
               target: x86_64-pc-windows-msvc,
-              os: warp-windows-2025-x64-8x,
+              os: windows-latest,
               cross: false,
               command: "test",
               args: "--all --tests",
@@ -166,12 +218,13 @@ jobs:
     name: Test (${{ matrix.platform.name }})
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: install stable
-        uses: dtolnay/rust-toolchain@master
+        uses: RealWhyKnot/workflows/setup-rust@v1
         with:
           toolchain: stable
           targets: ${{ matrix.platform.target }}
+          cache: 'false'
 
       # Install cross from source. Because latest release doesn't work with recent Rust
       # when targeting Android. See https://github.com/cross-rs/cross/issues/1222
@@ -198,10 +251,6 @@ jobs:
       - name: Install apt deps
         if: ${{ matrix.platform.os == 'ubuntu-latest' }}
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
-
-      - name: Setup
-        run: ${{ matrix.platform.setup }} 
-        shell: bash
 
       - name: test
         run: |
