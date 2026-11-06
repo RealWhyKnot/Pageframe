@@ -8,6 +8,7 @@ param(
 
     [string]$Range,
     [string]$Version,
+    [string]$Through,
     [switch]$ForVersion,
     [string]$Repo = $env:GITHUB_REPOSITORY,
     [string]$RepoRoot,
@@ -73,7 +74,7 @@ function ConvertFrom-CommitSubject {
 
     param([string]$Sha, [string]$Subject)
 
-    $stripped = Remove-BuildStamp -Subject $Subject
+    $stripped = (Remove-BuildStamp -Subject $Subject) -replace '\s*\(#\d+\)$', ''
     if ([string]::IsNullOrWhiteSpace($stripped)) { return $null }
 
     if ($stripped -match '\[skip changelog\]') { return $null }
@@ -203,6 +204,23 @@ function ConvertTo-UnreleasedBody {
     return $out.ToArray()
 }
 
+function Test-IsAncestor {
+    [CmdletBinding()]
+    [OutputType([bool])]
+
+    param([string]$Sha, [string]$Ref)
+
+    Push-Location $RepoRoot
+    try {
+        & git merge-base --is-ancestor $Sha $Ref 2>$null
+        $code = $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
+    if ($code -gt 1) { throw "git merge-base failed for $Sha and $Ref ($code)" }
+    return $code -eq 0
+}
+
 function Update-OneFile {
     [CmdletBinding()]
     [OutputType([void])]
@@ -271,7 +289,7 @@ if ($Mode -eq 'Append') {
     try {
         $log = & git log --first-parent --no-merges --format='%H%x09%s%x09%ae' $Range 2>$null
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "git log returned non-zero for range '$Range' -- treating as no commits."
+            Write-Host "::warning::git log returned non-zero for range '$Range' -- treating as no commits."
             return
         }
     } finally {
@@ -335,6 +353,24 @@ if ($Mode -eq 'Promote') {
     $bodyEnd = $section.EndIdx - 1
     $bodyLines = if ($bodyEnd -ge $bodyStart) { $lines[$bodyStart..$bodyEnd] } else { @() }
 
+    $pending = @{}
+    if ($Through) {
+        $released = @{}
+        $buckets = ConvertFrom-UnreleasedBody -BodyLines $bodyLines
+        foreach ($name in $buckets.Keys) {
+            foreach ($bullet in $buckets[$name]) {
+                $target = $released
+                if ($bullet -match '\((?<sha>[a-f0-9]{7,40})\)\s*$' -and
+                    -not (Test-IsAncestor -Sha $matches['sha'] -Ref $Through)) {
+                    $target = $pending
+                }
+                if (-not $target.Contains($name)) { $target[$name] = [Collections.Generic.List[string]]::new() }
+                $target[$name].Add($bullet)
+            }
+        }
+        $bodyLines = if ($released.Count -gt 0) { ConvertTo-UnreleasedBody -Buckets $released } else { @() }
+    }
+
     $hasReal = $false
     foreach ($l in $bodyLines) {
         if ($l -match '^\s*- ' -or $l -match '^###\s+') { $hasReal = $true; break }
@@ -349,9 +385,7 @@ if ($Mode -eq 'Promote') {
     $newLines = [Collections.Generic.List[string]]::new()
     $newLines.AddRange([string[]]@($before))
     $newLines.Add('## Unreleased')
-    $newLines.Add('')
-    $newLines.Add('_No notable changes since the last release._')
-    $newLines.Add('')
+    $newLines.AddRange([string[]]@(ConvertTo-UnreleasedBody -Buckets $pending))
     $newLines.Add('---')
     $newLines.Add('')
     $newLines.AddRange([string[]]@($heading))

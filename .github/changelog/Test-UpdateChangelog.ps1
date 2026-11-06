@@ -143,6 +143,36 @@ _No notable changes since the last release._
     Assert-IncludedText -Text $emptyPromoted -Expected '_No user-visible changes in this release._'
     Assert-ExcludedText -Text $emptyPromoted -Unexpected 'Maintenance release'
 
+    Save-TestChange -Path 'src.txt' -Content "tagged`n" -Subject 'fix: tagged fix (#1270)'
+    Invoke-Git -Arguments @('tag', 'v2026.6.6.0')
+    Save-TestChange -Path 'src.txt' -Content "later`n" -Subject 'feat: later feature'
+
+    & $Updater -Mode Append -Range 'HEAD~2..HEAD' -RepoRoot $TempRoot
+    if ($LASTEXITCODE -ne 0) { throw "Update-Changelog tagged Append failed with exit code $LASTEXITCODE" }
+
+    $appended = [System.IO.File]::ReadAllText((Join-Path $TempRoot 'CHANGELOG.md'), $Utf8NoBom)
+    Assert-ExcludedText -Text $appended -Unexpected '#1270'
+
+    $callOptions3 = @{
+        Mode     = 'Promote'
+        Version  = 'v2026.6.6.0'
+        Through  = 'v2026.6.6.0'
+        RepoRoot = $TempRoot
+        Repo     = 'RealWhyKnot/Pageframe'
+        NowUtc   = ([datetime]::Parse('2026-06-16T01:30:00Z'))
+    }
+    & $Updater @callOptions3
+    if ($LASTEXITCODE -ne 0) { throw "Update-Changelog tagged Promote failed with exit code $LASTEXITCODE" }
+
+    $taggedNotes = (& $Updater -Mode Notes -ForVersion -Version 'v2026.6.6.0' -RepoRoot $TempRoot) -join "`n"
+    Assert-IncludedText -Text $taggedNotes -Expected 'Tagged fix'
+    Assert-ExcludedText -Text $taggedNotes -Unexpected 'Later feature'
+
+    $taggedChangelog = [System.IO.File]::ReadAllText((Join-Path $TempRoot 'CHANGELOG.md'), $Utf8NoBom)
+    $unreleased = $taggedChangelog.Substring(0, $taggedChangelog.IndexOf('## [v2026.6.6.0]'))
+    Assert-IncludedText -Text $unreleased -Expected 'Later feature'
+    Assert-ExcludedText -Text $unreleased -Unexpected 'Tagged fix'
+
     Write-Host 'Update-Changelog tests passed.'
 } finally {
     if ($PushedLocation) { Pop-Location }

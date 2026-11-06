@@ -136,6 +136,8 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: main
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Promote Unreleased
         shell: pwsh
@@ -143,7 +145,7 @@ jobs:
           TAG_NAME: ${{ needs.validate.outputs.tag }}
         run: |
           $global:LASTEXITCODE = 0
-          ./.github/changelog/Update-Changelog.ps1 -Mode Promote -Version $env:TAG_NAME
+          ./.github/changelog/Update-Changelog.ps1 -Mode Promote -Version $env:TAG_NAME -Through $env:TAG_NAME
           if ($LASTEXITCODE -ne 0) { throw "Update-Changelog failed ($LASTEXITCODE)" }
 
       - name: Commit the changelog
