@@ -316,7 +316,11 @@ fn construct_entry_list(doc: &BaseDocument, form_id: NodeId, submitter_id: NodeI
         }
         // Otherwise, create an entry with name and the value of the field element, and append it to entry list.
         else if let Some(text) = element.text_input_data() {
-            create_entry(name, text.editor.text().to_string().as_str().into());
+            let value = match &text.password {
+                Some(password) => password.clone(),
+                None => text.editor.text().to_string(),
+            };
+            create_entry(name, value.as_str().into());
         } else if let Some(value) = element.attr(local_name!("value")) {
             create_entry(name, value.into());
         }

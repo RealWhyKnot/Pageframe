@@ -4,9 +4,12 @@ use blitz_traits::{
     shell::ShellProvider,
 };
 use keyboard_types::{Key, Modifiers, NamedKey};
-use parley::{ContentWidths, FontContext, LayoutContext};
+use parley::{ContentWidths, FontContext, LayoutContext, PlainEditorDriver};
+use std::ops::Range;
 
 use crate::util::ACTION_MOD;
+
+const PASSWORD_MASK: char = '\u{2022}';
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 /// Parley Brush type for Blitz which contains the Blitz node id
@@ -80,6 +83,7 @@ pub struct TextInputData {
     /// `final_layout`. Paint draws text from the unrounded origin so that it keeps its sub-pixel
     /// position while box edges stay snapped. Set by the `writing-mode` layout pass; zero otherwise.
     pub content_box_subpixel_offset: taffy::Point<f32>,
+    pub password: Option<String>,
 }
 
 // FIXME: Implement Clone for PlainEditor
@@ -97,6 +101,7 @@ impl TextInputData {
             is_multiline,
             scroll_offset: 0.0,
             content_box_subpixel_offset: taffy::Point::ZERO,
+            password: None,
         }
     }
 
@@ -106,6 +111,14 @@ impl TextInputData {
         layout_ctx: &mut LayoutContext<TextBrush>,
         text: &str,
     ) {
+        if let Some(password) = &mut self.password {
+            if password != text {
+                *password = text.to_owned();
+                self.editor.set_text(&password_mask(text));
+                self.editor.driver(font_ctx, layout_ctx).refresh_layout();
+            }
+            return;
+        }
         if self.editor.text() != text {
             self.editor.set_text(text);
             self.editor.driver(font_ctx, layout_ctx).refresh_layout();
@@ -117,6 +130,44 @@ impl TextInputData {
     ///
     /// `content_box_width` and `content_box_height` are the dimensions of the input's content
     /// box in CSS (unscaled) pixels.
+    pub fn value(&self) -> &str {
+        match &self.password {
+            Some(password) => password,
+            None => self.editor.raw_text(),
+        }
+    }
+
+    pub fn set_password(&mut self, is_password: bool) {
+        if is_password == self.password.is_some() {
+            return;
+        }
+        if is_password {
+            let password = self.editor.text().to_string();
+            self.editor.set_text(&password_mask(&password));
+            self.password = Some(password);
+        } else if let Some(password) = self.password.take() {
+            self.editor.set_text(&password);
+        }
+    }
+
+    pub(crate) fn sync_password_deletion(&mut self) {
+        let Some(password) = &mut self.password else {
+            return;
+        };
+        let shown = self.editor.raw_text();
+        let removed = password
+            .chars()
+            .count()
+            .saturating_sub(shown.chars().count());
+        if removed == 0 {
+            return;
+        }
+        let cursor = shown[..self.editor.raw_selection().focus().index()]
+            .chars()
+            .count();
+        replace_chars(password, cursor..cursor + removed, "");
+    }
+
     pub fn clamp_scroll_offset(&mut self, content_box_width: f32, content_box_height: f32) {
         let Some(layout) = self.editor.try_layout() else {
             return;
@@ -226,10 +277,12 @@ impl TextInputData {
 
         let is_multiline = self.is_multiline;
         let editor = &mut self.editor;
+        let password = &mut self.password;
         let mut driver = editor.driver(font_ctx, layout_ctx);
         match event.key {
             Key::Character(c) if action_mod && matches!(c.as_str(), "c" | "x" | "v") => {
                 match c.to_lowercase().as_str() {
+                    "c" | "x" if password.is_some() => return None,
                     "c" => {
                         if let Some(text) = driver.editor.selected_text() {
                             let _ = shell_provider.set_clipboard_text(text.to_owned());
@@ -352,7 +405,7 @@ impl TextInputData {
 
             Key::Character(c) if c == "\n" => {
                 if is_multiline {
-                    driver.insert_or_replace_selection("\n");
+                    insert_text(&mut driver, password, "\n");
                     return Some(GeneratedTextInputEvent::Input);
                 } else {
                     return Some(GeneratedTextInputEvent::Submit);
@@ -360,7 +413,7 @@ impl TextInputData {
             }
             Key::Named(NamedKey::Enter) => {
                 if is_multiline {
-                    driver.insert_or_replace_selection("\n");
+                    insert_text(&mut driver, password, "\n");
                     return Some(GeneratedTextInputEvent::Input);
                 } else {
                     return Some(GeneratedTextInputEvent::Submit);
@@ -369,7 +422,7 @@ impl TextInputData {
             Key::Character(s)
                 if !mods.contains(Modifiers::CONTROL) && !mods.contains(Modifiers::META) =>
             {
-                driver.insert_or_replace_selection(&s);
+                insert_text(&mut driver, password, &s);
                 return Some(GeneratedTextInputEvent::Input);
             }
             _ => {}
@@ -386,6 +439,7 @@ impl TextInputData {
         command: &str,
     ) -> Option<GeneratedTextInputEvent> {
         let editor = &mut self.editor;
+        let password = &mut self.password;
         let mut driver = editor.driver(font_ctx, layout_ctx);
         let is_multiline = self.is_multiline;
 
@@ -398,18 +452,18 @@ impl TextInputData {
             "insertContainerBreak:" => {}
             // Inserts a double quotation mark without substituting a curly quotation mark.
             "insertDoubleQuoteIgnoringSubstitution:" => {
-                driver.insert_or_replace_selection("\"");
+                insert_text(&mut driver, password, "\"");
                 return Some(GeneratedTextInputEvent::Input);
             }
             // Inserts a line break character.
             "insertLineBreak:" => {
-                driver.insert_or_replace_selection("\n");
+                insert_text(&mut driver, password, "\n");
                 return Some(GeneratedTextInputEvent::Input);
             }
             // Inserts a newline character.
             "insertNewline:" => {
                 if is_multiline {
-                    driver.insert_or_replace_selection("\n");
+                    insert_text(&mut driver, password, "\n");
                     return Some(GeneratedTextInputEvent::Input);
                 } else {
                     return Some(GeneratedTextInputEvent::Submit);
@@ -417,16 +471,16 @@ impl TextInputData {
             }
             // Inserts a newline character without invoking the field editor’s normal handling to end editing.
             "insertNewlineIgnoringFieldEditor:" => {
-                driver.insert_or_replace_selection("\n");
+                insert_text(&mut driver, password, "\n");
                 return Some(GeneratedTextInputEvent::Input);
             }
             // Inserts a paragraph separator.
             "insertParagraphSeparator:" => {
-                driver.insert_or_replace_selection("\n");
+                insert_text(&mut driver, password, "\n");
                 return Some(GeneratedTextInputEvent::Input);
             }
             "insertSingleQuoteIgnoringSubstitution:" => {
-                driver.insert_or_replace_selection("'");
+                insert_text(&mut driver, password, "'");
                 return Some(GeneratedTextInputEvent::Input);
             }
             // Inserts a tab character.
@@ -492,6 +546,9 @@ impl TextInputData {
             }
             // Deletes the current selection, placing it in a temporary buffer, such as the Clipboard.
             "yank:" => {
+                if password.is_some() {
+                    return None;
+                }
                 if let Some(text) = driver.editor.selected_text() {
                     let _ = shell_provider.set_clipboard_text(text.to_owned());
                     driver.delete_selection();
@@ -776,6 +833,7 @@ impl TextInputData {
         event: BlitzImeEvent,
     ) -> Option<GeneratedTextInputEvent> {
         let editor = &mut self.editor;
+        let password = &mut self.password;
         let mut driver = editor.driver(font_ctx, layout_ctx);
 
         match event {
@@ -789,11 +847,11 @@ impl TextInputData {
             }
             BlitzImeEvent::Commit(text) => {
                 driver.clear_compose();
-                driver.insert_or_replace_selection(&text);
+                insert_text(&mut driver, password, &text);
                 Some(GeneratedTextInputEvent::Input)
             }
             BlitzImeEvent::Preedit(text, cursor) => {
-                if text.is_empty() {
+                if text.is_empty() || password.is_some() {
                     driver.clear_compose();
                 } else {
                     driver.set_compose(&text, cursor);
@@ -811,6 +869,38 @@ impl TextInputData {
             }
         }
     }
+}
+
+fn insert_text(
+    driver: &mut PlainEditorDriver<'_, TextBrush>,
+    password: &mut Option<String>,
+    text: &str,
+) {
+    let Some(password) = password else {
+        driver.insert_or_replace_selection(text);
+        return;
+    };
+    let shown = driver.editor.raw_text();
+    let selection = driver.editor.raw_selection().text_range();
+    let start = shown[..selection.start].chars().count();
+    let end = shown[..selection.end].chars().count();
+    replace_chars(password, start..end, text);
+    driver.insert_or_replace_selection(&password_mask(text));
+}
+
+fn password_mask(text: &str) -> String {
+    std::iter::repeat_n(PASSWORD_MASK, text.chars().count()).collect()
+}
+
+fn replace_chars(text: &mut String, range: Range<usize>, replacement: &str) {
+    let byte_index = |text: &str, index: usize| {
+        text.char_indices()
+            .nth(index)
+            .map_or(text.len(), |(byte, _)| byte)
+    };
+    let start = byte_index(text, range.start);
+    let end = byte_index(text, range.end);
+    text.replace_range(start..end, replacement);
 }
 
 #[cfg(test)]

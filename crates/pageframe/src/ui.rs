@@ -144,7 +144,7 @@ impl Selection<'_> {
     pub fn value(&self) -> Option<String> {
         let element = self.first()?.element_data()?;
         match element.text_input_data() {
-            Some(input) => Some(input.editor.raw_text().to_owned()),
+            Some(input) => Some(input.value().to_owned()),
             None => element.attr(LocalName::from("value")).map(str::to_owned),
         }
     }

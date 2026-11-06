@@ -57,7 +57,7 @@ assert_eq!(harness.text_content("#count"), "1");
 
 ## Status
 
-Early, and the API will change. CSS support comes from Blitz. Flexbox, CSS variables, rounded corners, shadows, gradients and 2D transforms work. In my tests `text-overflow: ellipsis`, `text-shadow`, `line-clamp`, multi-column layout, 3D transforms, `mix-blend-mode`, `<select>` and CSS `fill`/`stroke` on SVG didn't render, and password fields showed their text.
+Early, and the API will change. CSS support comes from Blitz. Flexbox, CSS variables, rounded corners, shadows, gradients, `mix-blend-mode` and 2D transforms work. In my tests `text-overflow: ellipsis`, `text-shadow`, `line-clamp`, multi-column layout, 3D transforms, `<select>` and CSS `fill`/`stroke` on SVG didn't render.
 
 `crates/pageframe` is Pageframe itself. `packages/`, `examples/`, `tests/` and `wpt/` come from Blitz and stay close to upstream so its fixes can be merged in.
 
