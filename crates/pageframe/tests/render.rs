@@ -160,6 +160,27 @@ fn svg_use_inherits_paint_and_missing_url_falls_back() {
     assert_eq!(pixel(&buffer, 100, 20), [0, 128, 0, 255]);
 }
 
+const SVG_USE_DECLARED_PAINT: &str = r##"<html><head><style>
+.solid { fill: rgb(0,0,0) }
+</style></head><body style="margin:0;background:white">
+<svg width="80" height="40" viewBox="0 0 80 40">
+<defs>
+<rect id="faded" width="40" height="40" style="fill-opacity:1"/>
+<rect id="solid" class="solid" width="40" height="40"/>
+</defs>
+<use href="#faded" fill="rgb(255,0,0)"/>
+<use href="#solid" x="40" fill="rgb(255,0,0)"/>
+</svg>
+</body></html>"##;
+
+#[test]
+fn svg_use_keeps_paint_declared_on_the_referenced_element() {
+    let mut harness = open(App::new((), SVG_USE_DECLARED_PAINT));
+    let buffer = render(&mut harness);
+    assert_eq!(pixel(&buffer, 20, 20), [255, 0, 0, 255]);
+    assert_eq!(pixel(&buffer, 60, 20), [0, 0, 0, 255]);
+}
+
 fn shadow_page(shadow: &str) -> String {
     format!(
         r#"<html><body style="margin:0;background:white">

@@ -1,7 +1,7 @@
 //! Serialization of nodes to HTML, and of inline `<svg>` subtrees to SVG source for usvg.
 
 use html_escape::{encode_quoted_attribute_to_string, encode_text_to_string};
-use markup5ever::{LocalName, QualName, local_name, ns};
+use markup5ever::{QualName, ns};
 use style_traits::values::ToCss;
 use stylo_taffy::CopyStyleGetters;
 
@@ -193,14 +193,11 @@ impl Node {
                                     .is_some_and(|parent| parent.name.ns == ns!(svg))
                             })
                             .and_then(|parent| parent.primary_styles());
-                        let style_attr = data.attr(local_name!("style")).unwrap_or_default();
+                        let guard = self.guard().read();
                         svg_paint_css(
                             &style,
                             parent_style.as_ref().map(|style| &***style),
-                            |name| {
-                                style_attr.contains(name)
-                                    || data.attr(LocalName::from(name)).is_some()
-                            },
+                            |name| is_declared_on_element(&style, &guard, name),
                         )
                     });
 
@@ -263,6 +260,28 @@ impl Node {
             }
         }
     }
+}
+
+fn is_declared_on_element(
+    style: &style::properties::ComputedValues,
+    guard: &style::shared_lock::SharedRwLockReadGuard,
+    name: &str,
+) -> bool {
+    use style::properties::{PropertyDeclarationId, PropertyId};
+
+    let Some(id) = PropertyId::parse_enabled_for_all_content(name)
+        .ok()
+        .and_then(|id| id.longhand_id())
+    else {
+        return false;
+    };
+    style.rules().self_and_ancestors().any(|rule| {
+        rule.style_source().is_some_and(|source| {
+            source
+                .read(guard)
+                .contains(PropertyDeclarationId::Longhand(id))
+        })
+    })
 }
 
 fn svg_paint_css(
