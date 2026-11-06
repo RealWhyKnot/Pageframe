@@ -1,0 +1,31 @@
+name: Changelog append
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'CHANGELOG.md'
+      - '.gitignore'
+      - '.gitattributes'
+      - '.editorconfig'
+  workflow_dispatch:
+    inputs:
+      range:
+        description: 'Commit range to append, for example abc123..def456.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: changelog-append
+  cancel-in-progress: false
+
+jobs:
+  append:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.actor != 'github-actions[bot]' && !contains(github.event.head_commit.message, '[skip changelog]')) }}
+    uses: RealWhyKnot/workflows/.github/workflows/changelog-append.yml@v1
+    with:
+      range: ${{ inputs.range }}
+      script: ./.github/changelog/Update-Changelog.ps1

@@ -1,0 +1,154 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to publish (vYYYY.M.D.N or vYYYY.M.D.N-beta)
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate ${{ inputs.tag || github.ref_name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+      channel: ${{ steps.tag.outputs.channel }}
+      prerelease: ${{ steps.tag.outputs.prerelease }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Resolve tag
+        id: tag
+        uses: RealWhyKnot/workflows/resolve-tag@v1
+        with:
+          tag: ${{ inputs.tag || github.ref_name }}
+          tag-pattern: '^v\d{4}\.\d+\.\d+\.\d+(-beta)?$'
+
+      - name: Validate release version sequence
+        uses: RealWhyKnot/workflows/version-sequence@v1
+        with:
+          tag: ${{ steps.tag.outputs.tag }}
+
+      - name: Wait for CI
+        uses: RealWhyKnot/workflows/wait-for-ci@v1
+        with:
+          sha: ${{ steps.tag.outputs.sha }}
+          workflow: ci.yml
+          timeout-minutes: '60'
+
+  test:
+    name: Test ${{ needs.validate.outputs.tag }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: validate
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libfontconfig1-dev
+
+      - name: Set up Rust
+        uses: RealWhyKnot/workflows/setup-rust@v1
+        with:
+          toolchain: stable
+          cache-key: cargo-release
+
+      - name: Test
+        run: cargo test -p pageframe --locked
+
+      - name: Test the changelog scripts
+        shell: pwsh
+        run: ./.github/changelog/Test-UpdateChangelog.ps1
+
+  publish:
+    name: Publish ${{ needs.validate.outputs.tag }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [validate, test]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ needs.validate.outputs.tag }}
+
+      - name: Build release notes
+        id: notes
+        uses: RealWhyKnot/workflows/release-notes@v1
+        with:
+          tag: ${{ needs.validate.outputs.tag }}
+          title: Pageframe ${{ needs.validate.outputs.tag }}
+
+      - name: Publish
+        uses: RealWhyKnot/workflows/publish-release@v1
+        with:
+          tag: ${{ needs.validate.outputs.tag }}
+          title: Pageframe ${{ needs.validate.outputs.tag }}
+          notes-file: ${{ steps.notes.outputs.file }}
+          prerelease: ${{ needs.validate.outputs.prerelease }}
+          draft-first: 'true'
+
+  changelog:
+    name: Promote the changelog for ${{ needs.validate.outputs.tag }}
+    if: needs.validate.outputs.prerelease != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [validate, publish]
+    concurrency:
+      group: changelog-append
+      cancel-in-progress: false
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Promote Unreleased
+        shell: pwsh
+        env:
+          TAG_NAME: ${{ needs.validate.outputs.tag }}
+        run: |
+          $global:LASTEXITCODE = 0
+          ./.github/changelog/Update-Changelog.ps1 -Mode Promote -Version $env:TAG_NAME
+          if ($LASTEXITCODE -ne 0) { throw "Update-Changelog failed ($LASTEXITCODE)" }
+
+      - name: Commit the changelog
+        uses: RealWhyKnot/workflows/commit-on-branch@v1
+        with:
+          paths: CHANGELOG.md
+          headline: "docs(changelog): promote ${{ needs.validate.outputs.tag }} [skip changelog]"
+          branch: main
