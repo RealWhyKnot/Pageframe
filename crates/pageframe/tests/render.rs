@@ -107,3 +107,35 @@ fn inline_svg_is_painted() {
     assert_eq!(pixel(&buffer, 20, 20), [0, 128, 0, 255]);
     assert_eq!(pixel(&buffer, 80, 60), [255, 255, 255, 255]);
 }
+
+const SVG_CSS_PAINT: &str = r#"<html><head><style>
+#fill { fill: rgb(0, 0, 255); }
+</style></head><body style="margin:0;background:white">
+<svg width="120" height="40" viewBox="0 0 120 40">
+<rect id="fill" width="40" height="40" fill="rgb(0,128,0)"/>
+<rect x="65" y="5" width="30" height="30" fill="none" style="stroke: rgb(0, 0, 255); stroke-width: 10"/>
+</svg>
+</body></html>"#;
+
+#[test]
+fn svg_takes_fill_and_stroke_from_css() {
+    let mut harness = open(App::new((), SVG_CSS_PAINT));
+    let buffer = render(&mut harness);
+    assert_eq!(pixel(&buffer, 20, 20), [0, 0, 255, 255]);
+    assert_eq!(pixel(&buffer, 65, 20), [0, 0, 255, 255]);
+    assert_eq!(pixel(&buffer, 80, 20), [255, 255, 255, 255]);
+}
+
+const SVG_GRADIENT: &str = r#"<html><body style="margin:0;background:white">
+<svg width="40" height="40" viewBox="0 0 40 40">
+<defs><linearGradient id="solid"><stop offset="0" stop-color="rgb(0,0,255)"/><stop offset="1" stop-color="rgb(0,0,255)"/></linearGradient></defs>
+<rect width="40" height="40" fill="url(#solid)"/>
+</svg>
+</body></html>"#;
+
+#[test]
+fn svg_gradient_fill_still_resolves() {
+    let mut harness = open(App::new((), SVG_GRADIENT));
+    let buffer = render(&mut harness);
+    assert_eq!(pixel(&buffer, 20, 20), [0, 0, 255, 255]);
+}

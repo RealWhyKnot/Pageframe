@@ -33,6 +33,20 @@ use style::global_style_data::STYLE_THREAD_POOL;
 /// flight on the shared pool at once panic with `already mutably borrowed`
 /// (<https://github.com/DioxusLabs/blitz/issues/430>).
 static PARALLEL_TRAVERSAL_LOCK: Mutex<()> = Mutex::new(());
+
+const SVG_PAINT_ATTRIBUTES: &[&str] = &[
+    "fill",
+    "fill-opacity",
+    "fill-rule",
+    "stroke",
+    "stroke-dasharray",
+    "stroke-dashoffset",
+    "stroke-linecap",
+    "stroke-linejoin",
+    "stroke-miterlimit",
+    "stroke-opacity",
+    "stroke-width",
+];
 use style::invalidation::element::restyle_hints::RestyleHint;
 use style::properties::ComputedValues;
 use style::properties::{Importance, PropertyDeclaration};
@@ -1035,6 +1049,47 @@ impl<'a> TElement for BlitzNode<'a> {
             && elem.attrs().iter().any(|attr| {
                 attr.name.local == local_name!("type") && attr.value.eq_ignore_ascii_case("image")
             });
+
+        if elem.name.ns == ns!(svg) {
+            use style::properties::{
+                PropertyId, SourcePropertyDeclaration, parse_one_declaration_into,
+            };
+            use style::stylesheets::{CssRuleType, Origin};
+            use style_traits::ParsingMode;
+
+            let mut url_data = None;
+            for attr in elem.attrs() {
+                if attr.name.ns != ns!()
+                    || !SVG_PAINT_ATTRIBUTES.contains(&attr.name.local.as_ref())
+                {
+                    continue;
+                }
+                let Ok(property_id) = PropertyId::parse_enabled_for_all_content(&attr.name.local)
+                else {
+                    continue;
+                };
+                let url_data = url_data
+                    .get_or_insert_with(|| crate::url::DocumentUrl::default().url_extra_data());
+                let mut source = SourcePropertyDeclaration::default();
+                if parse_one_declaration_into(
+                    &mut source,
+                    property_id,
+                    &attr.value,
+                    Origin::Author,
+                    url_data,
+                    None,
+                    ParsingMode::ALLOW_UNITLESS_LENGTH,
+                    QuirksMode::NoQuirks,
+                    CssRuleType::Style,
+                )
+                .is_ok()
+                {
+                    for decl in source.drain().declarations {
+                        push_style(decl);
+                    }
+                }
+            }
+        }
 
         // https://html.spec.whatwg.org/multipage/#the-lang-and-xml:lang-attributes
         let accepts_lang = elem.name.ns == ns!(html) || elem.name.ns == ns!(svg);

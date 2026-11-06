@@ -180,7 +180,16 @@ impl Node {
                     writer.push('"');
                 }
 
+                let svg_paint = (opts.resolve_current_color && data.name.ns == ns!(svg))
+                    .then(|| self.primary_styles())
+                    .flatten()
+                    .map(|style| svg_paint_css(&style));
+
                 for attr in data.attrs() {
+                    if svg_paint.is_some() && attr.name.ns == ns!() && &*attr.name.local == "style"
+                    {
+                        continue;
+                    }
                     writer.push(' ');
                     write_attr_name(&attr.name, writer);
                     writer.push_str("=\"");
@@ -193,6 +202,18 @@ impl Node {
                     } else {
                         encode_quoted_attribute_to_string(&attr.value, writer);
                     }
+                    writer.push('"');
+                }
+                if let Some(paint) = &svg_paint {
+                    let mut style = data
+                        .attrs()
+                        .iter()
+                        .find(|attr| attr.name.ns == ns!() && &*attr.name.local == "style")
+                        .map(|attr| format!("{};", attr.value))
+                        .unwrap_or_default();
+                    style.push_str(paint);
+                    writer.push_str(" style=\"");
+                    encode_quoted_attribute_to_string(&style, writer);
                     writer.push('"');
                 }
                 if !has_children {
@@ -223,4 +244,61 @@ impl Node {
             }
         }
     }
+}
+
+#[cfg(feature = "svg")]
+fn svg_paint_css(style: &style::properties::ComputedValues) -> String {
+    use style::values::computed::url::ComputedUrl;
+    use style::values::generics::svg::SVGPaintKind;
+
+    let current_color = style.clone_color();
+    let svg = style.get_inherited_svg();
+    let paint = |paint: &style::values::computed::SVGPaint| match &paint.kind {
+        SVGPaintKind::None => Some("none".to_string()),
+        SVGPaintKind::Color(color) => Some(
+            color
+                .resolve_to_absolute(&current_color)
+                .into_srgb_legacy()
+                .to_css_string(),
+        ),
+        SVGPaintKind::PaintServer(url) => {
+            let fragment = match url {
+                ComputedUrl::Valid(url) => url.fragment(),
+                ComputedUrl::Invalid(url) => url.strip_prefix('#'),
+            };
+            fragment.map(|fragment| format!("url(#{fragment})"))
+        }
+        SVGPaintKind::ContextFill | SVGPaintKind::ContextStroke => None,
+    };
+
+    let mut css = String::new();
+    let mut push = |name: &str, value: Option<String>| {
+        if let Some(value) = value {
+            css.push_str(name);
+            css.push(':');
+            css.push_str(&value);
+            css.push(';');
+        }
+    };
+    push("fill", paint(&svg.fill));
+    push("stroke", paint(&svg.stroke));
+    push("fill-opacity", Some(svg.fill_opacity.to_css_string()));
+    push("fill-rule", Some(svg.fill_rule.to_css_string()));
+    push("stroke-width", Some(svg.stroke_width.to_css_string()));
+    push("stroke-opacity", Some(svg.stroke_opacity.to_css_string()));
+    push("stroke-linecap", Some(svg.stroke_linecap.to_css_string()));
+    push("stroke-linejoin", Some(svg.stroke_linejoin.to_css_string()));
+    push(
+        "stroke-miterlimit",
+        Some(svg.stroke_miterlimit.to_css_string()),
+    );
+    push(
+        "stroke-dasharray",
+        Some(svg.stroke_dasharray.to_css_string()),
+    );
+    push(
+        "stroke-dashoffset",
+        Some(svg.stroke_dashoffset.to_css_string()),
+    );
+    css
 }
