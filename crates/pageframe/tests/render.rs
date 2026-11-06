@@ -95,3 +95,15 @@ fn typed_overflow_keeps_input_width() {
     harness.pump();
     assert_eq!(harness.layout_rect("#field"), field);
 }
+
+const INLINE_SVG: &str = r#"<html><body style="margin:0;background:white">
+<svg width="40" height="40" viewBox="0 0 40 40"><rect width="40" height="40" fill="rgb(0,128,0)"/></svg>
+</body></html>"#;
+
+#[test]
+fn inline_svg_is_painted() {
+    let mut harness = open(App::new((), INLINE_SVG));
+    let buffer = render(&mut harness);
+    assert_eq!(pixel(&buffer, 20, 20), [0, 128, 0, 255]);
+    assert_eq!(pixel(&buffer, 80, 60), [255, 255, 255, 255]);
+}

@@ -11,6 +11,7 @@ publish = false
 anyrender_vello = { workspace = true }
 blitz-dom = { workspace = true, features = ["default"] }
 blitz-html = { workspace = true }
+blitz-paint = { workspace = true, features = ["svg"] }
 blitz-shell = { workspace = true, features = ["accessibility"] }
 blitz-traits = { workspace = true }
 data-url = { workspace = true }
@@ -26,7 +27,6 @@ winit = { workspace = true }
 [dev-dependencies]
 anyrender = { workspace = true }
 anyrender_vello_cpu = { workspace = true }
-blitz-paint = { workspace = true }
 blitz-test-harness = { workspace = true }
 
 [lints]
