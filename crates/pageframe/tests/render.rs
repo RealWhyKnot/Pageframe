@@ -159,3 +159,46 @@ fn svg_use_inherits_paint_and_missing_url_falls_back() {
     assert_eq!(pixel(&buffer, 60, 20), [0, 0, 255, 255]);
     assert_eq!(pixel(&buffer, 100, 20), [0, 128, 0, 255]);
 }
+
+fn shadow_page(shadow: &str) -> String {
+    format!(
+        r#"<html><body style="margin:0;background:white">
+<div style="font-size:40px;line-height:60px;padding:20px;color:transparent;text-shadow:{shadow}">HHH</div>
+</body></html>"#
+    )
+}
+
+fn painted_pixels(buffer: &[u8]) -> Vec<[u8; 4]> {
+    buffer
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .copied()
+        .filter(|px| *px != [255, 255, 255, 255])
+        .collect()
+}
+
+#[test]
+fn text_shadow_paints_offset_glyphs() {
+    let mut harness = open(App::new((), &shadow_page("none")));
+    assert_eq!(painted_pixels(&render(&mut harness)), Vec::<[u8; 4]>::new());
+
+    let mut harness = open(App::new((), &shadow_page("10px 10px 0 rgb(255,0,0)")));
+    let sharp = painted_pixels(&render(&mut harness));
+    assert!(sharp.contains(&[255, 0, 0, 255]));
+    assert!(sharp.iter().all(|px| px[1] == px[2] && px[0] == 255));
+
+    let mut harness = open(App::new((), &shadow_page("10px 10px 8px rgb(255,0,0)")));
+    let blurred = painted_pixels(&render(&mut harness));
+    assert!(blurred.len() > sharp.len());
+    assert!(!blurred.contains(&[255, 0, 0, 255]));
+}
+
+#[test]
+fn first_text_shadow_is_painted_on_top() {
+    let page = shadow_page("10px 10px 0 rgb(255,0,0), 10px 10px 0 rgb(0,0,255)");
+    let mut harness = open(App::new((), &page));
+    let pixels = painted_pixels(&render(&mut harness));
+    assert!(pixels.contains(&[255, 0, 0, 255]));
+    assert!(!pixels.contains(&[0, 0, 255, 255]));
+}

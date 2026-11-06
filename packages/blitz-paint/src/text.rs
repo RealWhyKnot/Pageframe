@@ -1,10 +1,12 @@
 use anyrender::PaintScene;
+use anyrender::filters::{Filter, FilterEffect};
 use blitz_dom::CopyStyleGetters;
 use blitz_dom::{BaseDocument, NodeId, node::TextBrush, util::ToColorColor};
 use kurbo::{Affine, BezPath, Cap, Circle, Rect, Stroke};
 use parley::{Affinity, Cursor, Layout, Line, PositionedLayoutItem, Selection};
 use peniko::Fill;
 use std::collections::HashMap;
+use std::sync::Arc;
 use style::properties::generated::longhands::text_decoration_style::computed_value::T as TextDecorationStyle;
 use style::values::computed::{
     Length, LengthPercentage, TextDecorationLength, TextDecorationLine, TextUnderlinePosition,
@@ -151,6 +153,14 @@ struct DecorationStackEntry {
     fill_color: Color,
     /// The decoration this node introduces as a decorating box, if any.
     decoration: Option<ResolvedDecoration>,
+    /// This node's (inherited) `text-shadow` list, in CSS pixels.
+    shadows: Vec<ResolvedTextShadow>,
+}
+
+struct ResolvedTextShadow {
+    color: Color,
+    offset: kurbo::Vec2,
+    blur: f64,
 }
 
 /// Resolve the cached style values for a single node into a [`DecorationStackEntry`].
@@ -160,6 +170,7 @@ fn resolve_decoration_entry(doc: &BaseDocument, node_id: NodeId) -> DecorationSt
             node_id,
             fill_color: Color::BLACK,
             decoration: None,
+            shadows: Vec::new(),
         };
     };
 
@@ -203,10 +214,25 @@ fn resolve_decoration_entry(doc: &BaseDocument, node_id: NodeId) -> DecorationSt
         }
     });
 
+    let shadows = itext
+        .text_shadow
+        .0
+        .iter()
+        .map(|shadow| ResolvedTextShadow {
+            color: shadow
+                .color
+                .resolve_to_absolute(&itext.color)
+                .as_srgb_color(),
+            offset: kurbo::Vec2::new(shadow.horizontal.px() as f64, shadow.vertical.px() as f64),
+            blur: shadow.blur.px() as f64,
+        })
+        .collect();
+
     DecorationStackEntry {
         node_id,
         fill_color,
         decoration,
+        shadows,
     }
 }
 
@@ -662,6 +688,66 @@ pub(crate) fn stroke_text<'a>(
                 };
 
                 let normalized_coords: &[i16] = bytemuck::cast_slice(run.normalized_coords());
+                let glyphs = || {
+                    glyph_run.positioned_glyphs().map(|glyph| anyrender::Glyph {
+                        id: glyph.id as _,
+                        x: glyph.x,
+                        y: glyph.y,
+                    })
+                };
+
+                // Shadows are painted beneath the text, with the first shadow on top.
+                // Text drawn with a brush override (e.g. selected text) has no shadow.
+                let shadows = match (brush_override, stack.last()) {
+                    (None, Some(entry)) if font_size > 0.0 => entry.shadows.as_slice(),
+                    _ => &[],
+                };
+                for shadow in shadows.iter().rev() {
+                    let shadow_transform = transform * Affine::translate(shadow.offset * scale);
+                    // A shadow's blur radius is twice the standard deviation of its Gaussian.
+                    let std_deviation = shadow.blur * scale / 2.0;
+                    let blurred = std_deviation > 0.0;
+                    if blurred {
+                        let margin = 3.0 * std_deviation + font_size as f64;
+                        let run_x0 = glyph_run.offset() as f64;
+                        let baseline = glyph_run.baseline() as f64;
+                        let clip = Rect::new(
+                            run_x0 - margin,
+                            baseline - metrics.ascent.abs() as f64 - margin,
+                            run_x0 + glyph_run.advance() as f64 + margin,
+                            baseline + metrics.descent.abs() as f64 + margin,
+                        );
+                        let filter = Filter::linear_list(std::iter::once(FilterEffect::blur(
+                            std_deviation as f32,
+                        )));
+                        scene.push_layer(
+                            Fill::NonZero,
+                            peniko::BlendMode::default(),
+                            1.0,
+                            shadow_transform,
+                            &clip,
+                            Some(Arc::new(filter)),
+                            None,
+                        );
+                    }
+                    scene.draw_glyphs(
+                        font,
+                        font_size,
+                        !FONT_EMBOLDEN_ENABLED,
+                        normalized_coords,
+                        embolden,
+                        Fill::NonZero,
+                        &anyrender::Paint::from(shadow.color),
+                        1.0,
+                        shadow_transform,
+                        glyph_xform,
+                        glyphs(),
+                    );
+                    if blurred {
+                        scene.pop_layer();
+                    }
+                }
+
                 // Zero-size text is invisible, but hinting can give its glyphs ink.
                 if font_size > 0.0 {
                     scene.draw_glyphs(
@@ -675,11 +761,7 @@ pub(crate) fn stroke_text<'a>(
                         1.0, // alpha
                         transform,
                         glyph_xform,
-                        glyph_run.positioned_glyphs().map(|glyph| anyrender::Glyph {
-                            id: glyph.id as _,
-                            x: glyph.x,
-                            y: glyph.y,
-                        }),
+                        glyphs(),
                     );
                 }
 
