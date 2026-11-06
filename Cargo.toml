@@ -16,6 +16,7 @@ members = [
     "packages/dioxus-native-dom",
     "packages/blitz-test-harness",
     "packages/parley_code_editor",
+    "examples",
     "wpt/runner",
     "tests/blitz-tests",
     "examples/counter",
@@ -25,6 +26,7 @@ members = [
     "examples/wgpu_texture",
     "examples/wasm_hello",
 ]
+default-members = ["examples"]
 exclude = ["sites"]
 resolver = "2"
 
@@ -242,62 +244,6 @@ opt-level = 3
 
 # This is a "virtual package"
 # It is not meant to be published, but is used so "cargo run --example XYZ" works properly
-[package]
-name = "blitz-examples"
-version = "0.0.1"
-authors = ["Jonathan Kelley"]
-edition = "2024"
-description = "Top level crate for Blitz"
-license = "MIT OR Apache-2.0"
-keywords = ["dom", "ui", "gui", "react", "wasm"]
-rust-version = "1.91.0"
-publish = false
-
-[features]
-log-times = ["log-frame-times", "log-phase-times"]
-log-frame-times = ["dioxus-native/log-frame-times"]
-log-phase-times = ["dioxus-native/log-phase-times"]
-
-[dev-dependencies]
-anyrender = { workspace = true }
-anyrender_vello = { workspace = true }
-anyrender_vello_cpu = { workspace = true, features = ["multithreading"] }
-anyrender_vello_hybrid = { workspace = true }
-blitz-dom = { workspace = true, features = ["default"] }
-blitz-html = { workspace = true }
-blitz-traits = { workspace = true }
-blitz-paint = { workspace = true }
-blitz-shell = { workspace = true }
-blitz-net = { workspace = true }
-blitz-vibey-script = { workspace = true }
-blitz = { workspace = true, features = ["net"] }
-dioxus = { workspace = true }
-dioxus-native = { workspace = true, features = [
-    "vello-hybrid",
-    "floats",
-    "svg",
-    "prelude",
-    "data-uri",
-] }
-euclid = { workspace = true }
-url = { workspace = true }
-reqwest = { workspace = true }
-tokio = { workspace = true, features = ["macros"] }
-image = { workspace = true }
-png = { workspace = true }
-rand = "0.9"
-peniko = { workspace = true }
-color = { workspace = true }
-env_logger = "0.11"
-tracing-subscriber = "0.3"
-vello = "0.11"
-vello_cpu = "0.3"
-vello_gpu = "0.3"
-vello_common = "0.3"
-wgpu = { workspace = true }
-wgpu_context = { workspace = true }
-rustc-hash = { workspace = true }
-
 # glifo 0.4.0 with the unhinted embolden fix (linebender/vello#2049). Drop once it ships.
 [patch.crates-io]
 glifo = { git = "https://github.com/DioxusLabs/vello", branch = "devin/glifo-0.4.0-embolden-2049" }

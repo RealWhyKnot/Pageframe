@@ -1,0 +1,7 @@
+/packages/
+/examples/
+/tests/
+/wpt/
+/docs/
+/.github/scripts/
+/.github/workflows/

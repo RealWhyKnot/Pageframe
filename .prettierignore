@@ -1,0 +1,12 @@
+**/vendor/
+**/third_party/
+**/.yarn/
+/packages/
+/examples/
+/tests/
+/wpt/
+/docs/
+/.github/scripts/
+/.github/workflows/
+package-lock.json
+bun.lock

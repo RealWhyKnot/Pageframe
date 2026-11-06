@@ -4,11 +4,11 @@ Blitz runs in the browser on `wasm32-unknown-unknown` via [trunk]. The renderer 
 
 ## Examples that target wasm
 
-| Example       | Description                                                                |
-| ------------- | -------------------------------------------------------------------------- |
-| `wasm_hello`  | Minimal blitz-shell proof. Drives `BlitzApplication` against static HTML.  |
-| `seven_guis`  | The [7GUIs](https://7guis.github.io/7guis/) benchmark, built with Dioxus. Also runs natively. |
-| `todomvc`     | Classic TodoMVC, built with Dioxus. Also runs natively.                    |
+| Example      | Description                                                                                   |
+| ------------ | --------------------------------------------------------------------------------------------- |
+| `wasm_hello` | Minimal blitz-shell proof. Drives `BlitzApplication` against static HTML.                     |
+| `seven_guis` | The [7GUIs](https://7guis.github.io/7guis/) benchmark, built with Dioxus. Also runs natively. |
+| `todomvc`    | Classic TodoMVC, built with Dioxus. Also runs natively.                                       |
 
 ## Prerequisites
 

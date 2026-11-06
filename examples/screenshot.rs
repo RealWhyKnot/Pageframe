@@ -170,7 +170,7 @@ fn write_png<W: Write>(writer: W, buffer: &[u8], width: u32, height: u32) {
 
 fn compute_filename(url: &str) -> PathBuf {
     let cargo_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let out_dir = cargo_dir.join("examples/output");
+    let out_dir = cargo_dir.join("output");
 
     let url = url.strip_prefix("https://").unwrap_or(url);
     let url = url.strip_prefix("http://").unwrap_or(url);

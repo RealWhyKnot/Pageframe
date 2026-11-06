@@ -29,10 +29,10 @@ Usually requires installing Python. We recommend installing using https://docs.a
 
 To **build** Blitz you need a C toolchain plus a few dependencies:
 
- * `pkg-config` and a C compiler (`build-essential`)
- * `python3` — used to generate code while building `stylo`
- * `libssl-dev` (OpenSSL) — required by `reqwest` via `blitz-net`
- * `libfontconfig-dev` (fontconfig) — required by `parley`/`fontique` for system-font enumeration
+- `pkg-config` and a C compiler (`build-essential`)
+- `python3` — used to generate code while building `stylo`
+- `libssl-dev` (OpenSSL) — required by `reqwest` via `blitz-net`
+- `libfontconfig-dev` (fontconfig) — required by `parley`/`fontique` for system-font enumeration
 
 For example on Ubuntu:
 
@@ -56,18 +56,19 @@ The optional **file dialog feature** uses [`rfd`](https://crates.io/crates/rfd)
 with its `xdg-portal` backend. So one of the following must be available for
 a dialog to actually open:
 
- * a running `xdg-desktop-portal` service **plus** a backend for your desktop
-   environment (e.g. `xdg-desktop-portal-gtk`, `-kde`, `-gnome`, or `-wlr`)
- * the `zenity` executable, which `rfd` falls back to.
-
+- a running `xdg-desktop-portal` service **plus** a backend for your desktop
+  environment (e.g. `xdg-desktop-portal-gtk`, `-kde`, `-gnome`, or `-wlr`)
+- the `zenity` executable, which `rfd` falls back to.
 
 ### VSCode
+
 You can add the following JSON to your `.vscode/settings.json` to automically build Blitz on all supported targets.
+
 ```json
 {
-    "rust-analyzer.check.features": "all",
-    "rust-analyzer.cargo.features": "all",
-    "rust-analyzer.check.allTargets": true,
-    "rust-analyzer.cargo.allTargets": true
+  "rust-analyzer.check.features": "all",
+  "rust-analyzer.cargo.features": "all",
+  "rust-analyzer.check.allTargets": true,
+  "rust-analyzer.cargo.allTargets": true
 }
 ```

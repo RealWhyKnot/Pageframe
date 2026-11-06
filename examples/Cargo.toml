@@ -1,0 +1,136 @@
+[package]
+name = "blitz-examples"
+version = "0.0.1"
+authors = ["Jonathan Kelley"]
+edition = "2024"
+description = "Top level crate for Blitz"
+license = "MIT OR Apache-2.0"
+keywords = ["dom", "ui", "gui", "react", "wasm"]
+rust-version = "1.91.0"
+publish = false
+autoexamples = false
+
+[features]
+log-times = ["log-frame-times", "log-phase-times"]
+log-frame-times = ["dioxus-native/log-frame-times"]
+log-phase-times = ["dioxus-native/log-phase-times"]
+
+[dev-dependencies]
+anyrender = { workspace = true }
+anyrender_vello = { workspace = true }
+anyrender_vello_cpu = { workspace = true, features = ["multithreading"] }
+anyrender_vello_hybrid = { workspace = true }
+blitz-dom = { workspace = true, features = ["default"] }
+blitz-html = { workspace = true }
+blitz-traits = { workspace = true }
+blitz-paint = { workspace = true }
+blitz-shell = { workspace = true }
+blitz-net = { workspace = true }
+blitz-vibey-script = { workspace = true }
+blitz = { workspace = true, features = ["net"] }
+dioxus = { workspace = true }
+dioxus-native = { workspace = true, features = [
+    "vello-hybrid",
+    "floats",
+    "svg",
+    "prelude",
+    "data-uri",
+] }
+euclid = { workspace = true }
+url = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+image = { workspace = true }
+png = { workspace = true }
+rand = "0.9"
+peniko = { workspace = true }
+color = { workspace = true }
+env_logger = "0.11"
+tracing-subscriber = "0.3"
+vello = "0.11"
+vello_cpu = "0.3"
+vello_gpu = "0.3"
+vello_common = "0.3"
+wgpu = { workspace = true }
+wgpu_context = { workspace = true }
+rustc-hash = { workspace = true }
+
+[[example]]
+name = "box_shadow"
+path = "box_shadow.rs"
+
+[[example]]
+name = "custom_widget"
+path = "custom_widget.rs"
+
+[[example]]
+name = "flex"
+path = "flex.rs"
+
+[[example]]
+name = "form"
+path = "form.rs"
+
+[[example]]
+name = "gradient"
+path = "gradient.rs"
+
+[[example]]
+name = "html"
+path = "html.rs"
+
+[[example]]
+name = "inline"
+path = "inline.rs"
+
+[[example]]
+name = "inner_html"
+path = "inner_html.rs"
+
+[[example]]
+name = "js_framework_benchmark"
+path = "js_framework_benchmark.rs"
+
+[[example]]
+name = "multi_doc"
+path = "multi_doc.rs"
+
+[[example]]
+name = "mutations"
+path = "mutations.rs"
+
+[[example]]
+name = "outline"
+path = "outline.rs"
+
+[[example]]
+name = "paint_bench"
+path = "paint_bench.rs"
+
+[[example]]
+name = "preact_script"
+path = "preact_script.rs"
+
+[[example]]
+name = "restyle"
+path = "restyle.rs"
+
+[[example]]
+name = "screenshot"
+path = "screenshot.rs"
+
+[[example]]
+name = "svg"
+path = "svg.rs"
+
+[[example]]
+name = "svg_native"
+path = "svg_native.rs"
+
+[[example]]
+name = "transforms"
+path = "transforms.rs"
+
+[[example]]
+name = "url"
+path = "url.rs"

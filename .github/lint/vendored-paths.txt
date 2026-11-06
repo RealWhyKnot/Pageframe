@@ -1,0 +1,11 @@
+vendor/
+third_party/
+node_modules/
+.yarn/
+/packages/
+/examples/
+/tests/
+/wpt/
+/docs/
+/.github/scripts/
+/.github/workflows/
