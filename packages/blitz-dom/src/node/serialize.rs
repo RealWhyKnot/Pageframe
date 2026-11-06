@@ -1,7 +1,7 @@
 //! Serialization of nodes to HTML, and of inline `<svg>` subtrees to SVG source for usvg.
 
 use html_escape::{encode_quoted_attribute_to_string, encode_text_to_string};
-use markup5ever::{QualName, ns};
+use markup5ever::{LocalName, QualName, local_name, ns};
 use style_traits::values::ToCss;
 use stylo_taffy::CopyStyleGetters;
 
@@ -183,7 +183,26 @@ impl Node {
                 let svg_paint = (opts.resolve_current_color && data.name.ns == ns!(svg))
                     .then(|| self.primary_styles())
                     .flatten()
-                    .map(|style| svg_paint_css(&style));
+                    .map(|style| {
+                        let parent_style = self
+                            .parent
+                            .map(|parent_id| &self.tree()[parent_id])
+                            .filter(|parent| {
+                                parent
+                                    .element_data()
+                                    .is_some_and(|parent| parent.name.ns == ns!(svg))
+                            })
+                            .and_then(|parent| parent.primary_styles());
+                        let style_attr = data.attr(local_name!("style")).unwrap_or_default();
+                        svg_paint_css(
+                            &style,
+                            parent_style.as_ref().map(|style| &***style),
+                            |name| {
+                                style_attr.contains(name)
+                                    || data.attr(LocalName::from(name)).is_some()
+                            },
+                        )
+                    });
 
                 for attr in data.attrs() {
                     if svg_paint.is_some() && attr.name.ns == ns!() && &*attr.name.local == "style"
@@ -246,59 +265,93 @@ impl Node {
     }
 }
 
-#[cfg(feature = "svg")]
-fn svg_paint_css(style: &style::properties::ComputedValues) -> String {
+fn svg_paint_css(
+    style: &style::properties::ComputedValues,
+    parent_style: Option<&style::properties::ComputedValues>,
+    is_set_on_element: impl Fn(&str) -> bool,
+) -> String {
+    let mut css = String::new();
+    let parent_values = parent_style.map(svg_paint_values);
+    for (index, (name, value)) in svg_paint_values(style).into_iter().enumerate() {
+        let Some(value) = value else {
+            continue;
+        };
+        let inherited = parent_values
+            .as_ref()
+            .is_some_and(|parent| parent[index].1.as_ref() == Some(&value));
+        if inherited && !is_set_on_element(name) {
+            continue;
+        }
+        css.push_str(name);
+        css.push(':');
+        css.push_str(&value);
+        css.push(';');
+    }
+    css
+}
+
+fn svg_paint_values(
+    style: &style::properties::ComputedValues,
+) -> [(&'static str, Option<String>); 11] {
     use style::values::computed::url::ComputedUrl;
-    use style::values::generics::svg::SVGPaintKind;
+    use style::values::generics::svg::{SVGPaintFallback, SVGPaintKind};
 
     let current_color = style.clone_color();
-    let svg = style.get_inherited_svg();
+    let color_css = |color: &style::values::computed::Color| {
+        color
+            .resolve_to_absolute(&current_color)
+            .into_srgb_legacy()
+            .to_css_string()
+    };
     let paint = |paint: &style::values::computed::SVGPaint| match &paint.kind {
         SVGPaintKind::None => Some("none".to_string()),
-        SVGPaintKind::Color(color) => Some(
-            color
-                .resolve_to_absolute(&current_color)
-                .into_srgb_legacy()
-                .to_css_string(),
-        ),
+        SVGPaintKind::Color(color) => Some(color_css(color)),
         SVGPaintKind::PaintServer(url) => {
             let fragment = match url {
-                ComputedUrl::Valid(url) => url.fragment(),
-                ComputedUrl::Invalid(url) => url.strip_prefix('#'),
-            };
-            fragment.map(|fragment| format!("url(#{fragment})"))
+                ComputedUrl::Valid(url) => url.fragment().map(|fragment| {
+                    percent_encoding::percent_decode_str(fragment)
+                        .decode_utf8_lossy()
+                        .into_owned()
+                }),
+                ComputedUrl::Invalid(url) => url.strip_prefix('#').map(str::to_owned),
+            }?;
+            let mut css = String::from("url(");
+            cssparser::serialize_string(&format!("#{fragment}"), &mut css).ok()?;
+            css.push(')');
+            match &paint.fallback {
+                SVGPaintFallback::None => css.push_str(" none"),
+                SVGPaintFallback::Color(color) => {
+                    css.push(' ');
+                    css.push_str(&color_css(color));
+                }
+                SVGPaintFallback::Unset => {}
+            }
+            Some(css)
         }
         SVGPaintKind::ContextFill | SVGPaintKind::ContextStroke => None,
     };
 
-    let mut css = String::new();
-    let mut push = |name: &str, value: Option<String>| {
-        if let Some(value) = value {
-            css.push_str(name);
-            css.push(':');
-            css.push_str(&value);
-            css.push(';');
-        }
-    };
-    push("fill", paint(&svg.fill));
-    push("stroke", paint(&svg.stroke));
-    push("fill-opacity", Some(svg.fill_opacity.to_css_string()));
-    push("fill-rule", Some(svg.fill_rule.to_css_string()));
-    push("stroke-width", Some(svg.stroke_width.to_css_string()));
-    push("stroke-opacity", Some(svg.stroke_opacity.to_css_string()));
-    push("stroke-linecap", Some(svg.stroke_linecap.to_css_string()));
-    push("stroke-linejoin", Some(svg.stroke_linejoin.to_css_string()));
-    push(
-        "stroke-miterlimit",
-        Some(svg.stroke_miterlimit.to_css_string()),
-    );
-    push(
-        "stroke-dasharray",
-        Some(svg.stroke_dasharray.to_css_string()),
-    );
-    push(
-        "stroke-dashoffset",
-        Some(svg.stroke_dashoffset.to_css_string()),
-    );
-    css
+    let svg = style.get_inherited_svg();
+    [
+        ("fill", paint(&svg.fill)),
+        ("stroke", paint(&svg.stroke)),
+        ("fill-opacity", Some(svg.fill_opacity.to_css_string())),
+        ("fill-rule", Some(svg.fill_rule.to_css_string())),
+        ("stroke-width", Some(svg.stroke_width.to_css_string())),
+        ("stroke-opacity", Some(svg.stroke_opacity.to_css_string())),
+        ("stroke-linecap", Some(svg.stroke_linecap.to_css_string())),
+        ("stroke-linejoin", Some(svg.stroke_linejoin.to_css_string())),
+        (
+            "stroke-miterlimit",
+            Some(svg.stroke_miterlimit.to_css_string()),
+        ),
+        (
+            "stroke-dasharray",
+            Some(svg.stroke_dasharray.to_css_string()),
+        ),
+        (
+            "stroke-dashoffset",
+            Some(svg.stroke_dashoffset.to_css_string()),
+        ),
+    ]
 }

@@ -139,3 +139,23 @@ fn svg_gradient_fill_still_resolves() {
     let buffer = render(&mut harness);
     assert_eq!(pixel(&buffer, 20, 20), [0, 0, 255, 255]);
 }
+
+const SVG_USE_AND_FALLBACK: &str = r##"<html><head><style>
+#css-use { fill: rgb(0,0,255) }
+</style></head><body style="margin:0;background:white">
+<svg width="120" height="40" viewBox="0 0 120 40">
+<defs><rect id="box" width="40" height="40"/></defs>
+<use href="#box" fill="rgb(255,0,0)"/>
+<use id="css-use" href="#box" x="40"/>
+<rect x="80" width="40" height="40" fill="url(#missing) rgb(0,128,0)"/>
+</svg>
+</body></html>"##;
+
+#[test]
+fn svg_use_inherits_paint_and_missing_url_falls_back() {
+    let mut harness = open(App::new((), SVG_USE_AND_FALLBACK));
+    let buffer = render(&mut harness);
+    assert_eq!(pixel(&buffer, 20, 20), [255, 0, 0, 255]);
+    assert_eq!(pixel(&buffer, 60, 20), [0, 0, 255, 255]);
+    assert_eq!(pixel(&buffer, 100, 20), [0, 128, 0, 255]);
+}

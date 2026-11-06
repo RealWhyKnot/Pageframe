@@ -33,20 +33,6 @@ use style::global_style_data::STYLE_THREAD_POOL;
 /// flight on the shared pool at once panic with `already mutably borrowed`
 /// (<https://github.com/DioxusLabs/blitz/issues/430>).
 static PARALLEL_TRAVERSAL_LOCK: Mutex<()> = Mutex::new(());
-
-const SVG_PAINT_ATTRIBUTES: &[&str] = &[
-    "fill",
-    "fill-opacity",
-    "fill-rule",
-    "stroke",
-    "stroke-dasharray",
-    "stroke-dashoffset",
-    "stroke-linecap",
-    "stroke-linejoin",
-    "stroke-miterlimit",
-    "stroke-opacity",
-    "stroke-width",
-];
 use style::invalidation::element::restyle_hints::RestyleHint;
 use style::properties::ComputedValues;
 use style::properties::{Importance, PropertyDeclaration};
@@ -79,6 +65,20 @@ use style::{
 use style_dom::ElementState;
 
 use style::values::computed::text::TextAlign as StyloTextAlign;
+
+const SVG_PAINT_ATTRIBUTES: &[&str] = &[
+    "fill",
+    "fill-opacity",
+    "fill-rule",
+    "stroke",
+    "stroke-dasharray",
+    "stroke-dashoffset",
+    "stroke-linecap",
+    "stroke-linejoin",
+    "stroke-miterlimit",
+    "stroke-opacity",
+    "stroke-width",
+];
 
 impl crate::document::BaseDocument {
     pub fn resolve_stylist(&mut self, now: f64) {
