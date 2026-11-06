@@ -1,5 +1,6 @@
 use blitz_test_harness::Harness;
-use pageframe::{App, Error, EventKind, Page};
+use pageframe::events::{MouseEventButton, PointerEvent};
+use pageframe::{App, Error, EventData, EventKind, Page};
 
 const COUNTER: &str = r#"<html><body>
 <button id="inc"><span id="label">Add</span></button>
@@ -168,4 +169,21 @@ fn asset_and_app_stylesheets_apply() {
     harness.pump();
     let rect = harness.layout_rect("#box");
     assert_eq!((rect.width, rect.height), (123.0, 45.0));
+}
+
+#[test]
+fn click_data_uses_pageframe_event_types() {
+    let app = App::new(None, COUNTER).on("#inc", EventKind::Click, |seen, _, event| {
+        if let EventData::Click(pointer) = event.data() {
+            let pointer: &PointerEvent = pointer;
+            *seen = Some((pointer.button, pointer.coords.client_x.round()));
+        }
+    });
+    let mut harness = open(app);
+    let (x, y) = harness.center_of("#inc");
+    harness.click_at(x, y);
+    assert_eq!(
+        *harness.doc.state(),
+        Some((MouseEventButton::Main, x.round()))
+    );
 }
