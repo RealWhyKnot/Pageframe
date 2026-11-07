@@ -1,5 +1,4 @@
 use anyrender::PaintScene;
-use anyrender::filters::{Filter, FilterEffect};
 use blitz_dom::CopyStyleGetters;
 use blitz_dom::{BaseDocument, NodeId, node::TextBrush, util::ToColorColor};
 use kurbo::{Affine, BezPath, Cap, Circle, Rect, Stroke};
@@ -697,7 +696,7 @@ pub(crate) fn stroke_text<'a>(
                 };
 
                 // Shadows are painted beneath the text, with the first shadow on top.
-                // Text drawn with a brush override (e.g. selected text) has no shadow.
+                // Text painted with a brush override (e.g. as a mask) has no shadow.
                 let shadows = match (brush_override, stack.last()) {
                     (None, Some(entry)) if font_size > 0.0 => entry.shadows.as_slice(),
                     _ => &[],
@@ -706,45 +705,59 @@ pub(crate) fn stroke_text<'a>(
                     let shadow_transform = transform * Affine::translate(shadow.offset * scale);
                     // A shadow's blur radius is twice the standard deviation of its Gaussian.
                     let std_deviation = shadow.blur * scale / 2.0;
-                    let blurred = std_deviation > 0.0;
-                    if blurred {
-                        let margin = 3.0 * std_deviation + font_size as f64;
-                        let run_x0 = glyph_run.offset() as f64;
-                        let baseline = glyph_run.baseline() as f64;
-                        let clip = Rect::new(
-                            run_x0 - margin,
-                            baseline - metrics.ascent.abs() as f64 - margin,
-                            run_x0 + glyph_run.advance() as f64 + margin,
-                            baseline + metrics.descent.abs() as f64 + margin,
-                        );
-                        let filter = Filter::linear_list(std::iter::once(FilterEffect::blur(
-                            std_deviation as f32,
-                        )));
-                        scene.push_layer(
+                    let run_x0 = glyph_run.offset() as f64;
+                    let baseline = glyph_run.baseline() as f64;
+                    let ink_margin = font_size as f64;
+                    let bounds = Rect::new(
+                        run_x0 - ink_margin,
+                        baseline - metrics.ascent.abs() as f64 - ink_margin,
+                        run_x0 + glyph_run.advance() as f64 + ink_margin,
+                        baseline + metrics.descent.abs() as f64 + ink_margin,
+                    );
+                    let blurred = (std_deviation > 0.0)
+                        .then(|| {
+                            blurred_shadow_image(
+                                bounds,
+                                std_deviation,
+                                shadow.color,
+                                |scene, offset| {
+                                    scene.draw_glyphs(
+                                        font,
+                                        font_size,
+                                        false,
+                                        normalized_coords,
+                                        embolden,
+                                        Fill::NonZero,
+                                        &anyrender::Paint::from(Color::BLACK),
+                                        1.0,
+                                        offset,
+                                        glyph_xform,
+                                        glyphs(),
+                                    );
+                                },
+                            )
+                        })
+                        .flatten();
+                    match blurred {
+                        Some((image, origin)) => {
+                            scene.draw_image(
+                                image.as_ref(),
+                                shadow_transform * Affine::translate(origin),
+                            );
+                        }
+                        None => scene.draw_glyphs(
+                            font,
+                            font_size,
+                            !FONT_EMBOLDEN_ENABLED,
+                            normalized_coords,
+                            embolden,
                             Fill::NonZero,
-                            peniko::BlendMode::default(),
+                            &anyrender::Paint::from(shadow.color),
                             1.0,
                             shadow_transform,
-                            &clip,
-                            Some(Arc::new(filter)),
-                            None,
-                        );
-                    }
-                    scene.draw_glyphs(
-                        font,
-                        font_size,
-                        !FONT_EMBOLDEN_ENABLED,
-                        normalized_coords,
-                        embolden,
-                        Fill::NonZero,
-                        &anyrender::Paint::from(shadow.color),
-                        1.0,
-                        shadow_transform,
-                        glyph_xform,
-                        glyphs(),
-                    );
-                    if blurred {
-                        scene.pop_layer();
+                            glyph_xform,
+                            glyphs(),
+                        ),
                     }
                 }
 
@@ -884,4 +897,106 @@ fn embolden_scale(color: Color) -> f64 {
         prev = *point;
     }
     prev.1
+}
+
+/// The largest side, in pixels, of the image a blurred shadow is rendered into. Larger
+/// shadows are drawn without blur.
+const MAX_SHADOW_IMAGE_SIDE: f64 = 4096.0;
+
+/// Renders the shape drawn by `draw` into an image blurred with a Gaussian of `std_deviation`
+/// and tinted with `color`, so that blurred shadows look the same on every renderer, including
+/// ones without filter support. `bounds` must contain the unblurred ink. Returns the image and
+/// the offset to draw it at.
+fn blurred_shadow_image(
+    bounds: Rect,
+    std_deviation: f64,
+    color: Color,
+    draw: impl FnOnce(&mut anyrender_vello_cpu::VelloCpuScenePainter, Affine),
+) -> Option<(peniko::ImageBrush, kurbo::Vec2)> {
+    let bounds = bounds
+        .inflate(3.0 * std_deviation, 3.0 * std_deviation)
+        .expand();
+    if !(1.0..=MAX_SHADOW_IMAGE_SIDE).contains(&bounds.width())
+        || !(1.0..=MAX_SHADOW_IMAGE_SIDE).contains(&bounds.height())
+    {
+        return None;
+    }
+    let (width, height) = (bounds.width() as u32, bounds.height() as u32);
+    let coverage = anyrender::render_to_buffer::<anyrender_vello_cpu::VelloCpuImageRenderer, _>(
+        |scene| draw(scene, Affine::translate((-bounds.x0, -bounds.y0))),
+        width,
+        height,
+    );
+    let mut alpha: Vec<f32> = coverage
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|px| f32::from(px[3]) / 255.0)
+        .collect();
+    gaussian_blur(&mut alpha, width as usize, height as usize, std_deviation);
+
+    let [r, g, b, a] = color.to_rgba8().to_u8_array();
+    let data: Vec<u8> = alpha
+        .iter()
+        .flat_map(|coverage| [r, g, b, (coverage * f32::from(a)).round() as u8])
+        .collect();
+    let image = peniko::ImageBrush {
+        image: peniko::ImageData {
+            data: peniko::Blob::new(Arc::new(data)),
+            format: peniko::ImageFormat::Rgba8,
+            alpha_type: peniko::ImageAlphaType::Alpha,
+            width,
+            height,
+        },
+        sampler: peniko::ImageSampler::default(),
+    };
+    Some((image, kurbo::Vec2::new(bounds.x0, bounds.y0)))
+}
+
+/// Blurs a single-channel image in place by approximating a Gaussian with three box blurs,
+/// as the Filter Effects spec describes for `feGaussianBlur`.
+fn gaussian_blur(values: &mut [f32], width: usize, height: usize, std_deviation: f64) {
+    let size = (std_deviation * 3.0 * (2.0 * std::f64::consts::PI).sqrt() / 4.0 + 0.5) as usize;
+    if size < 2 {
+        return;
+    }
+    // Each box is (length, pixels to the left of the output pixel).
+    let boxes = if size % 2 == 1 {
+        [(size, size / 2); 3]
+    } else {
+        [(size, size / 2), (size, size / 2 - 1), (size + 1, size / 2)]
+    };
+    let mut scratch = vec![0.0; width.max(height)];
+    for (len, left) in boxes {
+        for row in values.chunks_exact_mut(width) {
+            box_blur_line(row, 1, &mut scratch[..width], len, left);
+        }
+    }
+    for (len, left) in boxes {
+        for x in 0..width {
+            box_blur_line(&mut values[x..], width, &mut scratch[..height], len, left);
+        }
+    }
+}
+
+/// Box-blurs the `out.len()` values of `values` that are `stride` apart, treating values past
+/// either end as zero.
+fn box_blur_line(values: &mut [f32], stride: usize, out: &mut [f32], len: usize, left: usize) {
+    let count = out.len();
+    let at = |i: isize| -> f32 {
+        if i < 0 || i as usize >= count {
+            0.0
+        } else {
+            values[i as usize * stride]
+        }
+    };
+    let mut sum: f32 = (0..len as isize).map(|i| at(i - left as isize)).sum();
+    for (i, slot) in out.iter_mut().enumerate() {
+        *slot = sum / len as f32;
+        let i = i as isize;
+        sum += at(i + len as isize - left as isize) - at(i - left as isize);
+    }
+    for (i, value) in out.iter().enumerate() {
+        values[i * stride] = *value;
+    }
 }

@@ -26,7 +26,7 @@ winit = { workspace = true }
 
 [dev-dependencies]
 anyrender = { workspace = true }
-anyrender_vello_cpu = { workspace = true, features = ["filters"] }
+anyrender_vello_cpu = { workspace = true }
 blitz-test-harness = { workspace = true }
 
 [lints]

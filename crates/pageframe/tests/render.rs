@@ -2,6 +2,7 @@ use anyrender::render_to_buffer;
 use anyrender_vello_cpu::VelloCpuImageRenderer;
 use blitz_paint::paint_scene;
 use blitz_test_harness::Harness;
+use blitz_traits::shell::Viewport;
 use pageframe::{App, EventKind, Page};
 
 const WIDTH: u32 = 120;
@@ -222,4 +223,34 @@ fn first_text_shadow_is_painted_on_top() {
     let pixels = painted_pixels(&render(&mut harness));
     assert!(pixels.contains(&[255, 0, 0, 255]));
     assert!(!pixels.contains(&[0, 0, 255, 255]));
+}
+
+fn render_at_scale<S: 'static>(harness: &mut Harness<Page<S>>, scale: u16) -> Vec<u8> {
+    let (width, height) = (WIDTH * u32::from(scale), HEIGHT * u32::from(scale));
+    let scale = f32::from(scale);
+    {
+        let mut doc = harness.base_mut();
+        let color_scheme = doc.get_viewport().color_scheme;
+        doc.set_viewport(Viewport::new(width, height, scale, color_scheme));
+    }
+    harness.pump();
+    let mut doc = harness.base_mut();
+    render_to_buffer::<VelloCpuImageRenderer, _>(
+        |scene| paint_scene(scene, &mut doc, f64::from(scale), width, height, 0, 0),
+        width,
+        height,
+    )
+}
+
+#[test]
+fn blurred_text_shadow_scales_with_the_display() {
+    let page = shadow_page("10px 10px 8px rgb(255,0,0)");
+    let at_1x = painted_pixels(&render(&mut open(App::new((), &page)))).len();
+    let at_2x = painted_pixels(&render_at_scale(&mut open(App::new((), &page)), 2));
+    assert!(
+        (at_1x * 7..at_1x * 9).contains(&(at_2x.len() * 2)),
+        "{} pixels at 2x, {at_1x} at 1x",
+        at_2x.len()
+    );
+    assert!(!at_2x.contains(&[255, 0, 0, 255]));
 }

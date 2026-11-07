@@ -25,6 +25,7 @@ scrollbars = ["blitz-dom/scrollbars"]
 [dependencies]
 # Blitz dependencies
 anyrender = { workspace = true }
+anyrender_vello_cpu = { workspace = true }
 anyrender_svg = { workspace = true, optional = true }
 blitz-traits = { workspace = true }
 blitz-dom = { workspace = true }
