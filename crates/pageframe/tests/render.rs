@@ -418,3 +418,49 @@ fn blurred_text_shadow_scales_with_the_display() {
     let at_2x = painted_pixels(&render_at_scale(&mut open(App::new((), &blurred)), 2));
     assert!(!at_2x.contains(&[255, 0, 0, 255]));
 }
+
+fn transformed_extent(transform: &str) -> (usize, usize) {
+    let page = format!(
+        r#"<html><body style="margin:0;background:white">
+<div style="position:absolute;left:40px;top:20px;width:40px;height:40px;background:rgb(0,0,200);transform:{transform}"></div>
+</body></html>"#
+    );
+    let buffer = render(&mut open(App::new((), &page)));
+    let width = usize::try_from(WIDTH).expect("test width fits in usize");
+    let height = usize::try_from(HEIGHT).expect("test height fits in usize");
+    let blue = |x: usize, y: usize| pixel(&buffer, x, y)[0] < 128;
+    let columns = (0..width)
+        .filter(|&x| (0..height).any(|y| blue(x, y)))
+        .count();
+    let rows = (0..height)
+        .filter(|&y| (0..width).any(|x| blue(x, y)))
+        .count();
+    (columns, rows)
+}
+
+#[test]
+fn three_d_rotations_flatten_onto_the_page() {
+    assert_eq!(transformed_extent("rotateX(60deg)"), (40, 20));
+    assert_eq!(transformed_extent("rotateY(60deg)"), (20, 40));
+    assert_eq!(
+        transformed_extent("rotateX(45deg) rotateX(-45deg)"),
+        (40, 40)
+    );
+    assert_eq!(transformed_extent("scale3d(1.5, 0.5, 3)"), (60, 20));
+}
+
+#[test]
+fn translate_z_keeps_the_rest_of_the_transform() {
+    assert_eq!(transformed_extent("translateZ(50px)"), (40, 40));
+    assert_eq!(
+        transformed_extent("translateZ(50px) rotate(10deg)"),
+        (46, 46)
+    );
+}
+
+#[test]
+fn perspective_narrows_a_turned_box() {
+    let (columns, rows) = transformed_extent("perspective(200px) rotateY(45deg)");
+    assert!((27..=30).contains(&columns), "{columns} columns");
+    assert!((40..=43).contains(&rows), "{rows} rows");
+}

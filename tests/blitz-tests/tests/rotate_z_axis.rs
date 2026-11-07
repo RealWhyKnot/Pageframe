@@ -4,8 +4,7 @@
 //! <https://drafts.csswg.org/css-transforms-2/#individual-transforms>
 //!
 //! Every axis form was dropped as 3d, so `rotate: z 90deg` did nothing while
-//! `rotate: 90deg` worked. Only an axis that leaves the plane needs the 3d
-//! support that is still missing.
+//! `rotate: 90deg` worked. An axis that leaves the plane is flattened onto it.
 
 use blitz_test_harness::Harness;
 
@@ -57,7 +56,11 @@ fn the_sign_of_the_axis_turns_the_rotation_around() {
 }
 
 #[test]
-fn a_rotation_leaving_the_plane_is_still_dropped() {
+fn a_rotation_leaving_the_plane_is_flattened_onto_it() {
     let harness = page();
-    assert_eq!(transform_coeffs(&harness, "#x"), None);
+    let [a, b, c, d, e, f] =
+        transform_coeffs(&harness, "#x").expect("rotate: x <angle> must apply");
+    assert_eq!([a, b, c, e], [1.0, 0.0, 0.0, 0.0]);
+    assert!(d.abs() < 1e-9, "a quarter turn about x leaves no height, got {d}");
+    assert!((f - 10.0).abs() < 1e-9, "the box collapses onto its centre line, got {f}");
 }
