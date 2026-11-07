@@ -1495,7 +1495,6 @@ fn insets_from_taffy_rect(input: taffy::Rect<f64>) -> Insets {
     }
 }
 
-/// Convert Stylo and Taffy types into Kurbo types
 /// How many lines of an inline layout are painted, and where lines are cut short with an
 /// ellipsis. `line-clamp` hides the lines after the last kept one, which ends in an ellipsis.
 /// `text-overflow: ellipsis` cuts any line that overflows a clipping box. `width` is the
@@ -1520,6 +1519,7 @@ fn line_ellipsis(
     (clamped_lines.unwrap_or(usize::MAX), ellipsis)
 }
 
+/// Convert Stylo and Taffy types into Kurbo types
 fn create_css_rect(style: &ComputedValues, layout: &Layout, scale: f64) -> CssBox {
     // Resolve and rescale
     // We have to scale since document pixels are not same same as rendered pixels
