@@ -5,6 +5,7 @@ use kurbo::{Affine, BezPath, Cap, Circle, Rect, Stroke};
 use parley::{Affinity, Cursor, Layout, Line, PositionedLayoutItem, Selection};
 use peniko::Fill;
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 use style::properties::generated::longhands::text_decoration_style::computed_value::T as TextDecorationStyle;
 use style::values::computed::{
@@ -792,7 +793,11 @@ pub(crate) fn stroke_text<'a>(
                     (None, Some(entry)) if font_size > 0.0 => entry.shadows.as_slice(),
                     _ => &[],
                 };
-                for shadow in shadows.iter().rev() {
+                for shadow in shadows
+                    .iter()
+                    .rev()
+                    .filter(|shadow| shadow.color.components[3] > 0.0)
+                {
                     let shadow_transform = transform * Affine::translate(shadow.offset * scale);
                     // A shadow's blur radius is twice the standard deviation of its Gaussian.
                     let std_deviation = shadow.blur * scale / 2.0;
@@ -811,6 +816,21 @@ pub(crate) fn stroke_text<'a>(
                                 bounds,
                                 std_deviation,
                                 shadow.color,
+                                |hasher, origin| {
+                                    font.data.id().hash(hasher);
+                                    font.index.hash(hasher);
+                                    font_size.to_bits().hash(hasher);
+                                    normalized_coords.hash(hasher);
+                                    [embolden.x, embolden.y].map(f64::to_bits).hash(hasher);
+                                    glyph_xform
+                                        .map(|xform| xform.as_coeffs().map(f64::to_bits))
+                                        .hash(hasher);
+                                    for glyph in glyphs() {
+                                        glyph.id.hash(hasher);
+                                        (f64::from(glyph.x) - origin.x).to_bits().hash(hasher);
+                                        (f64::from(glyph.y) - origin.y).to_bits().hash(hasher);
+                                    }
+                                },
                                 |scene, offset| {
                                     scene.draw_glyphs(
                                         font,
@@ -998,14 +1018,66 @@ fn embolden_scale(color: Color) -> f64 {
 /// shadows are drawn without blur.
 const MAX_SHADOW_IMAGE_SIDE: f64 = 4096.0;
 
-/// Renders the shape drawn by `draw` into an image blurred with a Gaussian of `std_deviation`
-/// and tinted with `color`, so that blurred shadows look the same on every renderer, including
-/// ones without filter support. `bounds` must contain the unblurred ink. Returns the image and
-/// the offset to draw it at.
+/// How many bytes of blurred shadow images each thread keeps for reuse.
+const SHADOW_CACHE_BYTES: usize = 32 << 20;
+
+#[derive(Default)]
+struct ShadowCache {
+    entries: HashMap<u64, (peniko::ImageBrush, u64)>,
+    clock: u64,
+    bytes: usize,
+}
+
+impl ShadowCache {
+    fn get(&mut self, key: u64) -> Option<peniko::ImageBrush> {
+        self.clock += 1;
+        let (image, last_used) = self.entries.get_mut(&key)?;
+        *last_used = self.clock;
+        Some(image.clone())
+    }
+
+    fn insert(&mut self, key: u64, image: peniko::ImageBrush) {
+        self.bytes += image.image.data.len();
+        if let Some((old, _)) = self.entries.insert(key, (image, self.clock)) {
+            self.bytes -= old.image.data.len();
+        }
+        if self.bytes > SHADOW_CACHE_BYTES {
+            let mut by_age: Vec<(u64, u64)> = self
+                .entries
+                .iter()
+                .map(|(key, (_, last_used))| (*last_used, *key))
+                .collect();
+            by_age.sort_unstable();
+            for (_, key) in by_age {
+                if self.bytes <= SHADOW_CACHE_BYTES / 2 {
+                    break;
+                }
+                if let Some((old, _)) = self.entries.remove(&key) {
+                    self.bytes -= old.image.data.len();
+                }
+            }
+        }
+    }
+}
+
+thread_local! {
+    static SHADOW_CACHE: std::cell::RefCell<ShadowCache> = std::cell::RefCell::default();
+}
+
+/// Renders what `draw` paints into an image, blurs it with a Gaussian of `std_deviation` and
+/// tints it with `color`. Renderers without filter support, the GPU one among them, draw the
+/// result like any other image. `bounds` must contain the unblurred ink.
+///
+/// `describe` hashes everything `draw` depends on, with positions taken relative to the image
+/// origin it is given. Images with the same hash are reused from a per-thread cache, so a
+/// repaint or scroll doesn't render the shadow again.
+///
+/// Returns the image and the offset to draw it at.
 fn blurred_shadow_image(
     bounds: Rect,
     std_deviation: f64,
     color: Color,
+    describe: impl FnOnce(&mut DefaultHasher, kurbo::Vec2),
     draw: impl FnOnce(&mut anyrender_vello_cpu::VelloCpuScenePainter, Affine),
 ) -> Option<(peniko::ImageBrush, kurbo::Vec2)> {
     let bounds = bounds
@@ -1016,9 +1088,21 @@ fn blurred_shadow_image(
     {
         return None;
     }
+    let origin = kurbo::Vec2::new(bounds.x0, bounds.y0);
     let (width, height) = (bounds.width() as u32, bounds.height() as u32);
+
+    let mut hasher = DefaultHasher::new();
+    describe(&mut hasher, origin);
+    (width, height).hash(&mut hasher);
+    std_deviation.to_bits().hash(&mut hasher);
+    color.to_rgba8().to_u8_array().hash(&mut hasher);
+    let key = hasher.finish();
+    if let Some(image) = SHADOW_CACHE.with_borrow_mut(|cache| cache.get(key)) {
+        return Some((image, origin));
+    }
+
     let coverage = anyrender::render_to_buffer::<anyrender_vello_cpu::VelloCpuImageRenderer, _>(
-        |scene| draw(scene, Affine::translate((-bounds.x0, -bounds.y0))),
+        |scene| draw(scene, Affine::translate(-origin)),
         width,
         height,
     );
@@ -1045,7 +1129,8 @@ fn blurred_shadow_image(
         },
         sampler: peniko::ImageSampler::default(),
     };
-    Some((image, kurbo::Vec2::new(bounds.x0, bounds.y0)))
+    SHADOW_CACHE.with_borrow_mut(|cache| cache.insert(key, image.clone()));
+    Some((image, origin))
 }
 
 /// Blurs a single-channel image in place by approximating a Gaussian with three box blurs,

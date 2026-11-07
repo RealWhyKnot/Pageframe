@@ -305,15 +305,41 @@ fn render_at_scale<S: 'static>(harness: &mut Harness<Page<S>>, scale: u16) -> Ve
     )
 }
 
+fn painted_span(buffer: &[u8], width: u32) -> usize {
+    let width = usize::try_from(width).expect("test width fits in usize");
+    let columns: Vec<usize> = buffer
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .enumerate()
+        .filter(|(_, px)| **px != [255, 255, 255, 255])
+        .map(|(index, _)| index % width)
+        .collect();
+    let first = columns.iter().min().expect("the shadow paints something");
+    let last = columns.iter().max().expect("the shadow paints something");
+    last - first + 1
+}
+
 #[test]
 fn blurred_text_shadow_scales_with_the_display() {
-    let page = shadow_page("10px 10px 8px rgb(255,0,0)");
-    let at_1x = painted_pixels(&render(&mut open(App::new((), &page)))).len();
-    let at_2x = painted_pixels(&render_at_scale(&mut open(App::new((), &page)), 2));
+    let blurred = shadow_page("10px 10px 8px rgb(255,0,0)");
+    let sharp = shadow_page("10px 10px 0 rgb(255,0,0)");
+    let span = |page: &str, scale: u16| {
+        let mut harness = open(App::new((), page));
+        let buffer = if scale == 1 {
+            render(&mut harness)
+        } else {
+            render_at_scale(&mut harness, scale)
+        };
+        painted_span(&buffer, WIDTH * u32::from(scale))
+    };
+    let halo_1x = span(&blurred, 1) - span(&sharp, 1);
+    let halo_2x = span(&blurred, 2) - span(&sharp, 2);
+    assert!(halo_1x > 0);
     assert!(
-        (at_1x * 7..at_1x * 9).contains(&(at_2x.len() * 2)),
-        "{} pixels at 2x, {at_1x} at 1x",
-        at_2x.len()
+        (halo_1x * 16..halo_1x * 24).contains(&(halo_2x * 10)),
+        "the blur reaches {halo_1x}px past the sharp shadow at 1x and {halo_2x}px at 2x"
     );
+    let at_2x = painted_pixels(&render_at_scale(&mut open(App::new((), &blurred)), 2));
     assert!(!at_2x.contains(&[255, 0, 0, 255]));
 }
