@@ -254,3 +254,20 @@ macro_rules! qual_name {
         }
     };
 }
+
+/// The number of lines `line-clamp` keeps visible in an inline layout, or `None` when the
+/// property is unset or the content already fits within the limit.
+pub fn clamped_line_count(
+    style: &style::properties::ComputedValues,
+    layout: &parley::Layout<crate::node::TextBrush>,
+) -> Option<usize> {
+    let max_lines = style.get_box().line_clamp.max_lines.lines_value()?;
+    let max_lines = usize::try_from(max_lines.0).ok()?.max(1);
+    let line_count = match layout.get(layout.len().wrapping_sub(1)) {
+        Some(last) if last.text_range().is_empty() && last.items().next().is_none() => {
+            layout.len() - 1
+        }
+        _ => layout.len(),
+    };
+    (line_count > max_lines).then_some(max_lines)
+}

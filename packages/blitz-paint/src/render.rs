@@ -18,7 +18,7 @@ use crate::filters::convert_filters;
 use crate::kurbo_css::NonUniformRoundedRectRadii;
 use crate::layers::LayerManager;
 use crate::sizing::compute_object_fit;
-use crate::text::{DrawTextContext, TextPaintOptions};
+use crate::text::{DrawTextContext, LineEllipsis, TextPaintOptions};
 use crate::{CustomWidgetSceneMap, SELECTION_COLOR};
 use anyrender::{PaintScene, Scene};
 use blitz_dom::node::{
@@ -376,6 +376,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
                     TextPaintOptions {
                         scale: self.scale,
                         brush_override: Some(Color::BLACK),
+                        ellipsis: None,
                     },
                     node.id,
                     &mut self.draw_text_context.borrow_mut(),
@@ -991,11 +992,28 @@ impl ElementCx<'_, '_> {
             let transform =
                 self.transform * Affine::translate((pos.x * self.scale, pos.y * self.scale));
 
+            // `line-clamp` hides the lines after the last kept one, which ends in an ellipsis.
+            // `text-overflow: ellipsis` cuts any line that overflows a clipping box.
+            let clamped_lines =
+                blitz_dom::util::clamped_line_count(&self.style, &text_layout.layout);
+            let visible_lines = clamped_lines.unwrap_or(usize::MAX);
+            let on_overflow = matches!(
+                self.style.get_text().text_overflow.second,
+                style::values::specified::text::TextOverflowSide::Ellipsis
+            ) && self.style.get_box().overflow_x
+                != style::values::computed::Overflow::Visible;
+            let ellipsis = (on_overflow || clamped_lines.is_some()).then(|| LineEllipsis {
+                width: ((self.frame.content_box.width() - subpixel_offset.x as f64) * self.scale)
+                    as f32,
+                on_overflow,
+                on_line: clamped_lines.map(|lines| lines - 1),
+            });
+
             // Render inline element backgrounds (e.g. `<span style="background: ...">`)
             // behind the text and selection highlight.
             crate::text::draw_inline_backgrounds(
                 scene,
-                text_layout.layout.lines(),
+                text_layout.layout.lines().take(visible_lines),
                 self.context.dom,
                 transform,
                 self.node.id,
@@ -1016,12 +1034,13 @@ impl ElementCx<'_, '_> {
             let mut draw_text_context = self.context.draw_text_context.borrow_mut();
             crate::text::stroke_text(
                 scene,
-                text_layout.layout.lines(),
+                text_layout.layout.lines().take(visible_lines),
                 self.context.dom,
                 transform,
                 TextPaintOptions {
                     scale: self.scale,
                     brush_override: None,
+                    ellipsis,
                 },
                 self.node.id,
                 &mut draw_text_context,
@@ -1092,6 +1111,7 @@ impl ElementCx<'_, '_> {
                 TextPaintOptions {
                     scale: self.scale,
                     brush_override: None,
+                    ellipsis: None,
                 },
                 self.node.id,
                 &mut draw_text_context,
@@ -1151,6 +1171,7 @@ impl ElementCx<'_, '_> {
                 TextPaintOptions {
                     scale: self.scale,
                     brush_override: None,
+                    ellipsis: None,
                 },
                 self.node.id,
                 &mut draw_text_context,

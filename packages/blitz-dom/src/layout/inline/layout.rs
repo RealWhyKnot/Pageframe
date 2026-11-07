@@ -1054,6 +1054,15 @@ impl LayoutPassState<'_> {
             };
         }
 
+        // `line-clamp` cuts the block off after its last visible line.
+        if let Some(max_lines) = self.nodes[node_id]
+            .primary_styles()
+            .and_then(|style| crate::util::clamped_line_count(&style, &inline_layout.layout))
+            && let Some(last_line) = inline_layout.layout.get(max_lines - 1)
+        {
+            height = height.min(last_line.metrics().block_max_coord);
+        }
+
         // Note: `width` and `height` are content-box measurements of the inline content.
         // `known_dimensions` must not be substituted in here: those are border-box sizes, and
         // using them for the scrollable overflow rect (which adds padding below) would

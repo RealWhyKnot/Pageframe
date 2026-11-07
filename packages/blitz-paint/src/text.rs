@@ -424,6 +424,77 @@ fn draw_decoration_line(
 pub(crate) struct TextPaintOptions {
     pub scale: f64,
     pub brush_override: Option<Color>,
+    pub ellipsis: Option<LineEllipsis>,
+}
+
+/// Where `text-overflow: ellipsis` and `line-clamp` cut lines short with an ellipsis.
+#[derive(Clone, Copy)]
+pub(crate) struct LineEllipsis {
+    /// The inline-axis edge (in layout units) that text must not paint past.
+    pub width: f32,
+    /// Whether lines that overflow `width` are cut (`text-overflow: ellipsis`).
+    pub on_overflow: bool,
+    /// A line that always ends in an ellipsis (the last line kept by `line-clamp`).
+    pub on_line: Option<usize>,
+}
+
+/// How one line is cut short: glyphs ending past `max_x` are dropped and `glyph` (the
+/// ellipsis) is drawn in the run at `run_index`, ending at `end`.
+#[derive(Clone, Copy)]
+struct LineCut {
+    run_index: usize,
+    max_x: f32,
+    end: f32,
+    glyph: anyrender::Glyph,
+}
+
+fn line_cut(line: &Line<'_, TextBrush>, width: f32) -> Option<LineCut> {
+    let (run_index, run) = line
+        .items()
+        .enumerate()
+        .filter_map(|(index, item)| match item {
+            PositionedLayoutItem::GlyphRun(run) => Some((index, run)),
+            PositionedLayoutItem::InlineBox(_) => None,
+        })
+        .take_while(|(_, run)| run.offset() < width)
+        .last()?;
+    let (id, advance) = ellipsis_glyph(run.run())?;
+    let max_x = width - advance;
+    let mut x = line.metrics().offset;
+    for item in line.items() {
+        if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
+            for glyph in glyph_run.positioned_glyphs() {
+                if glyph.x + glyph.advance <= max_x {
+                    x = x.max(glyph.x + glyph.advance);
+                }
+            }
+        }
+    }
+    Some(LineCut {
+        run_index,
+        max_x,
+        end: x + advance,
+        glyph: anyrender::Glyph {
+            id,
+            x,
+            y: run.baseline(),
+        },
+    })
+}
+
+/// The glyph id and advance of U+2026 HORIZONTAL ELLIPSIS in a run's font.
+fn ellipsis_glyph(run: &parley::Run<'_, TextBrush>) -> Option<(u32, f32)> {
+    use skrifa::MetadataProvider as _;
+    use skrifa::instance::{LocationRef, Size};
+    use skrifa::raw::FontRef;
+
+    let font = run.font();
+    let font_ref = FontRef::from_index(font.data.as_ref(), font.index).ok()?;
+    let id = font_ref.charmap().map('\u{2026}')?;
+    let advance = font_ref
+        .glyph_metrics(Size::new(run.font_size()), LocationRef::default())
+        .advance_width(id)?;
+    Some((id.to_u32(), advance))
 }
 
 /// Paint the decorations accumulated for one line, one line per decorating box.
@@ -439,6 +510,7 @@ fn flush_line_decorations(
     let TextPaintOptions {
         scale,
         brush_override,
+        ..
     } = options;
     // Draw innermost boxes first so ancestors' decorations paint on top, matching the
     // per-run drawing order this replaced (`stack.iter().rev()`).
@@ -614,6 +686,7 @@ pub(crate) fn stroke_text<'a>(
     let TextPaintOptions {
         scale,
         brush_override,
+        ellipsis,
     } = options;
     let DrawTextContext {
         stack,
@@ -632,14 +705,23 @@ pub(crate) fn stroke_text<'a>(
     // ancestor chain on every run, we cache each node's resolved values here and,
     // for each run, only resolve styles for the nodes newly descended into (popping
     // as we ascend). `path_scratch` is a reusable buffer for the run's node path.
-    for line in lines {
+    for (line_index, line) in lines.enumerate() {
+        let cut = ellipsis.and_then(|ellipsis| {
+            let metrics = line.metrics();
+            let overflows =
+                metrics.offset + metrics.advance - metrics.hanging_advance > ellipsis.width;
+            ((ellipsis.on_overflow && overflows) || ellipsis.on_line == Some(line_index))
+                .then(|| line_cut(&line, ellipsis.width))
+                .flatten()
+        });
+
         // Decorations accumulated for this line, keyed by decorating box, so each box is
         // painted once (spanning all its runs) using its own font — matching Firefox, which
         // draws one decoration per box rather than one stepped segment per differently-sized
         // run. Clearing preserves the allocation for the next line and inline context.
         deco_boxes.clear();
 
-        for item in line.items() {
+        for (item_index, item) in line.items().enumerate() {
             if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
                 let run = glyph_run.run();
                 let font = run.font();
@@ -688,11 +770,20 @@ pub(crate) fn stroke_text<'a>(
 
                 let normalized_coords: &[i16] = bytemuck::cast_slice(run.normalized_coords());
                 let glyphs = || {
-                    glyph_run.positioned_glyphs().map(|glyph| anyrender::Glyph {
-                        id: glyph.id as _,
-                        x: glyph.x,
-                        y: glyph.y,
-                    })
+                    glyph_run
+                        .positioned_glyphs()
+                        .filter(move |glyph| {
+                            cut.is_none_or(|cut| glyph.x + glyph.advance <= cut.max_x)
+                        })
+                        .map(|glyph| anyrender::Glyph {
+                            id: glyph.id as _,
+                            x: glyph.x,
+                            y: glyph.y,
+                        })
+                        .chain(
+                            cut.filter(|cut| cut.run_index == item_index)
+                                .map(|cut| cut.glyph),
+                        )
                 };
 
                 // Shadows are painted beneath the text, with the first shadow on top.
@@ -794,8 +885,12 @@ pub(crate) fn stroke_text<'a>(
                     css_font_size,
                 };
                 let run_node_id = style.brush.id;
-                let run_x0 = glyph_run.offset() as f64;
-                let run_x1 = run_x0 + glyph_run.advance() as f64;
+                let mut run_x0 = glyph_run.offset() as f64;
+                let mut run_x1 = run_x0 + glyph_run.advance() as f64;
+                if let Some(cut) = cut {
+                    run_x0 = run_x0.min(cut.end as f64);
+                    run_x1 = run_x1.min(cut.end as f64);
+                }
 
                 for entry in stack.iter() {
                     if entry.decoration.is_none() {

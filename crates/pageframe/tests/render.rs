@@ -225,6 +225,69 @@ fn first_text_shadow_is_painted_on_top() {
     assert!(!pixels.contains(&[0, 0, 255, 255]));
 }
 
+fn overflow_page(text_overflow: &str) -> String {
+    format!(
+        r#"<html><body style="margin:0;background:white">
+<div style="width:100px;font-size:20px;line-height:30px;white-space:nowrap;overflow:hidden;text-overflow:{text_overflow}">HHHHHHHHHHHHHHHH</div>
+</body></html>"#
+    )
+}
+
+fn inked_rows(buffer: &[u8], columns: std::ops::Range<usize>) -> Vec<usize> {
+    let height = usize::try_from(HEIGHT).expect("test height fits in usize");
+    (0..height)
+        .filter(|&y| {
+            columns
+                .clone()
+                .any(|x| pixel(buffer, x, y) != [255, 255, 255, 255])
+        })
+        .collect()
+}
+
+fn inked_columns(buffer: &[u8]) -> Vec<usize> {
+    let width = usize::try_from(WIDTH).expect("test width fits in usize");
+    let height = usize::try_from(HEIGHT).expect("test height fits in usize");
+    (0..width)
+        .filter(|&x| (0..height).any(|y| pixel(buffer, x, y) != [255, 255, 255, 255]))
+        .collect()
+}
+
+#[test]
+fn text_overflow_ellipsis_replaces_the_cut_off_end() {
+    let mut harness = open(App::new((), &overflow_page("clip")));
+    let clipped = render(&mut harness);
+    let mut harness = open(App::new((), &overflow_page("ellipsis")));
+    let ellipsis = render(&mut harness);
+
+    let clipped_rows = inked_rows(&clipped, 0..100);
+    let midline = clipped_rows[clipped_rows.len() / 2];
+    let right = *inked_columns(&ellipsis)
+        .last()
+        .expect("the ellipsis line has ink");
+    assert!(right < 100);
+    assert_eq!(inked_columns(&clipped).last(), Some(&99));
+
+    let dots = inked_rows(&ellipsis, right - 4..right + 1);
+    assert_ne!(dots, Vec::<usize>::new());
+    assert!(dots.iter().all(|&y| y > midline));
+    assert!(inked_rows(&clipped, right - 4..right + 1).contains(&midline));
+}
+
+const LINE_CLAMP: &str = r#"<html><body style="margin:0;background:white">
+<div style="width:100px;font-size:20px;line-height:20px;line-clamp:2">HH HH HH HH HH HH HH HH HH</div>
+<div style="height:10px;background:rgb(255,0,0)"></div>
+</body></html>"#;
+
+#[test]
+fn line_clamp_keeps_the_first_lines() {
+    let mut harness = open(App::new((), LINE_CLAMP));
+    let buffer = render(&mut harness);
+    assert_eq!(pixel(&buffer, 110, 45), [255, 0, 0, 255]);
+    assert_ne!(pixel(&buffer, 110, 38), [255, 0, 0, 255]);
+    assert_eq!(pixel(&buffer, 110, 51), [255, 255, 255, 255]);
+    assert_eq!(inked_rows(&buffer, 0..120).last(), Some(&49));
+}
+
 fn render_at_scale<S: 'static>(harness: &mut Harness<Page<S>>, scale: u16) -> Vec<u8> {
     let (width, height) = (WIDTH * u32::from(scale), HEIGHT * u32::from(scale));
     let scale = f32::from(scale);
