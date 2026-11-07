@@ -368,15 +368,23 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
                     + layout.block_offset as f64;
                 let text_transform =
                     transform * Affine::translate((x * self.scale, y * self.scale));
+                let (visible_lines, ellipsis) =
+                    node.primary_styles().map_or((usize::MAX, None), |style| {
+                        line_ellipsis(
+                            &style,
+                            &layout.layout,
+                            (layout_box.content_box_width() as f64 * self.scale) as f32,
+                        )
+                    });
                 crate::text::stroke_text(
                     scene,
-                    layout.layout.lines(),
+                    layout.layout.lines().take(visible_lines),
                     self.dom,
                     text_transform,
                     TextPaintOptions {
                         scale: self.scale,
                         brush_override: Some(Color::BLACK),
-                        ellipsis: None,
+                        ellipsis,
                     },
                     node.id,
                     &mut self.draw_text_context.borrow_mut(),
@@ -992,22 +1000,11 @@ impl ElementCx<'_, '_> {
             let transform =
                 self.transform * Affine::translate((pos.x * self.scale, pos.y * self.scale));
 
-            // `line-clamp` hides the lines after the last kept one, which ends in an ellipsis.
-            // `text-overflow: ellipsis` cuts any line that overflows a clipping box.
-            let clamped_lines =
-                blitz_dom::util::clamped_line_count(&self.style, &text_layout.layout);
-            let visible_lines = clamped_lines.unwrap_or(usize::MAX);
-            let on_overflow = matches!(
-                self.style.get_text().text_overflow.second,
-                style::values::specified::text::TextOverflowSide::Ellipsis
-            ) && self.style.get_box().overflow_x
-                != style::values::computed::Overflow::Visible;
-            let ellipsis = (on_overflow || clamped_lines.is_some()).then(|| LineEllipsis {
-                width: ((self.frame.content_box.width() - subpixel_offset.x as f64) * self.scale)
-                    as f32,
-                on_overflow,
-                on_line: clamped_lines.map(|lines| lines - 1),
-            });
+            let (visible_lines, ellipsis) = line_ellipsis(
+                &self.style,
+                &text_layout.layout,
+                ((self.frame.content_box.width() - subpixel_offset.x as f64) * self.scale) as f32,
+            );
 
             // Render inline element backgrounds (e.g. `<span style="background: ...">`)
             // behind the text and selection highlight.
@@ -1027,6 +1024,7 @@ impl ElementCx<'_, '_> {
                     transform,
                     sel_start,
                     sel_end,
+                    visible_lines,
                 );
             }
 
@@ -1203,9 +1201,43 @@ impl ElementCx<'_, '_> {
             }
         }
 
+        // Inline boxes on lines hidden by `line-clamp` are not painted.
+        let clamped_boxes: Vec<u64> = self
+            .element
+            .inline_layout_data
+            .as_ref()
+            .filter(|_| self.node.flags.is_inline_root())
+            .and_then(|text_layout| {
+                let visible_lines =
+                    blitz_dom::util::clamped_line_count(&self.style, &text_layout.layout)?;
+                Some(
+                    text_layout
+                        .layout
+                        .lines()
+                        .skip(visible_lines)
+                        .flat_map(|line| {
+                            line.items()
+                                .filter_map(|item| match item {
+                                    parley::PositionedLayoutItem::InlineBox(inline_box)
+                                        if inline_box.kind == parley::InlineBoxKind::InFlow =>
+                                    {
+                                        Some(inline_box.id)
+                                    }
+                                    _ => None,
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .collect(),
+                )
+            })
+            .unwrap_or_default();
+
         // Regular children
         if let Some(children) = &*self.node.paint_children.borrow() {
             for child_id in children {
+                if clamped_boxes.contains(&child_id.as_u64()) {
+                    continue;
+                }
                 // Fixed-position children of the root element are positioned against
                 // the viewport and do not scroll with it, so cancel out the viewport
                 // scroll (applied in `paint_scene`). A fixed box contained by a
@@ -1464,6 +1496,30 @@ fn insets_from_taffy_rect(input: taffy::Rect<f64>) -> Insets {
 }
 
 /// Convert Stylo and Taffy types into Kurbo types
+/// How many lines of an inline layout are painted, and where lines are cut short with an
+/// ellipsis. `line-clamp` hides the lines after the last kept one, which ends in an ellipsis.
+/// `text-overflow: ellipsis` cuts any line that overflows a clipping box. `width` is the
+/// content box width in device pixels.
+fn line_ellipsis(
+    computed: &ComputedValues,
+    layout: &parley::Layout<blitz_dom::node::TextBrush>,
+    width: f32,
+) -> (usize, Option<LineEllipsis>) {
+    let clamped_lines = blitz_dom::util::clamped_line_count(computed, layout);
+    let on_overflow = matches!(
+        computed.get_text().text_overflow.second,
+        style::values::specified::text::TextOverflowSide::Ellipsis
+    ) && computed.get_box().overflow_x
+        != style::values::computed::Overflow::Visible;
+    let ellipsis = (on_overflow || clamped_lines.is_some()).then(|| LineEllipsis {
+        width,
+        on_overflow,
+        on_line: clamped_lines.map(|lines| lines - 1),
+        rtl: computed.get_inherited_box().direction == style::computed_values::direction::T::Rtl,
+    });
+    (clamped_lines.unwrap_or(usize::MAX), ellipsis)
+}
+
 fn create_css_rect(style: &ComputedValues, layout: &Layout, scale: f64) -> CssBox {
     // Resolve and rescale
     // We have to scale since document pixels are not same same as rendered pixels

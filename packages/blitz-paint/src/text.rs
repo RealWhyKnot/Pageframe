@@ -437,65 +437,119 @@ pub(crate) struct LineEllipsis {
     pub on_overflow: bool,
     /// A line that always ends in an ellipsis (the last line kept by `line-clamp`).
     pub on_line: Option<usize>,
+    /// Whether lines end on the left (`direction: rtl`), so they are cut from the left edge.
+    pub rtl: bool,
 }
 
-/// How one line is cut short: glyphs ending past `max_x` are dropped and `glyph` (the
-/// ellipsis) is drawn in the run at `run_index`, ending at `end`.
+/// How one line is cut short: glyphs outside `min_x..max_x` are dropped and the ellipsis
+/// (`count` copies of glyph `id`, `advance` apart from `x`) is drawn in the run at
+/// `run_index`. What remains of the line spans `start..end`.
 #[derive(Clone, Copy)]
 struct LineCut {
     run_index: usize,
+    min_x: f32,
     max_x: f32,
+    start: f32,
     end: f32,
-    glyph: anyrender::Glyph,
+    id: u32,
+    x: f32,
+    y: f32,
+    advance: f32,
+    count: usize,
 }
 
-fn line_cut(line: &Line<'_, TextBrush>, width: f32) -> Option<LineCut> {
-    let (run_index, run) = line
+impl LineCut {
+    fn keeps(self, glyph: &parley::layout::Glyph) -> bool {
+        glyph.x >= self.min_x && glyph.x + glyph.advance <= self.max_x
+    }
+
+    fn glyphs(self) -> impl Iterator<Item = anyrender::Glyph> + Clone {
+        (0..self.count).map(move |index| anyrender::Glyph {
+            id: self.id,
+            x: self.x + self.advance * index as f32,
+            y: self.y,
+        })
+    }
+}
+
+fn line_cut(line: &Line<'_, TextBrush>, ellipsis: LineEllipsis) -> Option<LineCut> {
+    let width = ellipsis.width;
+    let mut runs = line
         .items()
         .enumerate()
         .filter_map(|(index, item)| match item {
             PositionedLayoutItem::GlyphRun(run) => Some((index, run)),
             PositionedLayoutItem::InlineBox(_) => None,
-        })
-        .take_while(|(_, run)| run.offset() < width)
-        .last()?;
-    let (id, advance) = ellipsis_glyph(run.run())?;
-    let max_x = width - advance;
-    let mut x = line.metrics().offset;
+        });
+    let (run_index, run) = if ellipsis.rtl {
+        runs.find(|(_, run)| run.offset() + run.advance() > 0.0)?
+    } else {
+        runs.take_while(|(_, run)| run.offset() < width).last()?
+    };
+    let (id, advance, count) = ellipsis_glyph(run.run())?;
+    let length = advance * count as f32;
+    let (min_x, max_x) = if ellipsis.rtl {
+        (length, f32::INFINITY)
+    } else {
+        (f32::NEG_INFINITY, width - length)
+    };
+    let metrics = line.metrics();
+    let (mut kept_start, mut kept_end) = (f32::INFINITY, f32::NEG_INFINITY);
     for item in line.items() {
         if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
             for glyph in glyph_run.positioned_glyphs() {
-                if glyph.x + glyph.advance <= max_x {
-                    x = x.max(glyph.x + glyph.advance);
+                if glyph.x >= min_x && glyph.x + glyph.advance <= max_x {
+                    kept_start = kept_start.min(glyph.x);
+                    kept_end = kept_end.max(glyph.x + glyph.advance);
                 }
             }
         }
     }
+    let (start, end, x) = if ellipsis.rtl {
+        let kept_start = kept_start.min(metrics.offset + metrics.advance);
+        (kept_start - length, f32::INFINITY, kept_start - length)
+    } else {
+        let kept_end = kept_end.max(metrics.offset);
+        (f32::NEG_INFINITY, kept_end + length, kept_end)
+    };
     Some(LineCut {
         run_index,
+        min_x,
         max_x,
-        end: x + advance,
-        glyph: anyrender::Glyph {
-            id,
-            x,
-            y: run.baseline(),
-        },
+        start,
+        end,
+        id,
+        x,
+        y: run.baseline(),
+        advance,
+        count,
     })
 }
 
-/// The glyph id and advance of U+2026 HORIZONTAL ELLIPSIS in a run's font.
-fn ellipsis_glyph(run: &parley::Run<'_, TextBrush>) -> Option<(u32, f32)> {
+/// The glyph used to draw an ellipsis in a run's font, its advance and how many times it
+/// is repeated: U+2026 HORIZONTAL ELLIPSIS once, or three full stops when the font lacks it.
+fn ellipsis_glyph(run: &parley::Run<'_, TextBrush>) -> Option<(u32, f32, usize)> {
     use skrifa::MetadataProvider as _;
     use skrifa::instance::{LocationRef, Size};
     use skrifa::raw::FontRef;
+    use skrifa::raw::types::F2Dot14;
 
     let font = run.font();
     let font_ref = FontRef::from_index(font.data.as_ref(), font.index).ok()?;
-    let id = font_ref.charmap().map('\u{2026}')?;
+    let charmap = font_ref.charmap();
+    let (id, count) = match charmap.map('\u{2026}') {
+        Some(id) => (id, 1),
+        None => (charmap.map('.')?, 3),
+    };
+    let normalized_coords: &[i16] = bytemuck::cast_slice(run.normalized_coords());
+    let coords: Vec<F2Dot14> = normalized_coords
+        .iter()
+        .map(|&coord| F2Dot14::from_bits(coord))
+        .collect();
     let advance = font_ref
-        .glyph_metrics(Size::new(run.font_size()), LocationRef::default())
+        .glyph_metrics(Size::new(run.font_size()), LocationRef::new(&coords))
         .advance_width(id)?;
-    Some((id.to_u32(), advance))
+    Some((id.to_u32(), advance, count))
 }
 
 /// Paint the decorations accumulated for one line, one line per decorating box.
@@ -709,10 +763,10 @@ pub(crate) fn stroke_text<'a>(
     for (line_index, line) in lines.enumerate() {
         let cut = ellipsis.and_then(|ellipsis| {
             let metrics = line.metrics();
-            let overflows =
-                metrics.offset + metrics.advance - metrics.hanging_advance > ellipsis.width;
+            let overflows = metrics.offset < 0.0
+                || metrics.offset + metrics.advance - metrics.hanging_advance > ellipsis.width;
             ((ellipsis.on_overflow && overflows) || ellipsis.on_line == Some(line_index))
-                .then(|| line_cut(&line, ellipsis.width))
+                .then(|| line_cut(&line, ellipsis))
                 .flatten()
         });
 
@@ -773,9 +827,7 @@ pub(crate) fn stroke_text<'a>(
                 let glyphs = || {
                     glyph_run
                         .positioned_glyphs()
-                        .filter(move |glyph| {
-                            cut.is_none_or(|cut| glyph.x + glyph.advance <= cut.max_x)
-                        })
+                        .filter(move |glyph| cut.is_none_or(|cut| cut.keeps(glyph)))
                         .map(|glyph| anyrender::Glyph {
                             id: glyph.id as _,
                             x: glyph.x,
@@ -783,7 +835,8 @@ pub(crate) fn stroke_text<'a>(
                         })
                         .chain(
                             cut.filter(|cut| cut.run_index == item_index)
-                                .map(|cut| cut.glyph),
+                                .into_iter()
+                                .flat_map(LineCut::glyphs),
                         )
                 };
 
@@ -908,8 +961,8 @@ pub(crate) fn stroke_text<'a>(
                 let mut run_x0 = glyph_run.offset() as f64;
                 let mut run_x1 = run_x0 + glyph_run.advance() as f64;
                 if let Some(cut) = cut {
-                    run_x0 = run_x0.min(cut.end as f64);
-                    run_x1 = run_x1.min(cut.end as f64);
+                    run_x0 = run_x0.max(cut.start as f64).min(cut.end as f64);
+                    run_x1 = run_x1.max(cut.start as f64).min(cut.end as f64);
                 }
 
                 for entry in stack.iter() {
@@ -958,19 +1011,24 @@ pub(crate) fn stroke_text<'a>(
 }
 
 /// Draw selection highlight rectangles for the given byte range in a layout.
-/// Uses Parley's Selection type for accurate geometry calculation.
+/// Uses Parley's Selection type for accurate geometry calculation. Lines from
+/// `visible_lines` on (those hidden by `line-clamp`) are not highlighted.
 pub(crate) fn draw_text_selection(
     scene: &mut impl PaintScene,
     layout: &Layout<TextBrush>,
     transform: Affine,
     selection_start: usize,
     selection_end: usize,
+    visible_lines: usize,
 ) {
     let anchor = Cursor::from_byte_index(layout, selection_start, Affinity::Downstream);
     let focus = Cursor::from_byte_index(layout, selection_end, Affinity::Downstream);
     let selection = Selection::new(anchor, focus);
 
-    selection.geometry_with(layout, |rect, _line_idx| {
+    selection.geometry_with(layout, |rect, line_idx| {
+        if line_idx >= visible_lines {
+            return;
+        }
         let rect = kurbo::Rect::new(rect.x0, rect.y0, rect.x1, rect.y1);
         scene.fill(Fill::NonZero, transform, SELECTION_COLOR, None, &rect);
     });

@@ -273,10 +273,56 @@ fn text_overflow_ellipsis_replaces_the_cut_off_end() {
     assert!(inked_rows(&clipped, right - 4..right + 1).contains(&midline));
 }
 
+#[test]
+fn right_to_left_text_overflow_ellipsis_cuts_the_left_end() {
+    let page = overflow_page("ellipsis").replace("<div style", r#"<div dir="rtl" style"#);
+    let mut harness = open(App::new((), &page));
+    let buffer = render(&mut harness);
+
+    let rows = inked_rows(&buffer, 0..100);
+    let midline = rows[rows.len() / 2];
+    let left = *inked_columns(&buffer)
+        .first()
+        .expect("the ellipsis line has ink");
+    assert!(left > 0);
+    assert!(
+        inked_columns(&buffer)
+            .last()
+            .is_some_and(|&right| right > 90)
+    );
+
+    let dots = inked_rows(&buffer, left..left + 5);
+    assert_ne!(dots, Vec::<usize>::new());
+    assert!(dots.iter().all(|&y| y > midline));
+}
+
 const LINE_CLAMP: &str = r#"<html><body style="margin:0;background:white">
 <div style="width:100px;font-size:20px;line-height:20px;line-clamp:2">HH HH HH HH HH HH HH HH HH</div>
 <div style="height:10px;background:rgb(255,0,0)"></div>
 </body></html>"#;
+
+const CLIPPED_LINE_CLAMP: &str = r#"<html><body style="margin:0;background:white">
+<div style="width:100px;font-size:20px;line-height:20px;line-clamp:2;background:rgb(0,0,255);background-clip:text;color:transparent">HH HH HH HH HH HH HH HH HH</div>
+</body></html>"#;
+
+fn assert_second_line_ends_in_ellipsis(buffer: &[u8]) {
+    let first_line: Vec<usize> = inked_rows(buffer, 0..100)
+        .into_iter()
+        .filter(|&y| y < 20)
+        .collect();
+    let second_midline = first_line[first_line.len() / 2] + 20;
+    let width = usize::try_from(WIDTH).expect("test width fits in usize");
+    let right = (0..width)
+        .rev()
+        .find(|&x| (20..40).any(|y| pixel(buffer, x, y) != [255, 255, 255, 255]))
+        .expect("the second line has ink");
+    let dots: Vec<usize> = inked_rows(buffer, right - 4..right + 1)
+        .into_iter()
+        .filter(|y| (20..40).contains(y))
+        .collect();
+    assert_ne!(dots, Vec::<usize>::new());
+    assert!(dots.iter().all(|&y| y > second_midline));
+}
 
 #[test]
 fn line_clamp_keeps_the_first_lines() {
@@ -286,6 +332,35 @@ fn line_clamp_keeps_the_first_lines() {
     assert_ne!(pixel(&buffer, 110, 38), [255, 0, 0, 255]);
     assert_eq!(pixel(&buffer, 110, 51), [255, 255, 255, 255]);
     assert_eq!(inked_rows(&buffer, 0..120).last(), Some(&49));
+    assert_second_line_ends_in_ellipsis(&buffer);
+}
+
+fn inline_box_page(line_clamp: &str) -> String {
+    format!(
+        r#"<html><body style="margin:0;background:white">
+<div style="width:100px;font-size:20px;line-height:20px;line-clamp:{line_clamp}">HH HH HH HH HH HH HH HH HH <span style="display:inline-block;width:20px;height:10px;background:rgb(0,200,0)"></span></div>
+</body></html>"#
+    )
+}
+
+fn has_green(buffer: &[u8]) -> bool {
+    buffer.as_chunks::<4>().0.contains(&[0, 200, 0, 255])
+}
+
+#[test]
+fn line_clamp_hides_inline_boxes_on_hidden_lines() {
+    let mut harness = open(App::new((), &inline_box_page("none")));
+    assert!(has_green(&render(&mut harness)));
+    let mut harness = open(App::new((), &inline_box_page("2")));
+    assert!(!has_green(&render(&mut harness)));
+}
+
+#[test]
+fn line_clamp_ellipsis_shows_through_background_clip_text() {
+    let mut harness = open(App::new((), CLIPPED_LINE_CLAMP));
+    let buffer = render(&mut harness);
+    assert!(inked_rows(&buffer, 0..120).last().is_some_and(|&y| y < 40));
+    assert_second_line_ends_in_ellipsis(&buffer);
 }
 
 fn render_at_scale<S: 'static>(harness: &mut Harness<Page<S>>, scale: u16) -> Vec<u8> {
