@@ -4,7 +4,11 @@ mod box_shadow;
 mod clip_path;
 mod form_controls;
 mod mask;
+mod miter;
+mod pixels;
 mod projection;
+mod ring;
+mod text_field;
 
 use blitz_dom::CopyStyleGetters;
 use std::cell::RefCell;
@@ -686,13 +690,18 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
                     filter,
                     backdrop_filter,
                     |scene| {
+                        let native_text_field = cx.has_native_text_field();
                         if paints_own_box {
-                            cx.draw_background(scene);
+                            if native_text_field {
+                                cx.draw_native_text_field(scene);
+                            } else {
+                                cx.draw_background(scene);
+                            }
                             cx.draw_inset_box_shadow(scene);
                         }
                         cx.draw_table_row_backgrounds(scene);
                         cx.draw_table_borders(scene);
-                        if paints_own_box {
+                        if paints_own_box && !native_text_field {
                             cx.draw_border(scene);
                         }
                         cx.stroke_devtools(scene);
@@ -748,6 +757,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
 
                 // Apply the CSS `mask` (if any) to the content drawn above
                 cx.transform = unscrolled_transform;
+                cx.draw_focus_ring(scene);
                 cx.maybe_pop_css_mask_layer(scene, mask_layer_pushed);
             },
         );
@@ -1111,7 +1121,15 @@ impl ElementCx<'_, '_> {
                         &convert_rect(rect),
                     );
                 }
-                if let Some(cursor) = input_data.editor.cursor_geometry(1.5) {
+                if let Some(cursor) = input_data.editor.cursor_geometry(0.0)
+                    && let Some(layout) = input_data.editor.try_layout()
+                {
+                    let origin =
+                        Vec2::new(pos.x * self.scale - scroll_x, pos.y * self.scale - scroll_y);
+                    let centred =
+                        !input_data.is_multiline && input_data.editor.raw_text().is_empty();
+                    let caret =
+                        text_field::caret_rect(layout, &cursor, self.scale, origin, centred);
                     let color = self.style.get_inherited_text().color;
                     let caret_color = match &self.style.get_inherited_ui().caret_color.0 {
                         ColorOrAuto::Auto => color,
@@ -1123,7 +1141,7 @@ impl ElementCx<'_, '_> {
                         transform,
                         caret_color.as_srgb_color(),
                         None,
-                        &convert_rect(&cursor),
+                        &caret,
                     );
                 };
             }

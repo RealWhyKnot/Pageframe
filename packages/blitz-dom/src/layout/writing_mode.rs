@@ -224,14 +224,18 @@ impl LayoutPassState<'_> {
     /// physical coordinates and round it into `final_layout`. Mirrors `taffy::round_layout`,
     /// which it replaces: rounding is applied to cumulative physical positions so that adjacent
     /// boxes never gain gaps or overlaps.
-    pub(crate) fn physicalise_and_round_layout(&mut self, root: NodeId) {
+    pub(crate) fn physicalise_and_round_layout(
+        &mut self,
+        root: NodeId,
+        snap: super::round::DeviceSnap,
+    ) {
         let viewport = self.stylist.device().au_viewport_size();
         let viewport = Size {
             width: viewport.width.to_f32_px(),
             height: viewport.height.to_f32_px(),
         };
         let root_wm = self.layout_wm_of(dom_node_id(root));
-        self.physicalise_and_round_inner(root, root_wm, viewport, Point::ZERO, Point::ZERO);
+        self.physicalise_and_round_inner(root, root_wm, viewport, Point::ZERO, Point::ZERO, snap);
     }
 
     fn physicalise_and_round_inner(
@@ -241,6 +245,7 @@ impl LayoutPassState<'_> {
         placer_size: Size<f32>,
         parent_pos: Point<f32>,
         rounded_parent_pos: Point<f32>,
+        snap: super::round::DeviceSnap,
     ) {
         let node = &self.doc.nodes[dom_node_id(node_id)];
         let overflow = node.layout_style().overflow();
@@ -261,17 +266,17 @@ impl LayoutPassState<'_> {
         // As in `taffy::round_layout`: the box's outer edges are rounded in absolute coordinates and
         // every inner edge is rounded relative to them, so adjacent boxes never overlap or gap.
         let rounded_pos = Point {
-            x: pos.x.round(),
-            y: pos.y.round(),
+            x: snap.round(pos.x),
+            y: snap.round(pos.y),
         };
         let rounded_end = Point {
-            x: (pos.x + size.width).round(),
-            y: (pos.y + size.height).round(),
+            x: snap.round(pos.x + size.width),
+            y: snap.round(pos.y + size.height),
         };
-        let from_left = |v: f32| (pos.x + v).round() - rounded_pos.x;
-        let from_top = |v: f32| (pos.y + v).round() - rounded_pos.y;
-        let from_right = |v: f32| rounded_end.x - (pos.x + size.width - v).round();
-        let from_bottom = |v: f32| rounded_end.y - (pos.y + size.height - v).round();
+        let from_left = |v: f32| snap.round(pos.x + v) - rounded_pos.x;
+        let from_top = |v: f32| snap.round(pos.y + v) - rounded_pos.y;
+        let from_right = |v: f32| rounded_end.x - snap.round(pos.x + size.width - v);
+        let from_bottom = |v: f32| rounded_end.y - snap.round(pos.y + size.height - v);
 
         let mut layout = unrounded;
         layout.location = Point {
@@ -282,7 +287,7 @@ impl LayoutPassState<'_> {
             width: rounded_end.x - rounded_pos.x,
             height: rounded_end.y - rounded_pos.y,
         };
-        layout.scrollbar_size = unrounded.scrollbar_size.map(f32::round);
+        layout.scrollbar_size = unrounded.scrollbar_size.map(|length| snap.round(length));
         layout.border = taffy::Rect {
             left: from_left(unrounded.border.left),
             right: from_right(unrounded.border.right),
@@ -318,28 +323,19 @@ impl LayoutPassState<'_> {
         self.set_final_layout(node_id, &layout);
 
         let wm = self.layout_wm_of(dom_node_id(node_id));
-        let node = self.node_from_id_mut(node_id);
-        node.layout_data_mut().writing_mode = wm;
-        if let Some(element) = node.element_data_mut() {
-            if let Some(inline_layout) = element.inline_layout_data.as_mut() {
-                inline_layout.content_box_subpixel_offset = content_box_subpixel_offset;
-            }
-            if let Some(list_item) = element.list_item_data.as_mut() {
-                list_item.content_box_subpixel_offset = content_box_subpixel_offset;
-            }
-            if let Some(text_input) = element.text_input_data_mut() {
-                text_input.content_box_subpixel_offset = content_box_subpixel_offset;
-            }
-        }
+        self.node_from_id_mut(node_id)
+            .layout_data_mut()
+            .writing_mode = wm;
+        self.set_content_box_subpixel_offset(node_id, content_box_subpixel_offset);
         for index in 0..self.child_count(node_id) {
             let child = self.get_child_id(node_id, index);
             if !self.is_out_of_flow(child) {
-                self.physicalise_and_round_inner(child, wm, size, pos, rounded_pos);
+                self.physicalise_and_round_inner(child, wm, size, pos, rounded_pos, snap);
             }
         }
         for index in 0..self.hoisted_child_count(node_id) {
             let child = self.get_hoisted_child_id(node_id, index);
-            self.physicalise_and_round_inner(child, wm, size, pos, rounded_pos);
+            self.physicalise_and_round_inner(child, wm, size, pos, rounded_pos, snap);
         }
     }
 }

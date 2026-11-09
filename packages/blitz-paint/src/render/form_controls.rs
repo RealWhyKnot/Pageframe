@@ -77,12 +77,11 @@ impl ElementCx<'_, '_> {
                 .resolve_to_absolute(&self.style.get_inherited_text().color)
                 .as_srgb_color(),
         };
-        let checked_foreground =
-            if contrast_ratio(accent, Color::WHITE) < MIN_FOREGROUND_CONTRAST {
-                DARK_FOREGROUND
-            } else {
-                Color::WHITE
-            };
+        let checked_foreground = if contrast_ratio(accent, Color::WHITE) < MIN_FOREGROUND_CONTRAST {
+            DARK_FOREGROUND
+        } else {
+            Color::WHITE
+        };
         ControlColors {
             accent,
             border: BORDER,
@@ -105,10 +104,26 @@ fn draw_checkbox(
     colors: &ControlColors,
 ) {
     if !checked {
-        let background = rect.inset(-0.2 * BORDER_WIDTH).to_rounded_rect(CHECKBOX_RADIUS);
-        scene.fill(Fill::NonZero, transform, colors.background, None, &background);
-        let border = rect.inset(-BORDER_WIDTH / 2.0).to_rounded_rect(CHECKBOX_RADIUS);
-        scene.stroke(&Stroke::new(BORDER_WIDTH), transform, colors.border, None, &border);
+        let background = rect
+            .inset(-0.2 * BORDER_WIDTH)
+            .to_rounded_rect(CHECKBOX_RADIUS);
+        scene.fill(
+            Fill::NonZero,
+            transform,
+            colors.background,
+            None,
+            &background,
+        );
+        let border = rect
+            .inset(-BORDER_WIDTH / 2.0)
+            .to_rounded_rect(CHECKBOX_RADIUS);
+        scene.stroke(
+            &Stroke::new(BORDER_WIDTH),
+            transform,
+            colors.border,
+            None,
+            &border,
+        );
         return;
     }
 

@@ -10,72 +10,75 @@ use style::{
 };
 
 use crate::{
-    color::{ToColorColor as _, contrast_ratio},
-    kurbo_css::Edge,
-    render::{ElementCx, PhysicalTracks},
+    color::ToColorColor as _,
+    kurbo_css::{CssBox, Edge},
+    render::{
+        ElementCx, PhysicalTracks,
+        miter::{Side, SideShape, paint_order},
+    },
 };
 
-/// A darker version of a colour (mirrors WebKit/Blink's `Color::Dark`): the
-/// brightest channel is reduced by a fixed amount and the others scaled to match,
-/// preserving hue.
-fn darken(color: Color) -> Color {
+const CHANNEL_SCALE: f32 = 255.999_98;
+const DARK_THRESHOLD: f32 = 3.0 * 32.0 * 32.0;
+const LIGHT_THRESHOLD: f32 = 3.0 * 20.0 * 20.0;
+const LIGHTENED_BLACK: f32 = 84.0 / 255.0;
+
+fn byte_channels(color: Color) -> [f32; 4] {
     let [r, g, b, a] = color.components;
+    [
+        (r * 255.0).round() / 255.0,
+        (g * 255.0).round() / 255.0,
+        (b * 255.0).round() / 255.0,
+        a,
+    ]
+}
+
+fn scaled(r: f32, g: f32, b: f32, a: f32, multiplier: f32) -> Color {
+    let channel = |value: f32| (value * multiplier * CHANNEL_SCALE).floor() / 255.0;
+    Color::new([channel(r), channel(g), channel(b), a])
+}
+
+fn darken(color: Color) -> Color {
+    let [r, g, b, a] = byte_channels(color);
     let v = r.max(g).max(b);
     if v == 0.0 {
         return color;
     }
-    let multiplier = ((v - 0.33) / v).max(0.0);
-    Color::new([r * multiplier, g * multiplier, b * multiplier, a])
+    scaled(r, g, b, a, ((v - 0.33) / v).max(0.0))
 }
 
-/// A lighter version of a colour (mirrors WebKit/Blink's `Color::Light`): the
-/// brightest channel is increased by a fixed amount and the others scaled to
-/// match, preserving hue.
 fn lighten(color: Color) -> Color {
-    let [r, g, b, a] = color.components;
+    let [r, g, b, a] = byte_channels(color);
     let v = r.max(g).max(b);
     if v == 0.0 {
-        // Pure black: WebKit uses a fixed dark grey (0x545454).
-        return Color::new([0.33, 0.33, 0.33, a]);
+        return Color::new([LIGHTENED_BLACK, LIGHTENED_BLACK, LIGHTENED_BLACK, a]);
     }
-    let multiplier = (v + 0.33).min(1.0) / v;
-    Color::new([r * multiplier, g * multiplier, b * multiplier, a])
+    scaled(r, g, b, a, (v + 0.33).min(1.0) / v)
 }
 
-/// The colour of a single edge of an `inset`/`outset` border.
-///
-/// An `outset` border is raised: the top/left edges use the "lighter" shade and
-/// the bottom/right edges the "darker" shade (`inset` is the reverse). The exact
-/// shading matches Chrome's `CalculateInsetOutsetColor`:
-///
-/// * The darker edge is always darkened.
-/// * The lighter edge keeps the base colour unchanged, *except* for colours dark
-///   enough that the darkened edge wouldn't have enough contrast against the base
-///   colour, which are lightened instead so the bevel stays visible.
+fn squared_distance(color: Color, target: f32) -> f32 {
+    let [r, g, b, _] = byte_channels(color);
+    [r, g, b]
+        .iter()
+        .map(|channel| ((channel - target) * 255.0).round().powi(2))
+        .sum()
+}
+
 fn beveled_edge_color(color: Color, edge: Edge, inset: bool) -> Color {
     let top_or_left = matches!(edge, Edge::Top | Edge::Left);
-    let should_darken = top_or_left == inset;
-
-    let dark_color = darken(color);
-    if should_darken {
-        return dark_color;
-    }
-
-    // Lighter edge. Chrome uses the base colour as-is unless the colour is dark
-    // enough that the darkened edge lacks contrast against it. The red/green
-    // shortcut mirrors Chrome: for those colours the contrast is always
-    // sufficient, so the base colour is used without a contrast check.
-    let [r, g, _, _] = color.components;
-    if r >= 150.0 / 255.0 || g >= 92.0 / 255.0 {
-        return color;
-    }
-
-    // Lighten only when the darkened edge would be too low-contrast to read.
-    const MIN_CONTRAST_RATIO: f32 = 1.75;
-    if contrast_ratio(color, dark_color) < MIN_CONTRAST_RATIO {
-        lighten(color)
+    let (base, dark) = if squared_distance(color, 0.0) <= DARK_THRESHOLD {
+        let lightened = lighten(color);
+        (lightened, lightened)
     } else {
-        color
+        (color, darken(color))
+    };
+    if top_or_left == inset {
+        return dark;
+    }
+    if squared_distance(base, 1.0) >= LIGHT_THRESHOLD {
+        lighten(base)
+    } else {
+        base
     }
 }
 
@@ -227,15 +230,8 @@ impl ElementCx<'_, '_> {
             }
         }
 
-        // (colour, path) pairs to be filled. Several entries may share a colour;
-        // they are grouped before filling so that adjacent same-coloured regions
-        // are drawn together, avoiding anti-aliasing seams between them.
-        //
-        // At most 8 entries: 4 edges, each of which can contribute 2 (the outer
-        // and inner halves of a `groove`/`ridge`).
-        let mut borders: SmallVec<[(Color, BezPath); 8]> = SmallVec::new();
-
-        for &edge in &[Edge::Top, Edge::Right, Edge::Bottom, Edge::Left] {
+        let mut sides: SmallVec<[Side; 4]> = SmallVec::new();
+        for edge in [Edge::Top, Edge::Right, Edge::Bottom, Edge::Left] {
             let (color, edge_style) = match edge {
                 Edge::Top => (&border.border_top_color, border.border_top_style),
                 Edge::Right => (&border.border_right_color, border.border_right_style),
@@ -243,89 +239,46 @@ impl ElementCx<'_, '_> {
                 Edge::Left => (&border.border_left_color, border.border_left_style),
             };
             let color = color.resolve_to_absolute(&current_color).as_srgb_color();
-
-            if color.components[3] <= 0.0 {
-                continue;
+            let hidden = matches!(edge_style, BorderStyle::None | BorderStyle::Hidden);
+            if color.components[3] > 0.0 && !hidden && self.edge_width(edge) > 0.0 {
+                sides.push((edge, edge_style, color));
             }
+        }
+        sides.sort_by(|a, b| paint_order(a).total_cmp(&paint_order(b)));
+
+        let mut borders: SmallVec<[(Color, BezPath); 8]> = SmallVec::new();
+        for (index, &(edge, edge_style, color)) in sides.iter().enumerate() {
+            let side_shape = SideShape::new(&self.frame, self.transform, &sides, index);
+            let shape = |frame: &CssBox| side_shape.path(frame, edge);
 
             match edge_style {
-                // `none`/`hidden` produce a zero-width border during layout, but
-                // guard against drawing them anyway.
                 BorderStyle::None | BorderStyle::Hidden => {}
-
-                // Dashed and dotted edges are drawn immediately as their own
-                // (clipped) shapes rather than being batched with the solid edges.
                 BorderStyle::Dotted => self.draw_dotted_border_edge(scene, edge, color),
                 BorderStyle::Dashed => self.draw_dashed_border_edge(scene, edge, color),
-
-                // A double border is two solid lines separated by a gap, splitting
-                // the border width into three equal parts (outer line / gap / inner
-                // line). Both lines share a color, so both rings are placed into a
-                // single path.
                 BorderStyle::Double => {
-                    // Needs at least 3px (one device pixel per line and per gap) to
-                    // render as two lines; thinner borders fall back to a solid
-                    // fill, matching browser behaviour.
                     let path = if self.edge_width(edge) < 3.0 * self.scale {
-                        self.frame.border_edge_shape(edge)
+                        shape(&self.frame)
                     } else {
-                        let mut path = self
-                            .frame
-                            .border_slice(0.0, 1.0 / 3.0)
-                            .border_edge_shape(edge);
-                        path.extend(
-                            &self
-                                .frame
-                                .border_slice(2.0 / 3.0, 1.0)
-                                .border_edge_shape(edge),
-                        );
+                        let mut path = shape(&self.frame.border_slice(0.0, 1.0 / 3.0));
+                        path.extend(&shape(&self.frame.border_slice(2.0 / 3.0, 1.0)));
                         path
                     };
                     borders.push((color, path));
                 }
-
-                // `inset`/`outset` are solid, but each edge is shaded lighter or
-                // darker to give a bevelled (3D) appearance.
                 BorderStyle::Inset | BorderStyle::Outset => {
                     let inset = edge_style == BorderStyle::Inset;
                     let shade = beveled_edge_color(color, edge, inset);
-                    borders.push((shade, self.frame.border_edge_shape(edge)));
+                    borders.push((shade, shape(&self.frame)));
                 }
-
-                // `groove`/`ridge` split each edge into an outer and an inner half,
-                // each shaded as if it were `inset`/`outset`, producing a carved or
-                // raised ridge.
                 BorderStyle::Groove | BorderStyle::Ridge => {
                     let ridge = edge_style == BorderStyle::Ridge;
                     let (outer, inner) = grooved_edge_colors(color, edge, ridge);
-                    borders.push((
-                        outer,
-                        self.frame.border_slice(0.0, 0.5).border_edge_shape(edge),
-                    ));
-                    borders.push((
-                        inner,
-                        self.frame.border_slice(0.5, 1.0).border_edge_shape(edge),
-                    ));
+                    borders.push((outer, shape(&self.frame.border_slice(0.0, 0.5))));
+                    borders.push((inner, shape(&self.frame.border_slice(0.5, 1.0))));
                 }
-
-                // Solid fills the whole edge region with the border colour.
-                BorderStyle::Solid => {
-                    borders.push((color, self.frame.border_edge_shape(edge)));
-                }
+                BorderStyle::Solid => borders.push((color, shape(&self.frame))),
             }
         }
-
-        if borders.is_empty() {
-            return;
-        }
-
-        // Group together identical colors by sorting, then fill each group as a
-        // single path.
-        borders.sort_unstable_by(|a, b| {
-            a.0.components
-                .partial_cmp(&b.0.components)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
 
         let mut start = 0;
         while start < borders.len() {

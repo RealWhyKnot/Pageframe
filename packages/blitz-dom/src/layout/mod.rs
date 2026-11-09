@@ -29,6 +29,7 @@ pub(crate) mod inline;
 pub(crate) mod list;
 pub(crate) mod paint_tree;
 pub(crate) mod replaced;
+pub(crate) mod round;
 pub(crate) mod table;
 pub(crate) mod text_transform;
 #[cfg(feature = "writing-mode")]
@@ -218,6 +219,24 @@ impl LayoutPassState<'_> {
     }
     fn node_from_id_mut(&mut self, node_id: taffy::prelude::NodeId) -> &mut Node {
         &mut self.nodes[dom_node_id(node_id)]
+    }
+    fn set_content_box_subpixel_offset(
+        &mut self,
+        node_id: taffy::prelude::NodeId,
+        offset: taffy::Point<f32>,
+    ) {
+        let Some(element) = self.node_from_id_mut(node_id).element_data_mut() else {
+            return;
+        };
+        if let Some(inline_layout) = element.inline_layout_data.as_mut() {
+            inline_layout.content_box_subpixel_offset = offset;
+        }
+        if let Some(list_item) = element.list_item_data.as_mut() {
+            list_item.content_box_subpixel_offset = offset;
+        }
+        if let Some(text_input) = element.text_input_data_mut() {
+            text_input.content_box_subpixel_offset = offset;
+        }
     }
 }
 

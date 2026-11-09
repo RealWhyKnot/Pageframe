@@ -61,12 +61,17 @@ input[type="hidden" i] {
 
 input,
 textarea {
-    border: 1px solid #999;
-    padding: 2px 3px;
+    appearance: auto;
     background-color: white;
 }
 
+input {
+    border: 2px inset #767676;
+    padding: 1px 2px;
+}
+
 textarea {
+    border: 1px solid #767676;
     padding: 2px;
 }
 
@@ -134,7 +139,8 @@ select {
 
 input:focus,
 textarea:focus {
-    outline: 2px solid #4D90FE;
+    outline: auto 1px #101010;
+    outline-offset: 0;
 }
 
 button,

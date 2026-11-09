@@ -14,12 +14,19 @@ mod non_uniform_radii;
 pub use css_box::CssBox;
 pub use non_uniform_radii::NonUniformRoundedRectRadii;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Edge {
     Top,
     Right,
     Bottom,
     Left,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EdgeEnd {
+    Mitered,
+    Full,
+    Butt,
 }
 
 #[derive(Debug, Clone, Copy)]

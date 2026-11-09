@@ -2,7 +2,7 @@ use kurbo::{Arc, BezPath, Insets, PathEl, Point, Rect, Shape as _, Vec2};
 use std::{f64::consts::FRAC_PI_2, f64::consts::PI};
 
 use super::non_uniform_radii::NonUniformRoundedRectRadii;
-use super::{Corner, CssBoxKind, Direction, Edge, add_insets, get_corner_insets};
+use super::{Corner, CssBoxKind, Direction, Edge, EdgeEnd, add_insets, get_corner_insets};
 
 /// There are several nested boxes at play here:
 /// We have 4 boxes, 4 corners, and clockwise/anticlockwise for a total of 16 different options
@@ -96,6 +96,10 @@ impl CssBox {
     /// - jumping to the next outer arc (completing the edge with the previous)
     /// - drawing an inner arc
     pub fn border_edge_shape(&self, edge: Edge) -> BezPath {
+        self.border_edge_shape_with_ends(edge, [EdgeEnd::Mitered; 2])
+    }
+
+    pub fn border_edge_shape_with_ends(&self, edge: Edge, ends: [EdgeEnd; 2]) -> BezPath {
         use {Corner::*, CssBoxKind::*, Direction::*, Edge::*};
 
         let mut path = BezPath::new();
@@ -110,8 +114,9 @@ impl CssBox {
         // 1. First corner
         // if the radius is bigger than the border, we need to draw the inner arc to fill in the gap
         if self.is_sharp(c0, BorderBox) {
-            path.move_to(self.corner(c0, PaddingBox));
-            path.line_to(self.corner(c0, BorderBox));
+            let (inner, outer) = self.edge_corner(c0, edge, ends[0]);
+            path.move_to(inner);
+            path.line_to(outer);
         } else {
             match self.corner_needs_infill(c0) {
                 true => {
@@ -124,8 +129,9 @@ impl CssBox {
 
         // 2. Second corner
         if self.is_sharp(c1, BorderBox) {
-            path.line_to(self.corner(c1, BorderBox));
-            path.line_to(self.corner(c1, PaddingBox));
+            let (inner, outer) = self.edge_corner(c1, edge, ends[1]);
+            path.line_to(outer);
+            path.line_to(inner);
         } else {
             path.insert_arc(self.partial_corner_arc(c1, BorderBox, edge, Clockwise));
             match self.corner_needs_infill(c1) {
@@ -137,6 +143,19 @@ impl CssBox {
         }
 
         path
+    }
+
+    fn edge_corner(&self, corner: Corner, edge: Edge, end: EdgeEnd) -> (Point, Point) {
+        let inner = self.corner(corner, CssBoxKind::PaddingBox);
+        let outer = self.corner(corner, CssBoxKind::BorderBox);
+        let horizontal = matches!(edge, Edge::Top | Edge::Bottom);
+        match (end, horizontal) {
+            (EdgeEnd::Mitered, _) => (inner, outer),
+            (EdgeEnd::Full, true) => (Point::new(outer.x, inner.y), outer),
+            (EdgeEnd::Full, false) => (Point::new(inner.x, outer.y), outer),
+            (EdgeEnd::Butt, true) => (inner, Point::new(inner.x, outer.y)),
+            (EdgeEnd::Butt, false) => (inner, Point::new(outer.x, inner.y)),
+        }
     }
 
     /// Whether any corner of this box has a non-zero border radius.
