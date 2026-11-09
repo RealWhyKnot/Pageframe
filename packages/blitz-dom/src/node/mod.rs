@@ -5,6 +5,7 @@ mod attributes;
 mod custom_widget;
 mod element;
 mod node;
+pub(crate) mod resizer;
 pub(crate) mod scrollbar;
 mod serialize;
 mod stylo_data;
@@ -24,6 +25,7 @@ pub use element::{
     SpecialElementType, Status,
 };
 pub use node::*;
+pub use resizer::{OverflowControl, RESIZER_SIZE, resizer_size};
 pub use scrollbar::{ScrollbarColor, ScrollbarRef, ScrollbarWidth};
 pub use stylo_data::ComputedStyleRef;
 #[cfg(feature = "svg")]

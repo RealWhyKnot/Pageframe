@@ -7,6 +7,7 @@ mod mask;
 mod miter;
 mod pixels;
 mod projection;
+mod resizer;
 mod ring;
 mod text_field;
 
@@ -757,6 +758,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
 
                 // Apply the CSS `mask` (if any) to the content drawn above
                 cx.transform = unscrolled_transform;
+                cx.draw_resizer(scene);
                 cx.draw_focus_ring(scene);
                 cx.maybe_pop_css_mask_layer(scene, mask_layer_pushed);
             },

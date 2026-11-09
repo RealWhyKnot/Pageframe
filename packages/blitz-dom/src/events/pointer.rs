@@ -62,6 +62,14 @@ pub(crate) enum DragMode {
     Panning(PanState),
     /// We are currently dragging a scrollbar thumb
     ScrollbarDrag(ScrollbarDragState),
+    Resize(ResizeDragState),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ResizeDragState {
+    pub(crate) node_id: NodeId,
+    pub(crate) start: (f64, f64),
+    pub(crate) start_size: (f64, f64),
 }
 
 impl DragMode {
@@ -277,6 +285,11 @@ pub(crate) fn handle_pointermove<F: FnMut(DomEvent)>(
         return has_changed;
     }
 
+    if let DragMode::Resize(state) = doc.drag_mode {
+        resize_to(doc, state, x, y);
+        return changed;
+    }
+
     if let DragMode::ScrollbarDrag(state) = &mut doc.drag_mode {
         let ScrollbarRef { node_id, axis } = state.scrollbar;
         let pos = match axis {
@@ -421,7 +434,12 @@ pub(crate) fn handle_pointerdown(
     // are not dispatched to the page (matching native scrollbars). A
     // faded-out thumb doesn't capture: the click goes to the content.
     if button == MouseEventButton::Main {
-        if let (_, Some(scrollbar)) = doc.hit_with_scrollbar(x, y)
+        let control = doc.hit_with_control(x, y).1;
+        if let Some(node_id) = control.and_then(crate::node::OverflowControl::resizer) {
+            start_resize(doc, node_id, x, y);
+            return;
+        }
+        if let Some(scrollbar) = control.and_then(crate::node::OverflowControl::scrollbar)
             && doc.scrollbar_opacity(scrollbar.node_id) > 0.0
         {
             doc.drag_mode = DragMode::ScrollbarDrag(ScrollbarDragState {
@@ -577,7 +595,7 @@ pub(crate) fn handle_pointerup<F: FnMut(DomEvent)>(
 
     // Don't dispatch click if we were doing a text selection drag or panning
     // the document with a touch
-    let do_click = drag_mode == DragMode::None;
+    let do_click = matches!(drag_mode, DragMode::None | DragMode::Resize(_));
 
     // Repaint so a dragged scrollbar thumb drops its active styling, and
     // restart its fade-out delay now that the drag no longer holds it shown
@@ -846,5 +864,93 @@ pub(crate) fn handle_wheel<F: FnMut(DomEvent)>(
     );
     if has_changed {
         doc.shell_provider.request_redraw();
+    }
+}
+
+fn resize_local(doc: &BaseDocument, node_id: NodeId, x: f32, y: f32) -> (f64, f64) {
+    let node = &doc.nodes[node_id];
+    let scroll = node.scroll_offset();
+    let origin = node.absolute_position(0.0, 0.0);
+    let scale = doc.viewport().scale_f64();
+    (
+        ((f64::from(x) - f64::from(origin.x) - scroll.x) * scale).floor(),
+        ((f64::from(y) - f64::from(origin.y) - scroll.y) * scale).floor(),
+    )
+}
+
+fn device_size(doc: &BaseDocument, node_id: NodeId) -> (f64, f64) {
+    let size = doc.nodes[node_id].final_layout().size;
+    let scale = doc.viewport().scale_f64();
+    (
+        (f64::from(size.width) * scale).round(),
+        (f64::from(size.height) * scale).round(),
+    )
+}
+
+fn start_resize(doc: &mut BaseDocument, node_id: NodeId, x: f32, y: f32) {
+    doc.drag_mode = DragMode::Resize(ResizeDragState {
+        node_id,
+        start: resize_local(doc, node_id, x, y),
+        start_size: device_size(doc, node_id),
+    });
+    doc.update_cursor();
+}
+
+fn resize_to(doc: &mut BaseDocument, state: ResizeDragState, x: f32, y: f32) {
+    use style::computed_values::box_sizing::T as BoxSizing;
+    use style::values::computed::Resize;
+    let node_id = state.node_id;
+    let Some(node) = doc.nodes.get(node_id) else {
+        return;
+    };
+    let resize = node.resize();
+    let Some(style) = node.primary_styles() else {
+        return;
+    };
+    if resize == Resize::None {
+        return;
+    }
+    let border_box = style.clone_box_sizing() == BoxSizing::BorderBox;
+    drop(style);
+    let on_left = node.resizer_on_left();
+    let layout = node.final_layout();
+    let scale = doc.viewport().scale_f64();
+    let current = (f64::from(layout.size.width), f64::from(layout.size.height));
+    let edges = |sides: [f32; 4]| {
+        if border_box {
+            0.0
+        } else {
+            sides.into_iter().map(f64::from).sum()
+        }
+    };
+    let extra_w = edges([
+        layout.border.left,
+        layout.border.right,
+        layout.padding.left,
+        layout.padding.right,
+    ]);
+    let extra_h = edges([
+        layout.border.top,
+        layout.border.bottom,
+        layout.padding.top,
+        layout.padding.bottom,
+    ]);
+    let local = resize_local(doc, node_id, x, y);
+    let device_w = if on_left {
+        device_size(doc, node_id).0 - local.0 + state.start.0
+    } else {
+        local.0 - state.start.0 + state.start_size.0
+    };
+    let device_h = local.1 - state.start.1 + state.start_size.1;
+    let minimum = crate::node::resizer_size(scale) / scale;
+    let diff_w = (device_w / scale).trunc().max(minimum) - current.0;
+    let diff_h = (device_h / scale).trunc().max(minimum) - current.1;
+    if diff_w != 0.0 && resize != Resize::Vertical {
+        let width = (current.0 - extra_w + diff_w).round();
+        doc.set_style_property(node_id, "width", &format!("{width}px"));
+    }
+    if diff_h != 0.0 && resize != Resize::Horizontal {
+        let height = (current.1 - extra_h + diff_h).round();
+        doc.set_style_property(node_id, "height", &format!("{height}px"));
     }
 }

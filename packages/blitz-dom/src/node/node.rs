@@ -1425,16 +1425,12 @@ impl Node {
         self.hit_inner(x, y, scale, &mut None)
     }
 
-    /// [`hit`](Self::hit), also resolving the innermost overlay scrollbar
-    /// thumb under the point into `scrollbar` during the same descent (so
-    /// thumb hit-testing shares the exact coordinate handling — transforms
-    /// included — of every other hit test).
     pub(crate) fn hit_inner(
         &self,
         x: f32,
         y: f32,
         scale: f64,
-        scrollbar: &mut Option<crate::node::ScrollbarRef>,
+        control: &mut Option<crate::node::OverflowControl>,
     ) -> Option<HitResult> {
         use style::computed_values::pointer_events::T as PointerEvents;
         use style::computed_values::visibility::T as Visibility;
@@ -1529,13 +1525,14 @@ impl Node {
 
         // Descendants overwrite, so the innermost scroll container's thumb
         // wins. Thumb coords are border-box relative (unscrolled).
-        if matches_self
-            && let Some(sb) = self.scrollbar_at_local(
-                (x - self.scroll_offset().x as f32) as f64,
-                (y - self.scroll_offset().y as f32) as f64,
-            )
-        {
-            *scrollbar = Some(sb);
+        if matches_self {
+            let local_x = f64::from(x) - self.scroll_offset().x;
+            let local_y = f64::from(y) - self.scroll_offset().y;
+            if let Some(node_id) = self.resizer_at_local(local_x, local_y, scale) {
+                *control = Some(crate::node::OverflowControl::Resizer(node_id));
+            } else if let Some(sb) = self.scrollbar_at_local(local_x, local_y) {
+                *control = Some(crate::node::OverflowControl::Scrollbar(sb));
+            }
         }
 
         // Text clusters and callers of the returned coordinates work in the
@@ -1563,7 +1560,7 @@ impl Node {
                     let pos = hoisted_child.position(self.tree(), self.id);
                     let x = x - pos.x;
                     let y = y - pos.y;
-                    if let Some(hit) = child.hit_inner(x, y, scale, scrollbar) {
+                    if let Some(hit) = child.hit_inner(x, y, scale, control) {
                         return Some(hit);
                     }
                 }
@@ -1594,7 +1591,7 @@ impl Node {
                 child_x -= offset.x;
                 child_y -= offset.y;
             }
-            if let Some(hit) = child.hit_inner(child_x, child_y, scale, scrollbar) {
+            if let Some(hit) = child.hit_inner(child_x, child_y, scale, control) {
                 return Some(hit);
             }
         }
@@ -1609,7 +1606,7 @@ impl Node {
                     let pos = hoisted_child.position(self.tree(), self.id);
                     let x = x - pos.x;
                     let y = y - pos.y;
-                    if let Some(hit) = child.hit_inner(x, y, scale, scrollbar) {
+                    if let Some(hit) = child.hit_inner(x, y, scale, control) {
                         return Some(hit);
                     }
                 }

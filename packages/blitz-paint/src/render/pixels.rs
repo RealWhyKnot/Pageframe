@@ -1,6 +1,6 @@
 use crate::color::Color;
 use anyrender::PaintScene;
-use kurbo::{Affine, Rect, Vec2};
+use kurbo::{Affine, Point, Rect, Vec2};
 use peniko::Fill;
 
 pub(super) type Pixels = Vec<Span>;
@@ -10,6 +10,15 @@ pub(super) struct Span {
     pub(super) row: f64,
     pub(super) start: f64,
     pub(super) end: f64,
+}
+
+pub(super) fn snap_offset(transform: Affine, origin: Point) -> Vec2 {
+    let [a, b, c, d, _, _] = transform.as_coeffs();
+    if a != 1.0 || b != 0.0 || c != 0.0 || d != 1.0 {
+        return Vec2::ZERO;
+    }
+    let device = transform * origin;
+    Vec2::new(device.x.round() - device.x, device.y.round() - device.y)
 }
 
 pub(super) fn device_space(transform: Affine, rect: Rect) -> (Affine, Rect) {

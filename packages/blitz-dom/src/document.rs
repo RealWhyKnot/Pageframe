@@ -365,6 +365,7 @@ pub struct BaseDocument {
     pub(crate) drag_mode: DragMode,
     /// The scrollbar thumb currently under the pointer, if any
     pub(crate) hovered_scrollbar: Option<crate::node::ScrollbarRef>,
+    pub(crate) hovered_resizer: Option<NodeId>,
     /// When each scroll container's overlay scrollbars were last shown
     /// (scrolled, or the pointer left the thumb); drives their fade-out
     pub(crate) scrollbar_activity: HashMap<NodeId, Instant>,
@@ -595,6 +596,7 @@ impl BaseDocument {
             click_count: 0,
             drag_mode: DragMode::None,
             hovered_scrollbar: None,
+            hovered_resizer: None,
             scrollbar_activity: HashMap::new(),
             scroll_animation: ScrollAnimationState::None,
             text_selection: TextSelection::default(),
@@ -1067,9 +1069,13 @@ impl BaseDocument {
         {
             self.hovered_scrollbar = None;
         }
+        if self.hovered_resizer == Some(node_id) {
+            self.hovered_resizer = None;
+        }
         let drag_references_node = match &self.drag_mode {
             DragMode::Panning(state) => state.target == node_id,
             DragMode::ScrollbarDrag(state) => state.scrollbar.node_id == node_id,
+            DragMode::Resize(state) => state.node_id == node_id,
             DragMode::Selecting | DragMode::None => false,
         };
         if drag_references_node {
@@ -1706,7 +1712,7 @@ impl BaseDocument {
 
     // Takes (x, y) co-ordinates (relative to the )
     pub fn hit(&self, x: f32, y: f32) -> Option<HitResult> {
-        self.hit_with_scrollbar(x, y).0
+        self.hit_with_control(x, y).0
     }
 
     /// The topmost element at viewport coordinates (x, y), or `None` if the point
@@ -1983,14 +1989,11 @@ impl BaseDocument {
             .any(|last| last.elapsed() < FADE_DELAY + FADE_DURATION)
     }
 
-    /// [`hit`](Self::hit), also resolving the innermost overlay scrollbar
-    /// thumb under the point (shares the traversal, so it costs nothing
-    /// extra).
-    pub(crate) fn hit_with_scrollbar(
+    pub(crate) fn hit_with_control(
         &self,
         x: f32,
         y: f32,
-    ) -> (Option<HitResult>, Option<crate::node::ScrollbarRef>) {
+    ) -> (Option<HitResult>, Option<crate::node::OverflowControl>) {
         if TDocument::as_node(&self.root_node())
             .first_element_child()
             .is_none()
@@ -1999,11 +2002,11 @@ impl BaseDocument {
             tracing::warn!("No DOM - not resolving hit test");
             return (None, None);
         }
-        let mut scrollbar = None;
+        let mut control = None;
         let hit = self
             .root_element()
-            .hit_inner(x, y, self.viewport().scale_f64(), &mut scrollbar);
-        (hit, scrollbar)
+            .hit_inner(x, y, self.viewport().scale_f64(), &mut control);
+        (hit, control)
     }
 
     pub fn set_hover_to(&mut self, x: f32, y: f32) -> bool {
@@ -2015,7 +2018,9 @@ impl BaseDocument {
             y: y - self.viewport_scroll().y as f32,
         });
 
-        let (hit, hovered_scrollbar) = self.hit_with_scrollbar(x, y);
+        let (hit, control) = self.hit_with_control(x, y);
+        self.hovered_resizer = control.and_then(crate::node::OverflowControl::resizer);
+        let hovered_scrollbar = control.and_then(crate::node::OverflowControl::scrollbar);
         // A faded-out thumb is not interactive: pointer moves never fade
         // overlay scrollbars back in (only scrolling shows them).
         let hovered_scrollbar =
@@ -2117,14 +2122,25 @@ impl BaseDocument {
         changed
     }
 
-    /// The hover state that determines the cursor: the hovered node, the precise hit
-    /// node and whether the hit is text
-    pub(crate) fn hover_state(&self) -> (Option<NodeId>, Option<NodeId>, bool) {
+    pub(crate) fn hover_state(&self) -> (Option<NodeId>, Option<NodeId>, bool, Option<NodeId>) {
         (
             self.hover_node_id,
             self.hover_hit_node_id,
             self.hover_node_is_text,
+            self.hovered_resizer,
         )
+    }
+
+    fn resize_cursor(&self, node_id: NodeId) -> Option<CursorIcon> {
+        use style::values::computed::Resize;
+        let node = self.nodes.get(node_id)?;
+        match node.resize() {
+            Resize::Vertical => Some(CursorIcon::NsResize),
+            Resize::Horizontal => Some(CursorIcon::EwResize),
+            Resize::Both if node.resizer_on_left() => Some(CursorIcon::SwResize),
+            Resize::Both => Some(CursorIcon::SeResize),
+            Resize::None => None,
+        }
     }
 
     /// Send the current cursor to the shell.
@@ -2352,6 +2368,13 @@ impl BaseDocument {
     }
 
     pub fn get_cursor(&self) -> Option<CursorIcon> {
+        let resizer = match &self.drag_mode {
+            DragMode::Resize(state) => Some(state.node_id),
+            _ => self.hovered_resizer,
+        };
+        if let Some(cursor) = resizer.and_then(|node_id| self.resize_cursor(node_id)) {
+            return Some(cursor);
+        }
         // Prefer the precise hit node: `cursor` and `user-select` may be set on
         // a pseudo-element or resolved on an anonymous box, and text hits carry
         // is_text via the hit node. Fall back to the canonical hover node if

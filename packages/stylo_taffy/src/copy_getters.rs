@@ -52,6 +52,7 @@ copy_getters! {
     overflow_x: clone_overflow_x => get_overflow_x;
     overflow_y: clone_overflow_y => get_overflow_y;
     pointer_events: clone_pointer_events => get_pointer_events;
+    resize: clone_resize => get_resize;
     scroll_behavior: clone_scroll_behavior => get_scroll_behavior;
     scrollbar_width: clone_scrollbar_width => get_scrollbar_width;
     table_layout: clone_table_layout => get_table_layout;

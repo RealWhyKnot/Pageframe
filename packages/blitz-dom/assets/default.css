@@ -73,6 +73,8 @@ input {
 textarea {
     border: 1px solid #767676;
     padding: 2px;
+    overflow: auto;
+    resize: both;
 }
 
 input[type="checkbox"],
