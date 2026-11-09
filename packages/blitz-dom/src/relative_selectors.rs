@@ -5,6 +5,7 @@ use markup5ever::local_name;
 use selectors::matching::ElementSelectorFlags;
 use style::dom::TElement;
 use style::invalidation::element::element_wrapper::{ElementSnapshot, ElementWrapper, Snapshots};
+use style::invalidation::element::invalidation_map::TSStateForInvalidation;
 use style::invalidation::element::invalidator::{InvalidationResult, SiblingTraversalMap};
 use style::invalidation::element::relative_selector::{
     DomMutationOperation, RelativeSelectorInvalidator,
@@ -136,7 +137,13 @@ impl BaseDocument {
         let Some(node) = self.nodes.get(node_id) else {
             return;
         };
-        if !node.is_element() || !node.flags.is_in_document() {
+        if !node.flags.is_in_document() {
+            return;
+        }
+        if !node.is_element() {
+            if let Some(parent_id) = node.parent {
+                self.invalidate_relative_selectors_for_emptiness(parent_id);
+            }
             return;
         }
         let element: BlitzNode<'_> = node;
@@ -152,6 +159,43 @@ impl BaseDocument {
             &self.stylist,
             ElementSelectorFlags::empty(),
             operation,
+        );
+    }
+
+    fn invalidate_relative_selectors_for_emptiness(&self, parent_id: NodeId) {
+        let Some(parent) = self.nodes.get(parent_id) else {
+            return;
+        };
+        if !parent.is_element() || !parent.flags.is_in_document() {
+            return;
+        }
+        let element: BlitzNode<'_> = parent;
+        let invalidator = RelativeSelectorInvalidator {
+            element,
+            quirks_mode: self.stylist.quirks_mode(),
+            snapshots: None,
+            invalidated: mark_invalidated,
+            sibling_traversal_map: SiblingTraversalMap::default(),
+        };
+        invalidator.invalidate_relative_selectors_for_this(
+            &self.stylist,
+            |element, scope, data, quirks_mode, collector| {
+                data.relative_invalidation_map_attributes()
+                    .ts_state_to_selector
+                    .lookup_with_additional(
+                        *element,
+                        quirks_mode,
+                        None,
+                        &[],
+                        ElementState::empty(),
+                        |dependency| {
+                            if dependency.state.contains(TSStateForInvalidation::EMPTY) {
+                                collector.add_dependency(&dependency.dep, *element, scope);
+                            }
+                            true
+                        },
+                    );
+            },
         );
     }
 

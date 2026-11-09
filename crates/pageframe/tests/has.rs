@@ -14,6 +14,7 @@ body{margin:0;background:white}
 .box:has(.on),.box:has(.item){background:rgb(0,128,0)}
 .box:has(> input:checked){background:rgb(0,0,255)}
 .box:has(+ .flag){background:rgb(0,0,255)}
+.box:has(p:empty){background:rgb(0,0,255)}
 input{display:none}
 li{height:10px;background:rgb(255,0,0)}
 li:nth-child(2 of .pick){background:rgb(0,128,0)}
@@ -22,6 +23,7 @@ li:nth-child(2 of .pick){background:rgb(0,128,0)}
 <div class="box" id="b" style="left:30px"><input type="checkbox" id="b1"></div>
 <div class="box" id="c" style="left:60px"></div>
 <div class="box" id="d" style="left:90px"></div><p id="d1" style="margin:0"></p>
+<div class="box" id="e" style="left:30px;top:22px;height:15px"><p id="e1" style="margin:0"></p></div>
 <template id="item"><span class="item"></span></template>
 <ul style="position:absolute;top:40px;left:0;margin:0;padding:0;width:20px;list-style:none">
 <li class="pick"></li><li></li><li class="pick" id="second"></li><li class="pick"></li>
@@ -95,4 +97,14 @@ fn nth_child_of_selector_counts_matching_siblings() {
     let buffer = frame(&mut harness);
     check(&buffer, 10, 55, GREEN);
     check(&buffer, 10, 65, RED);
+}
+
+#[test]
+fn has_follows_text_making_a_child_non_empty() {
+    let mut harness = open(App::new((), PAGE));
+    check(&frame(&mut harness), 40, 28, BLUE);
+    harness.doc.ui().select("#e1").set_text("x");
+    check(&frame(&mut harness), 40, 28, RED);
+    harness.doc.ui().select("#e1").clear();
+    check(&frame(&mut harness), 40, 28, BLUE);
 }
