@@ -214,3 +214,31 @@ fn perspective_scales_with_the_display() {
     assert!((82..=86).contains(&near), "near side is {near} tall");
     assert!((74..=78).contains(&far), "far side is {far} tall");
 }
+
+#[test]
+fn rotation_keeps_its_origin_when_the_display_scale_changes() {
+    let page = r#"<html><body style="margin:0;background:white">
+<div style="position:absolute;left:40px;top:20px;width:40px;height:40px;background:rgb(0,0,200);transform:rotate(45deg)"></div>
+</body></html>"#;
+    let buffer = render_at_scale(&mut open(App::new((), page)), 2);
+    let width = usize::try_from(WIDTH * 2).expect("test width fits in usize");
+    let height = buffer.len() / 4 / width;
+    let inked = |x: usize, y: usize| buffer[(y * width + x) * 4] < 128;
+    let columns: Vec<usize> = (0..width)
+        .filter(|&x| (0..height).any(|y| inked(x, y)))
+        .collect();
+    let rows: Vec<usize> = (0..height)
+        .filter(|&y| (0..width).any(|x| inked(x, y)))
+        .collect();
+    let middle = |span: &[usize]| span.first().zip(span.last()).map(|(a, b)| a + b);
+    assert_eq!(
+        middle(&columns).map(|sum| sum.abs_diff(239) <= 2),
+        Some(true),
+        "{columns:?}"
+    );
+    assert_eq!(
+        middle(&rows).map(|sum| sum.abs_diff(159) <= 2),
+        Some(true),
+        "{rows:?}"
+    );
+}

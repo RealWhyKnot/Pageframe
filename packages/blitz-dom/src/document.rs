@@ -2287,6 +2287,9 @@ impl BaseDocument {
         // must be invalidated when the scale changes.
         if changes.contains(DeviceChanges::SCALE) {
             self.invalidate_inline_contexts();
+            for (_, node) in self.nodes.iter_mut() {
+                node.insert_damage(style::selector_parser::RestyleDamage::RECALCULATE_OVERFLOW);
+            }
         }
 
         // Color-scheme changes affect values that are resolved at cascade time
