@@ -2,6 +2,7 @@ use anyrender::PaintScene;
 use blitz_dom::CopyStyleGetters;
 use blitz_dom::{BaseDocument, NodeId, node::TextBrush, util::ToColorColor};
 use kurbo::{Affine, BezPath, Cap, Circle, Rect, Stroke};
+use num_traits::ToPrimitive;
 use parley::{Affinity, Cursor, Layout, Line, PositionedLayoutItem, Selection};
 use peniko::Fill;
 use std::collections::HashMap;
@@ -1191,14 +1192,13 @@ fn blurred_shadow_image(
     Some((image, origin))
 }
 
-/// Blurs a single-channel image in place by approximating a Gaussian with three box blurs,
-/// as the Filter Effects spec describes for `feGaussianBlur`.
 pub(crate) fn gaussian_blur(values: &mut [f32], width: usize, height: usize, std_deviation: f64) {
-    let size = (std_deviation * 3.0 * (2.0 * std::f64::consts::PI).sqrt() / 4.0 + 0.5) as usize;
+    let size = (std_deviation * 3.0 * (2.0 * std::f64::consts::PI).sqrt() / 4.0 + 0.5)
+        .to_usize()
+        .unwrap_or(0);
     if size < 2 {
         return;
     }
-    // Each box is (length, pixels to the left of the output pixel).
     let boxes = if size % 2 == 1 {
         [(size, size / 2); 3]
     } else {
@@ -1217,22 +1217,19 @@ pub(crate) fn gaussian_blur(values: &mut [f32], width: usize, height: usize, std
     }
 }
 
-/// Box-blurs the `out.len()` values of `values` that are `stride` apart, treating values past
-/// either end as zero.
 fn box_blur_line(values: &mut [f32], stride: usize, out: &mut [f32], len: usize, left: usize) {
     let count = out.len();
-    let at = |i: isize| -> f32 {
-        if i < 0 || i as usize >= count {
-            0.0
-        } else {
-            values[i as usize * stride]
-        }
+    let at = |shifted: usize| -> f32 {
+        shifted
+            .checked_sub(left)
+            .filter(|&index| index < count)
+            .map_or(0.0, |index| values[index * stride])
     };
-    let mut sum: f32 = (0..len as isize).map(|i| at(i - left as isize)).sum();
+    let scale = len.to_f32().unwrap_or(1.0);
+    let mut sum: f32 = (0..len).map(at).sum();
     for (i, slot) in out.iter_mut().enumerate() {
-        *slot = sum / len as f32;
-        let i = i as isize;
-        sum += at(i + len as isize - left as isize) - at(i - left as isize);
+        *slot = sum / scale;
+        sum += at(i + len) - at(i);
     }
     for (i, value) in out.iter().enumerate() {
         values[i * stride] = *value;

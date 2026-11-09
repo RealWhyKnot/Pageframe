@@ -1,50 +1,15 @@
 use anyrender::PaintScene as _;
-use anyrender::filters::{Filter, FilterEffect};
 use anyrender::recording::{RenderCommand, Scene};
 use blitz_dom::util::ToColorColor as _;
 use kurbo::{Affine, Rect, Shape as _, Vec2};
 use num_traits::ToPrimitive as _;
 use std::sync::Arc;
 use style::color::AbsoluteColor;
-pub(crate) use style::computed_values::filter::single_value::T as StyloFilter;
+use style::computed_values::filter::single_value::T as StyloFilter;
 
 use crate::text::gaussian_blur;
 
 const MAX_FILTER_IMAGE_SIDE: f64 = 8192.0;
-
-pub(crate) fn convert_filters(filters: &[StyloFilter]) -> Option<Filter> {
-    if filters.is_empty() {
-        return None;
-    }
-
-    Some(Filter::linear_list(
-        filters.iter().filter_map(convert_single_filter),
-    ))
-}
-
-pub(crate) fn convert_single_filter(filter: &StyloFilter) -> Option<FilterEffect> {
-    Some(match filter {
-        StyloFilter::Blur(radius) => FilterEffect::blur(radius.px()),
-        StyloFilter::Brightness(amount) => FilterEffect::brightness(amount.0),
-        StyloFilter::Contrast(amount) => FilterEffect::contrast(amount.0),
-        StyloFilter::Grayscale(amount) => FilterEffect::grayscale(amount.0),
-        StyloFilter::HueRotate(angle) => FilterEffect::hue_rotate(angle.radians()),
-        StyloFilter::Invert(amount) => FilterEffect::invert(amount.0),
-        StyloFilter::Opacity(amount) => FilterEffect::opacity(amount.0),
-        StyloFilter::Saturate(amount) => FilterEffect::saturate(amount.0),
-        StyloFilter::Sepia(amount) => FilterEffect::sepia(amount.0),
-        StyloFilter::DropShadow(shadow) => FilterEffect::drop_shadow(
-            shadow.horizontal.px(),
-            shadow.vertical.px(),
-            shadow.blur.px(),
-            shadow
-                .color
-                .resolve_to_absolute(&AbsoluteColor::BLACK)
-                .as_color_color(),
-        ),
-        StyloFilter::Url(_) => return None,
-    })
-}
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum PixelFilter {
@@ -224,7 +189,7 @@ pub(crate) fn filter_reach(filters: &[PixelFilter]) -> Rect {
     })
 }
 
-pub(crate) fn filter_region(scene: &Scene, filters: &[PixelFilter], limit: Rect) -> Option<Rect> {
+fn filter_region(scene: &Scene, filters: &[PixelFilter], limit: Rect) -> Option<Rect> {
     let reach = filter_reach(filters);
     let ink = ink_bounds(scene)?;
     let region = Rect::new(
@@ -312,24 +277,32 @@ fn ink_bounds(scene: &Scene) -> Option<Rect> {
     ink
 }
 
+pub(crate) enum FilterOutput {
+    Image(peniko::ImageBrush, Rect),
+    Unfiltered(Scene),
+}
+
 pub(crate) fn filtered_image(
     recording: Scene,
     filters: &[PixelFilter],
     limit: Rect,
-) -> Option<(peniko::ImageBrush, Rect)> {
-    let region = filter_region(&recording, filters, limit)?;
-    let width = region.width().to_u32()?;
-    let height = region.height().to_u32()?;
+) -> FilterOutput {
+    let Some(region) = filter_region(&recording, filters, limit) else {
+        return FilterOutput::Unfiltered(recording);
+    };
+    let sizes = region.width().to_u32().zip(region.height().to_u32());
+    let Some((width, height)) = sizes else {
+        return FilterOutput::Unfiltered(recording);
+    };
+    let (Ok(columns), Ok(rows)) = (usize::try_from(width), usize::try_from(height)) else {
+        return FilterOutput::Unfiltered(recording);
+    };
     let pixels = anyrender::render_to_buffer::<anyrender_vello_cpu::VelloCpuImageRenderer, _>(
         |scene| scene.append_scene(recording, Affine::translate((-region.x0, -region.y0))),
         width,
         height,
     );
-    let mut image = FilterImage::from_rgba8(
-        &pixels,
-        usize::try_from(width).ok()?,
-        usize::try_from(height).ok()?,
-    );
+    let mut image = FilterImage::from_rgba8(&pixels, columns, rows);
     for filter in filters {
         image.apply(filter);
     }
@@ -343,17 +316,17 @@ pub(crate) fn filtered_image(
         },
         sampler: peniko::ImageSampler::default(),
     };
-    Some((image, region))
+    FilterOutput::Image(image, region)
 }
 
-pub(crate) struct FilterImage {
+struct FilterImage {
     width: usize,
     height: usize,
     pixels: Vec<[f32; 4]>,
 }
 
 impl FilterImage {
-    pub(crate) fn from_rgba8(data: &[u8], width: usize, height: usize) -> Self {
+    fn from_rgba8(data: &[u8], width: usize, height: usize) -> Self {
         let pixels = data
             .as_chunks::<4>()
             .0
@@ -367,7 +340,7 @@ impl FilterImage {
         }
     }
 
-    pub(crate) fn to_rgba8(&self) -> Vec<u8> {
+    fn to_rgba8(&self) -> Vec<u8> {
         self.pixels
             .iter()
             .flat_map(|px| {
@@ -385,7 +358,7 @@ impl FilterImage {
             .collect()
     }
 
-    pub(crate) fn apply(&mut self, filter: &PixelFilter) {
+    fn apply(&mut self, filter: &PixelFilter) {
         match filter {
             PixelFilter::Matrix(matrix) => self.apply_matrix(matrix),
             PixelFilter::Blur(std_deviation) => {

@@ -14,13 +14,12 @@ mod text_field;
 use blitz_dom::CopyStyleGetters;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use super::kurbo_css::CssBox;
 use crate::blend::convert_blend_mode;
 use crate::color::{Color, ToColorColor};
 use crate::debug_overlay::render_debug_overlay;
-use crate::filters::{convert_filters, filter_reach, filtered_image, pixel_filters};
+use crate::filters::{FilterOutput, filter_reach, filtered_image, pixel_filters};
 use crate::kurbo_css::NonUniformRoundedRectRadii;
 use crate::layers::LayerManager;
 use crate::sizing::compute_object_fit;
@@ -58,8 +57,8 @@ use taffy::Layout;
 /// buffer for mask and text-clip isolation layers. Renderers (e.g. vello_cpu) may optimize
 /// layers with `Mix::Normal`/`Compose::SrcOver` and an opacity of exactly 1.0 into
 /// plain non-isolated clip layers, in which case the `Compose::DestIn` mask
-/// compositing would erase the backdrop behind the element rather than just the
-/// element's own content.
+/// compositing would erase the backdrop behind the element as well as the element's own
+/// content.
 pub(super) const ALMOST_OPAQUE: f32 = 1.0 - f32::EPSILON;
 
 /// A view of the track positions reported by taffy in physical (left-to-right /
@@ -420,8 +419,8 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
     /// In Blitz, text styling gets its attributes from its container element/resolved styles
     /// In other libraries, text gets its attributes from a `text` element - this is not how HTML works.
     ///
-    /// Approaching rendering this way guarantees we have all the styles we need when rendering text with not having
-    /// to traverse back to the parent for its styles, or needing to pass down styles
+    /// Text is drawn from its container element, so its styles are already at hand and we
+    /// never walk back up to the parent or pass styles down.
     fn render_element(
         &self,
         scene: &mut impl PaintScene,
@@ -465,7 +464,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
         };
 
         // Hide inputs with type=hidden
-        // Implemented here rather than using the style engine for performance reasons
+        // Checked here because doing it in the style engine is slower.
         if node.local_name() == "input"
             && node
                 .element_data()
@@ -583,7 +582,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
 
         // If this element clips its overflow it establishes a scrollport: narrow the clip
         // rectangle passed to descendants to the visible (clipped) region so that content
-        // scrolled out of view is culled rather than drawn and clipped away. The box used
+        // scrolled out of view is skipped instead of drawn and clipped away. The box used
         // here matches the clip applied to the content below.
         let child_clip_rect = if should_clip {
             let clip_box = if is_text_input {
@@ -666,21 +665,15 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
                 let unscrolled_transform = cx.transform;
 
                 if filters.is_empty() {
-                    let backdrop_filter = convert_filters(&effects.backdrop_filter.0).map(Arc::new);
-                    let (layer_transform, layer_clip) = if backdrop_filter.is_some() {
-                        (cx.transform, cx.frame.border_box_path().bounding_box())
-                    } else {
-                        (Affine::IDENTITY, self.viewport_rect())
-                    };
                     self.layer_manager.maybe_with_layer(
                         scene,
-                        has_opacity || backdrop_filter.is_some(),
+                        has_opacity,
                         BlendMode::default(),
                         opacity,
-                        layer_transform,
-                        &layer_clip,
+                        Affine::IDENTITY,
+                        &self.viewport_rect(),
                         None,
-                        backdrop_filter,
+                        None,
                         |scene| self.paint_effect_body(&mut cx, scene, &body),
                     );
                     cx.transform = unscrolled_transform;
@@ -696,25 +689,38 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
                     cx.transform = unscrolled_transform;
                     cx.draw_resizer(&mut recording);
                     cx.draw_focus_ring(&mut recording);
-                    if let Some((image, region)) =
-                        filtered_image(recording, &filters, self.viewport_rect())
-                    {
-                        self.layer_manager.maybe_with_layer(
-                            scene,
-                            has_opacity,
-                            BlendMode::default(),
-                            opacity,
-                            Affine::IDENTITY,
-                            &region,
-                            None,
-                            None,
-                            |scene| {
-                                scene.draw_image(
-                                    image.as_ref(),
-                                    Affine::translate((region.x0, region.y0)),
-                                );
-                            },
-                        );
+                    match filtered_image(recording, &filters, self.viewport_rect()) {
+                        FilterOutput::Image(image, region) => {
+                            self.layer_manager.maybe_with_layer(
+                                scene,
+                                has_opacity,
+                                BlendMode::default(),
+                                opacity,
+                                Affine::IDENTITY,
+                                &region,
+                                None,
+                                None,
+                                |scene| {
+                                    scene.draw_image(
+                                        image.as_ref(),
+                                        Affine::translate((region.x0, region.y0)),
+                                    );
+                                },
+                            );
+                        }
+                        FilterOutput::Unfiltered(recording) => {
+                            self.layer_manager.maybe_with_layer(
+                                scene,
+                                has_opacity,
+                                BlendMode::default(),
+                                opacity,
+                                Affine::IDENTITY,
+                                &self.viewport_rect(),
+                                None,
+                                None,
+                                |scene| scene.append_scene(recording, Affine::IDENTITY),
+                            );
+                        }
                     }
                 }
 

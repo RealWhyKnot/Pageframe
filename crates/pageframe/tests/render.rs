@@ -1,7 +1,9 @@
+mod scaled;
 mod support;
 
 use pageframe::{App, EventKind};
-use support::{HEIGHT, WIDTH, open, pixel, render, render_at_scale};
+use scaled::render_at_scale;
+use support::{HEIGHT, WIDTH, open, pixel, render};
 
 const SWATCH: &str = r#"<html><body style="margin:0;background:white">
 <div id="swatch" style="width:40px;height:40px;background:rgb(255,0,0)"></div>

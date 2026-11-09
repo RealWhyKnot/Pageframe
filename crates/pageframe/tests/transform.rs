@@ -1,7 +1,9 @@
+mod scaled;
 mod support;
 
 use pageframe::App;
-use support::{HEIGHT, WIDTH, open, pixel, render, render_at_scale};
+use scaled::render_at_scale;
+use support::{HEIGHT, WIDTH, open, pixel, render};
 
 fn transformed_extent(transform: &str) -> (usize, usize) {
     let page = format!(
