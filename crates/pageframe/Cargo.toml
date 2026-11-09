@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 anyrender_vello = { workspace = true }
-blitz-dom = { workspace = true, features = ["default"] }
+blitz-dom = { workspace = true, features = ["default", "floats"] }
 blitz-html = { workspace = true }
 blitz-paint = { workspace = true, features = ["svg"] }
 blitz-shell = { workspace = true, features = ["accessibility"] }

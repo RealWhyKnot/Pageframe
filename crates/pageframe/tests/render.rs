@@ -648,3 +648,15 @@ fn background_image_from_a_data_url_is_painted() {
         .count();
     assert!(painted > 400, "only {painted} pixels painted");
 }
+
+#[test]
+fn floated_box_sits_at_the_right_edge() {
+    let page = r#"<html><body style="margin:0;background:white">
+<div style="float:right;width:20px;height:20px;background:rgb(200,0,0)"></div>
+<div style="height:20px">text</div>
+</body></html>"#;
+    let mut harness = open(App::new((), page));
+    let buffer = render(&mut harness);
+    assert_eq!(pixel(&buffer, 110, 10), [200, 0, 0, 255]);
+    assert_ne!(pixel(&buffer, 10, 10), [200, 0, 0, 255]);
+}
