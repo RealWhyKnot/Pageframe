@@ -725,3 +725,18 @@ fn form_controls_sit_on_the_text_baseline() {
         assert_eq!(monthly.height, 19.0, "{monthly:?}");
     }
 }
+
+#[test]
+fn checkboxes_fill_with_the_accent_color() {
+    let page = r#"<html><body style="margin:0;background:white">
+<input type="checkbox" checked style="position:absolute;left:0;top:0;width:20px;height:20px;margin:0">
+<input type="checkbox" checked style="position:absolute;left:30px;top:0;width:20px;height:20px;margin:0;accent-color:#c00">
+<input type="checkbox" style="position:absolute;left:60px;top:0;width:20px;height:20px;margin:0">
+</body></html>"#;
+    let mut harness = open(App::new((), page));
+    let buffer = render(&mut harness);
+    assert_eq!(pixel(&buffer, 3, 16), [0x00, 0x75, 0xff, 255]);
+    assert_eq!(pixel(&buffer, 33, 16), [0xcc, 0x00, 0x00, 255]);
+    assert_eq!(pixel(&buffer, 63, 16), [255, 255, 255, 255]);
+    assert_eq!(pixel(&buffer, 60, 10), [0x76, 0x76, 0x76, 255]);
+}

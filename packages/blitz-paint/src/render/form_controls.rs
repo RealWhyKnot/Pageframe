@@ -1,11 +1,29 @@
 use super::ElementCx;
-use crate::color::{Color, ToColorColor as _};
+use crate::color::{Color, ToColorColor as _, contrast_ratio};
 use anyrender::PaintScene;
-use blitz_dom::CopyStyleGetters;
 use blitz_dom::local_name;
-use kurbo::{Affine, BezPath, Cap, Circle, Join, Point, RoundedRect, Stroke, Vec2};
+use kurbo::{Affine, BezPath, Cap, Join, Rect, Stroke};
 use peniko::Fill;
 use style::dom::TElement as _;
+use style::values::generics::color::ColorOrAuto;
+
+const DEFAULT_ACCENT: Color = Color::from_rgba8(0x00, 0x75, 0xff, 0xff);
+const BORDER: Color = Color::from_rgba8(0x76, 0x76, 0x76, 0xff);
+const DISABLED_ACCENT: Color = Color::from_rgba8(0xd1, 0xd1, 0xd1, 0xff);
+const DISABLED_BACKGROUND: Color = Color::from_rgba8(0xf8, 0xf8, 0xf8, 0xff);
+const DISABLED_CHECKMARK: Color = Color::from_rgba8(0xed, 0xed, 0xed, 0xff);
+const DARK_FOREGROUND: Color = Color::from_rgba8(0x3b, 0x3b, 0x3b, 0xff);
+const MIN_FOREGROUND_CONTRAST: f32 = 3.0;
+const CHECKBOX_RADIUS: f64 = 2.0;
+const BORDER_WIDTH: f64 = 1.0;
+
+struct ControlColors {
+    accent: Color,
+    border: Color,
+    background: Color,
+    checked_foreground: Color,
+    checked_background: Color,
+}
 
 impl ElementCx<'_, '_> {
     pub(super) fn draw_input(&self, scene: &mut impl PaintScene) {
@@ -15,91 +33,119 @@ impl ElementCx<'_, '_> {
         let Some(checked) = self.element.checkbox_input_checked() else {
             return;
         };
-
-        let type_attr = self.element.input_type();
-        let disabled = self.node.attr(local_name!("disabled")).is_some();
-
-        // TODO this should be coming from css accent-color, but I couldn't find how to retrieve it
-        let accent_color = if disabled {
-            Color::from_rgba8(209, 209, 209, 255)
-        } else {
-            self.style.clone_color().as_srgb_color()
+        let is_checkbox = match self.element.input_type().as_deref() {
+            Some("checkbox") => true,
+            Some("radio") => false,
+            _ => return,
         };
 
-        let width = self.frame.border_box.width();
-        let height = self.frame.border_box.height();
-        let min_dimension = width.min(height);
-        let scale = min_dimension / 20.0;
+        let colors = self.control_colors();
+        let transform = self.transform * Affine::scale(self.scale);
+        let border_box = self.frame.border_box;
+        let width = (border_box.width() / self.scale).round();
+        let height = (border_box.height() / self.scale).round();
+        let side = width.min(height);
+        let x = border_box.x0 / self.scale + ((width - side) / 2.0).trunc();
+        let y = border_box.y0 / self.scale + ((height - side) / 2.0).trunc();
+        let rect = Rect::new(x, y, x + side, y + side);
 
-        let frame = self.frame.border_box.to_rounded_rect(scale * 2.0);
+        if side <= 2.0 {
+            scene.fill(Fill::NonZero, transform, colors.border, None, &rect);
+            return;
+        }
 
-        match type_attr.as_deref() {
-            Some("checkbox") => {
-                draw_checkbox(scene, checked, frame, self.transform, accent_color, scale);
-            }
-            Some("radio") => {
-                let center = frame.center();
-                let scale = min_dimension / 16.0;
-                draw_radio_button(scene, checked, center, self.transform, accent_color, scale);
-            }
-            _ => {}
+        if is_checkbox {
+            draw_checkbox(scene, transform, rect, checked, &colors);
+        } else {
+            draw_radio(scene, transform, rect, checked, &colors);
+        }
+    }
+
+    fn control_colors(&self) -> ControlColors {
+        if self.node.attr(local_name!("disabled")).is_some() {
+            return ControlColors {
+                accent: DISABLED_ACCENT,
+                border: DISABLED_ACCENT,
+                background: DISABLED_BACKGROUND,
+                checked_foreground: DISABLED_CHECKMARK,
+                checked_background: DISABLED_BACKGROUND,
+            };
+        }
+        let accent = match &self.style.get_inherited_ui().accent_color {
+            ColorOrAuto::Auto => DEFAULT_ACCENT,
+            ColorOrAuto::Color(color) => color
+                .resolve_to_absolute(&self.style.get_inherited_text().color)
+                .as_srgb_color(),
+        };
+        let checked_foreground =
+            if contrast_ratio(accent, Color::WHITE) < MIN_FOREGROUND_CONTRAST {
+                DARK_FOREGROUND
+            } else {
+                Color::WHITE
+            };
+        ControlColors {
+            accent,
+            border: BORDER,
+            background: Color::WHITE,
+            checked_foreground,
+            checked_background: if checked_foreground == DARK_FOREGROUND {
+                DARK_FOREGROUND
+            } else {
+                Color::WHITE
+            },
         }
     }
 }
 
 fn draw_checkbox(
     scene: &mut impl PaintScene,
-    checked: bool,
-    frame: RoundedRect,
     transform: Affine,
-    accent_color: Color,
-    scale: f64,
+    rect: Rect,
+    checked: bool,
+    colors: &ControlColors,
 ) {
-    if checked {
-        scene.fill(Fill::NonZero, transform, accent_color, None, &frame);
-        //Tick code derived from masonry
-        let mut path = BezPath::new();
-        path.move_to((2.0, 9.0));
-        path.line_to((6.0, 13.0));
-        path.line_to((14.0, 2.0));
-
-        path.apply_affine(Affine::translate(Vec2 { x: 2.0, y: 1.0 }).then_scale(scale));
-
-        let style = Stroke {
-            width: 2.0 * scale,
-            join: Join::Round,
-            miter_limit: 10.0,
-            start_cap: Cap::Round,
-            end_cap: Cap::Round,
-            dash_pattern: Default::default(),
-            dash_offset: 0.0,
-        };
-
-        scene.stroke(&style, transform, Color::WHITE, None, &path);
-    } else {
-        scene.fill(Fill::NonZero, transform, Color::WHITE, None, &frame);
-        scene.stroke(&Stroke::default(), transform, accent_color, None, &frame);
+    if !checked {
+        let background = rect.inset(-0.2 * BORDER_WIDTH).to_rounded_rect(CHECKBOX_RADIUS);
+        scene.fill(Fill::NonZero, transform, colors.background, None, &background);
+        let border = rect.inset(-BORDER_WIDTH / 2.0).to_rounded_rect(CHECKBOX_RADIUS);
+        scene.stroke(&Stroke::new(BORDER_WIDTH), transform, colors.border, None, &border);
+        return;
     }
+
+    let background = rect.to_rounded_rect(CHECKBOX_RADIUS);
+    scene.fill(Fill::NonZero, transform, colors.accent, None, &background);
+
+    let (w, h) = (rect.width(), rect.height());
+    let mut check = BezPath::new();
+    check.move_to((rect.x0 + w * 0.2, rect.center().y));
+    check.line_to((rect.x0 + w * 0.4, rect.center().y + h * 0.2));
+    check.line_to((rect.x1 - w * 0.2, rect.y0 + h * 0.2));
+    let stroke = Stroke::new(h * 0.16)
+        .with_caps(Cap::Butt)
+        .with_join(Join::Miter)
+        .with_miter_limit(4.0);
+    scene.stroke(&stroke, transform, colors.checked_foreground, None, &check);
 }
 
-fn draw_radio_button(
+fn draw_radio(
     scene: &mut impl PaintScene,
-    checked: bool,
-    center: Point,
     transform: Affine,
-    accent_color: Color,
-    scale: f64,
+    rect: Rect,
+    checked: bool,
+    colors: &ControlColors,
 ) {
-    let outer_ring = Circle::new(center, 8.0 * scale);
-    let gap = Circle::new(center, 6.0 * scale);
-    let inner_circle = Circle::new(center, 4.0 * scale);
-    if checked {
-        scene.fill(Fill::NonZero, transform, accent_color, None, &outer_ring);
-        scene.fill(Fill::NonZero, transform, Color::WHITE, None, &gap);
-        scene.fill(Fill::NonZero, transform, accent_color, None, &inner_circle);
+    let (background, border) = if checked {
+        (colors.checked_background, colors.accent)
     } else {
-        const GRAY: Color = color::palette::css::GRAY;
-        scene.fill(Fill::NonZero, transform, GRAY, None, &outer_ring);
-        scene.fill(Fill::NonZero, transform, Color::WHITE, None, &gap);
+        (colors.background, colors.border)
+    };
+    let fill = rect.inset(-0.2 * BORDER_WIDTH).to_ellipse();
+    scene.fill(Fill::NonZero, transform, background, None, &fill);
+    let ring = rect.inset(-BORDER_WIDTH / 2.0).to_ellipse();
+    scene.stroke(&Stroke::new(BORDER_WIDTH), transform, border, None, &ring);
+
+    if checked {
+        let dot = rect.inset(-rect.width() * 0.2).to_ellipse();
+        scene.fill(Fill::NonZero, transform, colors.accent, None, &dot);
     }
 }
