@@ -1174,6 +1174,10 @@ impl Node {
             }
             if el.is_button_input() {
                 flags |= stylo_taffy::StyleFlags::IS_BUTTON_INPUT;
+            } else if el.name.local == local_name!("input")
+                || el.name.local == local_name!("textarea")
+            {
+                flags |= stylo_taffy::StyleFlags::IS_COMPRESSIBLE_REPLACED;
             }
             if let Some(inline_layout) = el.inline_layout_data.as_deref() {
                 flags |= inline_layout.span_cb_flags;

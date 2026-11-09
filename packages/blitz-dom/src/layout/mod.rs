@@ -103,7 +103,52 @@ pub(crate) struct LayoutPassState<'doc> {
     pub(crate) orthogonal_percent_basis: Option<(crate::NodeId, f32)>,
 }
 
+const SCROLLBAR_WIDTH: f32 = 15.0;
+
+struct FormControlSizing {
+    avg_char_width: f32,
+    max_char_width: f32,
+    line_height: f32,
+    baseline: f32,
+}
+
+fn positive_integer_attr(element: &crate::node::ElementData, name: LocalName, default: u32) -> f32 {
+    element
+        .attr(name)
+        .and_then(|value| value.trim().parse::<u32>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default) as f32
+}
+
 impl<'doc> LayoutPassState<'doc> {
+    fn form_control_metrics(&self, dom_id: crate::NodeId) -> Option<FormControlSizing> {
+        use style::values::computed::font::LineHeight;
+
+        let node = &self.doc.nodes[dom_id];
+        let element = node.element_data()?;
+        if !matches!(element.name.local.as_ref(), "input" | "textarea") {
+            return None;
+        }
+        let style = node.primary_styles()?;
+        let font_size = style.slow_clone_font_size().used_size().px();
+        let metrics = crate::font_metrics::form_control_metrics(
+            &mut self.doc.font_ctx.lock().unwrap(),
+            style.get_font(),
+            font_size,
+        )?;
+        let line_height = match style.clone_line_height() {
+            LineHeight::Normal => metrics.normal_line_height,
+            LineHeight::Number(num) => font_size * num.0,
+            LineHeight::Length(value) => value.0.px(),
+        };
+        Some(FormControlSizing {
+            avg_char_width: metrics.avg_char_width,
+            max_char_width: metrics.max_char_width,
+            line_height,
+            baseline: (line_height - metrics.ascent - metrics.descent) / 2.0 + metrics.ascent,
+        })
+    }
+
     /// The containing block's inline size when `dom_id` is the box currently laid out in an orthogonal
     /// flow: its percentage padding resolves against it (see `layout::writing_mode`).
     #[inline]
@@ -224,6 +269,7 @@ impl LayoutPassState<'_> {
         block_ctx: Option<&mut BlockContext<'_>>,
     ) -> taffy::tree::LayoutOutput {
         let orthogonal_percent_basis = self.orthogonal_percent_basis_of(dom_node_id(node_id));
+        let form_control = self.form_control_metrics(dom_node_id(node_id));
         let node = &mut self.nodes[dom_node_id(node_id)];
 
         let font_styles = node.primary_styles().map(|style| {
@@ -278,24 +324,23 @@ impl LayoutPassState<'_> {
             NodeData::Element(element_data) | NodeData::AnonymousBlock(element_data) => {
                 // TODO: deduplicate with single-line text input
                 if *element_data.name.local == *"textarea" {
-                    let rows = element_data
-                        .attr(local_name!("rows"))
-                        .and_then(|val| val.parse::<f32>().ok())
-                        .unwrap_or(2.0);
-
-                    let cols = element_data
-                        .attr(local_name!("cols"))
-                        .and_then(|val| val.parse::<f32>().ok());
+                    let rows = positive_integer_attr(element_data, local_name!("rows"), 2);
+                    let cols = positive_integer_attr(element_data, local_name!("cols"), 20);
+                    let (char_width, line_height) = match &form_control {
+                        Some(control) => (control.avg_char_width, control.line_height),
+                        None => (
+                            font_size.unwrap_or(16.0) * 0.6,
+                            resolved_line_height.unwrap_or(16.0),
+                        ),
+                    };
 
                     let output = compute_leaf_layout(
                         inputs,
                         &node.layout_style(),
                         resolve_calc_value,
                         |_known_size, _available_space| taffy::Size {
-                            width: cols
-                                .map(|cols| cols * font_size.unwrap_or(16.0) * 0.6)
-                                .unwrap_or(300.0),
-                            height: resolved_line_height.unwrap_or(16.0) * rows,
+                            width: cols * char_width + SCROLLBAR_WIDTH,
+                            height: line_height * rows,
                         },
                     );
                     if inputs.run_mode == RunMode::PerformLayout {
@@ -333,8 +378,8 @@ impl LayoutPassState<'_> {
                         Some("hidden") => {
                             return taffy::LayoutOutput::HIDDEN;
                         }
-                        Some("checkbox") => {
-                            return compute_leaf_layout(
+                        Some("checkbox" | "radio") => {
+                            let mut output = compute_leaf_layout(
                                 inputs,
                                 &node.layout_style(),
                                 resolve_calc_value,
@@ -355,21 +400,58 @@ impl LayoutPassState<'_> {
                                     }
                                 },
                             );
+                            output.baselines.first = Some(output.size.height);
+                            output.baselines.last = Some(output.size.height);
+                            return output;
                         }
-                        None | Some("text" | "password" | "email" | "tel" | "url" | "search") => {
-                            return compute_leaf_layout(
+                        None
+                        | Some(
+                            "text" | "password" | "email" | "tel" | "url" | "search" | "number",
+                        ) => {
+                            let size = positive_integer_attr(element_data, local_name!("size"), 20);
+                            let (width, height) = match &form_control {
+                                Some(control) => (
+                                    control.avg_char_width * (size - 1.0) + control.max_char_width,
+                                    control.line_height,
+                                ),
+                                None => (
+                                    font_size.unwrap_or(16.0) * 0.5 * size,
+                                    resolved_line_height.unwrap_or(16.0),
+                                ),
+                            };
+                            let style = node.layout_style();
+                            let mut output = compute_leaf_layout(
                                 inputs,
-                                &node.layout_style(),
+                                &style,
                                 resolve_calc_value,
-                                |_known_size, _available_space| taffy::Size {
-                                    width: match inputs.available_space.width {
-                                        AvailableSpace::Definite(limit) => limit.min(300.0),
-                                        AvailableSpace::MinContent => 0.0,
-                                        AvailableSpace::MaxContent => 300.0,
-                                    },
-                                    height: resolved_line_height.unwrap_or(16.0),
-                                },
+                                |_known_size, _available_space| taffy::Size { width, height },
                             );
+                            if let Some(control) = &form_control {
+                                let content_top = style
+                                    .border()
+                                    .top
+                                    .resolve_or_zero(inputs.parent_size.width, resolve_calc_value)
+                                    + style.padding().top.resolve_or_zero(
+                                        inputs.parent_size.width,
+                                        resolve_calc_value,
+                                    );
+                                let content_height = output.size.height
+                                    - content_top
+                                    - style.border().bottom.resolve_or_zero(
+                                        inputs.parent_size.width,
+                                        resolve_calc_value,
+                                    )
+                                    - style.padding().bottom.resolve_or_zero(
+                                        inputs.parent_size.width,
+                                        resolve_calc_value,
+                                    );
+                                let baseline = content_top
+                                    + (content_height - control.line_height) / 2.0
+                                    + control.baseline;
+                                output.baselines.first = Some(baseline);
+                                output.baselines.last = Some(baseline);
+                            }
+                            return output;
                         }
                         _ => {}
                     }

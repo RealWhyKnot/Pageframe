@@ -34,6 +34,7 @@ bitflags! {
         const IS_BUTTON = 1 << 3;
         /// Whether the node is a button-type input whose label always uses block layout
         const IS_BUTTON_INPUT = 1 << 4;
+        const IS_COMPRESSIBLE_REPLACED = 1 << 5;
     }
 }
 
@@ -168,6 +169,9 @@ impl<T: Deref<Target = ComputedValues>> From<TaffyStyloStyle<T>> for taffy::Styl
         let mut style = convert::to_taffy_style(&value.style);
         value.layout_wm().transpose_style(&mut style);
         style.item_is_replaced = value.flags.contains(StyleFlags::IS_REPLACED);
+        style.item_is_compressible_replaced = value
+            .flags
+            .intersects(StyleFlags::IS_REPLACED | StyleFlags::IS_COMPRESSIBLE_REPLACED);
         style
     }
 }
@@ -190,7 +194,8 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
 
     #[inline]
     fn is_compressible_replaced(&self) -> bool {
-        self.flags.contains(StyleFlags::IS_REPLACED)
+        self.flags
+            .intersects(StyleFlags::IS_REPLACED | StyleFlags::IS_COMPRESSIBLE_REPLACED)
     }
 
     #[inline]

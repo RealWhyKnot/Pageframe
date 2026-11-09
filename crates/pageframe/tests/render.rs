@@ -660,3 +660,68 @@ fn floated_box_sits_at_the_right_edge() {
     assert_eq!(pixel(&buffer, 110, 10), [200, 0, 0, 255]);
     assert_ne!(pixel(&buffer, 10, 10), [200, 0, 0, 255]);
 }
+
+#[test]
+fn form_controls_size_from_their_font() {
+    let page = r#"<html><body style="margin:0">
+<div><input id="text"></div>
+<div><input id="wide" size="40"></div>
+<div><input id="number" type="number"></div>
+<div><textarea id="area"></textarea></div>
+<div><textarea id="big" cols="30" rows="4"></textarea></div>
+<div><input id="check" type="checkbox"><input id="radio" type="radio"></div>
+</body></html>"#;
+    let harness = open(App::new((), page));
+    let text = harness.layout_rect("#text");
+    let wide = harness.layout_rect("#wide");
+    let area = harness.layout_rect("#area");
+    let big = harness.layout_rect("#big");
+
+    assert!(text.width > 100.0 && text.width < 300.0, "{text:?}");
+    assert_eq!(harness.layout_rect("#number").width, text.width);
+    let avg = (wide.width - text.width) / 20.0;
+    assert!(avg > 4.0 && avg < 10.0, "{avg}");
+    assert!(big.width > area.width, "{area:?} {big:?}");
+    assert!(
+        (big.height - 6.0 - 2.0 * (area.height - 6.0)).abs() < 0.5,
+        "{area:?} {big:?}"
+    );
+
+    for id in ["#check", "#radio"] {
+        let rect = harness.layout_rect(id);
+        assert_eq!((rect.width, rect.height), (13.0, 13.0), "{id}");
+    }
+
+    if cfg!(windows) {
+        assert_eq!((text.width, text.height), (177.0, 21.0));
+        assert_eq!(wide.width, 317.0);
+        assert_eq!((area.width, area.height), (168.0, 36.0));
+        assert_eq!((big.width, big.height), (241.0, 66.0));
+    }
+}
+
+#[test]
+fn form_controls_sit_on_the_text_baseline() {
+    let page = r#"<html><body style="margin:0;font:14px Arial;white-space:nowrap">
+<p id="name" style="margin:0">Name <input id="field"></p>
+<p id="remember" style="margin:0"><input id="check" type="checkbox"> Remember me</p>
+<p id="monthly" style="margin:0"><input id="radio" type="radio"> Monthly</p>
+</body></html>"#;
+    let harness = open(App::new((), page));
+    let name = harness.layout_rect("#name");
+    let field = harness.layout_rect("#field");
+    let remember = harness.layout_rect("#remember");
+    let check = harness.layout_rect("#check");
+    let monthly = harness.layout_rect("#monthly");
+    let radio = harness.layout_rect("#radio");
+
+    assert_eq!(field.y, name.y, "{name:?} {field:?}");
+    assert_eq!(name.height, field.height, "{name:?} {field:?}");
+    assert_eq!(check.y - remember.y, 3.0, "{remember:?} {check:?}");
+    assert_eq!(radio.y - monthly.y, 3.0, "{monthly:?} {radio:?}");
+
+    if cfg!(windows) {
+        assert_eq!(remember.height, 19.0, "{remember:?}");
+        assert_eq!(monthly.height, 19.0, "{monthly:?}");
+    }
+}

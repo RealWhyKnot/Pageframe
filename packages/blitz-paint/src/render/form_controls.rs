@@ -29,7 +29,7 @@ impl ElementCx<'_, '_> {
         let width = self.frame.border_box.width();
         let height = self.frame.border_box.height();
         let min_dimension = width.min(height);
-        let scale = (min_dimension - 4.0).max(0.0) / 16.0;
+        let scale = min_dimension / 20.0;
 
         let frame = self.frame.border_box.to_rounded_rect(scale * 2.0);
 
@@ -39,6 +39,7 @@ impl ElementCx<'_, '_> {
             }
             Some("radio") => {
                 let center = frame.center();
+                let scale = min_dimension / 16.0;
                 draw_radio_button(scene, checked, center, self.transform, accent_color, scale);
             }
             _ => {}
