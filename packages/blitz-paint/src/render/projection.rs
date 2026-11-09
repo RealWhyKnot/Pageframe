@@ -1,28 +1,15 @@
-//! Painting elements whose transform has perspective.
-//!
-//! The scene only takes affine transforms, so the element is cut into triangles that
-//! are small enough for an affine map to stay within a fraction of a pixel of the
-//! projection. Each triangle is painted with the affine map that matches the
-//! projection exactly at its three corners, clipped to where those corners land.
-//! Neighbouring triangles agree along their shared edges, so the content lines up.
-
 use super::BlitzDomPainter;
-use anyrender::PaintScene;
+use anyrender::{PaintScene, Scene};
 use blitz_dom::{Node, NodeId};
 use euclid::default::{Point2D, Rect as EuclidRect, Size2D, Transform3D};
 use kurbo::{Affine, BezPath, Point, Rect, Shape, Vec2};
 use peniko::{BlendMode, Color, Compose, Fill, Mix};
 use style::values::computed::CSSPixelLength;
 
-/// Points this close to the viewer's plane (in homogeneous w) are clipped away,
-/// so that nothing is projected to infinity.
 const MIN_W: f64 = 1.0 / 1024.0;
-/// How far, in device pixels, an affine piece may stray from the projection.
 const MAX_ERROR: f64 = 0.25;
-/// The most cells an element is split into. Each cell takes up to four layers.
 const MAX_CELLS: usize = 64;
-/// Triangles are added together rather than drawn over each other: the coverage
-/// of two triangles along their shared edge sums to one, so the edge doesn't show.
+const LAYERS_KEPT: u32 = 256;
 const ADD: BlendMode = BlendMode {
     mix: Mix::Normal,
     compose: Compose::Plus,
@@ -33,9 +20,7 @@ const ERASE: BlendMode = BlendMode {
 };
 
 pub(super) struct Projection {
-    /// The element's transform in CSS pixels.
     matrix: Transform3D<f64>,
-    /// Device pixels per CSS pixel.
     scale: f64,
 }
 
@@ -45,8 +30,6 @@ impl Projection {
         (point.x * m.m14 + point.y * m.m24) / self.scale + m.m44
     }
 
-    /// Where a point in the element's local device pixels is drawn, or `None` if it
-    /// is behind the viewer.
     fn project(&self, point: Point) -> Option<Point> {
         let m = &self.matrix;
         let w = self.w(point);
@@ -60,14 +43,6 @@ impl Projection {
         ))
     }
 
-    /// How far an affine piece covering `cell` would stray from the projection, and
-    /// whether halving it across x (rather than y) would help most. Projective maps
-    /// bend quadratically, so the error along a line is about twice the distance
-    /// between its projected midpoint and the midpoint of its projected ends.
-    ///
-    /// Cells that land wholly outside `visible` don't need to be accurate. Cells that
-    /// reach behind the viewer are split along w until they are a pixel thin, since
-    /// their part close to the viewer's plane is projected far off.
     fn assess(&self, cell: Rect, visible: Rect) -> Piece {
         let m = &self.matrix;
         let split_x_for_w = (m.m14 * cell.width()).abs() >= (m.m24 * cell.height()).abs();
@@ -122,20 +97,17 @@ impl Projection {
     }
 
     fn is_behind(&self, cell: Rect) -> bool {
-        // w is affine, so a cell whose corners are all behind the viewer is wholly behind.
         corners(cell)
             .iter()
             .all(|&corner| !in_front(self.w(corner)))
     }
 
-    /// Split `domain` into cells, always halving the cell that strays furthest,
-    /// until every cell is close enough or the budget is spent.
-    fn subdivide(&self, domain: Rect, visible: Rect) -> Vec<Rect> {
+    fn subdivide(&self, domain: Rect, visible: Rect, max_cells: usize) -> Vec<Rect> {
         let mut pieces = Vec::new();
         if !self.is_behind(domain) {
             pieces.push(self.assess(domain, visible));
         }
-        while pieces.len() < MAX_CELLS {
+        while pieces.len() < max_cells {
             let Some((worst, _)) = pieces
                 .iter()
                 .enumerate()
@@ -166,8 +138,6 @@ impl Projection {
         pieces.into_iter().map(|piece| piece.cell).collect()
     }
 
-    /// The part of a convex polygon that is in front of the viewer
-    /// (Sutherland-Hodgman against the plane w = MIN_W).
     fn clip_to_front(&self, polygon: &[Point]) -> Vec<Point> {
         let mut clipped = Vec::with_capacity(polygon.len() + 1);
         for (index, &current) in polygon.iter().enumerate() {
@@ -200,7 +170,6 @@ fn corners(rect: Rect) -> [Point; 4] {
     ]
 }
 
-/// The affine map that takes each point of `from` to the matching point of `to`.
 fn affine_through(from: [Point; 3], to: [Point; 3]) -> Option<Affine> {
     let frame = |[a, b, c]: [Point; 3]| {
         let (u, v) = (b - a, c - a);
@@ -224,8 +193,6 @@ fn triangle_path(triangle: [Point; 3]) -> BezPath {
 }
 
 impl BlitzDomPainter<'_, '_> {
-    /// The element's transform, if it has perspective that `Node::transform` can only
-    /// approximate.
     pub(super) fn projection(&self, node: &Node) -> Option<Projection> {
         node.transform().as_ref()?;
         let styles = node.primary_styles()?;
@@ -263,8 +230,6 @@ impl BlitzDomPainter<'_, '_> {
         let position = self.node_position(node, parent_style_transform);
         let screen = Affine::translate(Vec2::new(-self.initial_x, -self.initial_y)) * position;
 
-        // Grown so that the triangles' outer edges don't cut into the element's own
-        // anti-aliased edges.
         let domain = node
             .scrollable_overflow()
             .union(border_box)
@@ -273,10 +238,44 @@ impl BlitzDomPainter<'_, '_> {
             return;
         }
         let visible = screen.inverse().transform_rect_bbox(clip_rect);
-        let cells = projection.subdivide(domain, visible);
+        let left = self.layer_manager.layers_left();
+        let mut max_cells = if left > LAYERS_KEPT { MAX_CELLS } else { 0 };
+        while max_cells > 0 {
+            let cells = projection.subdivide(domain, visible, max_cells);
+            let cell_count = cells.len();
+            let mut recorded = Scene::new();
+            let used = self.layer_manager.count_layers(|| {
+                self.render_triangles(
+                    &mut recorded,
+                    node_id,
+                    parent_style_transform,
+                    clip_rect,
+                    projection,
+                    cells,
+                );
+            });
+            if used + LAYERS_KEPT <= left {
+                self.layer_manager.take(used);
+                scene.append_scene(recorded, Affine::IDENTITY);
+                return;
+            }
+            max_cells = cell_count / 2;
+        }
+        self.render_element_with(scene, node_id, parent_style_transform, clip_rect, None);
+    }
 
-        // The triangles are added together in a group of their own, so that
-        // nothing underneath the element is added in too.
+    fn render_triangles(
+        &self,
+        scene: &mut Scene,
+        node_id: NodeId,
+        parent_style_transform: Affine,
+        clip_rect: Rect,
+        projection: &Projection,
+        cells: Vec<Rect>,
+    ) {
+        let node = &self.dom.as_ref().tree()[node_id];
+        let position = self.node_position(node, parent_style_transform);
+        let screen = Affine::translate(Vec2::new(-self.initial_x, -self.initial_y)) * position;
         let group_pushed = self.layer_manager.maybe_push_layer(
             scene,
             true,
@@ -322,7 +321,7 @@ impl BlitzDomPainter<'_, '_> {
                     if visible.width() <= 0.0 || visible.height() <= 0.0 {
                         continue;
                     }
-                    if !self.layer_manager.has_room_for(2) {
+                    if self.layer_manager.layers_left() < 2 {
                         continue;
                     }
                     let pushed = self
@@ -331,6 +330,7 @@ impl BlitzDomPainter<'_, '_> {
                     if !pushed {
                         continue;
                     }
+                    self.layer_manager.reserve(1);
                     self.render_element_with(
                         scene,
                         node_id,
@@ -338,10 +338,7 @@ impl BlitzDomPainter<'_, '_> {
                         visible,
                         Some(own_transform),
                     );
-                    // Cut the piece down to the triangle by its coverage, rather than with a
-                    // clip, which would be applied after adding it and saturate. Everything
-                    // around the triangle is erased, reaching past the layer's own clip so
-                    // that none of the piece survives along the clip's edge.
+                    self.layer_manager.release(1);
                     let erase_bounds = bounds.inflate(1.0, 1.0);
                     let mut around_triangle = erase_bounds.to_path(0.1);
                     around_triangle.extend(triangle_shape.iter());
@@ -373,7 +370,6 @@ impl BlitzDomPainter<'_, '_> {
     }
 }
 
-/// Whether a point with this w is in front of the viewer. False for NaN.
 fn in_front(w: f64) -> bool {
     w >= MIN_W
 }

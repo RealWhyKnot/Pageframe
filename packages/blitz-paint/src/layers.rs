@@ -10,6 +10,7 @@ pub(crate) struct LayerManager {
     layers_used: Cell<u32>,
     layer_depth: Cell<u32>,
     layers_wanted: Cell<u32>,
+    layers_reserved: Cell<u32>,
 
     #[allow(unused)] // Only used for debugging. Enabled as required.
     layer_depth_used: Cell<u32>,
@@ -61,7 +62,7 @@ impl LayerManager {
         self.layers_wanted.update(|x| x + 1);
 
         // Check if clips are above limit
-        let layers_available = self.layers_used.get() <= LAYER_LIMIT;
+        let layers_available = self.layers_used.get() + self.layers_reserved.get() <= LAYER_LIMIT;
         if !layers_available {
             return false;
         }
@@ -93,9 +94,30 @@ impl LayerManager {
         true
     }
 
-    /// Whether `count` more layers can be pushed before the limit is reached.
-    pub(crate) fn has_room_for(&self, count: u32) -> bool {
-        self.layers_used.get() + count <= LAYER_LIMIT
+    pub(crate) fn layers_left(&self) -> u32 {
+        (LAYER_LIMIT + 1).saturating_sub(self.layers_used.get() + self.layers_reserved.get())
+    }
+
+    pub(crate) fn count_layers(&self, paint: impl FnOnce()) -> u32 {
+        let used = self.layers_used.get();
+        let wanted = self.layers_wanted.get();
+        paint();
+        let count = self.layers_used.get() - used;
+        self.layers_used.set(used);
+        self.layers_wanted.set(wanted);
+        count
+    }
+
+    pub(crate) fn take(&self, count: u32) {
+        self.layers_used.update(|x| x + count);
+    }
+
+    pub(crate) fn reserve(&self, count: u32) {
+        self.layers_reserved.update(|x| x + count);
+    }
+
+    pub(crate) fn release(&self, count: u32) {
+        self.layers_reserved.update(|x| x - count);
     }
 
     pub(crate) fn maybe_pop_layer(&self, scene: &mut impl PaintScene, condition: bool) {

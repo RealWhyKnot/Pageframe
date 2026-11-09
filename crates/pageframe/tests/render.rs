@@ -561,3 +561,72 @@ fn perspective_on_an_empty_box_still_turns_its_children() {
     let bottom = widths[widths.len() - 2];
     assert!(bottom > top + 15, "rows go from {top} to {bottom} wide");
 }
+
+const TURNED: &str = "position:absolute;left:4px;top:4px;width:40px;height:40px;background:rgb(0,0,200);transform:perspective(40px) rotateY(60deg) rotateX(30deg)";
+
+#[test]
+fn many_perspective_boxes_leave_layers_for_later_clips() {
+    let turned = format!(r#"<div style="{TURNED}"></div>"#).repeat(24);
+    let page = format!(
+        r#"<html><body style="margin:0;background:white">{turned}
+<div style="position:absolute;left:70px;top:20px;width:20px;height:20px;overflow:hidden"><div style="width:50px;height:50px;background:rgb(255,0,0)"></div></div>
+</body></html>"#
+    );
+    let buffer = render(&mut open(App::new((), &page)));
+    assert_eq!(pixel(&buffer, 80, 30), [255, 0, 0, 255]);
+    assert_eq!(pixel(&buffer, 80, 60), [255, 255, 255, 255]);
+    assert_eq!(pixel(&buffer, 105, 30), [255, 255, 255, 255]);
+}
+
+#[test]
+fn perspective_keeps_its_shape_when_children_use_up_the_layers() {
+    let blues = |children: &str| -> Vec<u8> {
+        let page = format!(
+            r#"<html><body style="margin:0;background:white"><div style="{TURNED}">{children}</div></body></html>"#
+        );
+        render(&mut open(App::new((), &page)))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|px| px[0] < 8)
+            .map(|px| px[2])
+            .collect()
+    };
+    let alone = blues("").len();
+    let crowded = blues(&r#"<div style="width:4px;height:1px;overflow:hidden"></div>"#.repeat(40));
+    assert!(
+        crowded.len().abs_diff(alone) * 50 <= alone,
+        "{} blue pixels, {alone} without children",
+        crowded.len()
+    );
+    assert!(
+        crowded.iter().all(|&blue| blue.abs_diff(200) <= 3),
+        "blue ranges from {:?} to {:?}",
+        crowded.iter().min(),
+        crowded.iter().max()
+    );
+}
+
+#[test]
+fn perspective_scales_with_the_display() {
+    let page = r#"<html><body style="margin:0;background:white">
+<div style="position:absolute;left:40px;top:20px;width:40px;height:40px;background:rgb(0,0,200);transform:perspective(200px) rotateY(45deg)"></div>
+</body></html>"#;
+    let buffer = render_at_scale(&mut open(App::new((), page)), 2);
+    let width = usize::try_from(WIDTH * 2).expect("test width fits in usize");
+    let height = buffer.len() / 4 / width;
+    let inked = |x: usize, y: usize| buffer[(y * width + x) * 4] < 128;
+    let heights: Vec<usize> = (0..width)
+        .map(|x| (0..height).filter(|&y| inked(x, y)).count())
+        .filter(|&count| count > 0)
+        .collect();
+    assert!(
+        (54..=58).contains(&heights.len()),
+        "{} columns",
+        heights.len()
+    );
+    let near = heights[2];
+    let far = heights[heights.len() - 3];
+    assert!((82..=86).contains(&near), "near side is {near} tall");
+    assert!((74..=78).contains(&far), "far side is {far} tall");
+}

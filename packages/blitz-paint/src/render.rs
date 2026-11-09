@@ -439,7 +439,6 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
         }
     }
 
-    /// Render an element, using `own_transform` in place of its own CSS transform when set.
     fn render_element_with(
         &self,
         scene: &mut impl PaintScene,
