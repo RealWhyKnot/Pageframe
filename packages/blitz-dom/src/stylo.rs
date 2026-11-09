@@ -99,6 +99,7 @@ impl crate::document::BaseDocument {
         self.stylist
             .flush(&guards)
             .process_style(root, Some(&self.snapshots));
+        self.invalidate_relative_selectors_for_snapshots();
 
         // Mark actively animating nodes as dirty
         let mut sets = self.animations.sets.write();
@@ -280,7 +281,7 @@ impl crate::document::BaseDocument {
 ///
 /// Since BlitzNodes are not persistent (IE we don't keep the pointers around between frames), we choose to just implement
 /// the tree structure in the nodes themselves, and temporarily give out pointers during the layout phase.
-type BlitzNode<'a> = &'a Node;
+pub(crate) type BlitzNode<'a> = &'a Node;
 
 impl<'a> TDocument for BlitzNode<'a> {
     type ConcreteNode = BlitzNode<'a>;
@@ -1364,17 +1365,25 @@ impl<'a> TElement for BlitzNode<'a> {
 
     fn query_container_size(
         &self,
-        _display: &style::values::specified::Display,
+        display: &style::values::specified::Display,
     ) -> euclid::default::Size2D<Option<app_units::Au>> {
-        // FIXME: Implement container queries. For now this effectively disables them without panicking.
-        Default::default()
+        if display.is_none() || display.is_contents() || display.is_inline_flow() {
+            return euclid::default::Size2D::default();
+        }
+        self.element_data()
+            .and_then(|element| element.container_size)
+            .map_or_else(euclid::default::Size2D::default, |size| {
+                euclid::default::Size2D::new(
+                    Some(app_units::Au::from_f32_px(size.width)),
+                    Some(app_units::Au::from_f32_px(size.height)),
+                )
+            })
     }
 
     fn each_custom_state<F>(&self, _callback: F)
     where
         F: FnMut(&AtomIdent),
     {
-        todo!()
     }
 
     fn has_selector_flags(&self, flags: ElementSelectorFlags) -> bool {

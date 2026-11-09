@@ -8,6 +8,9 @@ use kurbo::{Affine, Rect};
 use parley::LayoutContext;
 use selectors::Element as _;
 use style::dom::TDocument;
+use style::invalidation::element::restyle_hints::RestyleHint;
+
+const CONTAINER_QUERY_PASSES: usize = 4;
 
 #[cfg(feature = "parallel-construct")]
 use rayon::prelude::*;
@@ -112,15 +115,29 @@ impl BaseDocument {
         // Next we resolve layout with the data resolved by stlist
         self.resolve_layout();
         timer.record_time("layout");
+
+        for _ in 0..CONTAINER_QUERY_PASSES {
+            if !self.update_container_sizes() {
+                break;
+            }
+            self.resolve_stylist(current_time_for_animations);
+            self.propagate_damage_flags(root_node_id);
+            self.resolve_layout_children();
+            self.resolve_deferred_tasks();
+            self.flush_pending_style_images();
+            self.handle_style_image_messages();
+            self.resolve_layout();
+        }
+        timer.record_time("container");
         self.nodes.bump_geometry_generation();
 
         // Resolve transforms
         self.resolve_transforms(root_node_id);
         timer.record_time("transform");
 
-        // Build paint children / stacking contexts for damaged subtrees. Runs
-        // after layout and transforms so that stacking-context roots created by
-        // this frame's transforms are picked up, and before damage is cleared.
+        // Build paint children and stacking contexts for damaged subtrees. This
+        // has to come after transforms, which can create new stacking-context
+        // roots, and before damage is cleared.
         self.build_paint_tree(root_node_id);
         timer.record_time("paint_tree");
 
@@ -319,6 +336,36 @@ impl BaseDocument {
 
             doc.nodes[node_id].set_damage(damage);
         }
+    }
+
+    fn update_container_sizes(&mut self) -> bool {
+        let changed: Vec<_> = self
+            .nodes
+            .iter()
+            .filter_map(|(id, node)| {
+                let element = node.element_data()?;
+                let is_container = node
+                    .primary_styles()
+                    .is_some_and(|style| !style.get_box().container_type.is_normal());
+                let size = is_container.then(|| {
+                    let layout = node.final_layout();
+                    taffy::Size {
+                        width: (layout.content_box_width() - layout.scrollbar_size.width).max(0.0),
+                        height: (layout.content_box_height() - layout.scrollbar_size.height)
+                            .max(0.0),
+                    }
+                });
+                (element.container_size != size).then_some((id, size))
+            })
+            .collect();
+        for (id, size) in &changed {
+            let node = &mut self.nodes[*id];
+            if let Some(element) = node.element_data_mut() {
+                element.container_size = *size;
+            }
+            node.set_restyle_hint(RestyleHint::RESTYLE_DESCENDANTS);
+        }
+        !changed.is_empty()
     }
 
     /// Every layout child must point back at its container via

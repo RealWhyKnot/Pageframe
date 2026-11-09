@@ -13,6 +13,7 @@ use std::sync::Arc;
 use style::Atom;
 use style::values::computed::CSSPixelLength;
 use style::values::computed::length_percentage::CalcLengthPercentage;
+use style::values::computed::{Contain, ContainerType};
 use stylo_taffy::CopyStyleGetters;
 use stylo_taffy::TaffyStyloStyle;
 use taffy::{
@@ -267,11 +268,63 @@ impl LayoutPassState<'_> {
         inputs: taffy::tree::LayoutInput,
         block_ctx: Option<&mut BlockContext<'_>>,
     ) -> taffy::tree::LayoutOutput {
+        let inputs = self.apply_size_containment(node_id, inputs);
         let mut output = self.dispatch_child_layout(node_id, inputs, block_ctx);
         if inputs.run_mode == RunMode::PerformLayout {
             compute_oof_layout(self, node_id, &mut output);
         }
         output
+    }
+
+    fn apply_size_containment(
+        &self,
+        node_id: NodeId,
+        mut inputs: taffy::tree::LayoutInput,
+    ) -> taffy::tree::LayoutInput {
+        let node = &self.nodes[dom_node_id(node_id)];
+        let Some(style) = node.primary_styles() else {
+            return inputs;
+        };
+        let display = style.get_box().display;
+        if display.is_none() || display.is_contents() || display.is_inline_flow() {
+            return inputs;
+        }
+        let contain = style.get_box().contain;
+        let container_type = style.get_box().container_type;
+        let inline = contain.contains(Contain::INLINE_SIZE)
+            || container_type.intersects(ContainerType::INLINE_SIZE | ContainerType::SIZE);
+        let block =
+            contain.contains(Contain::BLOCK_SIZE) || container_type.contains(ContainerType::SIZE);
+        if !inline && !block {
+            return inputs;
+        }
+        #[cfg(feature = "writing-mode")]
+        let inline_is_width = style.writing_mode.is_vertical() == self.layout_wm.is_vertical();
+        #[cfg(not(feature = "writing-mode"))]
+        let inline_is_width = !style.writing_mode.is_vertical();
+        let (contain_width, contain_height) = if inline_is_width {
+            (inline, block)
+        } else {
+            (block, inline)
+        };
+        let width_open = contain_width && inputs.known_dimensions.width.is_none();
+        let height_open = contain_height && inputs.known_dimensions.height.is_none();
+        if !width_open && !height_open {
+            return inputs;
+        }
+        let empty = compute_leaf_layout(
+            inputs,
+            &self.child_layout_style(node),
+            resolve_calc_value,
+            |_known_size, _available_space| taffy::Size::ZERO,
+        );
+        if width_open {
+            inputs.known_dimensions.width = Some(empty.size.width);
+        }
+        if height_open {
+            inputs.known_dimensions.height = Some(empty.size.height);
+        }
+        inputs
     }
 
     /// The style of a node being laid out *by* the node whose algorithm is currently running,

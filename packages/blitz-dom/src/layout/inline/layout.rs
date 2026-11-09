@@ -361,7 +361,7 @@ impl LayoutPassState<'_> {
         let style = self.nodes[node_id].layout_style();
 
         // Note: both horizontal and vertical percentage padding/borders are resolved against the container's inline size (i.e. width).
-        // This is not a bug, but is how CSS is specified (see: https://developer.mozilla.org/en-US/docs/Web/CSS/padding#values)
+        // CSS specifies this: https://developer.mozilla.org/en-US/docs/Web/CSS/padding#values
         let padding = style
             .padding()
             .resolve_or_zero(parent_size.width, resolve_calc_value);
@@ -451,7 +451,10 @@ impl LayoutPassState<'_> {
                 .unwrap()
                 .inline_layout_data = Some(inline_layout);
             return LayoutOutput::from_outer_size(
-                Size::ZERO.maybe_max(container_pb.sum_axes().map(Some)),
+                node_size
+                    .or(node_min_size)
+                    .unwrap_or(Size::ZERO)
+                    .maybe_max(container_pb.sum_axes().map(Some)),
             );
         }
 
@@ -647,14 +650,9 @@ impl LayoutPassState<'_> {
                     // A definite available width only occurs here when shrink-to-fit sizing,
                     // which needs the max-content contribution of the floats.
                     AvailableSpace::MaxContent | AvailableSpace::Definite(_) => {
-                        // When computing a max-content size the available width is effectively
-                        // infinite, so floats never wrap onto a new "band" due to a lack of
-                        // horizontal space. They only move below preceding floats when the `clear`
-                        // property forces them to.
-                        //
-                        // Floats that share a band sit side-by-side and so their widths sum, whereas
-                        // floats pushed onto a new band (via `clear`) stack vertically and so we
-                        // take the maximum extent across bands rather than summing.
+                        // Max-content width is unbounded, and floats only drop to a new band when
+                        // `clear` pushes them there. Widths add up within a band; bands stack
+                        // vertically and the widest one wins.
                         let mut left_band: f32 = 0.0;
                         let mut right_band: f32 = 0.0;
                         let mut width: f32 = 0.0;
@@ -946,7 +944,7 @@ impl LayoutPassState<'_> {
                             has_active_floats = line_slot.segment_id.is_some();
                             set_line_slot(state, &line_slot, scale, slack);
 
-                            // The float can't be unplaced, so the line can no longer be retried
+                            // The float is already placed and the line can't be retried.
                             line_start_state = None;
                         }
 

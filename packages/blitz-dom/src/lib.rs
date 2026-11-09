@@ -53,6 +53,7 @@ mod iframe;
 mod layout;
 mod mutator;
 mod query_selector;
+mod relative_selectors;
 mod resolve;
 /// Computation of resolved CSS property values (`getComputedStyle()`)
 mod resolved_style;

@@ -373,6 +373,10 @@ impl<T: Deref<Target = ComputedValues>> taffy::BlockContainerStyle for TaffyStyl
             && display.inside() == stylo::DisplayInside::TableCell
         {
             convert::table_cell_vertical_align(&self.style).unwrap_or(align_content)
+        } else if align_content.keyword() == taffy::AlignContentKeyword::Normal
+            && !self.style.get_box().container_type.is_normal()
+        {
+            taffy::AlignContent::START
         } else {
             align_content
         }

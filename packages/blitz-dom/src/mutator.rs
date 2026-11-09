@@ -20,6 +20,7 @@ use crate::{
 use blitz_traits::shell::Viewport;
 use selectors::matching::ElementSelectorFlags;
 use style::Atom;
+use style::invalidation::element::relative_selector::DomMutationOperation;
 use style::invalidation::element::restyle_hints::RestyleHint;
 use style::stylesheets::OriginSet;
 use style_dom::ElementState;
@@ -326,6 +327,8 @@ impl DocumentMutator<'_> {
             self.doc.snapshot_node(node_id, &name.local);
 
             self.restyle_for_attribute_change(node_id, &name.local);
+            self.doc
+                .restyle_siblings_for_nth_of_attr(node_id, &name.local, Some(value));
         }
 
         if name.local == local_name!("id") && node_is_in_document {
@@ -461,6 +464,8 @@ impl DocumentMutator<'_> {
             self.doc.snapshot_node(node_id, &name.local);
 
             self.restyle_for_attribute_change(node_id, &name.local);
+            self.doc
+                .restyle_siblings_for_nth_of_attr(node_id, &name.local, None);
         }
 
         if name.local == local_name!("id") && node_is_in_document {
@@ -603,6 +608,8 @@ impl DocumentMutator<'_> {
     /// Remove the node from it's parent but don't drop it
     pub fn remove_node(&mut self, node_id: NodeId) {
         let node_is_in_document = self.doc.nodes[node_id].flags.is_in_document();
+        self.doc
+            .invalidate_relative_selectors_for_mutation(node_id, DomMutationOperation::Remove);
         // Process the subtree *before* severing the parent link so that
         // interaction state referencing removed nodes can retarget to the
         // nearest surviving ancestor.
@@ -640,6 +647,8 @@ impl DocumentMutator<'_> {
         on_drop: &mut dyn FnMut(NodeId),
     ) -> Option<Node> {
         let node_is_in_document = self.doc.nodes[node_id].flags.is_in_document();
+        self.doc
+            .invalidate_relative_selectors_for_mutation(node_id, DomMutationOperation::Remove);
         self.process_removed_subtree(node_id);
 
         let node = self.doc.drop_node_ignoring_parent_with(node_id, on_drop);
@@ -668,6 +677,10 @@ impl DocumentMutator<'_> {
     }
 
     pub fn remove_and_drop_all_children(&mut self, node_id: NodeId) {
+        for child_id in self.doc.nodes[node_id].children.clone() {
+            self.doc
+                .invalidate_relative_selectors_for_mutation(child_id, DomMutationOperation::Remove);
+        }
         let parent = &mut self.doc.nodes[node_id];
         let parent_is_in_doc = parent.flags.is_in_document();
         let children = mem::take(&mut parent.children);
@@ -884,6 +897,8 @@ impl DocumentMutator<'_> {
                 focus_within_old_chain = Some(self.doc.maybe_node_element_ancestors(child.parent));
             }
 
+            self.doc
+                .invalidate_relative_selectors_for_mutation(child_id, DomMutationOperation::Remove);
             let child = &mut self.doc.nodes[child_id];
             let child_was_in_doc = child.flags.is_in_document();
             self.mutations_occurred |= child_was_in_doc;
@@ -942,6 +957,12 @@ impl DocumentMutator<'_> {
                 self.process_added_subtree(child_id);
             } else if !new_parent_is_in_document && child_was_in_doc {
                 self.process_removed_subtree(child_id);
+            }
+            if new_parent_is_in_document {
+                self.doc.invalidate_relative_selectors_for_mutation(
+                    child_id,
+                    DomMutationOperation::Insert,
+                );
             }
         }
 

@@ -87,6 +87,8 @@ pub struct ElementData {
     /// does not exclude inline_layout_data
     pub list_item_data: Option<Box<ListItemLayout>>,
 
+    pub(crate) container_size: Option<taffy::Size<f32>>,
+
     /// The element's template contents (\<template\> elements only)
     pub template_contents: Option<NodeId>,
     // /// Whether the node is a [HTML integration point] (https://html.spec.whatwg.org/multipage/#html-integration-point)
@@ -327,6 +329,7 @@ impl Clone for ElementData {
             template_contents: self.template_contents,
 
             // Runtime state: reset to defaults.
+            container_size: None,
             stylo_element_data: Default::default(),
             selector_flags: Cell::new(ElementSelectorFlags::empty()),
             guard: self.guard.clone(),
@@ -436,6 +439,7 @@ impl ElementData {
             style_attribute: Default::default(),
             inline_layout_data: None,
             list_item_data: None,
+            container_size: None,
             special_data: SpecialElementData::None,
             template_contents: None,
             background_images: ThinVec::new(),

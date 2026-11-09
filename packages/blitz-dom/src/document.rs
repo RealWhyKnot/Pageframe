@@ -97,6 +97,9 @@ pub(crate) fn init_stylo_prefs() {
         style_config::set_pref!("layout.css.font-variations.enabled", true);
         style_config::set_pref!("layout.css.text-indent-keywords.enabled", true);
         style_config::set_pref!("layout.css.word-break.break-word.enabled", true);
+        style_config::set_pref!("layout.css.has-selector.enabled", true);
+        style_config::set_pref!("layout.css.nth-child-of.enabled", true);
+        style_config::set_pref!("layout.css.container-queries.enabled", true);
         #[cfg(feature = "writing-mode")]
         {
             style_config::set_pref!("layout.css.writing-mode.enabled", true);
@@ -338,8 +341,8 @@ pub struct BaseDocument {
     pub(crate) layout_ctx: parley::LayoutContext<TextBrush>,
 
     /// The real (non-anonymous) node which is currently hovered (if any).
-    /// This is never a layout-generated (anonymous) node, so it remains valid
-    /// across box-tree reconstruction.
+    /// Anonymous layout nodes are never stored here. Their ids change when the
+    /// box tree is rebuilt.
     pub(crate) hover_node_id: Option<NodeId>,
     /// The precise (may be anonymous) layout node under the pointer (if any).
     /// This can be invalidated by box-tree reconstruction, and is re-resolved against
@@ -1015,8 +1018,8 @@ impl BaseDocument {
     ///   bits. Hover is then re-resolved against the pointer position by
     ///   [`Self::refresh_hover`] at the end of the next resolve pass (the
     ///   analogue of WebKit's "fake mouse move"), which corrects the bridge
-    ///   value — including cases where the removed node overflowed its
-    ///   ancestor's box, so the ancestor was never truly under the pointer.
+    ///   value. That matters when the removed node overflowed its ancestor's
+    ///   box and the pointer was outside the ancestor.
     /// - Focus resets to the body (encoded as `None`), running blur
     ///   side-effects (clearing focus element state and disabling IME for
     ///   text inputs).
@@ -1706,6 +1709,7 @@ impl BaseDocument {
     ) {
         if self.style_depends_on_state(state) {
             self.snapshot_node_state_only(node_id);
+            self.restyle_siblings_for_nth_of_state(node_id, state);
         }
         cb(&mut self.nodes[node_id]);
     }
@@ -1774,8 +1778,8 @@ impl BaseDocument {
     }
 
     /// Walk up the tree to the nearest DOM node whose id is stable across
-    /// box-tree reconstruction, so canonicalized interaction state never goes
-    /// stale.
+    /// box-tree reconstruction. Hover, active and focus ids are stored in this
+    /// form.
     ///
     /// Layout-generated nodes (anonymous blocks and `::before`/`::after`
     /// pseudo-elements, both stored as anonymous blocks) get new ids on every
@@ -1909,7 +1913,7 @@ impl BaseDocument {
             self.unactive_node();
         }
 
-        // hover_node_id is canonicalized when stored, so this always holds.
+        // hover_node_id is canonicalized when stored.
         debug_assert!(
             self.get_node(hover_node_id)
                 .is_some_and(|node| !node.is_anonymous()),
@@ -3111,8 +3115,8 @@ mod hover_state_tests {
     /// Regression test: hovering bare text wrapped in an anonymous block must
     /// report a text cursor. The hit node for such text is the anonymous
     /// inline root itself, while the *stored* hover target is canonicalized to
-    /// the containing element — the cursor must be derived from the precise
-    /// hit node, not the canonical target.
+    /// the containing element. The cursor has to come from the precise hit
+    /// node.
     #[test]
     fn hovering_text_in_anonymous_block_reports_text_cursor() {
         let (mut doc, container) = make_doc();
