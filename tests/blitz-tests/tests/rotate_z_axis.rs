@@ -61,6 +61,12 @@ fn a_rotation_leaving_the_plane_is_flattened_onto_it() {
     let [a, b, c, d, e, f] =
         transform_coeffs(&harness, "#x").expect("rotate: x <angle> must apply");
     assert_eq!([a, b, c, e], [1.0, 0.0, 0.0, 0.0]);
-    assert!(d.abs() < 1e-9, "a quarter turn about x leaves no height, got {d}");
-    assert!((f - 10.0).abs() < 1e-9, "the box collapses onto its centre line, got {f}");
+    assert!(
+        d.abs() < 1e-9,
+        "a quarter turn about x leaves no height, got {d}"
+    );
+    assert!(
+        (f - 10.0).abs() < 1e-9,
+        "the box collapses onto its centre line, got {f}"
+    );
 }

@@ -30,6 +30,43 @@ pub fn resolve_2d_transform(
     box_styles: &BoxStyleStruct,
     reference_box: Rect<CSSPixelLength>,
 ) -> Option<Affine> {
+    let matrix = resolve_3d_transform(box_styles, reference_box)?;
+    let resolved = flatten(&matrix, to_kurbo_rect(reference_box))?;
+    if resolved != Affine::IDENTITY {
+        Some(resolved)
+    } else {
+        None
+    }
+}
+
+/// The full matrix of a transform that has perspective, in CSS pixels, for painting
+/// the element as the projection that `resolve_2d_transform` only approximates.
+/// Returns `None` when the transform is affine on the element's plane.
+pub fn resolve_projective_transform(
+    box_styles: &BoxStyleStruct,
+    reference_box: Rect<CSSPixelLength>,
+) -> Option<Transform3D<f64>> {
+    let matrix = resolve_3d_transform(box_styles, reference_box)?;
+    has_perspective(&matrix).then_some(matrix)
+}
+
+fn has_perspective(m: &Transform3D<f64>) -> bool {
+    m.m14 != 0.0 || m.m24 != 0.0
+}
+
+fn to_kurbo_rect(rect: Rect<CSSPixelLength>) -> kurbo::Rect {
+    kurbo::Rect::new(
+        rect.min_x().px() as f64,
+        rect.min_y().px() as f64,
+        rect.max_x().px() as f64,
+        rect.max_y().px() as f64,
+    )
+}
+
+fn resolve_3d_transform(
+    box_styles: &BoxStyleStruct,
+    reference_box: Rect<CSSPixelLength>,
+) -> Option<Transform3D<f64>> {
     let mut operations = Vec::new();
 
     if let Translate::Translate(x, y, z) = &box_styles.translate {
@@ -74,24 +111,11 @@ pub fn resolve_2d_transform(
         .resolve(reference_box.height())
         .px() as f64;
     let origin_z = transform_origin.depth.px() as f64;
-    let matrix = Transform3D::translation(-origin_x, -origin_y, -origin_z)
-        .then(&matrix)
-        .then(&Transform3D::translation(origin_x, origin_y, origin_z));
-
-    let resolved = flatten(
-        &matrix,
-        kurbo::Rect::new(
-            reference_box.min_x().px() as f64,
-            reference_box.min_y().px() as f64,
-            reference_box.max_x().px() as f64,
-            reference_box.max_y().px() as f64,
-        ),
-    )?;
-    if resolved != Affine::IDENTITY {
-        Some(resolved)
-    } else {
-        None
-    }
+    Some(
+        Transform3D::translation(-origin_x, -origin_y, -origin_z)
+            .then(&matrix)
+            .then(&Transform3D::translation(origin_x, origin_y, origin_z)),
+    )
 }
 
 /// Project a 3D transform onto the plane of the screen, as painting a flat element
@@ -102,27 +126,43 @@ pub fn resolve_2d_transform(
 /// affine. With perspective the true result is a projective map, which an affine
 /// transform can't express, so the affine transform that best fits (in the
 /// least-squares sense) where the corners of `bounds` are projected to is used
-/// instead. The element isn't painted when part of it ends up behind the viewer.
+/// instead. The painter draws the real projection (see `resolve_projective_transform`);
+/// this approximation is what hit testing and scroll overflow see. When part of the
+/// element is behind the viewer the perspective is dropped from the approximation.
 ///
 /// See: https://drafts.csswg.org/css-transforms-2/#3d-transform-rendering
 fn flatten(m: &Transform3D<f64>, bounds: kurbo::Rect) -> Option<Affine> {
-    let has_perspective = m.m14 != 0.0 || m.m24 != 0.0;
-    if !has_perspective || bounds.width() <= 0.0 || bounds.height() <= 0.0 {
+    let affine_part = || {
         if m.m44 == 0.0 || !m.m44.is_finite() {
             return None;
         }
         let affine = Affine::new([m.m11, m.m12, m.m21, m.m22, m.m41, m.m42].map(|v| v / m.m44));
-        return affine.is_finite().then_some(affine);
+        affine.is_finite().then_some(affine)
+    };
+    if !has_perspective(m) {
+        return affine_part();
     }
 
+    // A box with no width or height still places its overflowing descendants.
+    let bounds = kurbo::Rect::new(
+        bounds.x0,
+        bounds.y0,
+        bounds.x0 + bounds.width().max(1.0),
+        bounds.y0 + bounds.height().max(1.0),
+    );
     let project = |x: f64, y: f64| {
         m.transform_point2d(euclid::default::Point2D::new(x, y))
             .map(|point| kurbo::Vec2::new(point.x, point.y))
     };
-    let top_left = project(bounds.x0, bounds.y0)?;
-    let top_right = project(bounds.x1, bounds.y0)?;
-    let bottom_right = project(bounds.x1, bounds.y1)?;
-    let bottom_left = project(bounds.x0, bounds.y1)?;
+    let corners = (
+        project(bounds.x0, bounds.y0),
+        project(bounds.x1, bounds.y0),
+        project(bounds.x1, bounds.y1),
+        project(bounds.x0, bounds.y1),
+    );
+    let (Some(top_left), Some(top_right), Some(bottom_right), Some(bottom_left)) = corners else {
+        return affine_part();
+    };
 
     // For the four corners of a rectangle the least-squares fit has a closed form:
     // the centre maps to the mean of the projected corners, and each axis to the

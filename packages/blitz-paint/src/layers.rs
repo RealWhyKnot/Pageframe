@@ -93,6 +93,11 @@ impl LayerManager {
         true
     }
 
+    /// Whether `count` more layers can be pushed before the limit is reached.
+    pub(crate) fn has_room_for(&self, count: u32) -> bool {
+        self.layers_used.get() + count <= LAYER_LIMIT
+    }
+
     pub(crate) fn maybe_pop_layer(&self, scene: &mut impl PaintScene, condition: bool) {
         if condition {
             scene.pop_layer();

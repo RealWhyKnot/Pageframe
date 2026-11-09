@@ -4,6 +4,7 @@ mod box_shadow;
 mod clip_path;
 mod form_controls;
 mod mask;
+mod projection;
 
 use blitz_dom::CopyStyleGetters;
 use std::cell::RefCell;
@@ -289,10 +290,12 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
     }
 
     fn node_transform(&self, node: &Node, parent: Affine) -> Affine {
+        self.node_position(node, parent) * node.transform().as_deref().copied().unwrap_or_default()
+    }
+
+    fn node_position(&self, node: &Node, parent: Affine) -> Affine {
         let location = node.final_layout().location;
-        parent
-            * Affine::translate(Vec2::new(location.x as f64, location.y as f64) * self.scale)
-            * node.transform().as_deref().copied().unwrap_or_default()
+        parent * Affine::translate(Vec2::new(location.x as f64, location.y as f64) * self.scale)
     }
 
     fn scrolled_transform(&self, node: &Node, transform: Affine) -> Affine {
@@ -422,6 +425,30 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
         clip_rect: Rect,
     ) {
         let node = &self.dom.as_ref().tree()[node_id];
+        match self.projection(node) {
+            Some(projection) => self.render_projected_element(
+                scene,
+                node_id,
+                parent_style_transform,
+                clip_rect,
+                &projection,
+            ),
+            None => {
+                self.render_element_with(scene, node_id, parent_style_transform, clip_rect, None)
+            }
+        }
+    }
+
+    /// Render an element, using `own_transform` in place of its own CSS transform when set.
+    fn render_element_with(
+        &self,
+        scene: &mut impl PaintScene,
+        node_id: NodeId,
+        parent_style_transform: Affine,
+        clip_rect: Rect,
+        own_transform: Option<Affine>,
+    ) {
+        let node = &self.dom.as_ref().tree()[node_id];
 
         // Early return if the element is hidden
         if matches!(node.taffy_display(), taffy::Display::None) {
@@ -487,7 +514,10 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
 
         // Don't render things that are out of view
         let overflow = *node.scrollable_overflow();
-        let transform = self.node_transform(node, parent_style_transform);
+        let transform = match own_transform {
+            Some(own) => self.node_position(node, parent_style_transform) * own,
+            None => self.node_transform(node, parent_style_transform),
+        };
         let screen_transform = Affine::translate(Vec2 {
             x: -self.initial_x,
             y: -self.initial_y,

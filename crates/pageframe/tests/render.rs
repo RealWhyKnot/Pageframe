@@ -458,9 +458,106 @@ fn translate_z_keeps_the_rest_of_the_transform() {
     );
 }
 
+fn painted(page: &str) -> Vec<Vec<bool>> {
+    let buffer = render(&mut open(App::new((), page)));
+    let width = usize::try_from(WIDTH).expect("test width fits in usize");
+    let height = usize::try_from(HEIGHT).expect("test height fits in usize");
+    (0..height)
+        .map(|y| (0..width).map(|x| pixel(&buffer, x, y)[0] < 128).collect())
+        .collect()
+}
+
+fn column_heights(rows: &[Vec<bool>]) -> Vec<usize> {
+    let width = rows.first().map_or(0, Vec::len);
+    (0..width)
+        .map(|x| rows.iter().filter(|row| row[x]).count())
+        .filter(|&count| count > 0)
+        .collect()
+}
+
+fn row_widths(rows: &[Vec<bool>]) -> Vec<usize> {
+    rows.iter()
+        .map(|row| row.iter().filter(|&&inked| inked).count())
+        .filter(|&count| count > 0)
+        .collect()
+}
+
 #[test]
-fn perspective_narrows_a_turned_box() {
-    let (columns, rows) = transformed_extent("perspective(200px) rotateY(45deg)");
-    assert!((27..=30).contains(&columns), "{columns} columns");
-    assert!((40..=43).contains(&rows), "{rows} rows");
+fn perspective_draws_a_turned_box_as_a_trapezoid() {
+    let rows = painted(
+        r#"<html><body style="margin:0;background:white">
+<div style="position:absolute;left:40px;top:20px;width:40px;height:40px;background:rgb(0,0,200);transform:perspective(200px) rotateY(45deg)"></div>
+</body></html>"#,
+    );
+    let heights = column_heights(&rows);
+    assert!(
+        (27..=29).contains(&heights.len()),
+        "{} columns",
+        heights.len()
+    );
+    let near = heights[1];
+    let far = heights[heights.len() - 2];
+    assert!((41..=43).contains(&near), "near side is {near} tall");
+    assert!((37..=39).contains(&far), "far side is {far} tall");
+}
+
+#[test]
+fn perspective_leaves_no_seams_in_translucent_boxes() {
+    let page = r#"<html><body style="margin:0;background:white">
+<div style="position:absolute;left:40px;top:20px;width:60px;height:40px;background:rgba(0,0,255,0.5);transform:perspective(200px) rotateY(-40deg) rotateX(20deg)"></div>
+</body></html>"#;
+    let buffer = render(&mut open(App::new((), page)));
+    let width = usize::try_from(WIDTH).expect("test width fits in usize");
+    let height = usize::try_from(HEIGHT).expect("test height fits in usize");
+    let red = |x: usize, y: usize| pixel(&buffer, x, y)[0];
+    let mut inside = 0;
+    for y in 1..height - 1 {
+        for x in 1..width - 1 {
+            let surrounded = (y - 1..=y + 1).all(|ny| (x - 1..=x + 1).all(|nx| red(nx, ny) < 200));
+            if surrounded {
+                inside += 1;
+                assert!(
+                    red(x, y).abs_diff(127) <= 3,
+                    "red {} at ({x}, {y})",
+                    red(x, y)
+                );
+            }
+        }
+    }
+    assert!(inside > 1000, "{inside} pixels inside");
+}
+
+#[test]
+fn perspective_draws_the_part_in_front_of_the_viewer() {
+    let rows = painted(
+        r#"<html><body style="margin:0;background:white">
+<div style="position:absolute;left:20px;top:20px;width:80px;height:40px;background:rgb(0,0,200);transform:perspective(30px) rotateY(70deg)"></div>
+</body></html>"#,
+    );
+    let height = |x: usize| rows.iter().filter(|row| row[x]).count();
+    assert_eq!(height(2), rows.len());
+    assert!(
+        (50..=54).contains(&height(56)),
+        "column 56 is {}",
+        height(56)
+    );
+    assert!(
+        (22..=26).contains(&height(64)),
+        "column 64 is {}",
+        height(64)
+    );
+    assert!((68..rows[0].len()).all(|x| height(x) == 0));
+}
+
+#[test]
+fn perspective_on_an_empty_box_still_turns_its_children() {
+    let rows = painted(
+        r#"<html><body style="margin:0;background:white">
+<div style="position:absolute;left:30px;top:20px;width:60px;height:0;transform:perspective(100px) rotateX(50deg)"><div style="width:60px;height:40px;background:rgb(0,0,200)"></div></div>
+</body></html>"#,
+    );
+    let widths = row_widths(&rows);
+    let top = widths[1];
+    let bottom = widths[widths.len() - 2];
+    assert!(bottom > top + 15, "rows go from {top} to {bottom} wide");
 }
