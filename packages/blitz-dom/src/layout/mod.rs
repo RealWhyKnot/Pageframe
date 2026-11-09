@@ -108,8 +108,15 @@ const SCROLLBAR_WIDTH: f32 = 15.0;
 struct FormControlSizing {
     avg_char_width: f32,
     max_char_width: f32,
+    scale: f32,
     line_height: f32,
     baseline: f32,
+}
+
+impl FormControlSizing {
+    fn text_width(&self, chars: f32, extra: f32) -> f32 {
+        (self.avg_char_width * chars + extra).ceil() / self.scale
+    }
 }
 
 fn positive_integer_attr(element: &crate::node::ElementData, name: LocalName, default: u32) -> f32 {
@@ -131,21 +138,26 @@ impl<'doc> LayoutPassState<'doc> {
         }
         let style = node.primary_styles()?;
         let font_size = style.slow_clone_font_size().used_size().px();
+        let scale = self.doc.viewport.scale();
         let metrics = crate::font_metrics::form_control_metrics(
             &mut self.doc.font_ctx.lock().unwrap(),
             style.get_font(),
             font_size,
+            scale,
         )?;
+        let ascent = metrics.ascent / scale;
+        let descent = metrics.descent / scale;
         let line_height = match style.clone_line_height() {
-            LineHeight::Normal => metrics.normal_line_height,
+            LineHeight::Normal => metrics.normal_line_height / scale,
             LineHeight::Number(num) => font_size * num.0,
             LineHeight::Length(value) => value.0.px(),
         };
         Some(FormControlSizing {
             avg_char_width: metrics.avg_char_width,
             max_char_width: metrics.max_char_width,
+            scale,
             line_height,
-            baseline: (line_height - metrics.ascent - metrics.descent) / 2.0 + metrics.ascent,
+            baseline: (line_height - ascent - descent) / 2.0 + ascent,
         })
     }
 
@@ -326,10 +338,10 @@ impl LayoutPassState<'_> {
                 if *element_data.name.local == *"textarea" {
                     let rows = positive_integer_attr(element_data, local_name!("rows"), 2);
                     let cols = positive_integer_attr(element_data, local_name!("cols"), 20);
-                    let (char_width, line_height) = match &form_control {
-                        Some(control) => (control.avg_char_width, control.line_height),
+                    let (text_width, line_height) = match &form_control {
+                        Some(control) => (control.text_width(cols, 0.0), control.line_height),
                         None => (
-                            font_size.unwrap_or(16.0) * 0.6,
+                            font_size.unwrap_or(16.0) * 0.6 * cols,
                             resolved_line_height.unwrap_or(16.0),
                         ),
                     };
@@ -339,7 +351,7 @@ impl LayoutPassState<'_> {
                         &node.layout_style(),
                         resolve_calc_value,
                         |_known_size, _available_space| taffy::Size {
-                            width: cols * char_width + SCROLLBAR_WIDTH,
+                            width: text_width + SCROLLBAR_WIDTH,
                             height: line_height * rows,
                         },
                     );
@@ -411,7 +423,7 @@ impl LayoutPassState<'_> {
                             let size = positive_integer_attr(element_data, local_name!("size"), 20);
                             let (width, height) = match &form_control {
                                 Some(control) => (
-                                    control.avg_char_width * (size - 1.0) + control.max_char_width,
+                                    control.text_width(size - 1.0, control.max_char_width),
                                     control.line_height,
                                 ),
                                 None => (

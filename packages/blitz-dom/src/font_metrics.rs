@@ -68,11 +68,10 @@ pub(crate) fn form_control_metrics(
     font_ctx: &mut FontContext,
     font_styles: &FontStyles,
     font_size: f32,
+    scale: f32,
 ) -> Option<FormControlMetrics> {
     use skrifa::instance::{LocationRef, Size};
     use skrifa::metrics::{GlyphMetrics, Metrics};
-    use skrifa::raw::TableProvider as _;
-    use skrifa::raw::tables::gasp::GaspRangeBehavior;
 
     let variations = stylo_to_parley::font_variations(font_styles, font_size);
     let mut query = query_for_font_styles(font_ctx, font_styles);
@@ -84,7 +83,8 @@ pub(crate) fn form_control_metrics(
             .map(|v| (skrifa::Tag::from_be_bytes(v.tag.to_bytes()), v.value)),
     );
     let location_ref = LocationRef::from(&location);
-    let metrics = Metrics::new(&font_ref, Size::new(font_size), location_ref);
+    let device_size = font_size * scale;
+    let metrics = Metrics::new(&font_ref, Size::new(device_size), location_ref);
     let unscaled = Metrics::new(&font_ref, Size::unscaled(), location_ref);
     if unscaled.units_per_em == 0 {
         return None;
@@ -92,40 +92,65 @@ pub(crate) fn form_control_metrics(
     let glyph_id = Charmap::new(&font_ref).map('x')?;
     let advance =
         GlyphMetrics::new(&font_ref, Size::unscaled(), location_ref).advance_width(glyph_id)?;
-    let x_advance = advance * font_size / unscaled.units_per_em as f32;
-    let ppem = font_size.round() as u16;
-    let snaps_to_pixels = font_ref
-        .gasp()
-        .ok()
-        .and_then(|gasp| {
-            gasp.gasp_ranges()
-                .iter()
-                .find(|range| ppem <= range.range_max_ppem())
-                .map(|range| {
-                    !range
-                        .range_gasp_behavior()
-                        .contains(GaspRangeBehavior::GASP_DOGRAY)
-                })
-        })
-        .unwrap_or(false);
-    let avg_char_width = if snaps_to_pixels {
-        x_advance.round()
-    } else {
-        x_advance
-    };
+    let x_advance = advance * device_size / f32::from(unscaled.units_per_em);
+    let avg_char_width = x_advance.max(x_advance.round());
     let max_char_width = metrics
         .bounds
         .map(|bounds| (bounds.x_max - bounds.x_min).round())
         .unwrap_or(avg_char_width);
+    let px_per_unit = device_size / f32::from(unscaled.units_per_em);
+    let vertical = cfg!(windows)
+        .then(|| dwrite_vertical_metrics(&font_ref, px_per_unit))
+        .flatten()
+        .unwrap_or(VerticalMetrics {
+            ascent: metrics.ascent,
+            descent: -metrics.descent,
+            line_gap: metrics.leading,
+        });
     let normal_line_height =
-        metrics.ascent.round() + (-metrics.descent).round() + metrics.leading.round();
+        vertical.ascent.round() + vertical.descent.round() + vertical.line_gap.round();
 
     Some(FormControlMetrics {
         avg_char_width,
         max_char_width,
         normal_line_height,
-        ascent: metrics.ascent,
-        descent: -metrics.descent,
+        ascent: vertical.ascent,
+        descent: vertical.descent,
+    })
+}
+
+struct VerticalMetrics {
+    ascent: f32,
+    descent: f32,
+    line_gap: f32,
+}
+
+fn dwrite_vertical_metrics(
+    font_ref: &skrifa::FontRef,
+    px_per_unit: f32,
+) -> Option<VerticalMetrics> {
+    use skrifa::raw::TableProvider as _;
+    use skrifa::raw::tables::os2::SelectionFlags;
+
+    let os2 = font_ref.os2().ok()?;
+    if os2
+        .fs_selection()
+        .contains(SelectionFlags::USE_TYPO_METRICS)
+    {
+        return None;
+    }
+    let ascent = f32::from(os2.us_win_ascent());
+    let descent = f32::from(os2.us_win_descent());
+    if ascent + descent <= 0.0 {
+        return None;
+    }
+    let hhea = font_ref.hhea().ok()?;
+    let hhea_height = f32::from(hhea.ascender().to_i16()) - f32::from(hhea.descender().to_i16())
+        + f32::from(hhea.line_gap().to_i16());
+    Some(VerticalMetrics {
+        ascent: ascent * px_per_unit,
+        descent: descent * px_per_unit,
+        line_gap: (hhea_height - ascent - descent).max(0.0) * px_per_unit,
     })
 }
 

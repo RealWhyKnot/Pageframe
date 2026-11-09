@@ -289,6 +289,7 @@ glifo = { git = "https://github.com/DioxusLabs/vello", branch = "devin/glifo-0.4
 vello_common = { git = "https://github.com/DioxusLabs/vello", branch = "devin/glifo-0.4.0-embolden-2049" }
 vello_cpu = { git = "https://github.com/DioxusLabs/vello", branch = "devin/glifo-0.4.0-embolden-2049" }
 vello_gpu = { git = "https://github.com/DioxusLabs/vello", branch = "devin/glifo-0.4.0-embolden-2049" }
+parley_engine = { path = "./vendor/parley_engine" }
 
 # [patch.crates-io]
 # anyrender = { path = "../anyrender/crates/anyrender" }
