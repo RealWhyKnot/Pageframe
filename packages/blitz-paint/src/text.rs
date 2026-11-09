@@ -1193,7 +1193,7 @@ fn blurred_shadow_image(
 
 /// Blurs a single-channel image in place by approximating a Gaussian with three box blurs,
 /// as the Filter Effects spec describes for `feGaussianBlur`.
-fn gaussian_blur(values: &mut [f32], width: usize, height: usize, std_deviation: f64) {
+pub(crate) fn gaussian_blur(values: &mut [f32], width: usize, height: usize, std_deviation: f64) {
     let size = (std_deviation * 3.0 * (2.0 * std::f64::consts::PI).sqrt() / 4.0 + 0.5) as usize;
     if size < 2 {
         return;

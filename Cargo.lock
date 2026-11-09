@@ -891,6 +891,7 @@ dependencies = [
  "color",
  "euclid",
  "kurbo",
+ "num-traits",
  "parley",
  "peniko",
  "skrifa",
