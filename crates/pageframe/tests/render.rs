@@ -630,3 +630,21 @@ fn perspective_scales_with_the_display() {
     assert!((82..=86).contains(&near), "near side is {near} tall");
     assert!((74..=78).contains(&far), "far side is {far} tall");
 }
+
+const CHECKER_PNG: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAHElEQVR4nGP4f4LhPzJmYEDDdFCALoBFA60VAAAT2nihz+AndwAAAABJRU5ErkJggg==";
+
+#[test]
+fn background_image_from_a_data_url_is_painted() {
+    let page = format!(
+        r#"<html><body style="margin:0;background:white">
+<div style="width:40px;height:40px;background:url({CHECKER_PNG});background-size:40px"></div>
+</body></html>"#
+    );
+    let mut harness = open(App::new((), &page));
+    let buffer = render(&mut harness);
+    let painted = (0..40)
+        .flat_map(|y| (0..40).map(move |x| (x, y)))
+        .filter(|&(x, y)| pixel(&buffer, x, y) != [255, 255, 255, 255])
+        .count();
+    assert!(painted > 400, "only {painted} pixels painted");
+}

@@ -1371,6 +1371,22 @@ impl BaseDocument {
         self.rx = Some(rx);
     }
 
+    pub(crate) fn handle_style_image_messages(&mut self) {
+        let rx = self.rx.take().unwrap();
+        let mut deferred = Vec::new();
+        while let Ok(msg) = rx.try_recv() {
+            if is_style_image(&msg) {
+                self.handle_message(msg);
+            } else {
+                deferred.push(msg);
+            }
+        }
+        for msg in deferred {
+            let _ = self.tx.send(msg);
+        }
+        self.rx = Some(rx);
+    }
+
     pub fn handle_message(&mut self, msg: DocumentEvent) {
         match msg {
             DocumentEvent::ResourceLoad(resource) => self.load_resource(resource),
@@ -2950,6 +2966,19 @@ fn snap_to_layout_unit(value: f64) -> f64 {
     (value * 64.0).round() / 64.0
 }
 
+fn is_style_image(msg: &DocumentEvent) -> bool {
+    let DocumentEvent::ResourceLoad(res) = msg else {
+        return false;
+    };
+    let kind = match &res.result {
+        Ok(Resource::Image(kind, ..)) => kind,
+        #[cfg(feature = "svg")]
+        Ok(Resource::Svg(kind, _)) => kind,
+        _ => return false,
+    };
+    matches!(kind, ImageType::Background(_) | ImageType::Mask(_))
+}
+
 impl Drop for BaseDocument {
     fn drop(&mut self) {
         #[cfg(feature = "devtools")]
@@ -3781,5 +3810,59 @@ mod font_face_override_tests {
             "registered family should report the CSS-declared name, \
              not the font file's internal `name` table entry",
         );
+    }
+}
+
+#[cfg(test)]
+mod style_image_message_tests {
+    use super::*;
+    use crate::net::{Resource, ResourceLoadResponse};
+
+    fn response(request_id: usize, url: &str, resource: Resource) -> DocumentEvent {
+        DocumentEvent::ResourceLoad(ResourceLoadResponse {
+            request_id,
+            node_id: None,
+            resolved_url: Some(String::from(url)),
+            result: Ok(resource),
+        })
+    }
+
+    #[test]
+    fn style_images_apply_and_other_messages_wait() {
+        let mut doc = BaseDocument::new(DocumentConfig::default());
+        let pixel = || Arc::new(vec![0, 0, 0, 255]);
+        for message in [
+            response(
+                1,
+                "test://img",
+                Resource::Image(ImageType::Image, 1, 1, pixel()),
+            ),
+            response(
+                2,
+                "test://bg",
+                Resource::Image(ImageType::Background(0), 1, 1, pixel()),
+            ),
+            response(3, "test://none", Resource::None),
+            response(
+                4,
+                "test://mask",
+                Resource::Image(ImageType::Mask(0), 1, 1, pixel()),
+            ),
+        ] {
+            doc.tx.send(message).unwrap();
+        }
+
+        doc.handle_style_image_messages();
+
+        assert!(doc.image_cache.contains_key("test://bg"));
+        assert!(doc.image_cache.contains_key("test://mask"));
+        assert!(!doc.image_cache.contains_key("test://img"));
+        let waiting: Vec<usize> = std::iter::from_fn(|| doc.rx.as_ref().unwrap().try_recv().ok())
+            .map(|message| match message {
+                DocumentEvent::ResourceLoad(response) => response.request_id,
+                DocumentEvent::NavigateIframe { .. } => usize::MAX,
+            })
+            .collect();
+        assert_eq!(waiting, [1, 3]);
     }
 }

@@ -106,6 +106,7 @@ impl BaseDocument {
         // nodes whose style changed (queued by the style traversal and by
         // pseudo-element box construction), fetching any not-yet-loaded images.
         self.flush_pending_style_images();
+        self.handle_style_image_messages();
         timer.record_time("pconstruct");
 
         // Next we resolve layout with the data resolved by stlist
