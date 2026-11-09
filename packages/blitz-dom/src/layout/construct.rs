@@ -807,7 +807,8 @@ fn collect_complex_layout_children(
     hide_whitespace: bool,
     needs_wrap: fn(NodeKind, DisplayOutside) -> bool,
 ) {
-    doc.iter_children_and_pseudos_mut(container_node_id, |child_id, doc| {
+    let leading_summary = leading_details_summary(doc, container_node_id);
+    let mut place = |child_id: NodeId, doc: &mut BaseDocument| {
         // Get node kind (text, element, comment, etc)
         let child_node_kind = doc.nodes[child_id].data.kind();
 
@@ -850,10 +851,34 @@ fn collect_complex_layout_children(
         else {
             out.push(child_id, doc);
         }
+    };
+
+    if let Some(summary_id) = leading_summary {
+        place(summary_id, doc);
+    }
+    doc.iter_children_and_pseudos_mut(container_node_id, |child_id, doc| {
+        if Some(child_id) != leading_summary {
+            place(child_id, doc);
+        }
     });
 
     // If anonymous block node only contains whitespace then delete it, else push it
     out.maybe_push_anon_block(doc);
+}
+
+fn leading_details_summary(doc: &BaseDocument, container_node_id: NodeId) -> Option<NodeId> {
+    let container = &doc.nodes[container_node_id];
+    if !container
+        .data
+        .is_element_with_tag_name(&local_name!("details"))
+    {
+        return None;
+    }
+    container.children.iter().copied().find(|child_id| {
+        doc.nodes[*child_id]
+            .data
+            .is_element_with_tag_name(&local_name!("summary"))
+    })
 }
 
 fn create_text_editor(doc: &mut BaseDocument, input_element_id: NodeId, is_multiline: bool) {

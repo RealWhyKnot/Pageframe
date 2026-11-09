@@ -21,6 +21,8 @@ use crate::{
     stylo_to_parley,
 };
 
+const DISCLOSURE_MARKER_GAP_EM: f32 = 0.4;
+
 pub(crate) fn build_inline_layout_into(
     nodes: &crate::NodeTree,
     layout_ctx: &mut LayoutContext<TextBrush>,
@@ -76,8 +78,17 @@ pub(crate) fn build_inline_layout_into(
             Marker::Char(char) => {
                 let mut marker_style = parley_style.clone();
                 marker_style.font_family = BULLET_FONT_FAMILY.into();
+                let is_disclosure = matches!(char, '▸' | '▾');
+                if is_disclosure {
+                    marker_style.letter_spacing =
+                        DISCLOSURE_MARKER_GAP_EM * marker_style.font_size / scale;
+                }
                 builder.push_style_span(marker_style);
-                builder.push_text(&format!("{char} "));
+                if is_disclosure {
+                    builder.push_text(char.encode_utf8(&mut [0; 4]));
+                } else {
+                    builder.push_text(&format!("{char} "));
+                }
                 builder.pop_style_span();
             }
             Marker::String(str) => builder.push_text(str),
@@ -292,9 +303,18 @@ pub(crate) fn build_inline_layout_into(
                 // node.remove_damage(CONSTRUCT_DESCENDENT | CONSTRUCT_FC | CONSTRUCT_BOX);
                 // dbg!(&data.content);
 
-                let text =
-                    text_transformer.transform(&data.content, parent_text_transform, builder);
-                builder.push_text(text);
+                let in_closed_details = node.parent.is_some_and(|parent_id| {
+                    let parent = &nodes[parent_id];
+                    parent
+                        .data
+                        .is_element_with_tag_name(&local_name!("details"))
+                        && parent.attr(local_name!("open")).is_none()
+                });
+                if !in_closed_details {
+                    let text =
+                        text_transformer.transform(&data.content, parent_text_transform, builder);
+                    builder.push_text(text);
+                }
             }
             NodeData::Comment { .. } => {
                 // node.remove_damage(CONSTRUCT_DESCENDENT | CONSTRUCT_FC | CONSTRUCT_BOX);
