@@ -1,10 +1,14 @@
 use anyrender::render_to_buffer;
 use anyrender_vello_cpu::VelloCpuImageRenderer;
-use blitz_html::HtmlDocument;
+use blitz_dom::{DocumentConfig, EventDriver, NoopEventHandler};
+use blitz_html::{HtmlDocument, HtmlProvider};
 use blitz_paint::paint_scene;
 use blitz_test_harness::{Harness, HarnessOptions, mouse_pointer_event};
 use blitz_traits::events::UiEvent;
+use blitz_traits::shell::{ColorScheme, ShellProvider, Viewport};
 use cursor_icon::CursorIcon;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn open(body: &str) -> Harness<HtmlDocument> {
     open_at(body, 1.0)
@@ -185,6 +189,54 @@ fn pressing_the_grip_keeps_focus_and_still_clicks() {
     harness.pump();
     assert!(events.iter().any(|name| name == "click"), "{events:?}");
     assert_eq!(harness.focused(), focused);
+}
+
+#[test]
+fn shrinking_past_the_padding_stops_at_the_padding() {
+    let mut harness = open(
+        r#"<textarea style="position:absolute;left:200px;top:150px;padding:20px"></textarea>"#,
+    );
+    assert_eq!(
+        drag_grip(&mut harness, "textarea", -300.0, -300.0),
+        (42.0, 42.0)
+    );
+}
+
+#[derive(Default)]
+struct RecordingShell {
+    redraws: AtomicUsize,
+}
+
+impl ShellProvider for RecordingShell {
+    fn request_redraw(&self) {
+        self.redraws.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+#[test]
+fn every_resize_step_requests_a_redraw() {
+    let shell = Arc::new(RecordingShell::default());
+    let mut doc = HtmlDocument::from_html(
+        &format!(r#"<html><body style="margin:0">{TEXTAREA}</body></html>"#),
+        DocumentConfig {
+            viewport: Some(Viewport::new(400, 300, 1.0, ColorScheme::Light)),
+            html_parser_provider: Some(Arc::new(HtmlProvider) as _),
+            shell_provider: Some(shell.clone() as _),
+            ..Default::default()
+        },
+    );
+    doc.resolve(0.0);
+    let mut driver = EventDriver::new(&mut doc, NoopEventHandler);
+    driver.handle_ui_event(UiEvent::PointerDown(mouse_pointer_event(172.0, 40.0)));
+    for step in 1..=3u8 {
+        let offset = f32::from(step) * 10.0;
+        shell.redraws.swap(0, Ordering::Relaxed);
+        driver.handle_ui_event(UiEvent::PointerMove(mouse_pointer_event(
+            172.0 + offset,
+            40.0 + offset,
+        )));
+        assert!(shell.redraws.swap(0, Ordering::Relaxed) > 0, "step {step}");
+    }
 }
 
 #[test]

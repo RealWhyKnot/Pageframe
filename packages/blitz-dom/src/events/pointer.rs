@@ -286,8 +286,7 @@ pub(crate) fn handle_pointermove<F: FnMut(DomEvent)>(
     }
 
     if let DragMode::Resize(state) = doc.drag_mode {
-        resize_to(doc, state, x, y);
-        return changed;
+        return resize_to(doc, state, x, y) || changed;
     }
 
     if let DragMode::ScrollbarDrag(state) = &mut doc.drag_mode {
@@ -896,19 +895,19 @@ fn start_resize(doc: &mut BaseDocument, node_id: NodeId, x: f32, y: f32) {
     doc.update_cursor();
 }
 
-fn resize_to(doc: &mut BaseDocument, state: ResizeDragState, x: f32, y: f32) {
+fn resize_to(doc: &mut BaseDocument, state: ResizeDragState, x: f32, y: f32) -> bool {
     use style::computed_values::box_sizing::T as BoxSizing;
     use style::values::computed::Resize;
     let node_id = state.node_id;
     let Some(node) = doc.nodes.get(node_id) else {
-        return;
+        return false;
     };
     let resize = node.resize();
     let Some(style) = node.primary_styles() else {
-        return;
+        return false;
     };
     if resize == Resize::None {
-        return;
+        return false;
     }
     let border_box = style.clone_box_sizing() == BoxSizing::BorderBox;
     drop(style);
@@ -945,12 +944,15 @@ fn resize_to(doc: &mut BaseDocument, state: ResizeDragState, x: f32, y: f32) {
     let minimum = crate::node::resizer_size(scale) / scale;
     let diff_w = (device_w / scale).trunc().max(minimum) - current.0;
     let diff_h = (device_h / scale).trunc().max(minimum) - current.1;
-    if diff_w != 0.0 && resize != Resize::Vertical {
-        let width = (current.0 - extra_w + diff_w).round();
+    let resize_width = diff_w != 0.0 && resize != Resize::Vertical;
+    let resize_height = diff_h != 0.0 && resize != Resize::Horizontal;
+    if resize_width {
+        let width = (current.0 - extra_w + diff_w).round().max(0.0);
         doc.set_style_property(node_id, "width", &format!("{width}px"));
     }
-    if diff_h != 0.0 && resize != Resize::Horizontal {
-        let height = (current.1 - extra_h + diff_h).round();
+    if resize_height {
+        let height = (current.1 - extra_h + diff_h).round().max(0.0);
         doc.set_style_property(node_id, "height", &format!("{height}px"));
     }
+    resize_width || resize_height
 }
