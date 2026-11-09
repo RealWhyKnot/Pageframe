@@ -984,6 +984,20 @@ pub enum Marker {
     String(String),
 }
 
+impl Marker {
+    pub fn is_disclosure(&self) -> bool {
+        matches!(self, Self::Char('▸' | '▾'))
+    }
+
+    pub fn inside_text(&self) -> String {
+        match self {
+            Self::Char(char) if self.is_disclosure() => char.to_string(),
+            Self::Char(char) => format!("{char} "),
+            Self::String(text) => text.clone(),
+        }
+    }
+}
+
 //Value depends on list-style-position, determining whether a seperate layout is created for it
 #[derive(Clone)]
 pub enum ListItemLayoutPosition {

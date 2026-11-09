@@ -20,6 +20,7 @@ summary{background:rgb(255,0,0);color:rgb(255,0,0)}
 <div class="after"></div>
 <details id="first" open>before <summary>s</summary>after</details>
 <div class="after"></div>
+<details id="blocks" open><p style="margin:0">p</p><summary>s</summary></details>
 </body></html>"#;
 
 const MARKER_PAGE: &str = r#"<html><head><style>
@@ -107,6 +108,7 @@ fn summary_comes_before_earlier_content() {
     check(&buffer, 100, 45, RED);
     check(&buffer, 100, 55, GREEN);
     check(&buffer, 100, 65, BLUE);
+    check(&buffer, 100, 75, RED);
 }
 
 #[test]

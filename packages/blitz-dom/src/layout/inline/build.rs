@@ -75,20 +75,15 @@ pub(crate) fn build_inline_layout_into(
             // path already asks for it; without the same span here a marker like
             // disclosure-closed (U+25B8) falls back to the element's own font and
             // renders as a missing glyph.
-            Marker::Char(char) => {
+            Marker::Char(_) => {
                 let mut marker_style = parley_style.clone();
                 marker_style.font_family = BULLET_FONT_FAMILY.into();
-                let is_disclosure = matches!(char, '▸' | '▾');
-                if is_disclosure {
+                if marker.is_disclosure() {
                     marker_style.letter_spacing =
                         DISCLOSURE_MARKER_GAP_EM * marker_style.font_size / scale;
                 }
                 builder.push_style_span(marker_style);
-                if is_disclosure {
-                    builder.push_text(char.encode_utf8(&mut [0; 4]));
-                } else {
-                    builder.push_text(&format!("{char} "));
-                }
+                builder.push_text(&marker.inside_text());
                 builder.pop_style_span();
             }
             Marker::String(str) => builder.push_text(str),

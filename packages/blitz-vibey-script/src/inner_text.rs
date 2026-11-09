@@ -3,7 +3,7 @@
 //! Self-contained so that it can move into `blitz-dom` later.
 
 use blitz_dom::CopyStyleGetters;
-use blitz_dom::node::{ListItemLayoutPosition, Marker, TextBrush, TextLayout};
+use blitz_dom::node::{ListItemLayoutPosition, TextBrush, TextLayout};
 use blitz_dom::{Node, NodeId};
 use markup5ever::local_name;
 use style::computed_values::visibility::T as Visibility;
@@ -269,10 +269,7 @@ fn inside_marker_len(root: &Node, text: &str) -> usize {
     if !matches!(list_item.position, ListItemLayoutPosition::Inside) {
         return 0;
     }
-    let len = match &list_item.marker {
-        Marker::Char(c) => c.len_utf8() + 1,
-        Marker::String(s) => s.len(),
-    };
+    let len = list_item.marker.inside_text().len();
     if text.is_char_boundary(len.min(text.len())) {
         len.min(text.len())
     } else {

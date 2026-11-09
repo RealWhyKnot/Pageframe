@@ -633,7 +633,10 @@ fn collect_layout_children_with_wrap(
 
             // If the children are either all inline or all block then simply return the regular children
             // as the layout children
-            if classification.all_block & !classification.has_contents {
+            if classification.all_block
+                && !classification.has_contents
+                && !details_summary_moves(doc, container_node_id)
+            {
                 return push_non_whitespace_children_and_pseudos(
                     &mut out.children,
                     &doc.nodes[container_node_id],
@@ -808,7 +811,7 @@ fn collect_complex_layout_children(
     needs_wrap: fn(NodeKind, DisplayOutside) -> bool,
 ) {
     let leading_summary = leading_details_summary(doc, container_node_id);
-    let mut place = |child_id: NodeId, doc: &mut BaseDocument| {
+    let place = |child_id: NodeId, doc: &mut BaseDocument, out: &mut LayoutChildren| {
         // Get node kind (text, element, comment, etc)
         let child_node_kind = doc.nodes[child_id].data.kind();
 
@@ -853,17 +856,38 @@ fn collect_complex_layout_children(
         }
     };
 
-    if let Some(summary_id) = leading_summary {
-        place(summary_id, doc);
-    }
-    doc.iter_children_and_pseudos_mut(container_node_id, |child_id, doc| {
-        if Some(child_id) != leading_summary {
-            place(child_id, doc);
+    let before = doc.nodes[container_node_id].before();
+    let after = doc.nodes[container_node_id].after();
+    let mut summary_pending = leading_summary;
+    let mut children = Vec::new();
+    doc.iter_children_and_pseudos_mut(container_node_id, |child_id, _| children.push(child_id));
+    for child_id in children {
+        if Some(child_id) != before
+            && let Some(summary_id) = summary_pending.take()
+        {
+            place(summary_id, doc, out);
         }
-    });
+        if Some(child_id) == leading_summary {
+            continue;
+        }
+        if leading_summary.is_some() && Some(child_id) == after {
+            out.maybe_push_anon_block(doc);
+        }
+        place(child_id, doc, out);
+    }
 
     // If anonymous block node only contains whitespace then delete it, else push it
     out.maybe_push_anon_block(doc);
+}
+
+fn details_summary_moves(doc: &BaseDocument, container_node_id: NodeId) -> bool {
+    let first_element = doc.nodes[container_node_id]
+        .children
+        .iter()
+        .copied()
+        .find(|child_id| doc.nodes[*child_id].is_element());
+    leading_details_summary(doc, container_node_id)
+        .is_some_and(|summary_id| Some(summary_id) != first_element)
 }
 
 fn leading_details_summary(doc: &BaseDocument, container_node_id: NodeId) -> Option<NodeId> {
