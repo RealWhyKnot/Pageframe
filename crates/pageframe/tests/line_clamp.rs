@@ -260,3 +260,32 @@ fn clamped_box_keeps_the_padding_under_the_line() {
     assert!(inside < 50, "the bar is not right under the padding");
     assert!(below > 200, "the second paragraph still takes up room");
 }
+
+#[test]
+fn outer_clamp_keeps_an_inner_clamp() {
+    let inner =
+        "<div class=\"c\" style=\"-webkit-line-clamp:1\">aaaa bbbb cccc dddd eeee ffff</div>";
+    let nested = draw(
+        &format!("{PARAGRAPHS}.o{{-webkit-line-clamp:5}}"),
+        &format!("<div class=\"c o\">{inner}<p>gggg</p></div>"),
+    );
+    let alone = draw(PARAGRAPHS, &format!("<div>{inner}<p>gggg</p></div>"));
+    assert!(
+        has_ink(&alone, 10..20),
+        "the page without the outer clamp drew no second block"
+    );
+    assert!(nested == alone, "the outer clamp changed the inner one");
+}
+
+#[test]
+fn clamped_box_keeps_its_min_height() {
+    let bar = "<div style=\"height:4px;background:black\"></div>";
+    let clamped = draw(
+        &format!("{PARAGRAPHS}.c{{-webkit-line-clamp:1;min-height:30px}}"),
+        &format!("<div class=\"c\"><p>aaaa</p><p>bbbb</p></div>{bar}"),
+    );
+    let [above, ..] = pixel(&clamped, 100, 29);
+    let [inside, ..] = pixel(&clamped, 100, 31);
+    assert!(above > 200, "the box is shorter than its min-height");
+    assert!(inside < 50, "the bar is not right under the box");
+}

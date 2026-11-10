@@ -265,12 +265,12 @@ pub fn clamped_line_count(
     (line_count(layout) > max_lines).then_some(max_lines)
 }
 
-pub fn max_clamped_lines(style: &style::properties::ComputedValues) -> Option<usize> {
+pub(crate) fn max_clamped_lines(style: &style::properties::ComputedValues) -> Option<usize> {
     let max_lines = style.get_box().line_clamp.max_lines.lines_value()?;
     Some(usize::try_from(max_lines.0).ok()?.max(1))
 }
 
-pub fn line_count(layout: &parley::Layout<crate::node::TextBrush>) -> usize {
+pub(crate) fn line_count(layout: &parley::Layout<crate::node::TextBrush>) -> usize {
     match layout.get(layout.len().wrapping_sub(1)) {
         Some(last) if last.text_range().is_empty() && last.items().next().is_none() => {
             layout.len() - 1
