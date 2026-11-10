@@ -524,14 +524,17 @@ fn node_to_paint_order(node: &Node, is_flex_or_grid: bool) -> (i32, i32) {
         return (0, 0);
     };
     let position = style.clone_position();
+    let stacks = node.is_stacking_context_root(is_flex_or_grid);
     if is_flex_or_grid {
         match position {
-            Position::Static => (0, style.clone_order()),
+            Position::Static => (if stacks { 2 } else { 0 }, style.clone_order()),
             Position::Relative | Position::Sticky => (2, style.clone_order()),
             // Out-of-flow children are not flex/grid items: `order` does
             // not apply; tree order does.
             Position::Absolute | Position::Fixed => (2, 0),
         }
+    } else if stacks && position == Position::Static {
+        (2, 0)
     } else {
         (
             position_to_order(position) + float_to_order(style.clone_float()),

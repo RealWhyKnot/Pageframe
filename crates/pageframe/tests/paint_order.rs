@@ -1,6 +1,6 @@
 mod support;
 
-use pageframe::App;
+use pageframe::{App, EventKind};
 use support::{WIDTH, open, pixel, render};
 
 const BASE: &str = "html,body{margin:0;background:white;font:10px/10px monospace;color:black}\
@@ -88,4 +88,27 @@ fn positioned_block_paints_over_later_text() {
          <div style=\"margin-top:-20px\">{TWO_LINES}</div>"
     ));
     assert!(!has_ink(&buffer, 0..20), "later text covers the block");
+}
+
+const SEE_THROUGH: &str = "<div id=\"first\" style=\"opacity:.5;background:red;height:20px\"></div>\
+<div id=\"late\" class=\"late\" style=\"margin-top:-20px\"></div>";
+
+#[test]
+fn see_through_box_paints_over_a_later_block() {
+    let buffer = draw(SEE_THROUGH);
+    let [red, green, _, _] = pixel(&buffer, 5, 5);
+    assert!(red > 100, "the later block covers the box");
+    assert!(green > 100, "the box is not see-through");
+}
+
+#[test]
+fn click_lands_on_the_box_painted_on_top() {
+    let html = format!("<html><head><style>{BASE}</style></head><body>{SEE_THROUGH}</body></html>");
+    let app = App::new(Vec::new(), &html)
+        .on("#first", EventKind::Click, |seen, _, _| seen.push("first"))
+        .on("#late", EventKind::Click, |seen, _, _| seen.push("late"));
+    let mut harness = open(app);
+    harness.pump();
+    harness.click_at(5.0, 5.0);
+    assert_eq!(harness.doc.state().as_slice(), ["first"]);
 }
