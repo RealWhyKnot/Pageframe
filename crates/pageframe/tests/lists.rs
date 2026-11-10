@@ -257,4 +257,17 @@ fn items_in_a_wrapper_count_with_their_list() {
         numbered("<ol reversed><div><li>x</li></div><li>x</li></ol>") == reversed,
         "a wrapped item is left out of the reversed count"
     );
+    assert!(
+        numbered("<ol start='5'><div><li>x</li></div><div><li>x</li></div></ol>") == started,
+        "each wrapper restarts the count"
+    );
+    assert!(
+        numbered("<ol><li value='5'>x</li><div><li>x</li></div></ol>") == started,
+        "a wrapped item does not follow the value before it"
+    );
+    assert!(
+        numbered("<ol><li>x</li><div><li>x<ol><li>y</li></ol></li></div></ol>")
+            == numbered("<ol><li>x</li><li>x<ol><li>y</li></ol></li></ol>"),
+        "a list nested in a wrapped item is numbered with the outer list"
+    );
 }

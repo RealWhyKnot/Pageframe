@@ -968,6 +968,7 @@ impl std::fmt::Debug for SpecialElementData {
 
 #[derive(Clone)]
 pub struct ListItemLayout {
+    pub(crate) ordinal: i32,
     pub marker: Marker,
     pub marker_color: Option<style::color::AbsoluteColor>,
     pub position: ListItemLayoutPosition,

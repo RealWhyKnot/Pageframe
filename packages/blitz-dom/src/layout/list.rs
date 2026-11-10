@@ -22,22 +22,47 @@ const NO_BREAK_SPACE: char = '\u{a0}';
 
 const LIST_ITEM_COUNTER: &str = "list-item";
 
-pub(super) fn number_list_items(doc: &mut BaseDocument, node_id: NodeId) {
-    let is_list = is_list_element(doc, node_id);
-    let has_items = doc.nodes[node_id]
-        .children
-        .iter()
-        .any(|child_id| is_list_item(doc, *child_id));
-    let owner = (!is_list && has_items)
-        .then(|| owning_list(doc, node_id))
-        .flatten();
-    number_from(doc, node_id, is_list);
-    if let Some(owner) = owner {
-        number_from(doc, owner, true);
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Pass {
+    Local,
+    List,
+    Refresh,
+}
+
+impl Pass {
+    fn goes_through_wrappers(self) -> bool {
+        self != Pass::Local
     }
 }
 
-fn number_from(doc: &mut BaseDocument, node_id: NodeId, through_wrappers: bool) {
+pub(super) fn number_list_items(doc: &mut BaseDocument, node_id: NodeId) {
+    if is_list_element(doc, node_id) {
+        number_from(doc, node_id, Pass::List);
+        return;
+    }
+    let items: Vec<NodeId> = doc.nodes[node_id]
+        .children
+        .iter()
+        .copied()
+        .filter(|child_id| is_list_item(doc, *child_id))
+        .collect();
+    let owner = (!items.is_empty())
+        .then(|| owning_list(doc, node_id))
+        .flatten();
+    let Some(owner) = owner else {
+        number_from(doc, node_id, Pass::Local);
+        return;
+    };
+    for item in items {
+        if let Some(element_data) = doc.nodes[item].element_data_mut() {
+            element_data.list_item_data = None;
+        }
+    }
+    number_from(doc, owner, Pass::Refresh);
+}
+
+fn number_from(doc: &mut BaseDocument, node_id: NodeId, pass: Pass) {
+    let through_wrappers = pass.goes_through_wrappers();
     let element = doc.nodes[node_id].element_data();
     let is_ordered = element.is_some_and(|element| element.name.local == local_name!("ol"));
     let start: Option<i32> = element
@@ -54,7 +79,7 @@ fn number_from(doc: &mut BaseDocument, node_id: NodeId, through_wrappers: bool) 
         }
     });
     let mut ordinal = first.saturating_sub(step);
-    collect_list_item_children(doc, &mut ordinal, step, node_id, through_wrappers);
+    collect_list_item_children(doc, &mut ordinal, step, node_id, pass);
 }
 
 fn owning_list(doc: &BaseDocument, node_id: NodeId) -> Option<NodeId> {
@@ -96,7 +121,7 @@ fn collect_list_item_children(
     ordinal: &mut i32,
     step: i32,
     node_id: NodeId,
-    through_wrappers: bool,
+    pass: Pass,
 ) {
     let children = doc.nodes[node_id].children.clone();
     for child in children {
@@ -104,8 +129,8 @@ fn collect_list_item_children(
             if let Some(element_data) = doc.nodes[child].element_data_mut() {
                 element_data.list_item_data = None;
             }
-            if through_wrappers && is_wrapper(doc, child) {
-                collect_list_item_children(doc, ordinal, step, child, through_wrappers);
+            if pass.goes_through_wrappers() && is_wrapper(doc, child) {
+                collect_list_item_children(doc, ordinal, step, child, pass);
             }
             continue;
         }
@@ -114,11 +139,18 @@ fn collect_list_item_children(
         if let Some(value) = set.or_else(|| list_item_value(doc, child)) {
             *ordinal = value;
         }
-        let layout = list_item_layout(doc, child, *ordinal).map(Box::new);
-        if let Some(element_data) = doc.nodes[child].element_data_mut() {
-            element_data.list_item_data = layout;
+        let is_current = pass == Pass::Refresh
+            && doc.nodes[child]
+                .element_data()
+                .and_then(|element_data| element_data.list_item_data.as_ref())
+                .is_some_and(|data| data.ordinal == *ordinal);
+        if !is_current {
+            let layout = list_item_layout(doc, child, *ordinal).map(Box::new);
+            if let Some(element_data) = doc.nodes[child].element_data_mut() {
+                element_data.list_item_data = layout;
+            }
         }
-        collect_list_item_children(doc, ordinal, step, child, through_wrappers);
+        collect_list_item_children(doc, ordinal, step, child, pass);
     }
 }
 
@@ -251,6 +283,7 @@ fn list_item_layout(
     };
 
     Some(ListItemLayout {
+        ordinal,
         marker,
         marker_color: marker_styles.as_ref().map(|style| style.clone_color()),
         position,
