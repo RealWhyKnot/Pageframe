@@ -233,3 +233,28 @@ fn start_reversed_and_value_number_the_items() {
     assert!(reversed != plain, "reversed changes the numbers");
     assert!(reversed == counted_down, "reversed counts down to one");
 }
+
+#[test]
+fn items_in_a_wrapper_count_with_their_list() {
+    let numbered = |list: &str| {
+        draw(&format!(
+            "<style>ol{{margin:0;padding:0 0 0 60px;color:black}}</style>{list}"
+        ))
+    };
+    let plain = numbered("<ol><li>x</li><li>x</li></ol>");
+    let started = numbered("<ol start='5'><li>x</li><li>x</li></ol>");
+    let reversed = numbered("<ol reversed><li>x</li><li>x</li></ol>");
+    assert!(started != plain, "start changes the numbers");
+    assert!(
+        numbered("<ol><li>x</li><div><li>x</li></div></ol>") == plain,
+        "a wrapped second item restarts the count"
+    );
+    assert!(
+        numbered("<ol start='5'><div><div><li>x</li></div></div><li>x</li></ol>") == started,
+        "a wrapped first item misses the start"
+    );
+    assert!(
+        numbered("<ol reversed><div><li>x</li></div><li>x</li></ol>") == reversed,
+        "a wrapped item is left out of the reversed count"
+    );
+}

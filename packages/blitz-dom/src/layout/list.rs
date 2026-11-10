@@ -22,30 +22,72 @@ const NO_BREAK_SPACE: char = '\u{a0}';
 
 const LIST_ITEM_COUNTER: &str = "list-item";
 
-pub(super) fn number_list_items(
-    doc: &mut BaseDocument,
-    node_id: NodeId,
-    start: Option<i32>,
-    reversed: bool,
-) {
+pub(super) fn number_list_items(doc: &mut BaseDocument, node_id: NodeId) {
+    let is_list = is_list_element(doc, node_id);
+    let has_items = doc.nodes[node_id]
+        .children
+        .iter()
+        .any(|child_id| is_list_item(doc, *child_id));
+    let owner = (!is_list && has_items)
+        .then(|| owning_list(doc, node_id))
+        .flatten();
+    number_from(doc, node_id, is_list);
+    if let Some(owner) = owner {
+        number_from(doc, owner, true);
+    }
+}
+
+fn number_from(doc: &mut BaseDocument, node_id: NodeId, through_wrappers: bool) {
+    let element = doc.nodes[node_id].element_data();
+    let is_ordered = element.is_some_and(|element| element.name.local == local_name!("ol"));
+    let start: Option<i32> = element
+        .filter(|_| is_ordered)
+        .and_then(|element| element.attr_parsed(local_name!("start")));
+    let reversed = is_ordered
+        && element.is_some_and(|element| element.attr(local_name!("reversed")).is_some());
     let step = if reversed { -1 } else { 1 };
     let first = start.unwrap_or_else(|| {
         if reversed {
-            i32::try_from(count_list_items(doc, node_id)).unwrap_or(i32::MAX)
+            i32::try_from(count_list_items(doc, node_id, through_wrappers)).unwrap_or(i32::MAX)
         } else {
             1
         }
     });
     let mut ordinal = first.saturating_sub(step);
-    collect_list_item_children(doc, &mut ordinal, step, node_id);
+    collect_list_item_children(doc, &mut ordinal, step, node_id, through_wrappers);
 }
 
-fn count_list_items(doc: &BaseDocument, node_id: NodeId) -> usize {
+fn owning_list(doc: &BaseDocument, node_id: NodeId) -> Option<NodeId> {
+    let mut ancestor = doc.nodes[node_id].parent;
+    while let Some(ancestor_id) = ancestor {
+        if is_list_element(doc, ancestor_id) {
+            return Some(ancestor_id);
+        }
+        ancestor = doc.nodes[ancestor_id].parent;
+    }
+    None
+}
+
+fn is_wrapper(doc: &BaseDocument, node_id: NodeId) -> bool {
+    !is_list_element(doc, node_id)
+        && doc.nodes[node_id]
+            .primary_styles()
+            .is_some_and(|style| !style.get_box().display.is_none())
+}
+
+fn count_list_items(doc: &BaseDocument, node_id: NodeId, through_wrappers: bool) -> usize {
     doc.nodes[node_id]
         .children
         .iter()
-        .filter(|child_id| is_list_item(doc, **child_id))
-        .map(|child_id| 1 + count_list_items(doc, *child_id))
+        .map(|child_id| {
+            if is_list_item(doc, *child_id) {
+                1 + count_list_items(doc, *child_id, through_wrappers)
+            } else if through_wrappers && is_wrapper(doc, *child_id) {
+                count_list_items(doc, *child_id, through_wrappers)
+            } else {
+                0
+            }
+        })
         .sum()
 }
 
@@ -54,12 +96,16 @@ fn collect_list_item_children(
     ordinal: &mut i32,
     step: i32,
     node_id: NodeId,
+    through_wrappers: bool,
 ) {
     let children = doc.nodes[node_id].children.clone();
     for child in children {
         if !is_list_item(doc, child) {
             if let Some(element_data) = doc.nodes[child].element_data_mut() {
                 element_data.list_item_data = None;
+            }
+            if through_wrappers && is_wrapper(doc, child) {
+                collect_list_item_children(doc, ordinal, step, child, through_wrappers);
             }
             continue;
         }
@@ -72,20 +118,24 @@ fn collect_list_item_children(
         if let Some(element_data) = doc.nodes[child].element_data_mut() {
             element_data.list_item_data = layout;
         }
-        collect_list_item_children(doc, ordinal, step, child);
+        collect_list_item_children(doc, ordinal, step, child, through_wrappers);
     }
 }
 
+fn is_list_element(doc: &BaseDocument, node_id: NodeId) -> bool {
+    doc.nodes[node_id]
+        .element_data()
+        .is_some_and(|element_data| {
+            matches!(
+                element_data.name.local,
+                local_name!("ol") | local_name!("ul"),
+            )
+        })
+}
+
 fn is_list_item(doc: &BaseDocument, node_id: NodeId) -> bool {
-    let node = &doc.nodes[node_id];
-    let is_list = node.element_data().is_some_and(|element_data| {
-        matches!(
-            element_data.name.local,
-            local_name!("ol") | local_name!("ul"),
-        )
-    });
-    !is_list
-        && node
+    !is_list_element(doc, node_id)
+        && doc.nodes[node_id]
             .primary_styles()
             .is_some_and(|style| style.get_box().display.is_list_item())
 }

@@ -479,12 +479,7 @@ fn collect_layout_children_with_wrap(
             return;
         }
 
-        let is_ordered = tag_name == "ol";
-        let start = is_ordered
-            .then(|| el.attr_parsed(local_name!("start")))
-            .flatten();
-        let reversed = is_ordered && el.attr(local_name!("reversed")).is_some();
-        number_list_items(doc, container_node_id, start, reversed);
+        number_list_items(doc, container_node_id);
     }
 
     // Skip further construction if the node has no children or psuedo-children
