@@ -274,7 +274,12 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
         self.size(taffy::Size {
             width: convert::min_size(&position_styles.min_width),
             height: if convert::is_table_cell(&self.style) {
-                convert::min_size(&position_styles.height)
+                let height = convert::dimension(&position_styles.height);
+                if height.tag() == taffy::CompactLength::LENGTH_TAG {
+                    taffy::style_helpers::length(height.value())
+                } else {
+                    taffy::style_helpers::auto()
+                }
             } else {
                 convert::min_size(&position_styles.min_height)
             },

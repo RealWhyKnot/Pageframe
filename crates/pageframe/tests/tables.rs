@@ -323,6 +323,63 @@ fn a_full_width_percent_cell_leaves_room_for_its_neighbour() {
 }
 
 #[test]
+fn a_percent_cell_height_sizes_its_row() {
+    let buffer = draw(
+        "<table class=\"bare\" style=\"height:62px\">\
+         <tr><td style=\"width:10px;height:25%\"></td></tr><tr><td></td></tr></table>",
+    );
+    assert_eq!(
+        column(&buffer, 5, &[1, 2, 14, 15, 16, 17, 59, 60, 61, 62]),
+        [
+            BLACK, GREEN, GREEN, BLACK, BLACK, GREEN, GREEN, BLACK, BLACK, WHITE
+        ]
+    );
+}
+
+#[test]
+fn percent_rows_alone_share_the_whole_table_height() {
+    let buffer = draw(
+        "<table class=\"bare\" style=\"height:52px\">\
+         <tr><td style=\"width:10px;height:30%\"></td></tr>\
+         <tr><td style=\"height:20%\"></td></tr></table>",
+    );
+    assert_eq!(
+        column(&buffer, 5, &[2, 29, 30, 31, 32, 49, 50, 51, 52]),
+        [
+            GREEN, GREEN, BLACK, BLACK, GREEN, GREEN, BLACK, BLACK, WHITE
+        ]
+    );
+}
+
+#[test]
+fn content_taller_than_a_percent_row_grows_it() {
+    let buffer = draw(
+        "<table class=\"bare\" style=\"height:62px\"><tr><td style=\"height:10%\">\
+         <i style=\"width:10px;height:30px\"></i></td></tr><tr><td></td></tr></table>",
+    );
+    assert_eq!(
+        column(&buffer, 5, &[2, 31, 32, 33, 34, 59, 60, 61, 62]),
+        [
+            GREEN, GREEN, BLACK, BLACK, GREEN, GREEN, BLACK, BLACK, WHITE
+        ]
+    );
+}
+
+#[test]
+fn percent_cells_past_the_whole_width_get_what_is_left() {
+    let buffer = draw(
+        "<table class=\"bare\"><tr><td style=\"width:60%\"><i style=\"width:20px\"></i></td>\
+         <td style=\"width:60%\"><i style=\"width:20px\"></i></td></tr></table>",
+    );
+    assert_eq!(
+        row(&buffer, &[1, 2, 32, 33, 34, 35, 54, 55, 56, 57], 5),
+        [
+            BLACK, GREEN, GREEN, BLACK, BLACK, GREEN, GREEN, BLACK, BLACK, WHITE
+        ]
+    );
+}
+
+#[test]
 fn line_breaks_in_a_cell_keep_their_line_height() {
     let buffer = draw(
         "<table class=\"bare\"><tr>\

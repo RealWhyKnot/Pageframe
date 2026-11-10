@@ -152,6 +152,7 @@ pub struct TableRow {
     /// specified length `height`. Such rows do not receive excess table height when there
     /// are unconstrained rows to receive it instead.
     pub is_constrained: bool,
+    pub percent: Option<f32>,
 }
 
 /// The used width of one border side: border widths are not adjusted for
@@ -525,18 +526,36 @@ pub(crate) fn build_table_context(
     // Excess table height is distributed to unconstrained rows (via the stretching of
     // `auto` tracks) if there are any, and to all rows otherwise. So constrained rows
     // use a `max-content` (rather than `auto`) maximum when there are unconstrained rows.
-    let has_unconstrained_rows = rows.iter().any(|row| !row.is_constrained);
-    style.grid_template_rows = rows
+    let is_sized = !(style.size.height.is_auto() && style.min_size.height.is_auto());
+    let mut unclaimed = 1.0_f32;
+    let shares: Vec<Option<f32>> = rows
         .iter()
         .map(|row| {
+            let share = row.percent.filter(|_| is_sized)?.clamp(0.0, unclaimed);
+            unclaimed -= share;
+            Some(share)
+        })
+        .collect();
+    let claimed = 1.0 - unclaimed;
+    let has_plain_rows = shares.iter().any(Option::is_none);
+    let has_unconstrained_rows = rows
+        .iter()
+        .zip(&shares)
+        .any(|(row, share)| !row.is_constrained && share.is_none());
+    style.grid_template_rows = rows
+        .iter()
+        .zip(shares)
+        .map(|(row, share)| {
             let min = match row.height {
                 Some(height) => style_helpers::length(height),
+                None if share.is_some() => style_helpers::min_content(),
                 None => style_helpers::auto(),
             };
-            let max = if row.is_constrained && has_unconstrained_rows {
-                style_helpers::max_content()
-            } else {
-                style_helpers::auto()
+            let max = match share {
+                Some(share) if has_plain_rows => style_helpers::percent(share),
+                Some(share) if claimed > 0.0 => style_helpers::percent(share / claimed),
+                _ if row.is_constrained && has_unconstrained_rows => style_helpers::max_content(),
+                _ => style_helpers::auto(),
             };
             style_helpers::minmax(min, max)
         })
@@ -742,15 +761,21 @@ fn collect_table_cells(
             *row += 1;
             cursor.start_row();
 
-            let height = node.primary_styles().and_then(|style| {
-                let height = stylo_taffy::convert::dimension(style.get_height());
-                (height.tag() == taffy::CompactLength::LENGTH_TAG).then(|| height.value())
-            });
+            let specified = node
+                .primary_styles()
+                .map(|style| stylo_taffy::convert::dimension(style.get_height()));
+            let height = specified
+                .filter(|height| height.tag() == taffy::CompactLength::LENGTH_TAG)
+                .map(|height| height.value());
+            let percent = specified
+                .filter(|height| height.tag() == taffy::CompactLength::PERCENT_TAG)
+                .map(|height| height.value());
             rows.push(TableRow {
                 node_id,
                 group: None,
                 height,
                 is_constrained: height.is_some(),
+                percent,
             });
 
             let children = std::mem::take(&mut doc.nodes[node_id].children);
@@ -879,6 +904,16 @@ fn collect_table_cells(
                     row.is_constrained = true;
                 }
                 style.min_size.height = style_helpers::length(style.size.height.value());
+                style.size.height = style_helpers::auto();
+            } else if style.size.height.tag() == taffy::CompactLength::PERCENT_TAG {
+                if rowspan == 1
+                    && let Some(row) = rows.last_mut()
+                {
+                    let percent = style.size.height.value();
+                    row.percent = Some(row.percent.map_or(percent, |seen| seen.max(percent)));
+                }
+                style.size.height = style_helpers::auto();
+            } else {
                 style.size.height = style_helpers::auto();
             }
 
