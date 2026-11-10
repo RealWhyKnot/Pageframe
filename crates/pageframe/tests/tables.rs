@@ -281,6 +281,18 @@ fn cells_without_a_table_sit_in_one_row() {
 }
 
 #[test]
+fn line_breaks_in_a_cell_keep_their_line_height() {
+    let buffer = draw(
+        "<table class=\"bare\"><tr>\
+         <td style=\"font:10px/20px sans-serif;color:#0f0\">a<br>b<br>c</td></tr></table>",
+    );
+    assert_eq!(
+        column(&buffer, 3, &[0, 1, 2, 61, 62, 63, 64]),
+        [BLACK, BLACK, GREEN, GREEN, BLACK, BLACK, WHITE]
+    );
+}
+
+#[test]
 fn content_taller_than_a_cell_height_grows_the_cell() {
     let buffer = draw(
         "<table class=\"bare\"><tr><td style=\"height:10px\">\

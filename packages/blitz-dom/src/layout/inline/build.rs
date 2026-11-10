@@ -41,7 +41,10 @@ pub(crate) fn build_inline_layout_into(
 
     let parley_style = root_node_style
         .as_ref()
-        .map(|s| stylo_to_parley::style(inline_context_root_node_id, s))
+        .map(|s| parley::TextStyle {
+            vertical_align: parley::VerticalAlign::BASELINE,
+            ..stylo_to_parley::style(inline_context_root_node_id, s)
+        })
         .unwrap_or_else(|| parley::TextStyle {
             white_space_collapse: WhiteSpaceCollapse::Collapse,
             ..Default::default()
