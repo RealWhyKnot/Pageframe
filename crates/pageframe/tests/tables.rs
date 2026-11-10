@@ -6,7 +6,9 @@ use support::{open, pixel, render};
 const STYLE: &str = "html,body{margin:0;background:white}\
 table{border-collapse:collapse}\
 td{border:2px solid black;padding:5px 10px;background:#0f0}\
-.thin td{border-width:1px}";
+.thin td{border-width:1px}\
+i{display:inline-block;height:10px}\
+.bare td{padding:0;font-size:0}";
 
 const BLACK: [u8; 4] = [0, 0, 0, 255];
 const GREEN: [u8; 4] = [0, 255, 0, 255];
@@ -136,4 +138,53 @@ fn a_cell_outside_a_table_keeps_its_border() {
     );
     assert_eq!(row(&buffer, &[1, 10], 6), [BLACK, WHITE]);
     assert_eq!(column(&buffer, 10, &[1, 6]), [BLACK, WHITE]);
+}
+
+#[test]
+fn spare_width_goes_to_the_column_with_more_content() {
+    let buffer = draw(
+        "<table class=\"bare\" style=\"width:62px\"><tr>\
+         <td><i style=\"width:10px\"></i></td>\
+         <td><i style=\"width:34px\"></i></td></tr></table>",
+    );
+    assert_eq!(
+        row(&buffer, &[14, 15, 16, 17, 59, 60, 61, 62], 6),
+        [GREEN, BLACK, BLACK, GREEN, GREEN, BLACK, BLACK, WHITE]
+    );
+}
+
+#[test]
+fn a_narrow_table_shrinks_the_columns_that_can_wrap() {
+    let narrow = "<i style=\"width:10px\"></i> <i style=\"width:10px\"></i>";
+    let buffer = draw(&format!(
+        "<table class=\"bare\" style=\"width:46px\"><tr>\
+         <td>{narrow}</td><td>{narrow} {narrow}</td></tr></table>"
+    ));
+    assert_eq!(
+        row(&buffer, &[16, 17, 18, 19, 43, 44, 45, 46], 6),
+        [GREEN, BLACK, BLACK, GREEN, GREEN, BLACK, BLACK, WHITE]
+    );
+}
+
+#[test]
+fn a_cell_under_a_row_span_widens_its_own_column() {
+    let buffer = draw(
+        "<table><tr><td rowspan=\"2\"></td><td></td></tr>\
+         <tr><td><i style=\"width:30px\"></i></td></tr></table>",
+    );
+    assert_eq!(
+        row(&buffer, &[21, 22, 23, 24, 73, 74, 75, 76], 6),
+        [GREEN, BLACK, BLACK, GREEN, GREEN, BLACK, BLACK, WHITE]
+    );
+}
+
+#[test]
+fn a_percent_cell_sets_its_column_width() {
+    let buffer = draw(
+        "<table style=\"width:102px\"><tr><td style=\"width:25%\"></td><td></td></tr></table>",
+    );
+    assert_eq!(
+        row(&buffer, &[24, 25, 26, 27, 99, 100, 101, 102], 6),
+        [GREEN, BLACK, BLACK, GREEN, GREEN, BLACK, BLACK, WHITE]
+    );
 }

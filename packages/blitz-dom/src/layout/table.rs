@@ -21,7 +21,8 @@ use style::{
 };
 use style_traits::values::specified::AllowedNumericType;
 use taffy::{
-    DetailedGridInfo, LayoutPartialTree as _, ResolveOrZero, TrackSizingFunction, style_helpers,
+    AvailableSpace, DetailedGridInfo, LayoutPartialTree as _, MaybeResolve, ResolveOrZero,
+    TrackSizingFunction, style_helpers,
 };
 
 use crate::BaseDocument;
@@ -33,6 +34,13 @@ use super::resolve_calc_value;
 pub struct TableTreeWrapper<'a, 'doc> {
     pub(crate) doc: &'a mut LayoutPassState<'doc>,
     pub(crate) ctx: Arc<TableContext>,
+    pub(crate) style: Option<taffy::Style<Atom>>,
+}
+
+#[derive(Debug)]
+struct AutoColumns {
+    tracks: Vec<TrackSizingFunction>,
+    spacing: f32,
 }
 
 // Deliberately not `Clone`: `style` may hold raw pointers into `calc_values`.
@@ -47,6 +55,7 @@ pub struct TableContext {
     pub columns: Vec<TableColumn>,
     pub computed_grid_info: AtomicRefCell<Option<DetailedGridInfo<Atom>>>,
     pub border_collapse: BorderCollapse,
+    auto_columns: Option<AutoColumns>,
     /// Backing storage for `calc()` track sizes synthesised by the table layout code.
     /// Taffy stores calc values as raw pointers, so these must outlive the `style`.
     #[allow(dead_code)]
@@ -70,6 +79,7 @@ pub struct TableCell {
     column_span: u16,
     row_span: u16,
     column_width_border: Option<f32>,
+    percent_width: Option<f32>,
     style: taffy::Style<Atom>,
 }
 
@@ -82,7 +92,7 @@ struct ColumnCursor {
     col: u16,
     /// The total number of columns seen so far
     num_columns: u16,
-    /// For each column, the number of further rows it is occupied by a rowspan cell
+    /// For each column, how many rows (counting the current one) a rowspan cell still occupies
     rowspans: Vec<u16>,
 }
 
@@ -108,7 +118,7 @@ impl ColumnCursor {
             self.rowspans.resize(end as usize, 0);
         }
         for remaining in &mut self.rowspans[self.col as usize..end as usize] {
-            *remaining = rowspan - 1;
+            *remaining = rowspan;
         }
         self.col = end;
         self.num_columns = self.num_columns.max(end);
@@ -480,6 +490,13 @@ pub(crate) fn build_table_context(
         }
     }
 
+    let auto_columns = (!is_fixed && !wm.is_vertical()).then(|| AutoColumns {
+        tracks: column_sizes.clone(),
+        spacing: match border_collapse {
+            BorderCollapse::Separate => border_spacing.width.px(),
+            BorderCollapse::Collapse => 0.0,
+        },
+    });
     style.grid_template_columns = column_sizes.into_iter().map(|dim| dim.into()).collect();
     // A row's `height` is a minimum: the row grows to fit the content of its cells.
     // Excess table height is distributed to unconstrained rows (via the stretching of
@@ -540,6 +557,7 @@ pub(crate) fn build_table_context(
             columns,
             computed_grid_info: AtomicRefCell::new(None),
             border_collapse,
+            auto_columns,
             calc_values,
         },
         layout_children,
@@ -834,6 +852,8 @@ fn collect_table_cells(
                 }
             }
 
+            let percent_width = (style.size.width.tag() == taffy::CompactLength::PERCENT_TAG)
+                .then(|| style.size.width.value());
             style.size.width = style_helpers::auto();
             cells.push(TableCell {
                 node_id,
@@ -842,6 +862,7 @@ fn collect_table_cells(
                 column_span: colspan,
                 row_span: rowspan,
                 column_width_border,
+                percent_width,
                 style,
             });
 
@@ -868,6 +889,231 @@ fn collect_table_cells(
             node.remove_damage(CONSTRUCT_DESCENDENT | CONSTRUCT_FC | CONSTRUCT_BOX);
             // Ignore
         }
+    }
+}
+
+fn track_length(track: &TrackSizingFunction) -> Option<f32> {
+    let max = track.max.into_raw();
+    (max.tag() == taffy::CompactLength::LENGTH_TAG).then(|| max.value())
+}
+
+fn count(len: usize) -> f32 {
+    u16::try_from(len).map_or(f32::from(u16::MAX), f32::from)
+}
+
+fn grow(values: &mut [f32], weights: &[f32], need: f32) {
+    let extra = need - values.iter().sum::<f32>();
+    if extra <= 0.0 {
+        return;
+    }
+    let total: f32 = weights.iter().sum();
+    let even = extra / count(values.len());
+    for (value, weight) in values.iter_mut().zip(weights) {
+        *value += if total > 0.0 {
+            extra * weight / total
+        } else {
+            even
+        };
+    }
+}
+
+fn share_columns(mins: &[f32], maxes: &[f32], space: f32, is_stretched: bool) -> Vec<f32> {
+    let min_sum: f32 = mins.iter().sum();
+    let max_sum: f32 = maxes.iter().sum();
+    if space <= min_sum {
+        return mins.to_vec();
+    }
+    if space < max_sum {
+        let part = (space - min_sum) / (max_sum - min_sum);
+        return mins
+            .iter()
+            .zip(maxes)
+            .map(|(min, max)| min + (max - min) * part)
+            .collect();
+    }
+    let mut widths = maxes.to_vec();
+    if is_stretched && space.is_finite() {
+        grow(&mut widths, maxes, space);
+    }
+    widths
+}
+
+struct ColumnLimits {
+    mins: Vec<f32>,
+    maxes: Vec<f32>,
+    percents: Vec<Option<f32>>,
+}
+
+impl TableTreeWrapper<'_, '_> {
+    fn intrinsic_width(
+        &mut self,
+        node_id: NodeId,
+        inputs: &taffy::tree::LayoutInput,
+        space: AvailableSpace,
+    ) -> f32 {
+        let inputs = taffy::tree::LayoutInput {
+            run_mode: taffy::RunMode::ComputeSize,
+            axis: taffy::RequestedAxis::Horizontal,
+            known_dimensions: taffy::Size::NONE,
+            parent_size: taffy::Size::NONE,
+            available_space: taffy::Size {
+                width: space,
+                height: AvailableSpace::MaxContent,
+            },
+            ..*inputs
+        };
+        let output = self
+            .doc
+            .compute_child_layout(crate::taffy_node_id(node_id), inputs);
+        output.size.width
+    }
+
+    fn column_limits(
+        &mut self,
+        inputs: &taffy::tree::LayoutInput,
+        fixed: &[Option<f32>],
+        spacing: f32,
+    ) -> ColumnLimits {
+        let ctx = Arc::clone(&self.ctx);
+        let columns = fixed.len();
+        let mut mins = vec![0.0_f32; columns];
+        let mut maxes = vec![0.0_f32; columns];
+        let mut percents: Vec<Option<f32>> = vec![None; columns];
+        let mut spanning = Vec::new();
+        for cell in &ctx.cells {
+            let start = usize::from(cell.column).min(columns);
+            let end = (start + usize::from(cell.column_span)).min(columns);
+            if start == end {
+                continue;
+            }
+            let min = self.intrinsic_width(cell.node_id, inputs, AvailableSpace::MinContent);
+            let max = self
+                .intrinsic_width(cell.node_id, inputs, AvailableSpace::MaxContent)
+                .max(min);
+            if end - start > 1 {
+                spanning.push((start..end, min, max));
+                continue;
+            }
+            mins[start] = mins[start].max(min);
+            maxes[start] = maxes[start].max(max);
+            if let Some(percent) = cell.percent_width {
+                percents[start] = Some(percents[start].map_or(percent, |seen| seen.max(percent)));
+            }
+        }
+        for (index, fixed) in fixed.iter().enumerate() {
+            if let Some(fixed) = fixed {
+                let width = fixed.max(mins[index]);
+                mins[index] = width;
+                maxes[index] = width;
+            }
+        }
+
+        spanning.sort_by_key(|(span, _, _)| span.len());
+        for (span, min, max) in spanning {
+            if span.clone().all(|index| fixed[index].is_some()) {
+                continue;
+            }
+            let gaps = spacing * (count(span.len()) - 1.0);
+            let weights: Vec<f32> = span
+                .clone()
+                .map(|index| match fixed[index] {
+                    Some(_) => 0.0,
+                    None => maxes[index].max(1.0),
+                })
+                .collect();
+            grow(&mut mins[span.clone()], &weights, min - gaps);
+            grow(&mut maxes[span], &weights, max - gaps);
+        }
+        for (max, min) in maxes.iter_mut().zip(&mins) {
+            *max = max.max(*min);
+        }
+        ColumnLimits {
+            mins,
+            maxes,
+            percents,
+        }
+    }
+
+    pub(crate) fn size_auto_columns(&mut self, inputs: &taffy::tree::LayoutInput) {
+        let ctx = Arc::clone(&self.ctx);
+        let Some(auto) = &ctx.auto_columns else {
+            return;
+        };
+        let fixed: Vec<Option<f32>> = auto.tracks.iter().map(track_length).collect();
+        let is_plain = auto
+            .tracks
+            .iter()
+            .zip(&fixed)
+            .all(|(track, fixed)| fixed.is_some() || track.max.is_auto());
+        if !is_plain || fixed.is_empty() {
+            return;
+        }
+        let limits = self.column_limits(inputs, &fixed, auto.spacing);
+
+        let parent_width = inputs.parent_size.width;
+        let padding = ctx
+            .style
+            .padding
+            .resolve_or_zero(parent_width, resolve_calc_value);
+        let border = ctx
+            .style
+            .border
+            .resolve_or_zero(parent_width, resolve_calc_value);
+        let frame = padding.left + padding.right + border.left + border.right;
+        let gaps = auto.spacing * (count(fixed.len()) - 1.0);
+        let specified = inputs.known_dimensions.width.or_else(|| {
+            let width = ctx
+                .style
+                .size
+                .width
+                .maybe_resolve(parent_width, resolve_calc_value)?;
+            Some(match ctx.style.box_sizing {
+                taffy::BoxSizing::BorderBox => width,
+                taffy::BoxSizing::ContentBox => width + frame,
+            })
+        });
+        let space = match (specified, inputs.available_space.width) {
+            (Some(width), _) | (None, AvailableSpace::Definite(width)) => width - frame - gaps,
+            (None, AvailableSpace::MinContent) => 0.0,
+            (None, AvailableSpace::MaxContent) => f32::INFINITY,
+        };
+        let is_stretched = specified.is_some();
+
+        let mut widths = limits.mins.clone();
+        let mut rest = space;
+        let mut shared = Vec::new();
+        for (index, fixed) in fixed.iter().enumerate() {
+            let percent = limits.percents[index].filter(|_| is_stretched);
+            match (fixed, percent) {
+                (Some(_), _) => {}
+                (None, Some(percent)) => {
+                    widths[index] = (percent * space).max(limits.mins[index]);
+                }
+                (None, None) => {
+                    shared.push(index);
+                    continue;
+                }
+            }
+            rest -= widths[index];
+        }
+        let mins: Vec<f32> = shared.iter().map(|&index| limits.mins[index]).collect();
+        let maxes: Vec<f32> = shared.iter().map(|&index| limits.maxes[index]).collect();
+        for (index, width) in shared
+            .iter()
+            .zip(share_columns(&mins, &maxes, rest, is_stretched))
+        {
+            widths[*index] = width;
+        }
+
+        let mut style = ctx.style.clone();
+        style.grid_template_columns = widths
+            .into_iter()
+            .map(|width| {
+                let track: TrackSizingFunction = style_helpers::length(width);
+                track.into()
+            })
+            .collect();
+        self.style = Some(style);
     }
 }
 
@@ -913,7 +1159,7 @@ impl taffy::LayoutPartialTree for TableTreeWrapper<'_, '_> {
     type CustomIdent = Atom;
 
     fn get_core_container_style(&self, _node_id: taffy::NodeId) -> &taffy::Style<Atom> {
-        &self.ctx.style
+        self.style.as_ref().unwrap_or(&self.ctx.style)
     }
 
     fn resolve_calc_value(&self, calc_ptr: *const (), parent_size: f32) -> f32 {
@@ -961,5 +1207,46 @@ impl taffy::LayoutGridContainer for TableTreeWrapper<'_, '_> {
         detailed_grid_info: DetailedGridInfo<Atom>,
     ) {
         *self.ctx.computed_grid_info.borrow_mut() = Some(detailed_grid_info);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::share_columns;
+
+    fn close(widths: &[f32], expected: &[f32]) -> bool {
+        widths.len() == expected.len()
+            && widths
+                .iter()
+                .zip(expected)
+                .all(|(width, expected)| (width - expected).abs() < 0.01)
+    }
+
+    #[test]
+    fn a_tight_table_keeps_its_narrowest_columns() {
+        assert_eq!(
+            share_columns(&[30.0, 50.0], &[60.0, 90.0], 70.0, true),
+            [30.0, 50.0]
+        );
+    }
+
+    #[test]
+    fn room_between_the_limits_goes_to_the_columns_that_can_grow() {
+        let widths = share_columns(&[40.0, 50.0, 30.0], &[40.0, 450.0, 110.0], 300.0, true);
+        assert!(close(&widths, &[40.0, 200.0, 60.0]), "{widths:?}");
+    }
+
+    #[test]
+    fn spare_room_is_shared_by_widest_content() {
+        let widths = share_columns(&[10.0, 20.0], &[50.0, 150.0], 300.0, true);
+        assert!(close(&widths, &[75.0, 225.0]), "{widths:?}");
+    }
+
+    #[test]
+    fn a_table_without_a_width_stops_at_its_content() {
+        assert_eq!(
+            share_columns(&[10.0, 20.0], &[50.0, 150.0], 300.0, false),
+            [50.0, 150.0]
+        );
     }
 }
