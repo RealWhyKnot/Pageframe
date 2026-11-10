@@ -131,6 +131,13 @@ fn clicked(body: &str) -> Vec<&'static str> {
     harness.doc.state().clone()
 }
 
+#[test]
+fn click_lands_on_text_painted_over_a_float() {
+    let body = "<div id=\"first\"><span id=\"late\" style=\"float:left;width:60px;\
+        height:10px;margin-right:-60px\"></span>aaaa bbbb</div>";
+    assert_eq!(clicked(body), ["first"]);
+}
+
 const LATE_ON_TOP: &str = "<div id=\"late\" class=\"late\" style=\"margin-top:-20px\"></div>";
 
 #[test]

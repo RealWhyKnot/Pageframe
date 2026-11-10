@@ -486,6 +486,14 @@ impl Node {
         })
     }
 
+    pub fn is_float_under_text(&self) -> bool {
+        self.is_static()
+            && !self.is_stacking_context_root(false)
+            && self
+                .primary_styles()
+                .is_some_and(|style| style.clone_float() != Float::None)
+    }
+
     fn is_static(&self) -> bool {
         self.primary_styles()
             .is_some_and(|style| style.clone_position() == Position::Static)

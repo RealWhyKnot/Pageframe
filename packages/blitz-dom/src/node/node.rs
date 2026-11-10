@@ -1568,30 +1568,15 @@ impl Node {
         }
 
         // Call `.hit()` on each child in turn. If any return `Some` then return that value. Else return `Some(self.id).
+        let is_inline_root = self.flags.is_inline_root();
         for child_id in self.paint_children.borrow().iter().flatten().rev() {
             let Some(child) = self.tree().get(*child_id) else {
                 continue;
             };
-            let child_position = child.taffy_position();
-            let mut child_x = x;
-            let mut child_y = y;
-            if child_position.is_out_of_flow() {
-                // Fixed-position children of the root element are positioned
-                // against the viewport and do not scroll with it. (A fixed box
-                // whose containing block is a transformed ancestor scrolls with
-                // that ancestor like any other out-of-flow box.)
-                if child_position == taffy::Position::Fixed && self.containing_block().is_none() {
-                    child_x -= self.scroll_offset().x as f32;
-                    child_y -= self.scroll_offset().y as f32;
-                    let viewport_scroll = self.tree().viewport_scroll();
-                    child_x -= viewport_scroll.x as f32;
-                    child_y -= viewport_scroll.y as f32;
-                }
-            } else if let Some(offset) = child.lifted_paint_offset(self.id) {
-                child_x -= offset.x;
-                child_y -= offset.y;
+            if is_inline_root && child.is_float_under_text() {
+                continue;
             }
-            if let Some(hit) = child.hit_inner(child_x, child_y, scale, control) {
+            if let Some(hit) = self.hit_paint_child(child, x, y, scale, control) {
                 return Some(hit);
             }
         }
@@ -1641,6 +1626,19 @@ impl Node {
                     }
                 }
             }
+            for child_id in self.paint_children.borrow().iter().flatten().rev() {
+                let Some(child) = self.tree().get(*child_id) else {
+                    continue;
+                };
+                if !child.is_float_under_text() {
+                    continue;
+                }
+                let child_x = x + content_box_offset.x;
+                let child_y = y + content_box_offset.y;
+                if let Some(hit) = self.hit_paint_child(child, child_x, child_y, scale, control) {
+                    return Some(hit);
+                }
+            }
         }
 
         // Self (this node)
@@ -1654,6 +1652,36 @@ impl Node {
         }
 
         None
+    }
+
+    fn hit_paint_child(
+        &self,
+        child: &Node,
+        x: f32,
+        y: f32,
+        scale: f64,
+        control: &mut Option<crate::node::OverflowControl>,
+    ) -> Option<HitResult> {
+        let child_position = child.taffy_position();
+        let mut child_x = x;
+        let mut child_y = y;
+        if child_position.is_out_of_flow() {
+            // Fixed-position children of the root element are positioned
+            // against the viewport and do not scroll with it. (A fixed box
+            // whose containing block is a transformed ancestor scrolls with
+            // that ancestor like any other out-of-flow box.)
+            if child_position == taffy::Position::Fixed && self.containing_block().is_none() {
+                child_x -= self.scroll_offset().x as f32;
+                child_y -= self.scroll_offset().y as f32;
+                let viewport_scroll = self.tree().viewport_scroll();
+                child_x -= viewport_scroll.x as f32;
+                child_y -= viewport_scroll.y as f32;
+            }
+        } else if let Some(offset) = child.lifted_paint_offset(self.id) {
+            child_x -= offset.x;
+            child_y -= offset.y;
+        }
+        child.hit_inner(child_x, child_y, scale, control)
     }
 
     /// Find the inline root ancestor of this node (or self if this is an inline root).

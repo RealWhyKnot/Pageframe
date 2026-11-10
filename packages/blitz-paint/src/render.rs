@@ -1540,11 +1540,7 @@ impl ElementCx<'_, '_> {
     }
 
     fn is_float_under_text(&self, child: &Node) -> bool {
-        self.node.flags.is_inline_root()
-            && !is_painted_above_text(child, is_flex_or_grid(self.node))
-            && child
-                .primary_styles()
-                .is_some_and(|style| style.clone_float() != StyloFloat::None)
+        self.node.flags.is_inline_root() && child.is_float_under_text()
     }
 
     fn child_transform(&self, child: &Node, parent_style_transform: Affine) -> Affine {
