@@ -1097,7 +1097,7 @@ impl ElementCx<'_, '_> {
             let (visible_lines, ellipsis) = line_ellipsis(
                 &self.style,
                 &text_layout.layout,
-                ((self.frame.content_box.width() - subpixel_offset.x as f64) * self.scale) as f32,
+                (self.frame.content_box.width() - subpixel_offset.x as f64 * self.scale) as f32,
             );
 
             // Render inline element backgrounds (e.g. `<span style="background: ...">`)
@@ -1446,6 +1446,7 @@ impl ElementCx<'_, '_> {
             .inline_layout_data
             .as_ref()
             .filter(|_| self.node.flags.is_inline_root())
+            .filter(|_| blitz_dom::util::clamp_hides_lines(&self.style))
             .and_then(|text_layout| {
                 let visible_lines =
                     blitz_dom::util::clamped_line_count(&self.style, &text_layout.layout)?;
@@ -1755,7 +1756,10 @@ fn line_ellipsis(
         on_line: clamped_lines.map(|lines| lines - 1),
         rtl: computed.get_inherited_box().direction == style::computed_values::direction::T::Rtl,
     });
-    (clamped_lines.unwrap_or(usize::MAX), ellipsis)
+    let visible_lines = clamped_lines
+        .filter(|_| blitz_dom::util::clamp_hides_lines(computed))
+        .unwrap_or(usize::MAX);
+    (visible_lines, ellipsis)
 }
 
 /// Convert Stylo and Taffy types into Kurbo types

@@ -1,5 +1,7 @@
 use blitz_traits::node_id::NodeId;
 use parley::{AlignmentOptions, BreakReason, IndentOptions};
+#[cfg(feature = "floats")]
+use style::values::computed::TextWrapStyle;
 use style::values::specified::box_::{DisplayInside, DisplayOutside};
 use style::values::{
     computed::{BaselineSource, CSSPixelLength, Contain},
@@ -97,6 +99,175 @@ struct PendingFloat {
 /// Tolerance (in CSS px) for content fitting into a slot
 #[cfg(feature = "floats")]
 const FIT_TOLERANCE: f32 = 0.001;
+
+#[cfg(feature = "floats")]
+const BALANCE_MAX_LINES: usize = 6;
+
+#[cfg(feature = "floats")]
+const BALANCE_PRECISION: f32 = 1.0 / 64.0;
+
+#[cfg(feature = "floats")]
+const BALANCE_MAX_SEGMENTS: usize = 1024;
+
+#[cfg(feature = "floats")]
+struct BalanceSegment {
+    advance: f32,
+    hang: f32,
+    text_end: usize,
+}
+
+#[cfg(feature = "floats")]
+fn balanced_line_advances(
+    layout: &mut parley::Layout<crate::node::TextBrush>,
+    max_advance: f32,
+) -> Option<Vec<f32>> {
+    layout.break_all_lines(Some(max_advance));
+    let has_forced_break = layout
+        .lines()
+        .any(|line| line.break_reason() == BreakReason::Explicit);
+    let line_count = layout.len();
+    if has_forced_break || !(2..=BALANCE_MAX_LINES).contains(&line_count) {
+        return None;
+    }
+    let advances = evenest_line_advances(layout, max_advance, line_count).unwrap_or_else(|| {
+        vec![narrowest_max_advance(layout, max_advance, line_count); line_count]
+    });
+    Some(advances)
+}
+
+#[cfg(feature = "floats")]
+fn narrowest_max_advance(
+    layout: &mut parley::Layout<crate::node::TextBrush>,
+    max_advance: f32,
+    line_count: usize,
+) -> f32 {
+    let mut narrow = layout.calculate_content_widths().min.min(max_advance);
+    let mut wide = max_advance;
+    while wide - narrow > BALANCE_PRECISION {
+        let middle = (narrow + wide) / 2.0;
+        layout.break_all_lines(Some(middle));
+        if layout.len() <= line_count {
+            wide = middle;
+        } else {
+            narrow = middle;
+        }
+    }
+    wide
+}
+
+#[cfg(feature = "floats")]
+fn evenest_line_advances(
+    layout: &mut parley::Layout<crate::node::TextBrush>,
+    max_advance: f32,
+    line_count: usize,
+) -> Option<Vec<f32>> {
+    layout.break_all_lines(Some(0.0));
+    let breaks_inside_words = layout
+        .lines()
+        .any(|line| line.break_reason() == BreakReason::Emergency);
+    if breaks_inside_words || !(line_count..=BALANCE_MAX_SEGMENTS).contains(&layout.len()) {
+        return None;
+    }
+    let indent = layout
+        .lines()
+        .next()
+        .map_or(0.0, |line| line.metrics().indent);
+    let segments: Vec<BalanceSegment> = layout
+        .lines()
+        .map(|line| BalanceSegment {
+            advance: line.metrics().advance,
+            hang: line.metrics().hanging_advance,
+            text_end: line.text_range().end,
+        })
+        .collect();
+
+    let line_ends = evenest_line_ends(&segments, indent, max_advance, line_count)?;
+    let mut line_start = 0;
+    let mut advances = Vec::with_capacity(line_count);
+    for line_end in &line_ends {
+        let width = balance_line_width(&segments[line_start..*line_end], line_start, indent);
+        advances.push((width + BALANCE_PRECISION).min(max_advance));
+        line_start = *line_end;
+    }
+
+    let mut breaker = layout.break_lines();
+    let state = breaker.state_mut();
+    state.set_layout_max_advance(max_advance);
+    state.set_line_max_advance(*advances.first()?);
+    let mut next_line = 1;
+    while let Some(yield_data) = breaker.break_next() {
+        if let YieldData::LineBreak(_) = yield_data {
+            let advance = advances.get(next_line).copied().unwrap_or(max_advance);
+            breaker.state_mut().set_line_max_advance(advance);
+            next_line += 1;
+        }
+    }
+    breaker.finish();
+
+    let breaks_as_planned = layout.len() == line_count
+        && layout
+            .lines()
+            .zip(&line_ends)
+            .all(|(line, line_end)| line.text_range().end == segments[*line_end - 1].text_end);
+    breaks_as_planned.then_some(advances)
+}
+
+#[cfg(feature = "floats")]
+fn balance_line_width(segments: &[BalanceSegment], line_start: usize, indent: f32) -> f32 {
+    let lead = if line_start == 0 { indent } else { 0.0 };
+    let advance: f32 = segments.iter().map(|segment| segment.advance).sum();
+    let hang = segments.last().map_or(0.0, |segment| segment.hang);
+    lead + advance - hang
+}
+
+#[cfg(feature = "floats")]
+fn evenest_line_ends(
+    segments: &[BalanceSegment],
+    indent: f32,
+    max_advance: f32,
+    line_count: usize,
+) -> Option<Vec<usize>> {
+    let count = segments.len();
+    let mut costs = vec![vec![f32::INFINITY; count + 1]; line_count + 1];
+    let mut starts = vec![vec![0usize; count + 1]; line_count + 1];
+    costs[0][0] = 0.0;
+    for line in 1..=line_count {
+        for line_end in line..=count {
+            for line_start in (line - 1..line_end).rev() {
+                let width = balance_line_width(&segments[line_start..line_end], line_start, indent);
+                if width > max_advance + BALANCE_PRECISION && line_end - line_start > 1 {
+                    break;
+                }
+                let cost = costs[line - 1][line_start] + (max_advance - width).powi(2);
+                if cost < costs[line][line_end] {
+                    costs[line][line_end] = cost;
+                    starts[line][line_end] = line_start;
+                }
+            }
+        }
+    }
+    if !costs[line_count][count].is_finite() {
+        return None;
+    }
+    let mut line_ends = vec![0; line_count];
+    let mut line_end = count;
+    for line in (1..=line_count).rev() {
+        line_ends[line - 1] = line_end;
+        line_end = starts[line][line_end];
+    }
+    Some(line_ends)
+}
+
+#[cfg(feature = "floats")]
+fn balanced_line_box(
+    balanced_advances: Option<&[f32]>,
+    line_index: usize,
+    max_advance: f32,
+    end_share: f32,
+) -> Option<(f32, f32)> {
+    let advance = *balanced_advances?.get(line_index)?;
+    Some(((max_advance - advance).max(0.0) * end_share, advance))
+}
 
 /// Lay out the next line into `slot` (content-box relative, in CSS px)
 #[cfg(feature = "floats")]
@@ -509,6 +680,9 @@ impl LayoutPassState<'_> {
             ..child_inputs
         };
 
+        #[cfg(feature = "floats")]
+        let mut has_floated_box = false;
+
         // Update inline boxes
         for ibox in inline_layout.layout.inline_boxes_mut() {
             let style = self.child_layout_style(&self.nodes[NodeId::from_u64(ibox.id)]);
@@ -520,6 +694,10 @@ impl LayoutPassState<'_> {
             let is_floated = style.float().is_floated();
             #[cfg(not(feature = "floats"))]
             let is_floated = false;
+            #[cfg(feature = "floats")]
+            {
+                has_floated_box |= is_floated;
+            }
 
             let is_out_of_flow = style.position().is_out_of_flow();
             // `baseline-source: auto` selects the last baseline for inline-blocks and the first
@@ -807,12 +985,46 @@ impl LayoutPassState<'_> {
         #[cfg(feature = "floats")]
         let mut line_count_so_far = 0usize;
 
+        let (alignment, last_line_alignment) = self.nodes[node_id]
+            .primary_styles()
+            .map(|s| {
+                (
+                    stylo_to_parley::text_align(s.clone_text_align()),
+                    stylo_to_parley::text_align_last(s.clone_text_align_last()),
+                )
+            })
+            .unwrap_or((parley::layout::Alignment::Start, None));
+
         // Perform inline layout
         #[cfg(feature = "floats")]
         {
             let wraps = self.nodes[node_id].primary_styles().is_none_or(|s| {
                 s.clone_text_wrap_mode() == stylo_to_parley::stylo::TextWrapMode::Wrap
             });
+            let balances = wraps
+                && !has_floated_box
+                && self.nodes[node_id]
+                    .primary_styles()
+                    .is_some_and(|s| s.slow_clone_text_wrap_style() == TextWrapStyle::Balance)
+                && block_ctx
+                    .find_content_slot(0.0, 0.0, Clear::None, None)
+                    .segment_id
+                    .is_none();
+            let balanced_advances = balances
+                .then(|| balanced_line_advances(&mut inline_layout.layout, max_advance))
+                .flatten();
+            let is_rtl = inline_layout.layout.is_rtl();
+            let end_share = match alignment {
+                parley::layout::Alignment::Center => 0.5,
+                parley::layout::Alignment::Right => 1.0,
+                parley::layout::Alignment::Left => 0.0,
+                parley::layout::Alignment::End if is_rtl => 0.0,
+                parley::layout::Alignment::End => 1.0,
+                parley::layout::Alignment::Start | parley::layout::Alignment::Justify if is_rtl => {
+                    1.0
+                }
+                parley::layout::Alignment::Start | parley::layout::Alignment::Justify => 0.0,
+            };
             let mut breaker = inline_layout.layout.break_lines();
             let mut line_slot = block_ctx.find_content_slot(0.0, 0.0, Clear::None, None);
             let mut has_active_floats = line_slot.segment_id.is_some();
@@ -820,6 +1032,12 @@ impl LayoutPassState<'_> {
             let state = breaker.state_mut();
             state.set_layout_max_advance(max_advance);
             set_line_slot(state, &line_slot, scale, slack);
+            if let Some((x, advance)) =
+                balanced_line_box(balanced_advances.as_deref(), 0, max_advance, end_share)
+            {
+                state.set_line_x(x);
+                state.set_line_max_advance(advance);
+            }
 
             // The state at the start of the current line, which is reverted to when the line
             // needs to be retried lower down (or narrower) to avoid floats.
@@ -874,8 +1092,15 @@ impl LayoutPassState<'_> {
                             has_active_floats = line_slot.segment_id.is_some();
                             set_line_slot(state, &line_slot, scale, slack);
                         } else {
-                            state.set_line_x(0.0);
-                            state.set_line_max_advance(max_advance);
+                            let (x, advance) = balanced_line_box(
+                                balanced_advances.as_deref(),
+                                line_count_so_far,
+                                max_advance,
+                                end_share,
+                            )
+                            .unwrap_or((0.0, max_advance));
+                            state.set_line_x(x);
+                            state.set_line_max_advance(advance);
                         }
 
                         line_start_state = has_active_floats.then(|| breaker.state().clone());
@@ -976,16 +1201,6 @@ impl LayoutPassState<'_> {
         outer_block_ctx.add_child_floated_content_height_contribution(
             container_pb.top + float_height_contribution,
         );
-
-        let (alignment, last_line_alignment) = self.nodes[node_id]
-            .primary_styles()
-            .map(|s| {
-                (
-                    stylo_to_parley::text_align(s.clone_text_align()),
-                    stylo_to_parley::text_align_last(s.clone_text_align_last()),
-                )
-            })
-            .unwrap_or((parley::layout::Alignment::Start, None));
 
         inline_layout.layout.align(
             alignment,

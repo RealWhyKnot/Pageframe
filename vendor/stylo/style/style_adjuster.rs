@@ -186,6 +186,33 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
             .set_adjusted_display(new_display, false);
     }
 
+    #[cfg(feature = "servo")]
+    fn adjust_for_webkit_line_clamp(&mut self) {
+        use crate::properties::longhands::_moz_box_orient::computed_value::T as BoxOrient;
+        use crate::values::computed::LineClamp;
+        use crate::values::specified::box_::{DisplayInside, DisplayOutside};
+        let display = self.style.get_box().slow_clone_display();
+        let is_box = display.inside() == DisplayInside::WebkitBox;
+        let is_vertical = self.style.get_xul().slow_clone__moz_box_orient() == BoxOrient::Vertical;
+        let is_legacy_clamp = self.style.get_box().slow_clone_line_clamp().webkit_legacy;
+        if is_legacy_clamp && !(is_box && is_vertical) {
+            self.style.mutate_box().set_line_clamp(LineClamp::none());
+        }
+        if !is_box {
+            return;
+        }
+        let is_block = display.outside() == DisplayOutside::Block;
+        let new_display = match (is_vertical, is_block) {
+            (true, true) => Display::FlowRoot,
+            (true, false) => Display::InlineBlock,
+            (false, true) => Display::Flex,
+            (false, false) => Display::InlineFlex,
+        };
+        self.style
+            .mutate_box()
+            .set_adjusted_display(new_display, false);
+    }
+
     /// CSS 2.1 section 9.7:
     ///
     ///    If 'position' has the value 'absolute' or 'fixed', [...] the computed
@@ -1052,7 +1079,6 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
         }
         self.adjust_for_top_layer();
         self.blockify_if_necessary(layout_parent_style, element);
-        #[cfg(feature = "gecko")]
         self.adjust_for_webkit_line_clamp();
         self.adjust_for_position();
         self.adjust_for_overflow();

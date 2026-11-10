@@ -740,6 +740,7 @@ fn collect_table_cells(
         | DisplayInside::FlowRoot
         | DisplayInside::Flex
         | DisplayInside::Grid
+        | DisplayInside::WebkitBox
         | DisplayInside::GridLanes => {
             node.remove_damage(CONSTRUCT_DESCENDENT | CONSTRUCT_FC | CONSTRUCT_BOX);
             // Probably a table caption: ignore

@@ -245,6 +245,15 @@ fn text_overflow_ellipsis_replaces_the_cut_off_end() {
 }
 
 #[test]
+fn text_overflow_ellipsis_shows_on_a_scaled_page() {
+    let mut harness = open(App::new((), &overflow_page("clip")));
+    let clipped = render_at_scale(&mut harness, 2);
+    let mut harness = open(App::new((), &overflow_page("ellipsis")));
+    let ellipsis = render_at_scale(&mut harness, 2);
+    assert!(clipped != ellipsis, "the ellipsis is cut off");
+}
+
+#[test]
 fn right_to_left_text_overflow_ellipsis_cuts_the_left_end() {
     let page = overflow_page("ellipsis").replace("<div style", r#"<div dir="rtl" style"#);
     let mut harness = open(App::new((), &page));

@@ -271,3 +271,9 @@ pub fn clamped_line_count(
     };
     (line_count > max_lines).then_some(max_lines)
 }
+
+pub fn clamp_hides_lines(style: &style::properties::ComputedValues) -> bool {
+    let style_box = style.get_box();
+    !style_box.line_clamp.webkit_legacy
+        || style_box.overflow_y != style::values::computed::Overflow::Visible
+}
