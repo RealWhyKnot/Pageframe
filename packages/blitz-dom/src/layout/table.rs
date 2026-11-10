@@ -17,6 +17,7 @@ use style::values::generics::Optional;
 use style::values::specified::box_::{DisplayInside, DisplayOutside};
 use style::{
     Atom, computed_values::border_collapse::T as BorderCollapse,
+    computed_values::caption_side::T as CaptionSide,
     computed_values::table_layout::T as TableLayout,
 };
 use style_traits::values::specified::AllowedNumericType;
@@ -43,6 +44,12 @@ struct AutoColumns {
     spacing: f32,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct TableCaption {
+    pub node_id: NodeId,
+    pub is_below: bool,
+}
+
 // Deliberately not `Clone`: `style` may hold raw pointers into `calc_values`.
 #[derive(Debug)]
 pub struct TableContext {
@@ -56,6 +63,7 @@ pub struct TableContext {
     pub computed_grid_info: AtomicRefCell<Option<DetailedGridInfo<Atom>>>,
     pub border_collapse: BorderCollapse,
     auto_columns: Option<AutoColumns>,
+    pub captions: Vec<TableCaption>,
     /// Backing storage for `calc()` track sizes synthesised by the table layout code.
     /// Taffy stores calc values as raw pointers, so these must outlive the `style`.
     #[allow(dead_code)]
@@ -388,9 +396,24 @@ pub(crate) fn build_table_context(
             _ => 1,
         }
     };
+    let captions: Vec<TableCaption> = children
+        .iter()
+        .copied()
+        .filter_map(|child_id| {
+            let styles = doc.nodes[child_id].primary_styles()?;
+            let is_caption = styles.clone_display().outside() == DisplayOutside::TableCaption
+                && !styles.clone_position().is_absolutely_positioned()
+                && !wm.is_vertical();
+            is_caption.then(|| TableCaption {
+                node_id: child_id,
+                is_below: styles.get_inherited_table().caption_side == CaptionSide::Bottom,
+            })
+        })
+        .collect();
+    let is_caption = |child_id: NodeId| captions.iter().any(|caption| caption.node_id == child_id);
     for order in 0..3 {
         for child_id in children.iter().copied() {
-            if row_group_order(doc, child_id) != order {
+            if row_group_order(doc, child_id) != order || is_caption(child_id) {
                 continue;
             }
             collect_table_cells(
@@ -544,6 +567,7 @@ pub(crate) fn build_table_context(
         .iter()
         .map(|cell| cell.node_id)
         .chain(oof_children.iter().map(|(node_id, _)| *node_id))
+        .chain(captions.iter().map(|caption| caption.node_id))
         .collect();
     let root_node = &mut doc.nodes[table_root_node_id];
     root_node.children = children;
@@ -558,6 +582,7 @@ pub(crate) fn build_table_context(
             computed_grid_info: AtomicRefCell::new(None),
             border_collapse,
             auto_columns,
+            captions,
             calc_values,
         },
         layout_children,
@@ -752,7 +777,8 @@ fn collect_table_cells(
             let stylo_style = &node.primary_styles().unwrap();
             let colspan: u16 = node
                 .attr(local_name!("colspan"))
-                .and_then(|val| val.parse().ok())
+                .and_then(|val| val.parse::<u16>().ok())
+                .map(|span| span.clamp(1, 1000))
                 .unwrap_or(1);
             let rowspan: u16 = node
                 .attr(local_name!("rowspan"))
@@ -944,6 +970,40 @@ struct ColumnLimits {
     percents: Vec<Option<f32>>,
 }
 
+fn column_widths(
+    limits: &ColumnLimits,
+    fixed: &[Option<f32>],
+    space: f32,
+    is_stretched: bool,
+) -> Vec<f32> {
+    let mut widths = limits.mins.clone();
+    let mut rest = space;
+    let mut shared = Vec::new();
+    for (index, fixed) in fixed.iter().enumerate() {
+        let percent = limits.percents[index].filter(|_| is_stretched);
+        match (fixed, percent) {
+            (Some(_), _) => {}
+            (None, Some(percent)) => {
+                widths[index] = (percent * space).max(limits.mins[index]);
+            }
+            (None, None) => {
+                shared.push(index);
+                continue;
+            }
+        }
+        rest -= widths[index];
+    }
+    let mins: Vec<f32> = shared.iter().map(|&index| limits.mins[index]).collect();
+    let maxes: Vec<f32> = shared.iter().map(|&index| limits.maxes[index]).collect();
+    for (index, width) in shared
+        .iter()
+        .zip(share_columns(&mins, &maxes, rest, is_stretched))
+    {
+        widths[*index] = width;
+    }
+    widths
+}
+
 impl TableTreeWrapper<'_, '_> {
     fn intrinsic_width(
         &mut self,
@@ -1079,30 +1139,14 @@ impl TableTreeWrapper<'_, '_> {
         };
         let is_stretched = specified.is_some();
 
-        let mut widths = limits.mins.clone();
-        let mut rest = space;
-        let mut shared = Vec::new();
-        for (index, fixed) in fixed.iter().enumerate() {
-            let percent = limits.percents[index].filter(|_| is_stretched);
-            match (fixed, percent) {
-                (Some(_), _) => {}
-                (None, Some(percent)) => {
-                    widths[index] = (percent * space).max(limits.mins[index]);
-                }
-                (None, None) => {
-                    shared.push(index);
-                    continue;
-                }
-            }
-            rest -= widths[index];
+        let mut widths = column_widths(&limits, &fixed, space, is_stretched);
+        let mut floor = 0.0_f32;
+        for caption in &ctx.captions {
+            let width = self.intrinsic_width(caption.node_id, inputs, AvailableSpace::MinContent);
+            floor = floor.max(width);
         }
-        let mins: Vec<f32> = shared.iter().map(|&index| limits.mins[index]).collect();
-        let maxes: Vec<f32> = shared.iter().map(|&index| limits.maxes[index]).collect();
-        for (index, width) in shared
-            .iter()
-            .zip(share_columns(&mins, &maxes, rest, is_stretched))
-        {
-            widths[*index] = width;
+        if widths.iter().sum::<f32>() + frame + gaps < floor {
+            widths = column_widths(&limits, &fixed, floor - frame - gaps, true);
         }
 
         let mut style = ctx.style.clone();
@@ -1114,6 +1158,88 @@ impl TableTreeWrapper<'_, '_> {
             })
             .collect();
         self.style = Some(style);
+    }
+
+    pub(crate) fn place_captions(
+        &mut self,
+        inputs: &taffy::tree::LayoutInput,
+        output: &mut taffy::LayoutOutput,
+    ) {
+        let ctx = Arc::clone(&self.ctx);
+        if ctx.captions.is_empty() {
+            return;
+        }
+        let width = output.size.width;
+        let caption_inputs = taffy::tree::LayoutInput {
+            sizing_mode: taffy::SizingMode::InherentSize,
+            axis: taffy::RequestedAxis::Both,
+            known_dimensions: taffy::Size {
+                width: Some(width),
+                height: None,
+            },
+            parent_size: taffy::Size {
+                width: Some(width),
+                height: None,
+            },
+            available_space: taffy::Size {
+                width: AvailableSpace::Definite(width),
+                height: AvailableSpace::MaxContent,
+            },
+            ..*inputs
+        };
+        let sizes: Vec<taffy::Size<f32>> = ctx
+            .captions
+            .iter()
+            .map(|caption| {
+                let node_id = crate::taffy_node_id(caption.node_id);
+                self.doc.compute_child_layout(node_id, caption_inputs).size
+            })
+            .collect();
+        let side_height = |is_below: bool| -> f32 {
+            ctx.captions
+                .iter()
+                .zip(&sizes)
+                .filter(|(caption, _)| caption.is_below == is_below)
+                .map(|(_, size)| size.height)
+                .sum()
+        };
+        let above = side_height(false);
+        let grid_height = output.size.height;
+        output.size.height += above + side_height(true);
+        if inputs.run_mode != taffy::RunMode::PerformLayout {
+            return;
+        }
+
+        for cell in &ctx.cells {
+            self.doc.nodes[cell.node_id]
+                .unrounded_layout_mut()
+                .location
+                .y += above;
+        }
+        let first_order = ctx.cells.len() + ctx.oof_children.len();
+        let mut top = 0.0;
+        let mut bottom = above + grid_height;
+        for (index, (caption, size)) in ctx.captions.iter().zip(&sizes).enumerate() {
+            let edge = if caption.is_below {
+                &mut bottom
+            } else {
+                &mut top
+            };
+            let mut layout =
+                taffy::Layout::with_order(u32::try_from(first_order + index).unwrap_or(u32::MAX));
+            layout.location.y = *edge;
+            layout.size = *size;
+            *edge += size.height;
+            {
+                let style = self.doc.nodes[caption.node_id].layout_style();
+                layout.padding = taffy::CoreStyle::padding(&style)
+                    .resolve_or_zero(Some(width), resolve_calc_value);
+                layout.border = taffy::CoreStyle::border(&style)
+                    .resolve_or_zero(Some(width), resolve_calc_value);
+            }
+            self.doc
+                .set_unrounded_layout(crate::taffy_node_id(caption.node_id), &layout);
+        }
     }
 }
 

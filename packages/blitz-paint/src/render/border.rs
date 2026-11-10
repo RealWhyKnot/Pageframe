@@ -552,6 +552,28 @@ impl ElementCx<'_, '_> {
         scene.pop_layer();
     }
 
+    pub(crate) fn caption_space(&self) -> (f32, f32) {
+        let SpecialElementData::TableRoot(table) = &self.element.special_data else {
+            return (0.0, 0.0);
+        };
+        let height = self.node.final_layout().size.height;
+        let mut above = 0.0_f32;
+        let mut below = 0.0_f32;
+        for caption in &table.captions {
+            let Some(node) = self.context.dom.get_node(caption.node_id) else {
+                continue;
+            };
+            let layout = node.final_layout();
+            let top = layout.location.y;
+            if caption.is_below {
+                below = below.max(height - top);
+            } else {
+                above = above.max(top + layout.size.height);
+            }
+        }
+        (above, below)
+    }
+
     pub(crate) fn has_collapsed_borders(&self) -> bool {
         if self.style.clone_border_collapse() != BorderCollapse::Collapse {
             return false;
@@ -572,11 +594,12 @@ impl ElementCx<'_, '_> {
         }
 
         let layout = self.node.final_layout();
+        let (above, below) = self.caption_space();
         let table_box = Rect::new(
             0.0,
-            0.0,
+            f64::from(above),
             f64::from(layout.size.width),
-            f64::from(layout.size.height),
+            f64::from(layout.size.height - below),
         );
         let cells_box = inset(table_box, layout_border(layout));
         let own = self.style.get_border();

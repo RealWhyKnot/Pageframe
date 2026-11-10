@@ -748,6 +748,7 @@ impl LayoutPassState<'_> {
                     };
                     table_wrapper.size_auto_columns(&inputs);
                     let mut output = compute_grid_layout(&mut table_wrapper, node_id, inputs);
+                    table_wrapper.place_captions(&inputs, &mut output);
 
                     // Absolutely positioned children take no part in the table grid. Their
                     // static position is the top-left of the table's content box.

@@ -8,7 +8,8 @@ table{border-collapse:collapse}\
 td{border:2px solid black;padding:5px 10px;background:#0f0}\
 .thin td{border-width:1px}\
 i{display:inline-block;height:10px}\
-.bare td{padding:0;font-size:0}";
+.bare td{padding:0;font-size:0}\
+caption{background:#00f;font-size:0}";
 
 const BLACK: [u8; 4] = [0, 0, 0, 255];
 const GREEN: [u8; 4] = [0, 255, 0, 255];
@@ -187,4 +188,50 @@ fn a_percent_cell_sets_its_column_width() {
         row(&buffer, &[24, 25, 26, 27, 99, 100, 101, 102], 6),
         [GREEN, BLACK, BLACK, GREEN, GREEN, BLACK, BLACK, WHITE]
     );
+}
+
+#[test]
+fn a_caption_sits_above_the_cells() {
+    let buffer = draw("<table><caption style=\"height:10px\"></caption><tr><td></td></tr></table>");
+    assert_eq!(
+        column(&buffer, 6, &[0, 9, 10, 11, 12, 21, 22, 23, 24]),
+        [BLUE, BLUE, BLACK, BLACK, GREEN, GREEN, BLACK, BLACK, WHITE]
+    );
+    assert_eq!(row(&buffer, &[0, 23, 24], 5), [BLUE, BLUE, WHITE]);
+}
+
+#[test]
+fn a_bottom_caption_sits_below_the_cells() {
+    let buffer = draw(
+        "<table><caption style=\"height:10px;caption-side:bottom\"></caption>\
+         <tr><td></td></tr></table>",
+    );
+    assert_eq!(
+        column(&buffer, 6, &[0, 1, 2, 11, 12, 13, 14, 23, 24]),
+        [BLACK, BLACK, GREEN, GREEN, BLACK, BLACK, BLUE, BLUE, WHITE]
+    );
+}
+
+#[test]
+fn a_wide_caption_widens_its_table() {
+    let buffer =
+        draw("<table><caption><i style=\"width:60px\"></i></caption><tr><td></td></tr></table>");
+    assert_eq!(row(&buffer, &[0, 59, 60], 5), [BLUE, BLUE, WHITE]);
+    assert_eq!(
+        row(&buffer, &[0, 1, 2, 57, 58, 59, 60], 16),
+        [BLACK, BLACK, GREEN, GREEN, BLACK, BLACK, WHITE]
+    );
+}
+
+#[test]
+fn a_table_border_goes_around_the_cells_not_the_caption() {
+    let buffer = draw(
+        "<table style=\"border:4px solid red;border-collapse:separate\">\
+         <caption style=\"height:10px\"></caption><tr><td></td></tr></table>",
+    );
+    assert_eq!(
+        column(&buffer, 1, &[0, 9, 10, 35, 36]),
+        [BLUE, BLUE, RED, RED, WHITE]
+    );
+    assert_eq!(row(&buffer, &[0, 35, 36], 12), [RED, RED, WHITE]);
 }

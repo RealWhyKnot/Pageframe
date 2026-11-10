@@ -720,6 +720,10 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
         #[cfg(feature = "scrollbars")]
         let unscrolled_transform = cx.transform;
         let native_text_field = cx.has_native_text_field();
+        let mut other_box = cx.table_grid_box();
+        if let Some(other) = &mut other_box {
+            cx.swap_box(other);
+        }
         if body.paints_own_box {
             if native_text_field {
                 cx.draw_native_text_field(scene);
@@ -728,10 +732,19 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             }
             cx.draw_inset_box_shadow(scene);
         }
+        if let Some(other) = &mut other_box {
+            cx.swap_box(other);
+        }
         cx.draw_table_row_backgrounds(scene);
         cx.draw_table_borders(scene);
+        if let Some(other) = &mut other_box {
+            cx.swap_box(other);
+        }
         if body.paints_own_box && !native_text_field && !cx.has_collapsed_borders() {
             cx.draw_border(scene);
+        }
+        if let Some(other) = &mut other_box {
+            cx.swap_box(other);
         }
         cx.stroke_devtools(scene);
 
@@ -908,6 +921,31 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             devtools: self.dom.devtools(),
             custom_widget_scene,
         }
+    }
+}
+
+struct OwnBox {
+    frame: CssBox,
+    transform: Affine,
+}
+
+impl ElementCx<'_, '_> {
+    fn table_grid_box(&self) -> Option<OwnBox> {
+        let (above, below) = self.caption_space();
+        if above == 0.0 && below == 0.0 {
+            return None;
+        }
+        let mut layout = *self.node.final_layout();
+        layout.size.height -= above + below;
+        Some(OwnBox {
+            frame: create_css_rect(&self.style, &layout, self.scale),
+            transform: self.transform * Affine::translate((0.0, f64::from(above) * self.scale)),
+        })
+    }
+
+    fn swap_box(&mut self, other: &mut OwnBox) {
+        std::mem::swap(&mut self.frame, &mut other.frame);
+        std::mem::swap(&mut self.transform, &mut other.transform);
     }
 }
 
