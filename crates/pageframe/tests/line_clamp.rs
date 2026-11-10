@@ -54,9 +54,15 @@ fn webkit_line_clamp_cuts_a_vertical_webkit_box() {
     let legacy = clamped(&format!("{LEGACY};overflow:hidden"));
     assert!(has_ink(&legacy, 0..20), "the kept lines drew no text");
     assert!(!has_ink(&legacy, 20..height()), "text below the clamp");
+}
+
+#[test]
+fn unprefixed_line_clamp_is_ignored() {
+    let plain = clamped("overflow:hidden");
+    assert!(has_ink(&plain, 20..height()), "the text is too short");
     assert!(
-        legacy == clamped("line-clamp:2;overflow:hidden"),
-        "differs from line-clamp"
+        clamped("line-clamp:2;overflow:hidden") == plain,
+        "line-clamp without the prefix clamped"
     );
 }
 

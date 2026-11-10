@@ -277,12 +277,12 @@ fn right_to_left_text_overflow_ellipsis_cuts_the_left_end() {
 }
 
 const LINE_CLAMP: &str = r#"<html><body style="margin:0;background:white">
-<div style="width:100px;font-size:20px;line-height:20px;line-clamp:2">HH HH HH HH HH HH HH HH HH</div>
+<div style="width:100px;font-size:20px;line-height:20px;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden;-webkit-line-clamp:2">HH HH HH HH HH HH HH HH HH</div>
 <div style="height:10px;background:rgb(255,0,0)"></div>
 </body></html>"#;
 
 const CLIPPED_LINE_CLAMP: &str = r#"<html><body style="margin:0;background:white">
-<div style="width:100px;font-size:20px;line-height:20px;line-clamp:2;background:rgb(0,0,255);background-clip:text;color:transparent">HH HH HH HH HH HH HH HH HH</div>
+<div style="width:100px;font-size:20px;line-height:20px;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden;-webkit-line-clamp:2;background:rgb(0,0,255);background-clip:text;color:transparent">HH HH HH HH HH HH HH HH HH</div>
 </body></html>"#;
 
 fn assert_second_line_ends_in_ellipsis(buffer: &[u8]) {
@@ -318,7 +318,7 @@ fn line_clamp_keeps_the_first_lines() {
 fn inline_box_page(line_clamp: &str) -> String {
     format!(
         r#"<html><body style="margin:0;background:white">
-<div style="width:100px;font-size:20px;line-height:20px;line-clamp:{line_clamp}">HH HH HH HH HH HH HH HH HH <span style="display:inline-block;width:20px;height:10px;background:rgb(0,200,0)"></span></div>
+<div style="width:100px;font-size:20px;line-height:20px;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden;-webkit-line-clamp:{line_clamp}">HH HH HH HH HH HH HH HH HH <span style="display:inline-block;width:20px;height:10px;background:rgb(0,200,0)"></span></div>
 </body></html>"#
     )
 }
