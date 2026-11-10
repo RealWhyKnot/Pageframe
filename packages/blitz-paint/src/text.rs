@@ -509,24 +509,26 @@ fn line_cut(
     let (id, advance, count) = ellipsis_glyph(run.run())?;
     let length = advance * count as f32;
     let metrics = line.metrics();
+    let origin = metrics.offset + metrics.inline_min_coord;
     let (text_start, text_end) = if ellipsis.rtl {
-        (
-            metrics.offset + metrics.hanging_advance,
-            metrics.offset + metrics.advance,
-        )
+        (origin + metrics.hanging_advance, origin + metrics.advance)
     } else {
-        (
-            metrics.offset,
-            metrics.offset + metrics.advance - metrics.hanging_advance,
-        )
+        (origin, origin + metrics.advance - metrics.hanging_advance)
     };
-    let fits = is_clamped && text_end - text_start + length <= width;
+    let line_start = metrics.inline_min_coord.max(0.0);
+    let line_end = metrics.inline_max_coord.min(width);
+    let (line_start, line_end) = if is_clamped && line_end > line_start {
+        (line_start, line_end)
+    } else {
+        (0.0, width)
+    };
+    let fits = is_clamped && text_end - text_start + length <= line_end - line_start;
     let (min_x, max_x) = if fits {
         (f32::NEG_INFINITY, f32::INFINITY)
     } else if ellipsis.rtl {
-        (length, f32::INFINITY)
+        (line_start + length, f32::INFINITY)
     } else {
-        (f32::NEG_INFINITY, width - length)
+        (f32::NEG_INFINITY, line_end - length)
     };
     let (mut kept_start, mut kept_end) = (f32::INFINITY, f32::NEG_INFINITY);
     for item in line.items() {
@@ -540,12 +542,10 @@ fn line_cut(
         }
     }
     let (start, end, x) = if ellipsis.rtl {
-        let kept_start = kept_start
-            .max(text_start)
-            .min(metrics.offset + metrics.advance);
+        let kept_start = kept_start.max(text_start).min(origin + metrics.advance);
         (kept_start - length, f32::INFINITY, kept_start - length)
     } else {
-        let kept_end = kept_end.min(text_end).max(metrics.offset);
+        let kept_end = kept_end.min(text_end).max(origin);
         (f32::NEG_INFINITY, kept_end + length, kept_end)
     };
     Some(LineCut {
@@ -799,8 +799,9 @@ pub(crate) fn stroke_text<'a>(
     for (line_index, line) in lines.enumerate() {
         let cut = ellipsis.and_then(|ellipsis| {
             let metrics = line.metrics();
-            let overflows = metrics.offset < 0.0
-                || metrics.offset + metrics.advance - metrics.hanging_advance > ellipsis.width;
+            let origin = metrics.offset + metrics.inline_min_coord;
+            let overflows =
+                origin < 0.0 || origin + metrics.advance - metrics.hanging_advance > ellipsis.width;
             let is_clamped = ellipsis.on_line == Some(line_index);
             ((ellipsis.on_overflow && overflows) || is_clamped)
                 .then(|| line_cut(&line, ellipsis, is_clamped))

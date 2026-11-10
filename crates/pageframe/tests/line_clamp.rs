@@ -289,3 +289,23 @@ fn clamped_box_keeps_its_min_height() {
     assert!(above > 200, "the box is shorter than its min-height");
     assert!(inside < 50, "the bar is not right under the box");
 }
+
+#[test]
+fn clamp_ellipsis_stays_inside_a_line_beside_a_float() {
+    let buffer = draw(
+        &format!(".c{{{LEGACY};overflow:hidden}}.f{{float:left;width:60px;height:20px}}"),
+        "<div class=\"c\"><div class=\"f\"></div>\
+         <div>aaaa bbbbb cccc bbbbb dddd eeee ffff</div></div>",
+    );
+    let ink = |columns: std::ops::Range<usize>, rows: std::ops::Range<usize>| {
+        rows.into_iter().any(|y| {
+            columns.clone().any(|x| {
+                let [red, green, blue, _] = pixel(&buffer, x, y);
+                red < 128 && green < 128 && blue < 128
+            })
+        })
+    };
+    assert!(ink(109..116, 0..5), "the first line lost its last letter");
+    assert!(!ink(109..120, 10..16), "the last letter was not cut");
+    assert!(ink(109..120, 16..19), "no ellipsis at the end of the line");
+}
