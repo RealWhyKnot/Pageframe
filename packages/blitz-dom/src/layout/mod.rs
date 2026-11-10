@@ -4,7 +4,9 @@
 //! However, in Blitz, we do a style pass then a layout pass.
 //! This is slower, yes, but happens fast enough that it's not a huge issue.
 
-use crate::node::{ComputedStyleRef, ImageData, NodeData, SpecialElementData};
+use crate::node::{
+    ComputedStyleRef, ImageData, ListItemLayoutPosition, NodeData, SpecialElementData,
+};
 use crate::{document::BaseDocument, dom_node_id, node::Node, taffy_node_id};
 use markup5ever::{LocalName, local_name};
 use std::cell::Ref;
@@ -25,6 +27,7 @@ use taffy::{
 };
 
 pub(crate) mod construct;
+pub(crate) mod counter_style;
 pub(crate) mod damage;
 pub(crate) mod inline;
 pub(crate) mod list;
@@ -270,10 +273,42 @@ impl LayoutPassState<'_> {
     ) -> taffy::tree::LayoutOutput {
         let inputs = self.apply_size_containment(node_id, inputs);
         let mut output = self.dispatch_child_layout(node_id, inputs, block_ctx);
+        if let Some(line_height) = self.empty_list_item_line_height(node_id, &inputs) {
+            output.size.height += line_height;
+            output.margins_can_collapse_through = false;
+        }
         if inputs.run_mode == RunMode::PerformLayout {
             compute_oof_layout(self, node_id, &mut output);
         }
         output
+    }
+
+    fn empty_list_item_line_height(
+        &self,
+        node_id: NodeId,
+        inputs: &taffy::tree::LayoutInput,
+    ) -> Option<f32> {
+        if inputs.known_dimensions.height.is_some() {
+            return None;
+        }
+        let node = &self.nodes[dom_node_id(node_id)];
+        let has_children = node
+            .layout_children
+            .borrow()
+            .as_ref()
+            .is_some_and(|children| !children.is_empty());
+        if has_children || node.flags.is_inline_root() {
+            return None;
+        }
+        if !node.primary_styles()?.get_position().height.is_auto() {
+            return None;
+        }
+        let list_item = node.element_data()?.list_item_data.as_deref()?;
+        let ListItemLayoutPosition::Outside(layout) = &list_item.position else {
+            return None;
+        };
+        let line = layout.lines().next()?;
+        Some(line.metrics().line_height / layout.scale())
     }
 
     fn apply_size_containment(

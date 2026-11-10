@@ -27,8 +27,8 @@ use crate::text::{DrawTextContext, LineEllipsis, TextPaintOptions};
 use crate::{CustomWidgetSceneMap, SELECTION_COLOR};
 use anyrender::{PaintScene, Scene};
 use blitz_dom::node::{
-    ListItemLayout, ListItemLayoutPosition, Marker, NodeData, RasterImageData, TextInputData,
-    TextNodeData,
+    ListItemLayout, ListItemLayoutPosition, Marker, MarkerShape, MarkerSymbol, NodeData,
+    RasterImageData, TextBrush, TextInputData, TextNodeData,
 };
 use blitz_dom::{BaseDocument, ElementData, Node, NodeId, local_name};
 use blitz_traits::devtools::DevtoolSettings;
@@ -49,6 +49,7 @@ use style::{
 
 use kurbo::{self, Affine, Insets, Point, Rect, Shape, Size, Stroke, Vec2};
 use peniko::{self, BlendMode, Fill, ImageData, ImageSampler};
+use style::computed_values::direction::T as Direction;
 use style::computed_values::isolation::T as Isolation;
 use style::values::generics::color::GenericColor;
 use taffy::Layout;
@@ -923,6 +924,8 @@ struct EffectBody<'n> {
     child_clip_rect: Rect,
 }
 
+const DISCLOSURE_OUTSIDE_GAP: f64 = 8.0;
+
 /// A context of loaded and hot data to draw the element from
 struct ElementCx<'dom, 'a> {
     context: &'dom BlitzDomPainter<'dom, 'a>,
@@ -1216,63 +1219,186 @@ impl ElementCx<'_, '_> {
     }
 
     fn draw_marker(&self, scene: &mut impl PaintScene, pos: Point) {
-        if let Some(ListItemLayout {
-            marker,
-            position: ListItemLayoutPosition::Outside(layout),
-            content_box_subpixel_offset,
-        }) = self.list_item
-        {
-            // Right align and pad the bullet when rendering outside
-            let x_padding = match marker {
-                Marker::Char(_) => 8.0,
-                Marker::String(_) => 0.0,
-            };
-            // Outside markers are placed outside the list item's border box
-            // (`pos` is the origin of its content box)
-            let item_layout = self.node.final_layout();
-            let x_offset = -(layout.full_width() / layout.scale()
-                + x_padding
-                + item_layout.padding.left
-                + item_layout.border.left);
-
-            // Align the marker with the baseline of the first line of text in the list item
-            let y_offset = if let Some((text_layout, first_text_line)) = &self
-                .element
-                .inline_layout_data
-                .as_ref()
-                .and_then(|text_layout| Some((text_layout, text_layout.layout.lines().next()?)))
-            {
-                (first_text_line.metrics().baseline
-                    - layout.lines().next().unwrap().metrics().baseline)
-                    / layout.scale()
-                    + text_layout.block_offset
-            } else {
-                0.0
-            };
-
-            let pos = Point {
-                x: pos.x + (content_box_subpixel_offset.x + x_offset) as f64,
-                y: pos.y + (content_box_subpixel_offset.y + y_offset) as f64,
-            };
-
-            let transform =
-                self.transform * Affine::translate((pos.x * self.scale, pos.y * self.scale));
-
-            let mut draw_text_context = self.context.draw_text_context.borrow_mut();
-            crate::text::stroke_text(
-                scene,
-                layout.lines(),
-                self.context.dom,
-                transform,
-                TextPaintOptions {
-                    scale: self.scale,
-                    brush_override: None,
-                    ellipsis: None,
-                },
-                self.node.id,
-                &mut draw_text_context,
-            );
+        let Some(list_item) = self.list_item else {
+            return;
+        };
+        let subpixel_offset = list_item.content_box_subpixel_offset;
+        let origin = Point {
+            x: pos.x + f64::from(subpixel_offset.x),
+            y: pos.y + f64::from(subpixel_offset.y),
+        };
+        match (&list_item.marker, &list_item.position) {
+            (Marker::Symbol(symbol), ListItemLayoutPosition::Outside(layout)) => {
+                self.draw_outside_symbol(scene, pos, origin, symbol, layout);
+            }
+            (Marker::Symbol(symbol), ListItemLayoutPosition::Inside) => {
+                self.draw_inside_symbol(scene, origin, symbol);
+            }
+            (marker, ListItemLayoutPosition::Outside(layout)) => {
+                self.draw_outside_marker_text(scene, pos, origin, marker, layout);
+            }
+            (_, ListItemLayoutPosition::Inside) => {}
         }
+    }
+
+    fn marker_color(&self) -> Option<Color> {
+        let color = self.list_item?.marker_color.as_ref()?;
+        Some(color.as_srgb_color())
+    }
+
+    fn is_rtl(&self) -> bool {
+        self.style.clone_direction() == Direction::Rtl
+    }
+
+    fn border_box_inline_edges(&self, pos: Point) -> (f64, f64) {
+        let item_layout = self.node.final_layout();
+        let left = pos.x - f64::from(item_layout.padding.left + item_layout.border.left);
+        (left, left + f64::from(item_layout.size.width))
+    }
+
+    fn first_line_baseline(&self) -> Option<f64> {
+        let text_layout = self.element.inline_layout_data.as_ref()?;
+        let line = text_layout.layout.lines().next()?;
+        Some(f64::from(line.metrics().baseline) + f64::from(text_layout.block_offset) * self.scale)
+    }
+
+    fn draw_outside_symbol(
+        &self,
+        scene: &mut impl PaintScene,
+        pos: Point,
+        origin: Point,
+        symbol: &MarkerSymbol,
+        layout: &parley::Layout<TextBrush>,
+    ) {
+        let own_baseline = layout
+            .lines()
+            .next()
+            .map(|line| f64::from(line.metrics().baseline));
+        let Some(baseline) = self.first_line_baseline().or(own_baseline) else {
+            return;
+        };
+        let size = f64::from(symbol.size());
+        let reach = f64::from(symbol.offset() + MarkerSymbol::OUTSIDE_GAP);
+        let (left, right) = self.border_box_inline_edges(pos);
+        let x = if self.is_rtl() {
+            right * self.scale + reach - size
+        } else {
+            left * self.scale - reach
+        };
+        let y = origin.y * self.scale + baseline + f64::from(symbol.top_from_baseline());
+        self.draw_symbol(scene, symbol, x, y);
+    }
+
+    fn draw_inside_symbol(
+        &self,
+        scene: &mut impl PaintScene,
+        origin: Point,
+        symbol: &MarkerSymbol,
+    ) {
+        let Some(text_layout) = self.element.inline_layout_data.as_ref() else {
+            return;
+        };
+        let Some(line) = text_layout.layout.lines().next() else {
+            return;
+        };
+        let size = f64::from(symbol.size());
+        let marker_run = line.items().find_map(|item| match item {
+            parley::PositionedLayoutItem::GlyphRun(glyph_run)
+                if glyph_run.run().text_range().start == 0 =>
+            {
+                let start = f64::from(glyph_run.offset());
+                let x = if glyph_run.run().is_rtl() {
+                    start + f64::from(glyph_run.advance()) - size
+                } else {
+                    start
+                };
+                Some((x, f64::from(glyph_run.baseline())))
+            }
+            _ => None,
+        });
+        let Some((x, baseline)) = marker_run else {
+            return;
+        };
+        let top = (origin.y + f64::from(text_layout.block_offset)) * self.scale;
+        self.draw_symbol(
+            scene,
+            symbol,
+            origin.x * self.scale + x,
+            top + baseline + f64::from(symbol.top_from_baseline()),
+        );
+    }
+
+    fn draw_symbol(&self, scene: &mut impl PaintScene, symbol: &MarkerSymbol, x: f64, y: f64) {
+        let size = f64::from(symbol.size());
+        let rect = Rect::new(x.round(), y.round(), x.round() + size, y.round() + size);
+        let color = self
+            .marker_color()
+            .unwrap_or_else(|| self.style.clone_color().as_srgb_color());
+        match symbol.shape {
+            MarkerShape::Disc => scene.fill(
+                Fill::NonZero,
+                self.transform,
+                color,
+                None,
+                &kurbo::Ellipse::from_rect(rect),
+            ),
+            MarkerShape::Circle => scene.stroke(
+                &Stroke::new(1.0),
+                self.transform,
+                color,
+                None,
+                &kurbo::Ellipse::from_rect(rect),
+            ),
+            MarkerShape::Square => {
+                scene.fill(Fill::NonZero, self.transform, color, None, &rect);
+            }
+        }
+    }
+
+    fn draw_outside_marker_text(
+        &self,
+        scene: &mut impl PaintScene,
+        pos: Point,
+        origin: Point,
+        marker: &Marker,
+        layout: &parley::Layout<TextBrush>,
+    ) {
+        let Some(marker_line) = layout.lines().next() else {
+            return;
+        };
+        let layout_scale = f64::from(layout.scale());
+        let gap = match marker {
+            Marker::Char(_) => DISCLOSURE_OUTSIDE_GAP / self.scale,
+            Marker::Symbol(_) | Marker::String(_) => 0.0,
+        };
+        let (left, right) = self.border_box_inline_edges(pos);
+        let x = if self.is_rtl() {
+            right + gap
+        } else {
+            left - gap - f64::from(layout.full_width()) / layout_scale
+        };
+        let marker_baseline = f64::from(marker_line.metrics().baseline);
+        let y = match self.first_line_baseline() {
+            Some(baseline) => origin.y + (baseline - marker_baseline) / layout_scale,
+            None => origin.y,
+        };
+
+        let transform = self.transform * Affine::translate((x * self.scale, y * self.scale));
+
+        let mut draw_text_context = self.context.draw_text_context.borrow_mut();
+        crate::text::stroke_text(
+            scene,
+            layout.lines(),
+            self.context.dom,
+            transform,
+            TextPaintOptions {
+                scale: self.scale,
+                brush_override: self.marker_color(),
+                ellipsis: None,
+            },
+            self.node.id,
+            &mut draw_text_context,
+        );
     }
 
     fn draw_children(

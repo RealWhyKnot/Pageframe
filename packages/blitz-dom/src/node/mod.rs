@@ -21,8 +21,8 @@ pub use custom_widget::{
 pub(crate) use element::parse_classes;
 pub use element::{
     CanvasData, DocumentData, ElementData, ImageData, ImageResourceData, LayoutData,
-    ListItemLayout, ListItemLayoutPosition, Marker, RasterImageData, SpecialElementData,
-    SpecialElementType, Status,
+    ListItemLayout, ListItemLayoutPosition, Marker, MarkerShape, MarkerSymbol, RasterImageData,
+    SpecialElementData, SpecialElementType, Status,
 };
 pub use node::*;
 pub use resizer::{OverflowControl, RESIZER_SIZE, resizer_size};

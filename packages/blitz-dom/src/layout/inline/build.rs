@@ -71,6 +71,14 @@ pub(crate) fn build_inline_layout_into(
         .and_then(|el| el.list_item_data.as_deref())
     {
         match marker {
+            Marker::Symbol(symbol) => {
+                let mut marker_style = parley_style.clone();
+                let advance = symbol.size() + marker_style.font_size * scale;
+                marker_style.letter_spacing = (advance - symbol.space_advance) / scale;
+                builder.push_style_span(marker_style);
+                builder.push_text(&marker.inside_text());
+                builder.pop_style_span();
+            }
             // Bullet glyphs live in the bundled bullet font. The position-outside
             // path already asks for it; without the same span here a marker like
             // disclosure-closed (U+25B8) falls back to the element's own font and

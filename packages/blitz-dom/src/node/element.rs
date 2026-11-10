@@ -969,6 +969,7 @@ impl std::fmt::Debug for SpecialElementData {
 #[derive(Clone)]
 pub struct ListItemLayout {
     pub marker: Marker,
+    pub marker_color: Option<style::color::AbsoluteColor>,
     pub position: ListItemLayoutPosition,
     /// Offset (in physical CSS px) of the unrounded content box origin from the rounded one in
     /// `final_layout`. Paint draws text from the unrounded origin so that it keeps its sub-pixel
@@ -980,17 +981,50 @@ pub struct ListItemLayout {
 //construct a whole parley layout for simple char markers
 #[derive(Debug, PartialEq, Clone)]
 pub enum Marker {
+    Symbol(MarkerSymbol),
     Char(char),
     String(String),
 }
 
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum MarkerShape {
+    Disc,
+    Circle,
+    Square,
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub struct MarkerSymbol {
+    pub shape: MarkerShape,
+    pub ascent: f32,
+    pub space_advance: f32,
+}
+
+impl MarkerSymbol {
+    pub const OUTSIDE_GAP: f32 = 7.0;
+
+    pub fn offset(&self) -> f32 {
+        (self.ascent.round() * 2.0 / 3.0).floor()
+    }
+
+    pub fn size(&self) -> f32 {
+        ((self.offset() + 1.0) / 2.0).floor()
+    }
+
+    pub fn top_from_baseline(&self) -> f32 {
+        let ascent = self.ascent.round();
+        (3.0 * (ascent - self.offset()) / 2.0).floor() - ascent
+    }
+}
+
 impl Marker {
-    pub fn is_disclosure(&self) -> bool {
+    pub(crate) fn is_disclosure(&self) -> bool {
         matches!(self, Self::Char('▸' | '▾'))
     }
 
     pub fn inside_text(&self) -> String {
         match self {
+            Self::Symbol(_) => '\u{a0}'.to_string(),
             Self::Char(char) if self.is_disclosure() => char.to_string(),
             Self::Char(char) => format!("{char} "),
             Self::String(text) => text.clone(),
