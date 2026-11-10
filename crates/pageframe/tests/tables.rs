@@ -12,6 +12,7 @@ const BLACK: [u8; 4] = [0, 0, 0, 255];
 const GREEN: [u8; 4] = [0, 255, 0, 255];
 const WHITE: [u8; 4] = [255, 255, 255, 255];
 const RED: [u8; 4] = [255, 0, 0, 255];
+const BLUE: [u8; 4] = [0, 0, 255, 255];
 
 fn draw(body: &str) -> Vec<u8> {
     let html = format!("<html><head><style>{STYLE}</style></head><body>{body}</body></html>");
@@ -98,4 +99,41 @@ fn the_first_cell_colours_a_shared_border() {
         column(&buffer, 6, &[0, 1, 12, 13, 24, 25]),
         [RED, RED, RED, RED, BLACK, BLACK]
     );
+}
+
+#[test]
+fn a_wide_table_border_pushes_the_outer_cells_in() {
+    let buffer = draw("<table style=\"border:6px solid blue\"><tr><td></td><td></td></tr></table>");
+    assert_eq!(
+        row(&buffer, &[0, 5, 6, 25, 26, 27, 28, 47, 48, 53, 54], 11),
+        [
+            BLUE, BLUE, GREEN, GREEN, BLACK, BLACK, GREEN, GREEN, BLUE, BLUE, WHITE
+        ]
+    );
+    assert_eq!(
+        column(&buffer, 10, &[0, 5, 6, 15, 16, 21, 22]),
+        [BLUE, BLUE, GREEN, GREEN, BLUE, BLUE, WHITE]
+    );
+}
+
+#[test]
+fn a_borderless_cell_makes_room_for_its_neighbours_border() {
+    let buffer = draw("<table><tr><td style=\"border:none\"></td><td></td></tr></table>");
+    assert_eq!(
+        row(&buffer, &[0, 19, 20, 21, 22, 41, 42, 43, 44], 6),
+        [
+            GREEN, GREEN, BLACK, BLACK, GREEN, GREEN, BLACK, BLACK, WHITE
+        ]
+    );
+}
+
+#[test]
+fn a_cell_outside_a_table_keeps_its_border() {
+    let buffer = draw(
+        "<div style=\"border-collapse:collapse\">\
+         <div style=\"display:table-cell;border:2px solid black;width:20px;height:10px\"></div>\
+         </div>",
+    );
+    assert_eq!(row(&buffer, &[1, 10], 6), [BLACK, WHITE]);
+    assert_eq!(column(&buffer, 10, &[1, 6]), [BLACK, WHITE]);
 }

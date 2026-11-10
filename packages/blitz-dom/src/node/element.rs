@@ -89,6 +89,8 @@ pub struct ElementData {
 
     pub(crate) container_size: Option<taffy::Size<f32>>,
 
+    pub(crate) collapsed_border: Option<taffy::Rect<f32>>,
+
     /// The element's template contents (\<template\> elements only)
     pub template_contents: Option<NodeId>,
     // /// Whether the node is a [HTML integration point] (https://html.spec.whatwg.org/multipage/#html-integration-point)
@@ -326,6 +328,7 @@ impl Clone for ElementData {
             mask_images: self.mask_images.clone(),
             inline_layout_data: self.inline_layout_data.clone(),
             list_item_data: self.list_item_data.clone(),
+            collapsed_border: self.collapsed_border,
             template_contents: self.template_contents,
 
             // Runtime state: reset to defaults.
@@ -440,6 +443,7 @@ impl ElementData {
             inline_layout_data: None,
             list_item_data: None,
             container_size: None,
+            collapsed_border: None,
             special_data: SpecialElementData::None,
             template_contents: None,
             background_images: ThinVec::new(),
@@ -514,6 +518,10 @@ impl ElementData {
     }
 
     /// Whether this element is a link (an `<a>` or `<area>` element with an `href` attribute)
+    pub fn has_collapsed_border(&self) -> bool {
+        self.collapsed_border.is_some()
+    }
+
     pub fn is_link(&self) -> bool {
         (self.name.local == local_name!("a") || self.name.local == local_name!("area"))
             && self.has_attr(local_name!("href"))

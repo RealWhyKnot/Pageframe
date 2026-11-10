@@ -3,6 +3,7 @@ use std::{ops::Range, sync::Arc};
 use style::logical_geometry::WritingMode;
 use style::properties::ComputedValues;
 use stylo_taffy::CopyStyleGetters;
+use stylo_taffy::WritingModeExt;
 
 use atomic_refcell::AtomicRefCell;
 use markup5ever::local_name;
@@ -68,6 +69,7 @@ pub struct TableCell {
     pub column: u16,
     column_span: u16,
     row_span: u16,
+    column_width_border: Option<f32>,
     style: taffy::Style<Atom>,
 }
 
@@ -159,32 +161,121 @@ fn table_taffy_style(style: &ComputedValues, table_wm: WritingMode) -> taffy::St
     stylo_taffy::to_taffy_style_in(style, table_wm)
 }
 
-fn collapsed_table_border(
-    cells: &[TableCell],
+fn flip_inline(rect: taffy::Rect<f32>, is_ltr: bool) -> taffy::Rect<f32> {
+    if is_ltr {
+        return rect;
+    }
+    taffy::Rect {
+        left: rect.right,
+        right: rect.left,
+        ..rect
+    }
+}
+
+fn widest<I: Iterator<Item = usize>>(
+    slots: I,
+    grid: &[Option<usize>],
+    side: impl Fn(usize) -> f32,
+) -> f32 {
+    slots
+        .filter_map(|slot| grid.get(slot).copied().flatten())
+        .map(side)
+        .fold(0.0, f32::max)
+}
+
+fn resolve_collapsed_borders(
+    doc: &mut BaseDocument,
+    cells: &mut [TableCell],
     num_columns: u16,
     num_rows: usize,
     own: taffy::Rect<f32>,
-    is_ltr: bool,
+    wm: WritingMode,
 ) -> taffy::Rect<taffy::LengthPercentage> {
-    let mut half = own.map(|width| width / 2.0);
-    for cell in cells {
-        let border = cell.style.border.resolve_or_zero(None, resolve_calc_value);
-        let is_first = cell.column == 0;
-        let is_last = cell.column.saturating_add(cell.column_span) >= num_columns;
-        if (is_first && is_ltr) || (is_last && !is_ltr) {
-            half.left = half.left.max(border.left);
-        }
-        if (is_last && is_ltr) || (is_first && !is_ltr) {
-            half.right = half.right.max(border.right);
-        }
-        if cell.row == 0 {
-            half.top = half.top.max(border.top);
-        }
-        if usize::from(cell.row) + usize::from(cell.row_span) >= num_rows {
-            half.bottom = half.bottom.max(border.bottom);
+    let is_ltr = wm.direction() == taffy::Direction::Ltr;
+    let columns = usize::from(num_columns);
+    let table = flip_inline(own.map(|width| width / 2.0), is_ltr);
+    let halves: Vec<taffy::Rect<f32>> = cells
+        .iter()
+        .map(|cell| {
+            let border = cell.style.border.resolve_or_zero(None, resolve_calc_value);
+            flip_inline(border, is_ltr)
+        })
+        .collect();
+    let span = |cell: &TableCell| {
+        let first_column = usize::from(cell.column).min(columns);
+        let first_row = usize::from(cell.row).min(num_rows);
+        let end_column = (first_column + usize::from(cell.column_span)).min(columns);
+        let end_row = (first_row + usize::from(cell.row_span)).min(num_rows);
+        (first_column..end_column, first_row..end_row)
+    };
+
+    let mut grid: Vec<Option<usize>> = vec![None; columns * num_rows];
+    for (index, cell) in cells.iter().enumerate() {
+        let (cell_columns, cell_rows) = span(cell);
+        for row in cell_rows {
+            for column in cell_columns.clone() {
+                grid[row * columns + column].get_or_insert(index);
+            }
         }
     }
-    half.map(style_helpers::length)
+
+    let mut outer = table;
+    for (index, cell) in cells.iter_mut().enumerate() {
+        let (cell_columns, cell_rows) = span(cell);
+        let own = halves[index];
+        let mut half = own;
+        if cell_columns.start == 0 {
+            half.left = half.left.max(table.left);
+            outer.left = outer.left.max(half.left);
+        } else {
+            let slots = cell_rows
+                .clone()
+                .map(|row| row * columns + cell_columns.start - 1);
+            half.left = half
+                .left
+                .max(widest(slots, &grid, |cell| halves[cell].right));
+        }
+        if cell_columns.end >= columns {
+            half.right = half.right.max(table.right);
+            outer.right = outer.right.max(half.right);
+        } else {
+            let slots = cell_rows
+                .clone()
+                .map(|row| row * columns + cell_columns.end);
+            half.right = half
+                .right
+                .max(widest(slots, &grid, |cell| halves[cell].left));
+        }
+        if cell_rows.start == 0 {
+            half.top = half.top.max(table.top);
+            outer.top = outer.top.max(half.top);
+        } else {
+            let slots = cell_columns
+                .clone()
+                .map(|column| (cell_rows.start - 1) * columns + column);
+            half.top = half
+                .top
+                .max(widest(slots, &grid, |cell| halves[cell].bottom));
+        }
+        if cell_rows.end >= num_rows {
+            half.bottom = half.bottom.max(table.bottom);
+            outer.bottom = outer.bottom.max(half.bottom);
+        } else {
+            let slots = cell_columns
+                .clone()
+                .map(|column| cell_rows.end * columns + column);
+            half.bottom = half
+                .bottom
+                .max(widest(slots, &grid, |cell| halves[cell].top));
+        }
+
+        let half = flip_inline(half, is_ltr);
+        cell.style.border = half.map(style_helpers::length);
+        if let Some(element) = doc.nodes[cell.node_id].element_data_mut() {
+            element.collapsed_border = Some(wm.physical_rect(half));
+        }
+    }
+    flip_inline(outer, is_ltr).map(style_helpers::length)
 }
 
 /// Build a `calc(<percent> + <length>)` track sizing function. The calc value is
@@ -257,7 +348,6 @@ pub(crate) fn build_table_context(
 
     let border_collapse = stylo_styles.clone_border_collapse();
     let border_spacing = stylo_styles.clone_border_spacing().0;
-    let is_ltr = stylo_styles.writing_mode.is_bidi_ltr();
 
     drop(stylo_styles);
 
@@ -326,6 +416,33 @@ pub(crate) fn build_table_context(
     }
     let num_columns = cursor.num_columns.max(column_sizes.len() as u16);
     column_sizes.resize(num_columns as usize, remaining_column);
+    if border_collapse == BorderCollapse::Collapse {
+        let own = style.border.resolve_or_zero(None, resolve_calc_value);
+        style.border = resolve_collapsed_borders(doc, &mut cells, num_columns, rows.len(), own, wm);
+        for cell in &cells {
+            let Some(counted) = cell.column_width_border else {
+                continue;
+            };
+            let border = cell.style.border.resolve_or_zero(None, resolve_calc_value);
+            let growth = border.left + border.right - counted;
+            if let Some(column) = column_sizes.get_mut(usize::from(cell.column)) {
+                if column.max.into_raw().tag() == taffy::CompactLength::LENGTH_TAG {
+                    *column = style_helpers::length(column.max.into_raw().value() + growth);
+                }
+            }
+            for (column, _, extra) in percent_columns.iter_mut() {
+                if *column == cell.column {
+                    *extra += growth;
+                }
+            }
+        }
+    } else {
+        for cell in &cells {
+            if let Some(element) = doc.nodes[cell.node_id].element_data_mut() {
+                element.collapsed_border = None;
+            }
+        }
+    }
     if is_fixed {
         // In the fixed table layout algorithm, percentage column widths resolve against
         // the table's content width minus the horizontal border-spacing between columns,
@@ -405,11 +522,6 @@ pub(crate) fn build_table_context(
         }
         BorderCollapse::Collapse => taffy::Size::ZERO.map(style_helpers::length),
     };
-
-    if border_collapse == BorderCollapse::Collapse {
-        let own = style.border.resolve_or_zero(None, resolve_calc_value);
-        style.border = collapsed_table_border(&cells, num_columns, rows.len(), own, is_ltr);
-    }
 
     let layout_children = cells
         .iter()
@@ -647,6 +759,7 @@ fn collect_table_cells(
             // Column widths from `<col>` elements take precedence over cell widths
             let col_needs_width =
                 (col as usize) >= columns.len() || columns[col as usize].max.is_auto();
+            let mut column_width_border = None;
             if *row == 1 && col_needs_width {
                 let column: TrackSizingFunction = match style.size.width.tag() {
                     taffy::CompactLength::LENGTH_TAG => {
@@ -654,9 +767,12 @@ fn collect_table_cells(
                         let padding = style.padding.resolve_or_zero(None, resolve_calc_value);
                         let border = style.border.resolve_or_zero(None, resolve_calc_value);
                         match style.box_sizing {
-                            taffy::BoxSizing::ContentBox => style_helpers::length(
-                                len + padding.left + padding.right + border.left + border.right,
-                            ),
+                            taffy::BoxSizing::ContentBox => {
+                                column_width_border = Some(border.left + border.right);
+                                style_helpers::length(
+                                    len + padding.left + padding.right + border.left + border.right,
+                                )
+                            }
                             taffy::BoxSizing::BorderBox => style_helpers::length(len),
                         }
                     }
@@ -668,6 +784,7 @@ fn collect_table_cells(
                                         style.padding.resolve_or_zero(None, resolve_calc_value);
                                     let border =
                                         style.border.resolve_or_zero(None, resolve_calc_value);
+                                    column_width_border = Some(border.left + border.right);
                                     padding.left + padding.right + border.left + border.right
                                 }
                                 taffy::BoxSizing::BorderBox => 0.0,
@@ -724,6 +841,7 @@ fn collect_table_cells(
                 column: col,
                 column_span: colspan,
                 row_span: rowspan,
+                column_width_border,
                 style,
             });
 

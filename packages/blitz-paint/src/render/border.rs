@@ -553,9 +553,14 @@ impl ElementCx<'_, '_> {
     }
 
     pub(crate) fn has_collapsed_borders(&self) -> bool {
-        let inside = self.style.clone_display().inside();
-        matches!(inside, DisplayInside::Table | DisplayInside::TableCell)
-            && self.style.clone_border_collapse() == BorderCollapse::Collapse
+        if self.style.clone_border_collapse() != BorderCollapse::Collapse {
+            return false;
+        }
+        match self.style.clone_display().inside() {
+            DisplayInside::Table => true,
+            DisplayInside::TableCell => self.element.has_collapsed_border(),
+            _ => false,
+        }
     }
 
     pub(crate) fn draw_table_borders(&self, scene: &mut impl PaintScene) {
@@ -593,13 +598,13 @@ impl ElementCx<'_, '_> {
                 continue;
             };
             let layout = node.final_layout();
-            let x = f64::from(layout.location.x);
-            let y = f64::from(layout.location.y);
+            let left = f64::from(layout.location.x);
+            let top = f64::from(layout.location.y);
             let cell_box = Rect::new(
-                x,
-                y,
-                x + f64::from(layout.size.width),
-                y + f64::from(layout.size.height),
+                left,
+                top,
+                left + f64::from(layout.size.width),
+                top + f64::from(layout.size.height),
             );
             let mut widths = collapsed_widths(&style);
             if hidden(own.border_left_style) && cell_box.x0 <= cells_box.x0 + EDGE_SLACK {
@@ -622,9 +627,15 @@ impl ElementCx<'_, '_> {
             );
         }
 
-        lines.sort_by(|a, b| a.width.total_cmp(&b.width));
-        for line in lines {
-            let shape = line.rect.scale_from_origin(self.scale);
+        lines.sort_by(|first, second| first.width.total_cmp(&second.width));
+        for run in lines.chunk_by(|first, second| first.color == second.color) {
+            let Some(line) = run.first() else {
+                continue;
+            };
+            let mut shape = BezPath::new();
+            for line in run {
+                shape.extend(line.rect.scale_from_origin(self.scale).path_elements(0.1));
+            }
             scene.fill(Fill::NonZero, self.transform, line.color, None, &shape);
         }
     }

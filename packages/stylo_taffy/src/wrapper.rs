@@ -45,6 +45,7 @@ pub struct TaffyStyloStyle<T: Deref<Target = ComputedValues>> {
     pub style: T,
     /// Extra node-derived flags that are not part of the stylo style
     pub flags: StyleFlags,
+    pub collapsed_border: Option<taffy::Rect<f32>>,
     /// The writing mode of the algorithm laying this box out, whose inline/block axes the Taffy
     /// getters are expressed in (see [`crate::writing_mode`]). Defaults to the style's own.
     #[cfg(feature = "writing-mode")]
@@ -81,6 +82,7 @@ impl<T: Deref<Target = ComputedValues>> TaffyStyloStyle<T> {
         Self {
             style,
             flags,
+            collapsed_border: None,
             #[cfg(feature = "writing-mode")]
             layout_wm,
             #[cfg(feature = "writing-mode")]
@@ -97,6 +99,7 @@ impl<T: Deref<Target = ComputedValues>> TaffyStyloStyle<T> {
         Self {
             style,
             flags,
+            collapsed_border: None,
             #[cfg(feature = "writing-mode")]
             layout_wm,
             #[cfg(feature = "writing-mode")]
@@ -342,10 +345,12 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
                 border_styles.border_bottom_style,
             ),
         });
-        if convert::is_collapsed_cell(&self.style) {
-            return border.map(convert::half);
+        match self.collapsed_border {
+            Some(half) if convert::is_collapsed_cell(&self.style) => {
+                self.rect(half.map(taffy::style_helpers::length))
+            }
+            _ => border,
         }
-        border
     }
 }
 

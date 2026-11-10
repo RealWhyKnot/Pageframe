@@ -195,10 +195,6 @@ pub fn is_collapsed_cell(style: &stylo::ComputedValues) -> bool {
         && style.clone_border_collapse() == stylo::BorderCollapse::Collapse
 }
 
-pub fn half(width: taffy::LengthPercentage) -> taffy::LengthPercentage {
-    taffy::style_helpers::length(width.into_raw().value() / 2.0)
-}
-
 #[inline]
 pub fn inset(val: &stylo::InsetVal) -> taffy::LengthPercentageAuto {
     match val {
