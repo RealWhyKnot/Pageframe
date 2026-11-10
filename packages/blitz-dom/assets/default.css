@@ -412,6 +412,10 @@ plaintext {
 
 /* tables */
 
+*|*::-servo-anonymous-table {
+    display: table;
+}
+
 table {
     display: table;
     border-spacing: 2px;

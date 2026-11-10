@@ -265,3 +265,17 @@ fn a_spanning_cell_with_a_height_fills_its_rows() {
         ]
     );
 }
+
+#[test]
+fn cells_without_a_table_sit_in_one_row() {
+    let cell = "display:table-cell;width:20px;height:10px";
+    let buffer = draw(&format!(
+        "<div><div style=\"{cell};background:#0f0\"></div>\
+         <div style=\"{cell};background:#00f\"></div></div>"
+    ));
+    assert_eq!(
+        row(&buffer, &[0, 19, 20, 39, 40], 5),
+        [GREEN, GREEN, BLUE, BLUE, WHITE]
+    );
+    assert_eq!(column(&buffer, 5, &[9, 10]), [GREEN, WHITE]);
+}

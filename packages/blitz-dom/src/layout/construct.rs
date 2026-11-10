@@ -5,6 +5,7 @@ use stylo_taffy::CopyStyleGetters;
 
 use markup5ever::{QualName, local_name, ns};
 use parley::StyleProperty;
+use style::selector_parser::PseudoElement;
 use style::{
     computed_values::position::T as PositionProperty,
     data::ElementData as StyloElementData,
@@ -62,6 +63,7 @@ pub(crate) enum ConstructionTaskResultData {
 pub(crate) struct LayoutChildren {
     pub(crate) children: ThinVec<NodeId>,
     pub(crate) anonymous_block_id: Option<NodeId>,
+    pub(crate) anonymous_table_id: Option<NodeId>,
     /// All anonymous blocks created while collecting these layout children.
     ///
     /// These are recorded on the container node so they can be deallocated the
@@ -73,12 +75,14 @@ impl LayoutChildren {
     /// Append a single layout child.
     fn push(&mut self, child_id: NodeId, doc: &mut BaseDocument) {
         self.maybe_push_anon_block(doc);
+        self.anonymous_table_id = None;
         self.children.push(child_id);
     }
 
     /// Append all layout children in `slice`.
     fn extend(&mut self, slice: &[NodeId], doc: &mut BaseDocument) {
         self.maybe_push_anon_block(doc);
+        self.anonymous_table_id = None;
         self.children.extend_from_slice(slice);
     }
 
@@ -116,6 +120,7 @@ impl LayoutChildren {
         child_id: NodeId,
         doc: &mut BaseDocument,
     ) {
+        self.anonymous_table_id = None;
         if self.anonymous_block_id.is_none() {
             self.create_anonymous_block(container_node_id, doc);
         }
@@ -124,9 +129,40 @@ impl LayoutChildren {
             .push(child_id);
     }
 
-    fn create_anonymous_block(&mut self, container_node_id: NodeId, doc: &mut BaseDocument) {
-        use style::selector_parser::PseudoElement;
+    fn push_table_part(
+        &mut self,
+        container_node_id: NodeId,
+        child_id: NodeId,
+        doc: &mut BaseDocument,
+    ) {
+        let table_id = match self.anonymous_table_id {
+            Some(table_id) => table_id,
+            None => {
+                self.maybe_push_anon_block(doc);
+                let table_id = self.create_anonymous(
+                    container_node_id,
+                    doc,
+                    &PseudoElement::ServoAnonymousTable,
+                );
+                self.anonymous_table_id = Some(table_id);
+                table_id
+            }
+        };
+        doc.nodes[table_id].children.push(child_id);
+    }
 
+    fn create_anonymous_block(&mut self, container_node_id: NodeId, doc: &mut BaseDocument) {
+        let node_id =
+            self.create_anonymous(container_node_id, doc, &PseudoElement::ServoAnonymousBox);
+        self.anonymous_block_id = Some(node_id);
+    }
+
+    fn create_anonymous(
+        &mut self,
+        container_node_id: NodeId,
+        doc: &mut BaseDocument,
+        pseudo: &PseudoElement,
+    ) -> NodeId {
         const NAME: QualName = QualName {
             prefix: None,
             ns: ns!(html),
@@ -141,11 +177,9 @@ impl LayoutChildren {
         let parent_style = doc.nodes[container_node_id].primary_styles().unwrap();
         let read_guard = doc.guard.read();
         let guards = StylesheetGuards::same(&read_guard);
-        let style = doc.stylist.style_for_anonymous::<&Node>(
-            &guards,
-            &PseudoElement::ServoAnonymousBox,
-            &parent_style,
-        );
+        let style = doc
+            .stylist
+            .style_for_anonymous::<&Node>(&guards, pseudo, &parent_style);
         let mut stylo_element_data = StyloElementData {
             damage: ALL_DAMAGE,
             ..Default::default()
@@ -171,9 +205,16 @@ impl LayoutChildren {
             .set(Some(container_node_id));
 
         self.children.push(node_id);
-        self.anonymous_block_id = Some(node_id);
         self.anonymous_blocks.push(node_id);
+        node_id
     }
+}
+
+fn is_table_part(display: Display) -> bool {
+    matches!(
+        display.outside(),
+        DisplayOutside::InternalTable | DisplayOutside::TableCaption
+    )
 }
 
 fn push_children_and_pseudos(layout_children: &mut ThinVec<NodeId>, node: &Node) {
@@ -290,6 +331,7 @@ struct FlowClassification {
     has_contents: bool,
     /// An in-flow inline-level child that is laid out in an anonymous block (text, or an inline box without block content).
     has_inline_level: bool,
+    has_table_parts: bool,
 }
 
 impl Default for FlowClassification {
@@ -300,6 +342,7 @@ impl Default for FlowClassification {
             all_out_of_flow: true,
             has_contents: false,
             has_inline_level: false,
+            has_table_parts: false,
         }
     }
 }
@@ -371,6 +414,7 @@ fn classify_flow_children(
             }
 
             classification.all_out_of_flow = false;
+            classification.has_table_parts |= is_table_part(display);
             match display.outside() {
                 DisplayOutside::None => {}
                 DisplayOutside::Block
@@ -624,6 +668,7 @@ fn collect_layout_children_with_wrap(
             // as the layout children
             if classification.all_block
                 && !classification.has_contents
+                && !classification.has_table_parts
                 && !details_summary_moves(doc, container_node_id)
             {
                 return push_non_whitespace_children_and_pseudos(
@@ -845,6 +890,11 @@ fn collect_complex_layout_children(
                 needs_wrap,
             });
             collect_layout_children_with_wrap(doc, child_id, out, wrap)
+        } else if is_table_part(*child_display)
+            || (out.anonymous_table_id.is_some()
+                && (is_whitespace_node || display_inside == DisplayInside::None))
+        {
+            out.push_table_part(container_node_id, child_id, doc);
         }
         // Push nodes that need wrapping into the current "anonymous block container".
         // If there is not an open one then we create one.
