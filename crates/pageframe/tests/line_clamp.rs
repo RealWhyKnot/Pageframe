@@ -196,3 +196,67 @@ fn balance_skips_text_with_a_forced_break() {
         "text with a forced break was rebalanced"
     );
 }
+
+const PARAGRAPHS: &str =
+    "p{margin:0}.c{display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}";
+
+fn paragraphs(lines: u32, body: &str) -> Vec<u8> {
+    draw(
+        &format!("{PARAGRAPHS}.c{{-webkit-line-clamp:{lines}}}"),
+        &format!("<div class=\"c\">{body}</div>"),
+    )
+}
+
+#[test]
+fn clamp_counts_lines_across_paragraphs() {
+    let clamped = paragraphs(
+        2,
+        "<p>aaaa bbbb cccc</p><p>dddd eeee fffffff gggg hhhh iiii jjjj</p>",
+    );
+    let literal = draw(
+        PARAGRAPHS,
+        "<div><p>aaaa bbbb cccc</p><p>dddd eeee fffffff…</p></div>",
+    );
+    assert!(
+        has_ink(&literal, 10..20),
+        "the literal page drew no second line"
+    );
+    assert!(
+        clamped == literal,
+        "the clamp did not land in the second paragraph"
+    );
+}
+
+#[test]
+fn clamp_ellipsis_shows_at_a_paragraph_end() {
+    let clamped = paragraphs(1, "<p>aaaa bbbb</p><p>cccc dddd</p>");
+    let literal = draw(PARAGRAPHS, "<div><p>aaaa bbbb…</p></div>");
+    assert!(has_ink(&literal, 0..10), "the literal page drew no text");
+    assert!(clamped == literal, "the first paragraph has no ellipsis");
+}
+
+#[test]
+fn clamp_leaves_paragraphs_that_fit() {
+    let body = "<p>aaaa bbbb</p><p>cccc dddd</p>";
+    let clamped = paragraphs(3, body);
+    assert!(
+        clamped == draw(PARAGRAPHS, &format!("<div>{body}</div>")),
+        "paragraphs that fit were clamped"
+    );
+}
+
+#[test]
+fn clamped_box_keeps_the_padding_under_the_line() {
+    let body = "<div style=\"padding-bottom:6px\"><p>aaaa</p><p>bbbb</p></div>";
+    let bar = "<div style=\"height:4px;background:black\"></div>";
+    let clamped = draw(
+        &format!("{PARAGRAPHS}.c{{-webkit-line-clamp:1}}"),
+        &format!("<div class=\"c\">{body}</div>{bar}"),
+    );
+    let [above, ..] = pixel(&clamped, 100, 15);
+    let [inside, ..] = pixel(&clamped, 100, 17);
+    let [below, ..] = pixel(&clamped, 100, 21);
+    assert!(above > 200, "the bar starts above the padding");
+    assert!(inside < 50, "the bar is not right under the padding");
+    assert!(below > 200, "the second paragraph still takes up room");
+}

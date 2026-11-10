@@ -40,6 +40,13 @@ pub struct TextLayout {
     /// `final_layout`. Paint draws text from the unrounded origin so that it keeps its sub-pixel
     /// position while box edges stay snapped. Set by the `writing-mode` layout pass; zero otherwise.
     pub content_box_subpixel_offset: taffy::Point<f32>,
+    pub line_budget: Option<LineBudget>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LineBudget {
+    pub container: NodeId,
+    pub lines: usize,
 }
 
 impl TextLayout {

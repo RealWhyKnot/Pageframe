@@ -261,15 +261,40 @@ pub fn clamped_line_count(
     style: &style::properties::ComputedValues,
     layout: &parley::Layout<crate::node::TextBrush>,
 ) -> Option<usize> {
+    let max_lines = max_clamped_lines(style)?;
+    (line_count(layout) > max_lines).then_some(max_lines)
+}
+
+pub fn max_clamped_lines(style: &style::properties::ComputedValues) -> Option<usize> {
     let max_lines = style.get_box().line_clamp.max_lines.lines_value()?;
-    let max_lines = usize::try_from(max_lines.0).ok()?.max(1);
-    let line_count = match layout.get(layout.len().wrapping_sub(1)) {
+    Some(usize::try_from(max_lines.0).ok()?.max(1))
+}
+
+pub fn line_count(layout: &parley::Layout<crate::node::TextBrush>) -> usize {
+    match layout.get(layout.len().wrapping_sub(1)) {
         Some(last) if last.text_range().is_empty() && last.items().next().is_none() => {
             layout.len() - 1
         }
         _ => layout.len(),
-    };
-    (line_count > max_lines).then_some(max_lines)
+    }
+}
+
+pub fn inherited_clamp_line(node: &crate::Node) -> Option<usize> {
+    let budget = node
+        .element_data()?
+        .inline_layout_data
+        .as_ref()?
+        .line_budget?;
+    let mut ancestor = node.parent;
+    while let Some(ancestor_id) = ancestor {
+        let ancestor_node = node.tree().get(ancestor_id)?;
+        if ancestor_id == budget.container {
+            let style = ancestor_node.primary_styles()?;
+            return max_clamped_lines(&style).and(budget.lines.checked_sub(1));
+        }
+        ancestor = ancestor_node.parent;
+    }
+    None
 }
 
 pub fn clamp_hides_lines(style: &style::properties::ComputedValues) -> bool {

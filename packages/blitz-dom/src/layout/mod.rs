@@ -32,6 +32,7 @@ pub(crate) mod counter_style;
 pub(crate) mod damage;
 pub(crate) mod generated_content;
 pub(crate) mod inline;
+pub(crate) mod line_clamp;
 pub(crate) mod list;
 pub(crate) mod paint_tree;
 pub(crate) mod replaced;
@@ -796,8 +797,16 @@ impl LayoutPassState<'_> {
 
                 // The default CSS file will set
                 match node.taffy_display() {
-                    Display::Block => compute_block_layout(self, node_id, inputs, block_ctx),
-                    Display::FlowRoot => compute_block_layout(self, node_id, inputs, None),
+                    Display::Block => {
+                        let mut output = compute_block_layout(self, node_id, inputs, block_ctx);
+                        self.clamp_child_lines(dom_node_id(node_id), &inputs, &mut output);
+                        output
+                    }
+                    Display::FlowRoot => {
+                        let mut output = compute_block_layout(self, node_id, inputs, None);
+                        self.clamp_child_lines(dom_node_id(node_id), &inputs, &mut output);
+                        output
+                    }
                     Display::Flex => {
                         #[cfg(feature = "writing-mode")]
                         {

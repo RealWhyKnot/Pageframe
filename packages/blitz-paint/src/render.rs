@@ -382,6 +382,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
                             &style,
                             &layout.layout,
                             (layout_box.content_box_width() as f64 * self.scale) as f32,
+                            blitz_dom::util::inherited_clamp_line(node),
                         )
                     });
                 crate::text::stroke_text(
@@ -1098,6 +1099,7 @@ impl ElementCx<'_, '_> {
                 &self.style,
                 &text_layout.layout,
                 (self.frame.content_box.width() - subpixel_offset.x as f64 * self.scale) as f32,
+                blitz_dom::util::inherited_clamp_line(self.node),
             );
 
             // Render inline element backgrounds (e.g. `<span style="background: ...">`)
@@ -1743,6 +1745,7 @@ fn line_ellipsis(
     computed: &ComputedValues,
     layout: &parley::Layout<blitz_dom::node::TextBrush>,
     width: f32,
+    inherited_line: Option<usize>,
 ) -> (usize, Option<LineEllipsis>) {
     let clamped_lines = blitz_dom::util::clamped_line_count(computed, layout);
     let on_overflow = matches!(
@@ -1750,10 +1753,11 @@ fn line_ellipsis(
         style::values::specified::text::TextOverflowSide::Ellipsis
     ) && computed.get_box().overflow_x
         != style::values::computed::Overflow::Visible;
-    let ellipsis = (on_overflow || clamped_lines.is_some()).then(|| LineEllipsis {
+    let on_line = clamped_lines.map(|lines| lines - 1).or(inherited_line);
+    let ellipsis = (on_overflow || on_line.is_some()).then(|| LineEllipsis {
         width,
         on_overflow,
-        on_line: clamped_lines.map(|lines| lines - 1),
+        on_line,
         rtl: computed.get_inherited_box().direction == style::computed_values::direction::T::Rtl,
     });
     let visible_lines = clamped_lines
