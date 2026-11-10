@@ -197,3 +197,39 @@ fn marker_pseudo_content_replaces_or_removes_the_marker() {
         "a full block glyph, not the square"
     );
 }
+
+#[test]
+fn marker_follows_the_first_line_of_a_block_child() {
+    let plain = draw("<ul><li>x</li></ul>");
+    let nested = draw("<ul><li><p style='margin:20px 0 0'>x</p></li></ul>");
+    let reference = marker_ink(&plain, 0).expect("plain marker");
+    let ink = marker_ink(&nested, 1).expect("marker beside the paragraph");
+    assert_eq!(marker_ink(&nested, 0), None);
+    assert_eq!(ink.top, reference.top + LINE);
+    assert_eq!((ink.left, ink.right), (reference.left, reference.right));
+}
+
+#[test]
+fn min_height_is_not_stretched_by_the_marker_line() {
+    let buffer = draw("<ul><li style='min-height:40px'></li><li>x</li></ul>");
+    assert!(marker_ink(&buffer, 2).is_some());
+    assert_eq!(marker_ink(&buffer, 3), None);
+}
+
+#[test]
+fn start_reversed_and_value_number_the_items() {
+    let numbered = |list: &str| {
+        draw(&format!(
+            "<style>ol{{margin:0;padding:0 0 0 60px;color:black}}</style>{list}"
+        ))
+    };
+    let plain = numbered("<ol><li>x</li><li>x</li></ol>");
+    let started = numbered("<ol start='5'><li>x</li><li>x</li></ol>");
+    let valued = numbered("<ol><li value='5'>x</li><li>x</li></ol>");
+    let reversed = numbered("<ol reversed><li>x</li><li>x</li></ol>");
+    let counted_down = numbered("<ol><li value='2'>x</li><li value='1'>x</li></ol>");
+    assert!(started != plain, "start changes the numbers");
+    assert!(started == valued, "start and value agree");
+    assert!(reversed != plain, "reversed changes the numbers");
+    assert!(reversed == counted_down, "reversed counts down to one");
+}

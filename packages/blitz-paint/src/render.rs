@@ -925,6 +925,7 @@ struct EffectBody<'n> {
 }
 
 const DISCLOSURE_OUTSIDE_GAP: f64 = 8.0;
+const MARKER_LINE_SEARCH_DEPTH: usize = 8;
 
 /// A context of loaded and hot data to draw the element from
 struct ElementCx<'dom, 'a> {
@@ -1257,9 +1258,23 @@ impl ElementCx<'_, '_> {
     }
 
     fn first_line_baseline(&self) -> Option<f64> {
-        let text_layout = self.element.inline_layout_data.as_ref()?;
-        let line = text_layout.layout.lines().next()?;
-        Some(f64::from(line.metrics().baseline) + f64::from(text_layout.block_offset) * self.scale)
+        let own_layout = self.node.final_layout();
+        let mut node = self.node;
+        let mut top = -f64::from(own_layout.border.top + own_layout.padding.top);
+        for _ in 0..MARKER_LINE_SEARCH_DEPTH {
+            let layout = node.final_layout();
+            let content_top = top + f64::from(layout.border.top + layout.padding.top);
+            if node.flags.is_inline_root() {
+                let text_layout = node.element_data()?.inline_layout_data.as_ref()?;
+                let line = text_layout.layout.lines().next()?;
+                let line_top = content_top + f64::from(text_layout.block_offset);
+                return Some(f64::from(line.metrics().baseline) + line_top * self.scale);
+            }
+            let first_child = *node.layout_children.borrow().as_ref()?.first()?;
+            node = &self.context.dom.as_ref().tree()[first_child];
+            top += f64::from(node.final_layout().location.y);
+        }
+        None
     }
 
     fn draw_outside_symbol(

@@ -16,6 +16,7 @@ use style::Atom;
 use style::values::computed::CSSPixelLength;
 use style::values::computed::length_percentage::CalcLengthPercentage;
 use style::values::computed::{Contain, ContainerType};
+use style::values::generics::length::GenericMaxSize;
 use stylo_taffy::CopyStyleGetters;
 use stylo_taffy::TaffyStyloStyle;
 use taffy::{
@@ -300,7 +301,12 @@ impl LayoutPassState<'_> {
         if has_children || node.flags.is_inline_root() {
             return None;
         }
-        if !node.primary_styles()?.get_position().height.is_auto() {
+        let styles = node.primary_styles()?;
+        let position = styles.get_position();
+        let is_unconstrained = position.height.is_auto()
+            && position.min_height.is_auto()
+            && matches!(position.max_height, GenericMaxSize::None);
+        if !is_unconstrained {
             return None;
         }
         let list_item = node.element_data()?.list_item_data.as_deref()?;
