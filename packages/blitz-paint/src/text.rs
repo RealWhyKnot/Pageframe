@@ -526,10 +526,10 @@ fn line_cut(
     let (min_x, max_x) = if fits {
         (f32::NEG_INFINITY, f32::INFINITY)
     } else if ellipsis.rtl {
-        let shift = (line_end - text_end - metrics.indent).max(0.0);
+        let shift = (metrics.inline_max_coord - text_end - metrics.indent).max(0.0);
         (line_start + length - shift, f32::INFINITY)
     } else {
-        let shift = (text_start - line_start - metrics.indent).max(0.0);
+        let shift = (metrics.offset - metrics.indent).max(0.0);
         (f32::NEG_INFINITY, line_end - length + shift)
     };
     let (mut kept_start, mut kept_end) = (f32::INFINITY, f32::NEG_INFINITY);
