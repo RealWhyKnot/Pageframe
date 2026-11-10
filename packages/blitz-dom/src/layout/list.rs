@@ -27,6 +27,7 @@ enum Pass {
     Local,
     List,
     Refresh,
+    Tail,
 }
 
 impl Pass {
@@ -58,11 +59,93 @@ pub(super) fn number_list_items(doc: &mut BaseDocument, node_id: NodeId) {
             element_data.list_item_data = None;
         }
     }
-    number_from(doc, owner, Pass::Refresh);
+    if !renumber_from_wrapper(doc, owner, node_id) {
+        number_from(doc, owner, Pass::Refresh);
+    }
 }
 
-fn number_from(doc: &mut BaseDocument, node_id: NodeId, pass: Pass) {
-    let through_wrappers = pass.goes_through_wrappers();
+fn renumber_from_wrapper(doc: &mut BaseDocument, owner: NodeId, wrapper: NodeId) -> bool {
+    let (start, reversed) = list_start(doc, owner);
+    if reversed {
+        return false;
+    }
+    let step = 1;
+    let before = if is_list_item(doc, wrapper) {
+        Some(wrapper)
+    } else {
+        previous_item(doc, owner, wrapper)
+    };
+    let mut ordinal = match before {
+        Some(item) => {
+            let stored = doc.nodes[item]
+                .element_data()
+                .and_then(|element_data| element_data.list_item_data.as_ref())
+                .map(|data| data.ordinal);
+            match stored {
+                Some(stored) => stored,
+                None => return false,
+            }
+        }
+        None => start.unwrap_or(1).saturating_sub(step),
+    };
+    collect_list_item_children(doc, &mut ordinal, step, wrapper, Pass::List);
+
+    let mut current = wrapper;
+    while current != owner {
+        let Some(parent) = doc.nodes[current].parent else {
+            break;
+        };
+        let position = doc.nodes[parent]
+            .children
+            .iter()
+            .position(|child_id| *child_id == current);
+        let mut index = position.map_or(usize::MAX, |position| position + 1);
+        while let Some(sibling) = doc.nodes[parent].children.get(index).copied() {
+            if !number_node(doc, &mut ordinal, step, sibling, Pass::Tail) {
+                return true;
+            }
+            index += 1;
+        }
+        current = parent;
+    }
+    true
+}
+
+fn previous_item(doc: &BaseDocument, owner: NodeId, wrapper: NodeId) -> Option<NodeId> {
+    let mut current = wrapper;
+    while current != owner {
+        let parent = doc.nodes[current].parent?;
+        let children = &doc.nodes[parent].children;
+        let position = children.iter().position(|child_id| *child_id == current)?;
+        let before = children[..position]
+            .iter()
+            .rev()
+            .find_map(|sibling| last_item(doc, *sibling));
+        if before.is_some() {
+            return before;
+        }
+        if is_list_item(doc, parent) {
+            return Some(parent);
+        }
+        current = parent;
+    }
+    None
+}
+
+fn last_item(doc: &BaseDocument, node_id: NodeId) -> Option<NodeId> {
+    let is_item = is_list_item(doc, node_id);
+    if !is_item && !is_wrapper(doc, node_id) {
+        return None;
+    }
+    doc.nodes[node_id]
+        .children
+        .iter()
+        .rev()
+        .find_map(|child_id| last_item(doc, *child_id))
+        .or(is_item.then_some(node_id))
+}
+
+fn list_start(doc: &BaseDocument, node_id: NodeId) -> (Option<i32>, bool) {
     let element = doc.nodes[node_id].element_data();
     let is_ordered = element.is_some_and(|element| element.name.local == local_name!("ol"));
     let start: Option<i32> = element
@@ -70,6 +153,12 @@ fn number_from(doc: &mut BaseDocument, node_id: NodeId, pass: Pass) {
         .and_then(|element| element.attr_parsed(local_name!("start")));
     let reversed = is_ordered
         && element.is_some_and(|element| element.attr(local_name!("reversed")).is_some());
+    (start, reversed)
+}
+
+fn number_from(doc: &mut BaseDocument, node_id: NodeId, pass: Pass) {
+    let through_wrappers = pass.goes_through_wrappers();
+    let (start, reversed) = list_start(doc, node_id);
     let step = if reversed { -1 } else { 1 };
     let first = start.unwrap_or_else(|| {
         if reversed {
@@ -122,36 +211,47 @@ fn collect_list_item_children(
     step: i32,
     node_id: NodeId,
     pass: Pass,
-) {
+) -> bool {
     let children = doc.nodes[node_id].children.clone();
-    for child in children {
-        if !is_list_item(doc, child) {
-            if let Some(element_data) = doc.nodes[child].element_data_mut() {
-                element_data.list_item_data = None;
-            }
-            if pass.goes_through_wrappers() && is_wrapper(doc, child) {
-                collect_list_item_children(doc, ordinal, step, child, pass);
-            }
-            continue;
+    children
+        .into_iter()
+        .all(|child| number_node(doc, ordinal, step, child, pass))
+}
+
+fn number_node(
+    doc: &mut BaseDocument,
+    ordinal: &mut i32,
+    step: i32,
+    child: NodeId,
+    pass: Pass,
+) -> bool {
+    if !is_list_item(doc, child) {
+        if let Some(element_data) = doc.nodes[child].element_data_mut() {
+            element_data.list_item_data = None;
         }
-        let (increment, set) = list_item_counters(doc, child);
-        *ordinal = ordinal.saturating_add(increment.unwrap_or(step));
-        if let Some(value) = set.or_else(|| list_item_value(doc, child)) {
-            *ordinal = value;
-        }
-        let is_current = pass == Pass::Refresh
-            && doc.nodes[child]
-                .element_data()
-                .and_then(|element_data| element_data.list_item_data.as_ref())
-                .is_some_and(|data| data.ordinal == *ordinal);
-        if !is_current {
-            let layout = list_item_layout(doc, child, *ordinal).map(Box::new);
-            if let Some(element_data) = doc.nodes[child].element_data_mut() {
-                element_data.list_item_data = layout;
-            }
-        }
-        collect_list_item_children(doc, ordinal, step, child, pass);
+        return !(pass.goes_through_wrappers() && is_wrapper(doc, child))
+            || collect_list_item_children(doc, ordinal, step, child, pass);
     }
+    let (increment, set) = list_item_counters(doc, child);
+    *ordinal = ordinal.saturating_add(increment.unwrap_or(step));
+    if let Some(value) = set.or_else(|| list_item_value(doc, child)) {
+        *ordinal = value;
+    }
+    let is_current = matches!(pass, Pass::Refresh | Pass::Tail)
+        && doc.nodes[child]
+            .element_data()
+            .and_then(|element_data| element_data.list_item_data.as_ref())
+            .is_some_and(|data| data.ordinal == *ordinal);
+    if is_current && pass == Pass::Tail {
+        return false;
+    }
+    if !is_current {
+        let layout = list_item_layout(doc, child, *ordinal).map(Box::new);
+        if let Some(element_data) = doc.nodes[child].element_data_mut() {
+            element_data.list_item_data = layout;
+        }
+    }
+    collect_list_item_children(doc, ordinal, step, child, pass)
 }
 
 fn is_list_element(doc: &BaseDocument, node_id: NodeId) -> bool {
