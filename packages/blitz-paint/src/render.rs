@@ -50,7 +50,9 @@ use style::{
 use kurbo::{self, Affine, Insets, Point, Rect, Shape, Size, Stroke, Vec2};
 use peniko::{self, BlendMode, Fill, ImageData, ImageSampler};
 use style::computed_values::direction::T as Direction;
+use style::computed_values::float::T as StyloFloat;
 use style::computed_values::isolation::T as Isolation;
+use style::computed_values::position::T as StyloPosition;
 use style::values::generics::color::GenericColor;
 use taffy::Layout;
 
@@ -138,6 +140,7 @@ pub struct BlitzDomPainter<'dom, 'a> {
     pub(crate) layer_manager: LayerManager,
     /// Reusable scratch allocations shared by all text layouts painted for this document.
     pub(crate) draw_text_context: RefCell<DrawTextContext>,
+    pub(crate) deferred_paints: RefCell<Vec<DeferredPaint>>,
     /// Cached selection ranges for O(1) lookup: node_id -> (start_offset, end_offset)
     pub(crate) selection_ranges: HashMap<NodeId, (usize, usize)>,
 
@@ -179,6 +182,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             scrollbar_drag_target: dom.scrollbar_drag_target(),
             layer_manager,
             draw_text_context: RefCell::new(DrawTextContext::default()),
+            deferred_paints: RefCell::new(Vec::new()),
             selection_ranges,
             custom_widget_scenes,
         }
@@ -637,8 +641,26 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
         );
 
         let paints_own_box = !node.is_inline_with_only_block_children();
+        let parent = node
+            .layout_parent
+            .get()
+            .and_then(|parent_id| self.dom.as_ref().tree().get(parent_id));
+        let parent_is_flex_or_grid = parent.is_some_and(is_flex_or_grid);
+        let is_paint_scope = parent.is_none_or(|parent| parent.flags.is_inline_root())
+            || parent_is_flex_or_grid
+            || node.stacking_context.is_some()
+            || is_painted_above_text(node, parent_is_flex_or_grid)
+            || styles.clone_float() != StyloFloat::None
+            || node.flags.is_table_root()
+            || should_clip
+            || !filters.is_empty()
+            || has_clip_path
+            || css_clip_rect.is_some()
+            || own_transform.is_some()
+            || custom_widget_scene.is_some();
         let body = EffectBody {
             node,
+            is_paint_scope,
             paints_own_box,
             is_text_input,
             should_clip,
@@ -799,9 +821,23 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
                 cx.draw_sub_document(scene);
                 cx.draw_input(scene);
                 cx.draw_text_input_text(scene, content_position);
+                if !body.is_paint_scope && body.node.flags.is_inline_root() {
+                    self.deferred_paints
+                        .borrow_mut()
+                        .push(DeferredPaint::Foreground {
+                            node_id: body.node.id,
+                            transform: cx.transform,
+                            content_position,
+                            clip_rect: body.child_clip_rect,
+                        });
+                    return;
+                }
+                let flush_from = body
+                    .is_paint_scope
+                    .then(|| self.deferred_paints.borrow().len());
                 cx.draw_inline_layout(scene, content_position);
                 cx.draw_marker(scene, content_position);
-                cx.draw_children(scene, cx.transform, body.child_clip_rect);
+                cx.draw_children(scene, cx.transform, body.child_clip_rect, flush_from);
             },
         );
 
@@ -833,6 +869,53 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             NodeData::Document(_) => {}
             // NodeData::Doctype => {}
             NodeData::Comment { .. } => {} // NodeData::ProcessingInstruction { .. } => {}
+        }
+    }
+
+    fn flush_deferred_paints(&'dom self, scene: &mut impl PaintScene, base: usize) {
+        loop {
+            let pending = self.deferred_paints.borrow_mut().split_off(base);
+            if pending.is_empty() {
+                return;
+            }
+            let (foregrounds, elements): (Vec<_>, Vec<_>) =
+                pending.into_iter().partition(|paint| {
+                    !matches!(
+                        paint,
+                        DeferredPaint::Element {
+                            level: ElementLevel::Positioned,
+                            ..
+                        }
+                    )
+                });
+            let batch = if foregrounds.is_empty() {
+                elements
+            } else {
+                self.deferred_paints.borrow_mut().extend(elements);
+                foregrounds
+            };
+            for paint in batch {
+                match paint {
+                    DeferredPaint::Foreground {
+                        node_id,
+                        transform,
+                        content_position,
+                        clip_rect,
+                    } => {
+                        let node = &self.dom.as_ref().tree()[node_id];
+                        let cx = self.element_cx(node, *node.final_layout(), transform, None);
+                        cx.draw_inline_layout(scene, content_position);
+                        cx.draw_marker(scene, content_position);
+                        cx.draw_children(scene, cx.transform, clip_rect, None);
+                    }
+                    DeferredPaint::Element {
+                        node_id,
+                        transform,
+                        clip_rect,
+                        ..
+                    } => self.render_node(scene, node_id, transform, clip_rect),
+                }
+            }
         }
     }
 
@@ -916,8 +999,44 @@ fn to_peniko_image(image: &RasterImageData, quality: peniko::ImageQuality) -> pe
     }
 }
 
+pub(crate) enum DeferredPaint {
+    Foreground {
+        node_id: NodeId,
+        transform: Affine,
+        content_position: Point,
+        clip_rect: Rect,
+    },
+    Element {
+        node_id: NodeId,
+        transform: Affine,
+        clip_rect: Rect,
+        level: ElementLevel,
+    },
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum ElementLevel {
+    Foreground,
+    Positioned,
+}
+
+fn is_flex_or_grid(node: &Node) -> bool {
+    matches!(
+        node.taffy_display(),
+        taffy::Display::Flex | taffy::Display::Grid
+    )
+}
+
+fn is_painted_above_text(node: &Node, is_flex_or_grid_item: bool) -> bool {
+    node.is_stacking_context_root(is_flex_or_grid_item)
+        || node
+            .primary_styles()
+            .is_some_and(|style| style.clone_position() != StyloPosition::Static)
+}
+
 struct EffectBody<'n> {
     node: &'n Node,
+    is_paint_scope: bool,
     paints_own_box: bool,
     is_text_input: bool,
     should_clip: bool,
@@ -1423,6 +1542,7 @@ impl ElementCx<'_, '_> {
         scene: &mut impl PaintScene,
         parent_style_transform: Affine,
         clip_rect: Rect,
+        flush_from: Option<usize>,
     ) {
         // Negative z_index hoisted nodes
 
@@ -1501,8 +1621,30 @@ impl ElementCx<'_, '_> {
                 } else {
                     parent_style_transform
                 };
-                self.render_node(scene, *child_id, child_transform, clip_rect);
+                let is_item = is_flex_or_grid(self.node);
+                let level = if is_painted_above_text(child, is_item) {
+                    Some(ElementLevel::Positioned)
+                } else {
+                    is_item.then_some(ElementLevel::Foreground)
+                };
+                if let Some(level) = level {
+                    self.context
+                        .deferred_paints
+                        .borrow_mut()
+                        .push(DeferredPaint::Element {
+                            node_id: *child_id,
+                            transform: child_transform,
+                            clip_rect,
+                            level,
+                        });
+                } else {
+                    self.render_node(scene, *child_id, child_transform, clip_rect);
+                }
             }
+        }
+
+        if let Some(base) = flush_from {
+            self.context.flush_deferred_paints(scene, base);
         }
 
         // Positive z_index hoisted nodes
