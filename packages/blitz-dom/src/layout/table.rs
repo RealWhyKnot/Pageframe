@@ -983,12 +983,14 @@ fn column_widths(
     let mut widths = limits.mins.clone();
     let mut rest = space;
     let mut shared = Vec::new();
+    let mut scaled = Vec::new();
     for (index, fixed) in fixed.iter().enumerate() {
         let percent = limits.percents[index].filter(|_| is_stretched);
         match (fixed, percent) {
             (Some(_), _) => {}
             (None, Some(percent)) => {
                 widths[index] = (percent * space).max(limits.mins[index]);
+                scaled.push(index);
             }
             (None, None) => {
                 shared.push(index);
@@ -998,6 +1000,19 @@ fn column_widths(
         rest -= widths[index];
     }
     let mins: Vec<f32> = shared.iter().map(|&index| limits.mins[index]).collect();
+    let missing = mins.iter().sum::<f32>() - rest;
+    let slack: f32 = scaled
+        .iter()
+        .map(|&index| widths[index] - limits.mins[index])
+        .sum();
+    if missing > 0.0 && slack > 0.0 {
+        let part = (missing / slack).min(1.0);
+        for index in scaled {
+            let cut = (widths[index] - limits.mins[index]) * part;
+            widths[index] -= cut;
+            rest += cut;
+        }
+    }
     let maxes: Vec<f32> = shared.iter().map(|&index| limits.maxes[index]).collect();
     for (index, width) in shared
         .iter()
@@ -1006,6 +1021,32 @@ fn column_widths(
         widths[*index] = width;
     }
     widths
+}
+
+fn percent_fit(limits: &ColumnLimits, fixed: &[Option<f32>]) -> Option<f32> {
+    let mut fit: f32 = limits.maxes.iter().sum();
+    let mut claimed = 0.0_f32;
+    let mut rest = 0.0_f32;
+    for (index, max) in limits.maxes.iter().enumerate() {
+        match limits.percents[index] {
+            Some(percent) if fixed[index].is_none() && percent > 0.0 => {
+                claimed += percent;
+                fit = fit.max(max / percent);
+            }
+            _ => rest += max,
+        }
+    }
+    if claimed <= 0.0 {
+        return None;
+    }
+    if rest > 0.0 {
+        fit = if claimed < 1.0 {
+            fit.max(rest / (1.0 - claimed))
+        } else {
+            f32::INFINITY
+        };
+    }
+    Some(fit)
 }
 
 impl TableTreeWrapper<'_, '_> {
@@ -1091,6 +1132,11 @@ impl TableTreeWrapper<'_, '_> {
         for (max, min) in maxes.iter_mut().zip(&mins) {
             *max = max.max(*min);
         }
+        let mut unclaimed = 1.0_f32;
+        for percent in percents.iter_mut().flatten() {
+            *percent = percent.clamp(0.0, unclaimed);
+            unclaimed -= *percent;
+        }
         ColumnLimits {
             mins,
             maxes,
@@ -1144,6 +1190,12 @@ impl TableTreeWrapper<'_, '_> {
         let is_stretched = specified.is_some();
 
         let mut widths = column_widths(&limits, &fixed, space, is_stretched);
+        if !is_stretched && let Some(fit) = percent_fit(&limits, &fixed) {
+            let fit = fit.min(space);
+            if fit.is_finite() && fit > widths.iter().sum::<f32>() {
+                widths = column_widths(&limits, &fixed, fit, true);
+            }
+        }
         let floor = self.caption_floor(inputs);
         if widths.iter().sum::<f32>() + frame + gaps < floor {
             widths = column_widths(&limits, &fixed, floor - frame - gaps, true);

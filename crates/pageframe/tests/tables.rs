@@ -295,6 +295,34 @@ fn whitespace_between_stray_cells_keeps_them_in_one_row() {
 }
 
 #[test]
+fn a_percent_cell_widens_a_table_without_a_width() {
+    let buffer = draw(
+        "<table class=\"bare\"><tr><td style=\"width:50%\"></td>\
+         <td><i style=\"width:40px\"></i></td></tr></table>",
+    );
+    assert_eq!(
+        row(&buffer, &[1, 2, 41, 42, 43, 44, 83, 84, 85, 86], 5),
+        [
+            BLACK, GREEN, GREEN, BLACK, BLACK, GREEN, GREEN, BLACK, BLACK, WHITE
+        ]
+    );
+}
+
+#[test]
+fn a_full_width_percent_cell_leaves_room_for_its_neighbour() {
+    let buffer = draw(
+        "<table class=\"bare\"><tr><td style=\"width:100%\"></td>\
+         <td><i style=\"width:20px\"></i></td></tr></table>",
+    );
+    assert_eq!(
+        row(&buffer, &[1, 2, 95, 96, 97, 98, 117, 118, 119], 5),
+        [
+            BLACK, GREEN, GREEN, BLACK, BLACK, GREEN, GREEN, BLACK, BLACK
+        ]
+    );
+}
+
+#[test]
 fn line_breaks_in_a_cell_keep_their_line_height() {
     let buffer = draw(
         "<table class=\"bare\"><tr>\
