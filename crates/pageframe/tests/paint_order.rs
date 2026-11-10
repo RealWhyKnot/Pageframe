@@ -136,3 +136,24 @@ fn click_lands_on_a_positioned_box_in_a_wrapper() {
     );
     assert_eq!(clicked(&body), ["first"]);
 }
+
+#[test]
+fn see_through_box_in_a_wrapper_paints_over_a_later_block() {
+    let buffer = draw(&format!(
+        "<div><div style=\"opacity:.5;background:red;height:20px\"></div></div>{LATE_ON_TOP}"
+    ));
+    let [red, green, _, _] = pixel(&buffer, 5, 5);
+    assert!(red > 100, "the later block covers the box");
+    assert!(green > 100, "the box is not see-through");
+}
+
+#[test]
+fn see_through_flex_items_keep_their_order() {
+    let item = "opacity:.5;height:20px;width:40px";
+    let body = format!(
+        "<div style=\"display:flex\">\
+         <div id=\"late\" style=\"{item};order:2;margin-left:-40px;background:blue\"></div>\
+         <div id=\"first\" style=\"{item};order:1;background:red\"></div></div>"
+    );
+    assert_eq!(clicked(&body), ["late"]);
+}

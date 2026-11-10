@@ -341,7 +341,8 @@ impl BaseDocument {
                     if is_sc_root && z_index != 0 {
                         entries.push(HoistedPaintChild::new(child_id, z_index))
                     } else if !is_layer_root
-                        && (child.is_in_flow_positioned() || (is_sc_root && child.is_static()))
+                        && (child.is_in_flow_positioned()
+                            || (is_sc_root && !is_flex_or_grid && child.is_static()))
                     {
                         // Positioned boxes paint above all in-flow content of
                         // the nearest positioned (or clipping) ancestor, not just
