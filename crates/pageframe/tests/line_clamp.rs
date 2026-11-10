@@ -326,3 +326,22 @@ fn overflow_ellipsis_stops_before_a_right_float() {
     });
     assert!(!beside_float, "text runs under the float");
 }
+
+#[test]
+fn right_aligned_cut_line_keeps_the_letters_chrome_keeps() {
+    let row = "H".repeat(33);
+    let buffer = draw(
+        &format!(".c{{{LEGACY};overflow:hidden;text-align:right;letter-spacing:-2px}}"),
+        &format!("<div class=\"c\">{row}<br>{row}<br>HHH</div>"),
+    );
+    let tall_ink = |columns: std::ops::Range<usize>| {
+        (11..14).any(|y| {
+            columns.clone().any(|x| {
+                let [red, green, blue, _] = pixel(&buffer, x, y);
+                red < 128 && green < 128 && blue < 128
+            })
+        })
+    };
+    assert!(tall_ink(100..110), "the second line drew no letters");
+    assert!(tall_ink(113..116), "one letter too many was cut");
+}
