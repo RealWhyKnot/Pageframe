@@ -872,10 +872,14 @@ fn collect_table_cells(
                 start: style_helpers::line(*row as i16),
                 end: style_helpers::span(rowspan),
             };
-            if rowspan == 1 && style.size.height.tag() == taffy::CompactLength::LENGTH_TAG {
-                if let Some(row) = rows.last_mut() {
+            if style.size.height.tag() == taffy::CompactLength::LENGTH_TAG {
+                if rowspan == 1
+                    && let Some(row) = rows.last_mut()
+                {
                     row.is_constrained = true;
                 }
+                style.min_size.height = style_helpers::length(style.size.height.value());
+                style.size.height = style_helpers::auto();
             }
 
             let percent_width = (style.size.width.tag() == taffy::CompactLength::PERCENT_TAG)

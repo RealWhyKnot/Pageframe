@@ -250,3 +250,18 @@ fn a_caption_widens_a_table_narrower_than_it() {
     );
     assert_eq!(row(&buffer, &[0, 69, 70], 29), [BLUE, BLUE, WHITE]);
 }
+
+#[test]
+fn a_spanning_cell_with_a_height_fills_its_rows() {
+    let cell = "style=\"width:20px;height:10px\"";
+    let buffer = draw(&format!(
+        "<table class=\"bare\"><tr><td rowspan=\"2\" {cell}></td><td {cell}></td></tr>\
+         <tr><td {cell}></td></tr></table>"
+    ));
+    assert_eq!(
+        column(&buffer, 6, &[0, 1, 2, 12, 13, 23, 24, 25, 26]),
+        [
+            BLACK, BLACK, GREEN, GREEN, GREEN, GREEN, BLACK, BLACK, WHITE
+        ]
+    );
+}
