@@ -138,6 +138,14 @@ fn click_lands_on_text_painted_over_a_float() {
     assert_eq!(clicked(body), ["first"]);
 }
 
+#[test]
+fn click_passes_through_hidden_text_to_a_float() {
+    let body = "<div id=\"first\"><span id=\"late\" style=\"float:left;width:60px;\
+        height:10px;margin-right:-60px\"></span>\
+        <span style=\"visibility:hidden\">aaaa bbbb</span></div>";
+    assert_eq!(clicked(body), ["late", "first"]);
+}
+
 const LATE_ON_TOP: &str = "<div id=\"late\" class=\"late\" style=\"margin-top:-20px\"></div>";
 
 #[test]

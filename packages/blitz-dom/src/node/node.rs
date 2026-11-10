@@ -1615,6 +1615,7 @@ impl Node {
                     if let Some(text_node) = self.tree().get(node_id)
                         && !text_node.primary_styles().is_some_and(|style| {
                             style.clone_pointer_events() == PointerEvents::None
+                                || style.clone_visibility() != Visibility::Visible
                         })
                     {
                         return Some(HitResult {
