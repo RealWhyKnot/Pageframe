@@ -835,6 +835,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
                 let flush_from = body
                     .is_paint_scope
                     .then(|| self.deferred_paints.borrow().len());
+                cx.draw_float_children(scene, cx.transform, body.child_clip_rect);
                 cx.draw_inline_layout(scene, content_position);
                 cx.draw_marker(scene, content_position);
                 cx.draw_children(scene, cx.transform, body.child_clip_rect, flush_from);
@@ -904,6 +905,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
                     } => {
                         let node = &self.dom.as_ref().tree()[node_id];
                         let cx = self.element_cx(node, *node.final_layout(), transform, None);
+                        cx.draw_float_children(scene, cx.transform, clip_rect);
                         cx.draw_inline_layout(scene, content_position);
                         cx.draw_marker(scene, content_position);
                         cx.draw_children(scene, cx.transform, clip_rect, None);
@@ -1537,6 +1539,53 @@ impl ElementCx<'_, '_> {
         );
     }
 
+    fn is_float_under_text(&self, child: &Node) -> bool {
+        self.node.flags.is_inline_root()
+            && !is_painted_above_text(child, is_flex_or_grid(self.node))
+            && child
+                .primary_styles()
+                .is_some_and(|style| style.clone_float() != StyloFloat::None)
+    }
+
+    fn child_transform(&self, child: &Node, parent_style_transform: Affine) -> Affine {
+        if child.taffy_position() == taffy::Position::Fixed
+            && Some(self.node.id) == self.context.root_element_id
+        {
+            let scroll = self.context.dom.as_ref().viewport_scroll();
+            parent_style_transform.pre_translate(kurbo::Vec2 {
+                x: scroll.x * self.scale,
+                y: scroll.y * self.scale,
+            })
+        } else if let Some(offset) = child.lifted_paint_offset(self.node.id) {
+            parent_style_transform.pre_translate(kurbo::Vec2 {
+                x: offset.x as f64 * self.scale,
+                y: offset.y as f64 * self.scale,
+            })
+        } else {
+            parent_style_transform
+        }
+    }
+
+    fn draw_float_children(
+        &self,
+        scene: &mut impl PaintScene,
+        parent_style_transform: Affine,
+        clip_rect: Rect,
+    ) {
+        if !self.node.flags.is_inline_root() {
+            return;
+        }
+        if let Some(children) = &*self.node.paint_children.borrow() {
+            for child_id in children {
+                let child = &self.context.dom.as_ref().tree()[*child_id];
+                if self.is_float_under_text(child) {
+                    let transform = self.child_transform(child, parent_style_transform);
+                    self.render_node(scene, *child_id, transform, clip_rect);
+                }
+            }
+        }
+    }
+
     fn draw_children(
         &self,
         scene: &mut impl PaintScene,
@@ -1600,27 +1649,11 @@ impl ElementCx<'_, '_> {
                 if clamped_boxes.contains(&child_id.as_u64()) {
                     continue;
                 }
-                // Fixed-position children of the root element are positioned against
-                // the viewport and do not scroll with it, so cancel out the viewport
-                // scroll (applied in `paint_scene`). A fixed box contained by a
-                // transformed ancestor scrolls with it like any out-of-flow box.
                 let child = &self.context.dom.as_ref().tree()[*child_id];
-                let child_transform = if child.taffy_position() == taffy::Position::Fixed
-                    && Some(self.node.id) == self.context.root_element_id
-                {
-                    let scroll = self.context.dom.as_ref().viewport_scroll();
-                    parent_style_transform.pre_translate(kurbo::Vec2 {
-                        x: scroll.x * self.scale,
-                        y: scroll.y * self.scale,
-                    })
-                } else if let Some(offset) = child.lifted_paint_offset(self.node.id) {
-                    parent_style_transform.pre_translate(kurbo::Vec2 {
-                        x: offset.x as f64 * self.scale,
-                        y: offset.y as f64 * self.scale,
-                    })
-                } else {
-                    parent_style_transform
-                };
+                if self.is_float_under_text(child) {
+                    continue;
+                }
+                let child_transform = self.child_transform(child, parent_style_transform);
                 let is_item = is_flex_or_grid(self.node);
                 let level = if is_painted_above_text(child, is_item) {
                     Some(ElementLevel::Positioned)

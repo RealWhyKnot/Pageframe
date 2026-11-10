@@ -34,6 +34,25 @@ fn overflowing_text_paints_over_a_later_background() {
     assert_eq!(pixel(&buffer, 118, 25), [0, 255, 0, 255]);
 }
 
+const FLOAT_UNDER: &str = "<span style=\"float:left;width:60px;height:10px;\
+    margin-right:-60px;background:#0f0\"></span>aaaa bbbb";
+
+#[test]
+fn text_paints_over_a_float_in_its_own_block() {
+    let buffer = draw(&format!("<div>{FLOAT_UNDER}</div>"));
+    assert_eq!(pixel(&buffer, 58, 9), [0, 255, 0, 255]);
+    assert!(has_ink(&buffer, 0..10), "the float covers the text");
+}
+
+#[test]
+fn text_paints_over_a_float_in_a_clipped_block() {
+    let buffer = draw(&format!(
+        "<div style=\"overflow:hidden\">{FLOAT_UNDER}</div>"
+    ));
+    assert_eq!(pixel(&buffer, 58, 9), [0, 255, 0, 255]);
+    assert!(has_ink(&buffer, 0..10), "the float covers the text");
+}
+
 #[test]
 fn nested_text_paints_over_a_later_background() {
     let buffer = draw(&format!(
