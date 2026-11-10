@@ -101,14 +101,38 @@ fn see_through_box_paints_over_a_later_block() {
     assert!(green > 100, "the box is not see-through");
 }
 
-#[test]
-fn click_lands_on_the_box_painted_on_top() {
-    let html = format!("<html><head><style>{BASE}</style></head><body>{SEE_THROUGH}</body></html>");
+fn clicked(body: &str) -> Vec<&'static str> {
+    let html = format!("<html><head><style>{BASE}</style></head><body>{body}</body></html>");
     let app = App::new(Vec::new(), &html)
         .on("#first", EventKind::Click, |seen, _, _| seen.push("first"))
         .on("#late", EventKind::Click, |seen, _, _| seen.push("late"));
     let mut harness = open(app);
     harness.pump();
     harness.click_at(5.0, 5.0);
-    assert_eq!(harness.doc.state().as_slice(), ["first"]);
+    harness.doc.state().clone()
+}
+
+const LATE_ON_TOP: &str = "<div id=\"late\" class=\"late\" style=\"margin-top:-20px\"></div>";
+
+#[test]
+fn click_lands_on_the_box_painted_on_top() {
+    assert_eq!(clicked(SEE_THROUGH), ["first"]);
+}
+
+#[test]
+fn click_lands_on_a_see_through_box_in_a_wrapper() {
+    let body = format!(
+        "<div><div id=\"first\" style=\"opacity:.5;background:red;height:20px\"></div></div>\
+         {LATE_ON_TOP}"
+    );
+    assert_eq!(clicked(&body), ["first"]);
+}
+
+#[test]
+fn click_lands_on_a_positioned_box_in_a_wrapper() {
+    let body = format!(
+        "<div><div id=\"first\" style=\"position:relative;background:red;height:20px\"></div></div>\
+         {LATE_ON_TOP}"
+    );
+    assert_eq!(clicked(&body), ["first"]);
 }

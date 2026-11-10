@@ -340,7 +340,9 @@ impl BaseDocument {
                     let paint_order = node_to_paint_order(child, is_flex_or_grid);
                     if is_sc_root && z_index != 0 {
                         entries.push(HoistedPaintChild::new(child_id, z_index))
-                    } else if !is_layer_root && child.is_in_flow_positioned() {
+                    } else if !is_layer_root
+                        && (child.is_in_flow_positioned() || (is_sc_root && child.is_static()))
+                    {
                         // Positioned boxes paint above all in-flow content of
                         // the nearest positioned (or clipping) ancestor, not just
                         // of their parent: lift them out of this static box.
@@ -481,6 +483,11 @@ impl Node {
                 Position::Relative | Position::Sticky
             )
         })
+    }
+
+    fn is_static(&self) -> bool {
+        self.primary_styles()
+            .is_some_and(|style| style.clone_position() == Position::Static)
     }
 
     /// The offset from the border box of `painter_id` at which this node is
