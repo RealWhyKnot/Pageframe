@@ -309,3 +309,20 @@ fn clamp_ellipsis_stays_inside_a_line_beside_a_float() {
     assert!(!ink(109..120, 10..16), "the last letter was not cut");
     assert!(ink(109..120, 16..19), "no ellipsis at the end of the line");
 }
+
+#[test]
+fn overflow_ellipsis_stops_before_a_right_float() {
+    let buffer = draw(
+        ".o{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\
+         .f{float:right;width:60px;height:10px}",
+        "<div class=\"o\"><div class=\"f\"></div>aaaa bbbbb cccc dddd</div>",
+    );
+    assert!(has_ink(&buffer, 0..10), "the line drew no text");
+    let beside_float = (0..10).any(|y| {
+        (60..120).any(|x| {
+            let [red, green, blue, _] = pixel(&buffer, x, y);
+            red < 128 && green < 128 && blue < 128
+        })
+    });
+    assert!(!beside_float, "text runs under the float");
+}

@@ -517,7 +517,7 @@ fn line_cut(
     };
     let line_start = metrics.inline_min_coord.max(0.0);
     let line_end = metrics.inline_max_coord.min(width);
-    let (line_start, line_end) = if is_clamped && line_end > line_start {
+    let (line_start, line_end) = if line_end > line_start {
         (line_start, line_end)
     } else {
         (0.0, width)
@@ -800,8 +800,9 @@ pub(crate) fn stroke_text<'a>(
         let cut = ellipsis.and_then(|ellipsis| {
             let metrics = line.metrics();
             let origin = metrics.offset + metrics.inline_min_coord;
+            let line_end = metrics.inline_max_coord.min(ellipsis.width);
             let overflows =
-                origin < 0.0 || origin + metrics.advance - metrics.hanging_advance > ellipsis.width;
+                origin < 0.0 || origin + metrics.advance - metrics.hanging_advance > line_end;
             let is_clamped = ellipsis.on_line == Some(line_index);
             ((ellipsis.on_overflow && overflows) || is_clamped)
                 .then(|| line_cut(&line, ellipsis, is_clamped))
