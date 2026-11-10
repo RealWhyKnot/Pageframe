@@ -517,11 +517,11 @@ impl ElementData {
         local_names!("button", "input", "select", "textarea").contains(&self.name.local)
     }
 
-    /// Whether this element is a link (an `<a>` or `<area>` element with an `href` attribute)
     pub fn has_collapsed_border(&self) -> bool {
         self.collapsed_border.is_some()
     }
 
+    /// Whether this element is a link (an `<a>` or `<area>` element with an `href` attribute)
     pub fn is_link(&self) -> bool {
         (self.name.local == local_name!("a") || self.name.local == local_name!("area"))
             && self.has_attr(local_name!("href"))
