@@ -6,14 +6,16 @@ use peniko::{Color, Fill};
 use smallvec::SmallVec;
 use style::{
     computed_values::border_collapse::T as BorderCollapse,
-    values::computed::{BorderStyle, OutlineStyle},
+    properties::ComputedValues,
+    values::computed::{BorderSideWidth, BorderStyle, OutlineStyle},
+    values::specified::box_::DisplayInside,
 };
 
 use crate::{
     color::ToColorColor as _,
     kurbo_css::{CssBox, Edge},
     render::{
-        ElementCx, PhysicalTracks,
+        ElementCx,
         miter::{Side, SideShape, paint_order},
     },
 };
@@ -146,6 +148,93 @@ fn sample_points_along_path(path: &BezPath, spacing: f64, count: usize) -> Vec<P
         points.push(poly[seg].lerp(poly[seg + 1], t));
     }
     points
+}
+
+const EDGE_SLACK: f64 = 0.5;
+
+struct CollapsedLine {
+    rect: Rect,
+    color: Color,
+    width: f64,
+}
+
+fn inset(rect: Rect, by: Insets) -> Rect {
+    Rect::new(
+        rect.x0 + by.x0,
+        rect.y0 + by.y0,
+        rect.x1 - by.x1,
+        rect.y1 - by.y1,
+    )
+}
+
+fn layout_border(layout: &taffy::Layout) -> Insets {
+    Insets::new(
+        f64::from(layout.border.left),
+        f64::from(layout.border.top),
+        f64::from(layout.border.right),
+        f64::from(layout.border.bottom),
+    )
+}
+
+fn collapsed_widths(style: &ComputedValues) -> Insets {
+    let border = style.get_border();
+    let side = |width: &BorderSideWidth, style: BorderStyle| {
+        if style.none_or_hidden() {
+            0.0
+        } else {
+            f64::from(width.0.to_f32_px())
+        }
+    };
+    Insets::new(
+        side(&border.border_left_width, border.border_left_style),
+        side(&border.border_top_width, border.border_top_style),
+        side(&border.border_right_width, border.border_right_style),
+        side(&border.border_bottom_width, border.border_bottom_style),
+    )
+}
+
+fn push_collapsed_lines(
+    lines: &mut Vec<CollapsedLine>,
+    inner: Rect,
+    widths: Insets,
+    style: &ComputedValues,
+) {
+    let border = style.get_border();
+    let current_color = style.clone_color();
+    let outer = Rect::new(
+        inner.x0 - widths.x0,
+        inner.y0 - widths.y0,
+        inner.x1 + widths.x1,
+        inner.y1 + widths.y1,
+    );
+    let sides = [
+        (
+            widths.x0,
+            &border.border_left_color,
+            Rect::new(outer.x0, outer.y0, inner.x0, outer.y1),
+        ),
+        (
+            widths.y0,
+            &border.border_top_color,
+            Rect::new(outer.x0, outer.y0, outer.x1, inner.y0),
+        ),
+        (
+            widths.x1,
+            &border.border_right_color,
+            Rect::new(inner.x1, outer.y0, outer.x1, outer.y1),
+        ),
+        (
+            widths.y1,
+            &border.border_bottom_color,
+            Rect::new(outer.x0, inner.y1, outer.x1, outer.y1),
+        ),
+    ];
+    for (width, color, rect) in sides {
+        let color = color.resolve_to_absolute(&current_color).as_srgb_color();
+        if width > 0.0 && color != Color::TRANSPARENT {
+            lines.push(CollapsedLine { rect, color, width });
+        }
+    }
 }
 
 impl ElementCx<'_, '_> {
@@ -463,82 +552,80 @@ impl ElementCx<'_, '_> {
         scene.pop_layer();
     }
 
+    pub(crate) fn has_collapsed_borders(&self) -> bool {
+        let inside = self.style.clone_display().inside();
+        matches!(inside, DisplayInside::Table | DisplayInside::TableCell)
+            && self.style.clone_border_collapse() == BorderCollapse::Collapse
+    }
+
     pub(crate) fn draw_table_borders(&self, scene: &mut impl PaintScene) {
         let SpecialElementData::TableRoot(table) = &self.element.special_data else {
             return;
         };
-        // Borders are only handled at the table level when BorderCollapse::Collapse
         if table.border_collapse != BorderCollapse::Collapse {
             return;
         }
 
-        let Some(grid_info) = &mut *table.computed_grid_info.borrow_mut() else {
-            return;
-        };
-        let Some(border_style) = table.border_style.as_deref() else {
-            return;
-        };
+        let layout = self.node.final_layout();
+        let table_box = Rect::new(
+            0.0,
+            0.0,
+            f64::from(layout.size.width),
+            f64::from(layout.size.height),
+        );
+        let cells_box = inset(table_box, layout_border(layout));
+        let own = self.style.get_border();
+        let hidden = |style: BorderStyle| style == BorderStyle::Hidden;
 
-        let outer_border_style = self.style.get_border();
-
-        let cols = PhysicalTracks::from_tracks(&grid_info.columns);
-        let rows = PhysicalTracks::from_tracks(&grid_info.rows);
-
-        // TODO: support different colors for different borders
-        let current_color = self.style.clone_color();
-        let border_color = border_style
-            .border_top_color
-            .resolve_to_absolute(&current_color)
-            .as_srgb_color();
-
-        // No need to draw transparent borders (as they won't be visible anyway)
-        if border_color == Color::TRANSPARENT {
-            return;
-        }
-
-        // Border widths are not adjusted for border-style in computed styles,
-        // so a border with `none`/`hidden` style must be treated as zero-width.
-        if border_style.border_top_style.none_or_hidden() {
-            return;
-        }
-
-        // The borders are laid out as the gutters between the tracks, and as the border
-        // of the table around them. Track positions are relative to the table's border box.
-        let border_width = table.style.gap.map(|gap| gap.into_raw().value() as f64);
-        let left = cols.origin() as f64 - border_width.width;
-        let right = (cols.origin() + cols.span()) as f64 + border_width.width;
-        let top = rows.origin() as f64 - border_width.height;
-        let bottom = (rows.origin() + rows.span()) as f64 + border_width.height;
-
-        let mut fill = |x0: f64, y0: f64, x1: f64, y1: f64| {
-            let shape = Rect::new(x0, y0, x1, y1).scale_from_origin(self.scale);
-            scene.fill(Fill::NonZero, self.transform, border_color, None, &shape);
-        };
-
-        // Horizontal borders: the outer edges, then the gutters between adjacent row tracks.
-        // The vertical borders are drawn between them so that no corner is painted twice.
-        if outer_border_style.border_top_style != BorderStyle::Hidden {
-            fill(left, top, right, top + border_width.height);
-        }
-        if outer_border_style.border_bottom_style != BorderStyle::Hidden {
-            fill(left, bottom - border_width.height, right, bottom);
-        }
-        for (prev, next) in rows.iter().zip(rows.iter().skip(1)) {
-            fill(left, prev.end as f64, right, next.start as f64);
-        }
-
-        // Vertical borders, one segment per row
-        for row in rows.iter() {
-            let (y0, y1) = (row.start as f64, row.end as f64);
-            if outer_border_style.border_left_style != BorderStyle::Hidden {
-                fill(left, y0, left + border_width.width, y1);
+        let mut lines = Vec::new();
+        let own_widths = collapsed_widths(&self.style);
+        push_collapsed_lines(
+            &mut lines,
+            inset(table_box, own_widths),
+            own_widths,
+            &self.style,
+        );
+        for cell in table.cells.iter().rev() {
+            let Some(node) = self.context.dom.get_node(cell.node_id) else {
+                continue;
+            };
+            let Some(style) = node.primary_styles() else {
+                continue;
+            };
+            let layout = node.final_layout();
+            let x = f64::from(layout.location.x);
+            let y = f64::from(layout.location.y);
+            let cell_box = Rect::new(
+                x,
+                y,
+                x + f64::from(layout.size.width),
+                y + f64::from(layout.size.height),
+            );
+            let mut widths = collapsed_widths(&style);
+            if hidden(own.border_left_style) && cell_box.x0 <= cells_box.x0 + EDGE_SLACK {
+                widths.x0 = 0.0;
             }
-            if outer_border_style.border_right_style != BorderStyle::Hidden {
-                fill(right - border_width.width, y0, right, y1);
+            if hidden(own.border_top_style) && cell_box.y0 <= cells_box.y0 + EDGE_SLACK {
+                widths.y0 = 0.0;
             }
-            for (prev, next) in cols.iter().zip(cols.iter().skip(1)) {
-                fill(prev.end as f64, y0, next.start as f64, y1);
+            if hidden(own.border_right_style) && cell_box.x1 >= cells_box.x1 - EDGE_SLACK {
+                widths.x1 = 0.0;
             }
+            if hidden(own.border_bottom_style) && cell_box.y1 >= cells_box.y1 - EDGE_SLACK {
+                widths.y1 = 0.0;
+            }
+            push_collapsed_lines(
+                &mut lines,
+                inset(cell_box, layout_border(layout)),
+                widths,
+                &style,
+            );
+        }
+
+        lines.sort_by(|a, b| a.width.total_cmp(&b.width));
+        for line in lines {
+            let shape = line.rect.scale_from_origin(self.scale);
+            scene.fill(Fill::NonZero, self.transform, line.color, None, &shape);
         }
     }
 

@@ -324,7 +324,7 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
     #[inline]
     fn border(&self) -> taffy::Rect<taffy::LengthPercentage> {
         let border_styles = self.style.get_border();
-        self.rect(taffy::Rect {
+        let border = self.rect(taffy::Rect {
             left: convert::border(
                 &border_styles.border_left_width,
                 border_styles.border_left_style,
@@ -341,7 +341,11 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
                 &border_styles.border_bottom_width,
                 border_styles.border_bottom_style,
             ),
-        })
+        });
+        if convert::is_collapsed_cell(&self.style) {
+            return border.map(convert::half);
+        }
+        border
     }
 }
 

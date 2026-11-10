@@ -6,8 +6,6 @@ use stylo_taffy::CopyStyleGetters;
 
 use atomic_refcell::AtomicRefCell;
 use markup5ever::local_name;
-use style::properties::style_structs::Border;
-use style::servo_arc::Arc as ServoArc;
 use style::typed_om::NumericBaseType;
 use style::values::computed::calc::CalcPercentageLeaf;
 use style::values::computed::length_percentage::{
@@ -18,7 +16,7 @@ use style::values::generics::Optional;
 use style::values::specified::box_::{DisplayInside, DisplayOutside};
 use style::{
     Atom, computed_values::border_collapse::T as BorderCollapse,
-    computed_values::table_layout::T as TableLayout, values::computed::BorderStyle,
+    computed_values::table_layout::T as TableLayout,
 };
 use style_traits::values::specified::AllowedNumericType;
 use taffy::{
@@ -47,7 +45,6 @@ pub struct TableContext {
     pub rows: Vec<TableRow>,
     pub columns: Vec<TableColumn>,
     pub computed_grid_info: AtomicRefCell<Option<DetailedGridInfo<Atom>>>,
-    pub border_style: Option<ServoArc<Border>>,
     pub border_collapse: BorderCollapse,
     /// Backing storage for `calc()` track sizes synthesised by the table layout code.
     /// Taffy stores calc values as raw pointers, so these must outlive the `style`.
@@ -69,6 +66,8 @@ pub struct TableCell {
     pub row: u16,
     /// Index of the column the cell originates in
     pub column: u16,
+    column_span: u16,
+    row_span: u16,
     style: taffy::Style<Atom>,
 }
 
@@ -160,12 +159,32 @@ fn table_taffy_style(style: &ComputedValues, table_wm: WritingMode) -> taffy::St
     stylo_taffy::to_taffy_style_in(style, table_wm)
 }
 
-fn side_width(width: app_units::Au, style: BorderStyle) -> f32 {
-    if style.none_or_hidden() {
-        0.0
-    } else {
-        width.to_f32_px()
+fn collapsed_table_border(
+    cells: &[TableCell],
+    num_columns: u16,
+    num_rows: usize,
+    own: taffy::Rect<f32>,
+    is_ltr: bool,
+) -> taffy::Rect<taffy::LengthPercentage> {
+    let mut half = own.map(|width| width / 2.0);
+    for cell in cells {
+        let border = cell.style.border.resolve_or_zero(None, resolve_calc_value);
+        let is_first = cell.column == 0;
+        let is_last = cell.column.saturating_add(cell.column_span) >= num_columns;
+        if (is_first && is_ltr) || (is_last && !is_ltr) {
+            half.left = half.left.max(border.left);
+        }
+        if (is_last && is_ltr) || (is_first && !is_ltr) {
+            half.right = half.right.max(border.right);
+        }
+        if cell.row == 0 {
+            half.top = half.top.max(border.top);
+        }
+        if usize::from(cell.row) + usize::from(cell.row_span) >= num_rows {
+            half.bottom = half.bottom.max(border.bottom);
+        }
     }
+    half.map(style_helpers::length)
 }
 
 /// Build a `calc(<percent> + <length>)` track sizing function. The calc value is
@@ -238,6 +257,7 @@ pub(crate) fn build_table_context(
 
     let border_collapse = stylo_styles.clone_border_collapse();
     let border_spacing = stylo_styles.clone_border_spacing().0;
+    let is_ltr = stylo_styles.writing_mode.is_bidi_ltr();
 
     drop(stylo_styles);
 
@@ -254,7 +274,6 @@ pub(crate) fn build_table_context(
             }
         }
     }
-    let mut first_cell_border: Option<ServoArc<Border>> = None;
     // Percentage widths set on first-row cells: (column index, percentage, padding + border)
     let mut percent_columns: Vec<(u16, f32, f32)> = Vec::new();
     let mut calc_values: Vec<LengthPercentage> = Vec::new();
@@ -286,7 +305,6 @@ pub(crate) fn build_table_context(
                 &mut oof_children,
                 &mut rows,
                 &mut column_sizes,
-                &mut first_cell_border,
                 &mut percent_columns,
             );
         }
@@ -385,30 +403,12 @@ pub(crate) fn build_table_context(
                 height: style_helpers::length(spacing_y),
             }
         }
-        BorderCollapse::Collapse => first_cell_border
-            .as_ref()
-            .map(|border| {
-                let x = side_width(border.border_left_width.0, border.border_left_style).max(
-                    side_width(border.border_right_width.0, border.border_right_style),
-                );
-                let y = side_width(border.border_top_width.0, border.border_top_style).max(
-                    side_width(border.border_bottom_width.0, border.border_bottom_style),
-                );
-                taffy::Size {
-                    width: style_helpers::length(x),
-                    height: style_helpers::length(y),
-                }
-            })
-            .unwrap_or(taffy::Size::ZERO.map(style_helpers::length)),
+        BorderCollapse::Collapse => taffy::Size::ZERO.map(style_helpers::length),
     };
 
     if border_collapse == BorderCollapse::Collapse {
-        style.border = taffy::Rect {
-            left: style.gap.width,
-            right: style.gap.width,
-            top: style.gap.height,
-            bottom: style.gap.height,
-        };
+        let own = style.border.resolve_or_zero(None, resolve_calc_value);
+        style.border = collapsed_table_border(&cells, num_columns, rows.len(), own, is_ltr);
     }
 
     let layout_children = cells
@@ -428,7 +428,6 @@ pub(crate) fn build_table_context(
             columns,
             computed_grid_info: AtomicRefCell::new(None),
             border_collapse,
-            border_style: first_cell_border,
             calc_values,
         },
         layout_children,
@@ -524,7 +523,6 @@ fn collect_table_cells(
     oof_children: &mut Vec<(NodeId, taffy::Position)>,
     rows: &mut Vec<TableRow>,
     columns: &mut Vec<TrackSizingFunction>,
-    first_cell_border: &mut Option<ServoArc<Border>>,
     percent_columns: &mut Vec<(u16, f32, f32)>,
 ) {
     let node = &mut doc.nodes[node_id];
@@ -574,7 +572,6 @@ fn collect_table_cells(
                     oof_children,
                     rows,
                     columns,
-                    first_cell_border,
                     percent_columns,
                 );
             }
@@ -615,7 +612,6 @@ fn collect_table_cells(
                     oof_children,
                     rows,
                     columns,
-                    first_cell_border,
                     percent_columns,
                 );
             }
@@ -636,14 +632,9 @@ fn collect_table_cells(
             let mut style = table_taffy_style(stylo_style, wm);
             let col = cursor.next_free();
 
-            // In the collapsed borders model the borders are laid out as gutters between
-            // the cells (see the table's `gap`) rather than as part of the cells
             if border_collapse == BorderCollapse::Collapse {
-                style.border = taffy::Rect::ZERO.map(style_helpers::length);
-            }
-
-            if first_cell_border.is_none() {
-                *first_cell_border = Some(stylo_style.clone_border());
+                let border = style.border.resolve_or_zero(None, resolve_calc_value);
+                style.border = border.map(|width| style_helpers::length(width / 2.0));
             }
 
             // In the fixed table layout algorithm the widths of columns are not
@@ -731,6 +722,8 @@ fn collect_table_cells(
                 node_id,
                 row: row.saturating_sub(1),
                 column: col,
+                column_span: colspan,
+                row_span: rowspan,
                 style,
             });
 

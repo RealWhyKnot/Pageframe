@@ -8,7 +8,6 @@ use blitz_dom::node::{ImageData, ImageResourceData, SpecialElementData};
 use kurbo::{self, Affine, BezPath, Point, Rect, Shape, Size, Vec2};
 use peniko::{self, BlendMode, Compose, Fill, Mix};
 use style::{
-    computed_values::border_collapse::T as BorderCollapse,
     properties::{
         generated::longhands::{
             background_attachment::single_value::computed_value::T as StyloBackgroundAttachment,
@@ -23,7 +22,7 @@ use style::{
             background::BackgroundSize,
         },
         generics::image::GenericImage,
-        specified::background::BackgroundRepeatKeyword,
+        specified::{background::BackgroundRepeatKeyword, box_::DisplayInside},
     },
 };
 
@@ -135,8 +134,7 @@ impl ElementCx<'_, '_> {
 
         // The background color is clipped by the clip of the last layer in the list
         let last_clip = *get_cyclic(&bg_styles.background_clip.0, layer_count - 1);
-        let background_clip: BoxModelBox = last_clip.into();
-        let background_clip_path = self.box_path(background_clip);
+        let background_clip_path = self.box_path(self.clip_box(last_clip.into()));
 
         // Draw background color (if any)
         let mut text_run = last_clip == StyloBackgroundClip::Text;
@@ -158,7 +156,7 @@ impl ElementCx<'_, '_> {
             if layer_paints_nothing(&layer) {
                 continue;
             }
-            let background_clip_path = self.box_path(layer.clip);
+            let background_clip_path = self.box_path(self.clip_box(layer.clip));
 
             self.context.layer_manager.maybe_with_layer(
                 scene,
@@ -209,6 +207,15 @@ impl ElementCx<'_, '_> {
             .draw_text_mask(scene, self.node.id, self.transform, true);
         scene.pop_layer();
         scene.pop_layer();
+    }
+
+    fn clip_box(&self, clip: BoxModelBox) -> BoxModelBox {
+        let is_cell = self.style.clone_display().inside() == DisplayInside::TableCell;
+        if clip == BoxModelBox::BorderBox && is_cell && self.has_collapsed_borders() {
+            BoxModelBox::PaddingBox
+        } else {
+            clip
+        }
     }
 
     /// The path of the given CSS box model box for this element
@@ -324,25 +331,6 @@ impl ElementCx<'_, '_> {
             ))
         };
 
-        // In the collapsed borders model the borders are laid out as gutters between the
-        // cells, but a cell's border box (and so its background) extends to the middle of
-        // the borders around it. The gutter is split on a whole pixel so that the
-        // backgrounds of adjacent cells tile exactly.
-        let collapsed = table.border_collapse == BorderCollapse::Collapse;
-        let (gutter, bounds) = if collapsed {
-            let gap = table.style.gap.map(|gap| gap.into_raw().value() as f64);
-            let bounds = table
-                .cells
-                .iter()
-                .filter_map(|cell| cell_rect(cell.node_id))
-                .reduce(|a, b| a.union(b));
-            (Size::new(gap.width, gap.height), bounds)
-        } else {
-            (Size::ZERO, None)
-        };
-        let before = Size::new((gutter.width / 2.0).ceil(), (gutter.height / 2.0).ceil());
-        let after = gutter - before;
-
         for cell in &table.cells {
             let no_colors = [None, None];
             let column = column_colors
@@ -353,18 +341,9 @@ impl ElementCx<'_, '_> {
             if colors.peek().is_none() {
                 continue;
             }
-            let Some(mut rect) = cell_rect(cell.node_id) else {
+            let Some(rect) = cell_rect(cell.node_id) else {
                 continue;
             };
-            if let Some(bounds) = bounds {
-                rect = Rect::new(
-                    rect.x0 - before.width,
-                    rect.y0 - before.height,
-                    rect.x1 + after.width,
-                    rect.y1 + after.height,
-                )
-                .intersect(bounds);
-            }
 
             let shape = rect.scale_from_origin(self.scale);
             for color in colors {

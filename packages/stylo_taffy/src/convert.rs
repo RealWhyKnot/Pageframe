@@ -3,6 +3,7 @@
 /// Private module of type aliases so we can refer to stylo types with nicer names
 pub(crate) mod stylo {
     pub(crate) use style::Atom;
+    pub(crate) use style::computed_values::border_collapse::T as BorderCollapse;
     pub(crate) use style::logical_geometry::WritingMode;
     pub(crate) use style::properties::ComputedValues;
     pub(crate) use style::properties::generated::longhands::box_sizing::computed_value::T as BoxSizing;
@@ -187,6 +188,15 @@ pub fn border(
         return taffy::style_helpers::zero();
     }
     taffy::style_helpers::length(width.0.to_f32_px())
+}
+
+pub fn is_collapsed_cell(style: &stylo::ComputedValues) -> bool {
+    style.clone_display().inside() == stylo::DisplayInside::TableCell
+        && style.clone_border_collapse() == stylo::BorderCollapse::Collapse
+}
+
+pub fn half(width: taffy::LengthPercentage) -> taffy::LengthPercentage {
+    taffy::style_helpers::length(width.into_raw().value() / 2.0)
 }
 
 #[inline]
