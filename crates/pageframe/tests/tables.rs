@@ -235,3 +235,18 @@ fn a_table_border_goes_around_the_cells_not_the_caption() {
     );
     assert_eq!(row(&buffer, &[0, 35, 36], 12), [RED, RED, WHITE]);
 }
+
+#[test]
+fn a_caption_widens_a_table_narrower_than_it() {
+    let buffer = draw(
+        "<table style=\"width:50px\"><caption><i style=\"width:60px\"></i></caption>\
+         <tr><td></td></tr></table>\
+         <table><caption><i style=\"width:70px\"></i></caption></table>",
+    );
+    assert_eq!(row(&buffer, &[0, 59, 60], 5), [BLUE, BLUE, WHITE]);
+    assert_eq!(
+        row(&buffer, &[0, 1, 2, 57, 58, 59, 60], 16),
+        [BLACK, BLACK, GREEN, GREEN, BLACK, BLACK, WHITE]
+    );
+    assert_eq!(row(&buffer, &[0, 69, 70], 29), [BLUE, BLUE, WHITE]);
+}

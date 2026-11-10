@@ -777,8 +777,8 @@ fn collect_table_cells(
             let stylo_style = &node.primary_styles().unwrap();
             let colspan: u16 = node
                 .attr(local_name!("colspan"))
-                .and_then(|val| val.parse::<u16>().ok())
-                .map(|span| span.clamp(1, 1000))
+                .and_then(|val| val.parse::<u32>().ok())
+                .and_then(|span| u16::try_from(span.clamp(1, 1000)).ok())
                 .unwrap_or(1);
             let rowspan: u16 = node
                 .attr(local_name!("rowspan"))
@@ -1140,11 +1140,7 @@ impl TableTreeWrapper<'_, '_> {
         let is_stretched = specified.is_some();
 
         let mut widths = column_widths(&limits, &fixed, space, is_stretched);
-        let mut floor = 0.0_f32;
-        for caption in &ctx.captions {
-            let width = self.intrinsic_width(caption.node_id, inputs, AvailableSpace::MinContent);
-            floor = floor.max(width);
-        }
+        let floor = self.caption_floor(inputs);
         if widths.iter().sum::<f32>() + frame + gaps < floor {
             widths = column_widths(&limits, &fixed, floor - frame - gaps, true);
         }
@@ -1158,6 +1154,55 @@ impl TableTreeWrapper<'_, '_> {
             })
             .collect();
         self.style = Some(style);
+    }
+
+    fn caption_floor(&mut self, inputs: &taffy::tree::LayoutInput) -> f32 {
+        let ctx = Arc::clone(&self.ctx);
+        let mut floor = 0.0_f32;
+        for caption in &ctx.captions {
+            let width = self.intrinsic_width(caption.node_id, inputs, AvailableSpace::MinContent);
+            floor = floor.max(width);
+        }
+        floor
+    }
+
+    pub(crate) fn widen_for_captions(
+        &mut self,
+        inputs: taffy::tree::LayoutInput,
+    ) -> taffy::tree::LayoutInput {
+        let floor = self.caption_floor(&inputs);
+        if floor <= 0.0 {
+            return inputs;
+        }
+        let ctx = Arc::clone(&self.ctx);
+        let parent_width = inputs.parent_size.width;
+        let inner = match ctx.style.box_sizing {
+            taffy::BoxSizing::BorderBox => floor,
+            taffy::BoxSizing::ContentBox => {
+                let padding = ctx
+                    .style
+                    .padding
+                    .resolve_or_zero(parent_width, resolve_calc_value);
+                let border = ctx
+                    .style
+                    .border
+                    .resolve_or_zero(parent_width, resolve_calc_value);
+                floor - padding.left - padding.right - border.left - border.right
+            }
+        };
+        let mut style = self.style.take().unwrap_or_else(|| ctx.style.clone());
+        let current = style
+            .min_size
+            .width
+            .maybe_resolve(parent_width, resolve_calc_value)
+            .unwrap_or(0.0);
+        style.min_size.width = style_helpers::length(current.max(inner));
+        self.style = Some(style);
+
+        let mut widened = inputs;
+        widened.known_dimensions.width =
+            inputs.known_dimensions.width.map(|width| width.max(floor));
+        widened
     }
 
     pub(crate) fn place_captions(
