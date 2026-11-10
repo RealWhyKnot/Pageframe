@@ -63,6 +63,7 @@ pub struct TableContext {
     pub computed_grid_info: AtomicRefCell<Option<DetailedGridInfo<Atom>>>,
     pub border_collapse: BorderCollapse,
     auto_columns: Option<AutoColumns>,
+    spreads_rows: bool,
     pub captions: Vec<TableCaption>,
     /// Backing storage for `calc()` track sizes synthesised by the table layout code.
     /// Taffy stores calc values as raw pointers, so these must outlive the `style`.
@@ -153,6 +154,7 @@ pub struct TableRow {
     /// are unconstrained rows to receive it instead.
     pub is_constrained: bool,
     pub percent: Option<f32>,
+    pub is_body: bool,
 }
 
 /// The used width of one border side: border widths are not adjusted for
@@ -527,11 +529,17 @@ pub(crate) fn build_table_context(
     // `auto` tracks) if there are any, and to all rows otherwise. So constrained rows
     // use a `max-content` (rather than `auto`) maximum when there are unconstrained rows.
     let is_sized = !(style.size.height.is_auto() && style.min_size.height.is_auto());
+    if !is_sized {
+        for row in &mut rows {
+            row.percent = None;
+        }
+    }
+    let spreads_rows = rows.len() > 1 && !wm.is_vertical();
     let mut unclaimed = 1.0_f32;
     let shares: Vec<Option<f32>> = rows
         .iter()
         .map(|row| {
-            let share = row.percent.filter(|_| is_sized)?.clamp(0.0, unclaimed);
+            let share = row.percent?.clamp(0.0, unclaimed);
             unclaimed -= share;
             Some(share)
         })
@@ -552,6 +560,7 @@ pub(crate) fn build_table_context(
                 None => style_helpers::auto(),
             };
             let max = match share {
+                _ if spreads_rows => style_helpers::max_content(),
                 Some(share) if has_plain_rows => style_helpers::percent(share),
                 Some(share) if claimed > 0.0 => style_helpers::percent(share / claimed),
                 _ if row.is_constrained && has_unconstrained_rows => style_helpers::max_content(),
@@ -601,6 +610,7 @@ pub(crate) fn build_table_context(
             computed_grid_info: AtomicRefCell::new(None),
             border_collapse,
             auto_columns,
+            spreads_rows,
             captions,
             calc_values,
         },
@@ -751,8 +761,16 @@ fn collect_table_cells(
             }
             doc.nodes[node_id].children = children;
             if display.inside() != DisplayInside::Contents {
-                for row in &mut rows[first_row..] {
-                    row.group.get_or_insert(node_id);
+                let is_body = !matches!(
+                    display.inside(),
+                    DisplayInside::TableHeaderGroup | DisplayInside::TableFooterGroup
+                );
+                for row in rows[first_row..]
+                    .iter_mut()
+                    .filter(|row| row.group.is_none())
+                {
+                    row.group = Some(node_id);
+                    row.is_body = is_body;
                 }
             }
         }
@@ -776,6 +794,7 @@ fn collect_table_cells(
                 height,
                 is_constrained: height.is_some(),
                 percent,
+                is_body: true,
             });
 
             let children = std::mem::take(&mut doc.nodes[node_id].children);
@@ -979,6 +998,67 @@ fn grow(values: &mut [f32], weights: &[f32], need: f32) {
         } else {
             even
         };
+    }
+}
+
+fn spread_rows(rows: &[TableRow], heights: &mut [f32], spare: f32, gap: f32) {
+    let mut sections: Vec<Range<usize>> = Vec::new();
+    for (index, row) in rows.iter().enumerate() {
+        match sections.last_mut() {
+            Some(last) if rows[last.start].group == row.group => last.end = index + 1,
+            _ => sections.push(index..index + 1),
+        }
+    }
+    if rows.iter().any(|row| row.is_body) {
+        sections.retain(|section| rows[section.start].is_body);
+    }
+
+    let sums: Vec<f32> = sections
+        .iter()
+        .map(|section| {
+            heights[section.clone()].iter().sum::<f32>()
+                + gap * count(section.len().saturating_sub(1))
+        })
+        .collect();
+    let mut totals = sums.clone();
+    grow(&mut totals, &sums, sums.iter().sum::<f32>() + spare);
+
+    let is_open = |row: &TableRow| !row.is_constrained && row.percent.is_none();
+    for ((section, sum), total) in sections.into_iter().zip(sums).zip(totals) {
+        let mut unclaimed = 1.0_f32;
+        let growth: Vec<f32> = section
+            .clone()
+            .map(|index| {
+                let share = rows[index].percent.unwrap_or(0.0).clamp(0.0, unclaimed);
+                unclaimed -= share;
+                (total * share - heights[index]).max(0.0)
+            })
+            .collect();
+        let requested: f32 = growth.iter().sum();
+        let available = total - sum;
+        let scale = if requested > available {
+            available / requested
+        } else {
+            1.0
+        };
+        for (index, extra) in section.clone().zip(growth) {
+            heights[index] += extra * scale;
+        }
+        let remaining = (available - requested).max(0.0);
+        let has_open = rows[section.clone()].iter().any(is_open);
+        let picked: Vec<usize> = section
+            .filter(|&index| !has_open || is_open(&rows[index]))
+            .collect();
+        let weights: Vec<f32> = picked.iter().map(|&index| heights[index]).collect();
+        let mut grown = weights.clone();
+        grow(
+            &mut grown,
+            &weights,
+            weights.iter().sum::<f32>() + remaining,
+        );
+        for (index, height) in picked.into_iter().zip(grown) {
+            heights[index] = height;
+        }
     }
 }
 
@@ -1245,6 +1325,58 @@ impl TableTreeWrapper<'_, '_> {
             })
             .collect();
         self.style = Some(style);
+    }
+
+    pub(crate) fn spread_spare_height(
+        &mut self,
+        inputs: &taffy::tree::LayoutInput,
+        output: &taffy::tree::LayoutOutput,
+    ) -> bool {
+        let ctx = Arc::clone(&self.ctx);
+        if !ctx.spreads_rows || inputs.run_mode != taffy::RunMode::PerformLayout {
+            return false;
+        }
+        let lines: Vec<taffy::Line<f32>> = match ctx.computed_grid_info.borrow().as_ref() {
+            Some(info) => info
+                .rows
+                .positions
+                .iter()
+                .skip(usize::from(info.rows.negative_implicit_tracks))
+                .take(ctx.rows.len())
+                .copied()
+                .collect(),
+            None => return false,
+        };
+        let Some(last) = lines.last().filter(|_| lines.len() == ctx.rows.len()) else {
+            return false;
+        };
+
+        let parent_width = inputs.parent_size.width;
+        let style = self.style.as_ref().unwrap_or(&ctx.style);
+        let padding = style
+            .padding
+            .resolve_or_zero(parent_width, resolve_calc_value);
+        let border = style
+            .border
+            .resolve_or_zero(parent_width, resolve_calc_value);
+        let spare = output.size.height - padding.bottom - border.bottom - last.end;
+        if spare < 0.01 {
+            return false;
+        }
+
+        let mut heights: Vec<f32> = lines.iter().map(|line| line.end - line.start).collect();
+        let gap = lines[1].start - lines[0].end;
+        spread_rows(&ctx.rows, &mut heights, spare, gap);
+        let mut style = self.style.take().unwrap_or_else(|| ctx.style.clone());
+        style.grid_template_rows = heights
+            .into_iter()
+            .map(|height| {
+                let track: TrackSizingFunction = style_helpers::length(height);
+                track.into()
+            })
+            .collect();
+        self.style = Some(style);
+        true
     }
 
     fn caption_floor(&mut self, inputs: &taffy::tree::LayoutInput) -> f32 {
