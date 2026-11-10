@@ -20,6 +20,8 @@ pub(super) const BULLET_FONT_FAMILY: &str = "Bullet, monospace, sans-serif";
 
 const NO_BREAK_SPACE: char = '\u{a0}';
 
+const LIST_ITEM_COUNTER: &str = "list-item";
+
 pub(super) fn number_list_items(
     doc: &mut BaseDocument,
     node_id: NodeId,
@@ -27,13 +29,14 @@ pub(super) fn number_list_items(
     reversed: bool,
 ) {
     let step = if reversed { -1 } else { 1 };
-    let mut ordinal = start.unwrap_or_else(|| {
+    let first = start.unwrap_or_else(|| {
         if reversed {
             i32::try_from(count_list_items(doc, node_id)).unwrap_or(i32::MAX)
         } else {
             1
         }
     });
+    let mut ordinal = first.saturating_sub(step);
     collect_list_item_children(doc, &mut ordinal, step, node_id);
 }
 
@@ -60,14 +63,15 @@ fn collect_list_item_children(
             }
             continue;
         }
-        if let Some(value) = list_item_value(doc, child) {
+        let (increment, set) = list_item_counters(doc, child);
+        *ordinal = ordinal.saturating_add(increment.unwrap_or(step));
+        if let Some(value) = set.or_else(|| list_item_value(doc, child)) {
             *ordinal = value;
         }
         let layout = list_item_layout(doc, child, *ordinal).map(Box::new);
         if let Some(element_data) = doc.nodes[child].element_data_mut() {
             element_data.list_item_data = layout;
         }
-        *ordinal = ordinal.saturating_add(step);
         collect_list_item_children(doc, ordinal, step, child);
     }
 }
@@ -84,6 +88,26 @@ fn is_list_item(doc: &BaseDocument, node_id: NodeId) -> bool {
         && node
             .primary_styles()
             .is_some_and(|style| style.get_box().display.is_list_item())
+}
+
+fn list_item_counters(doc: &BaseDocument, node_id: NodeId) -> (Option<i32>, Option<i32>) {
+    let Some(styles) = doc.nodes[node_id].primary_styles() else {
+        return (None, None);
+    };
+    let counters = styles.get_counters();
+    let increment = counters
+        .counter_increment
+        .iter()
+        .rev()
+        .find(|pair| &*pair.name.0 == LIST_ITEM_COUNTER)
+        .map(|pair| pair.value);
+    let set = counters
+        .counter_set
+        .iter()
+        .rev()
+        .find(|pair| &*pair.name.0 == LIST_ITEM_COUNTER)
+        .map(|pair| pair.value);
+    (increment, set)
 }
 
 fn list_item_value(doc: &BaseDocument, node_id: NodeId) -> Option<i32> {

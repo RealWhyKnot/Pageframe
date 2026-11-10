@@ -10,7 +10,8 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 use style::properties::generated::longhands::text_decoration_style::computed_value::T as TextDecorationStyle;
 use style::values::computed::{
-    Length, LengthPercentage, TextDecorationLength, TextDecorationLine, TextUnderlinePosition,
+    Display, Length, LengthPercentage, TextDecorationLength, TextDecorationLine,
+    TextUnderlinePosition,
 };
 use style::values::generics::text::{GenericTextDecorationInset, GenericTextDecorationLength};
 
@@ -47,8 +48,15 @@ pub(crate) fn draw_inline_backgrounds<'a>(
             {
                 next_id = node.parent;
                 let Some(styles) = node.primary_styles() else {
-                    continue;
+                    break;
                 };
+                let display = styles.get_box().display;
+                if display.is_contents() {
+                    continue;
+                }
+                if display != Display::Inline {
+                    break;
+                }
                 let current_color = styles.clone_color();
                 let bg_color = styles
                     .get_background()

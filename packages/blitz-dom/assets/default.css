@@ -767,12 +767,6 @@ dir {
     padding-inline-start: 40px;
 }
 
-ul,
-ol,
-menu {
-    counter-reset: list-item;
-}
-
 ol {
     display: block;
     list-style-type: decimal;

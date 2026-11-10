@@ -28,6 +28,7 @@ struct Walker<'doc> {
     doc: &'doc BaseDocument,
     counters: Vec<Counter>,
     quote_depth: usize,
+    list_steps: Vec<i32>,
     generated: GeneratedContent,
 }
 
@@ -37,6 +38,7 @@ impl BaseDocument {
             doc: self,
             counters: Vec::new(),
             quote_depth: 0,
+            list_steps: Vec::new(),
             generated: GeneratedContent::new(),
         };
         walker.visit(self.root_element().id, 0, None);
@@ -81,17 +83,33 @@ impl<'doc> Walker<'doc> {
             element.name.local,
             local_name!("ol") | local_name!("ul") | local_name!("menu")
         );
+        let is_ordered = element.name.local == local_name!("ol");
+        let list_step = if is_ordered && element.attr(local_name!("reversed")).is_some() {
+            -1
+        } else {
+            1
+        };
         if is_list {
-            self.reset(&Atom::from(LIST_ITEM), 0, depth);
+            let start: Option<i32> = is_ordered
+                .then(|| element.attr_parsed(local_name!("start")))
+                .flatten();
+            let first = start.unwrap_or(if list_step < 0 { 0 } else { 1 });
+            self.reset(
+                &Atom::from(LIST_ITEM),
+                first.saturating_sub(list_step),
+                depth,
+            );
         }
-        self.apply_counters(&styles, depth);
         let counts_itself = styles
             .get_counters()
             .counter_increment
             .iter()
             .any(|pair| &*pair.name.0 == LIST_ITEM);
-        if styles.get_box().display.is_list_item() && !counts_itself {
-            self.add(&Atom::from(LIST_ITEM), 1, depth);
+        let implicit_step = (styles.get_box().display.is_list_item() && !counts_itself)
+            .then(|| self.list_steps.last().copied().unwrap_or(1));
+        self.apply_counters(&styles, depth, implicit_step);
+        if is_list {
+            self.list_steps.push(list_step);
         }
 
         let pseudos = node
@@ -112,6 +130,9 @@ impl<'doc> Walker<'doc> {
         if let Some(style) = after {
             self.pseudo(node_id, AFTER, &style, depth + 1, lang);
         }
+        if is_list {
+            self.list_steps.pop();
+        }
         self.counters.retain(|counter| counter.depth <= depth);
     }
 
@@ -129,7 +150,7 @@ impl<'doc> Walker<'doc> {
         let Content::Items(item_data) = &style.get_counters().content else {
             return;
         };
-        self.apply_counters(style, depth);
+        self.apply_counters(style, depth, None);
 
         let mut text = String::new();
         let mut is_generated = false;
@@ -186,13 +207,16 @@ impl<'doc> Walker<'doc> {
         }
     }
 
-    fn apply_counters(&mut self, style: &ComputedValues, depth: usize) {
+    fn apply_counters(&mut self, style: &ComputedValues, depth: usize, list_step: Option<i32>) {
         let counters = style.get_counters();
         for CounterPair { name, value, .. } in counters.counter_reset.iter() {
             self.reset(&name.0, *value, depth);
         }
         for CounterPair { name, value, .. } in counters.counter_increment.iter() {
             self.add(&name.0, *value, depth);
+        }
+        if let Some(step) = list_step {
+            self.add(&Atom::from(LIST_ITEM), step, depth);
         }
         for CounterPair { name, value, .. } in counters.counter_set.iter() {
             self.innermost_or_new(&name.0, depth).value = *value;

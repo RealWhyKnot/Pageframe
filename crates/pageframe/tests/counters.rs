@@ -216,11 +216,65 @@ fn no_open_quote_only_deepens_the_nesting() {
 #[test]
 fn inline_background_covers_nested_inlines_and_quotes() {
     let buffer = draw(
-        "p{font:20px/20px monospace;color:rgb(255,0,0)}.bg{background:rgb(255,0,0)}",
+        "p{font:20px/20px monospace;color:transparent}.bg{background:rgb(255,0,0)}",
         "<p><span class=\"bg\"><b>ab</b></span></p><p><q class=\"bg\"><i>cd</i></q></p>",
     );
     for (x, y) in [(6, 10), (18, 10), (6, 30), (18, 30), (30, 30), (42, 30)] {
         let [red, green, blue, _] = pixel(&buffer, x, y);
         assert_eq!([red, green, blue], [255, 0, 0], "pixel ({x}, {y})");
     }
+}
+
+#[test]
+fn inline_background_stops_at_the_block() {
+    let buffer = draw(
+        "div{font:20px/20px monospace;color:transparent}.bg{background:rgba(0,0,255,0.5)}",
+        "<div class=\"bg\"><span>ab</span><div>c</div></div>",
+    );
+    let block = pixel(&buffer, 60, 30);
+    for (x, y) in [(6, 10), (18, 10)] {
+        assert_eq!(pixel(&buffer, x, y), block, "pixel ({x}, {y})");
+    }
+}
+
+#[test]
+fn list_item_counter_follows_start_and_reversed() {
+    let style = "ol{margin:0;padding:0;list-style:none}";
+    let generated = draw(
+        &format!("{style}li::before{{content:counter(list-item) \"= \"}}"),
+        "<ol start=\"5\"><li>x</li><li>x</li></ol>         <ol reversed start=\"10\"><li>x</li><li>x</li></ol>",
+    );
+    let literal = draw(
+        &format!("{style}{LITERAL}"),
+        "<ol><li class=\"t\" data-b=\"5= \">x</li><li class=\"t\" data-b=\"6= \">x</li></ol>         <ol><li class=\"t\" data-b=\"10= \">x</li><li class=\"t\" data-b=\"9= \">x</li></ol>",
+    );
+    assert_same(&generated, &literal);
+}
+
+#[test]
+fn list_item_counter_set_wins_over_the_implicit_step() {
+    let style = "ol{margin:0;padding:0;list-style:none}";
+    let generated = draw(
+        &format!("{style}li::before{{content:counter(list-item) \"= \"}}"),
+        "<ol><li style=\"counter-set:list-item 9\">x</li><li>x</li></ol>",
+    );
+    let literal = draw(
+        &format!("{style}{LITERAL}"),
+        "<ol><li class=\"t\" data-b=\"9= \">x</li><li class=\"t\" data-b=\"10= \">x</li></ol>",
+    );
+    assert_same(&generated, &literal);
+}
+
+#[test]
+fn markers_follow_list_item_counter_properties() {
+    let style = "ol{margin:0;padding:0 0 0 40px}";
+    let styled = draw(
+        style,
+        "<ol><li style=\"counter-set:list-item 9\">x</li><li>x</li></ol>         <ol><li style=\"counter-increment:list-item 3\">x</li><li>x</li></ol>",
+    );
+    let numbered = draw(
+        style,
+        "<ol start=\"9\"><li>x</li><li>x</li></ol><ol start=\"3\"><li>x</li><li>x</li></ol>",
+    );
+    assert_same(&styled, &numbered);
 }
