@@ -281,6 +281,20 @@ fn cells_without_a_table_sit_in_one_row() {
 }
 
 #[test]
+fn whitespace_between_stray_cells_keeps_them_in_one_row() {
+    let cell = "display:table-cell;width:20px;height:10px";
+    let buffer = draw(&format!(
+        "<div><div style=\"{cell};background:#0f0\"></div> \n \
+         <div style=\"{cell};background:#00f\"></div></div>"
+    ));
+    assert_eq!(
+        row(&buffer, &[0, 19, 20, 39, 40], 5),
+        [GREEN, GREEN, BLUE, BLUE, WHITE]
+    );
+    assert_eq!(column(&buffer, 25, &[9, 10]), [BLUE, WHITE]);
+}
+
+#[test]
 fn line_breaks_in_a_cell_keep_their_line_height() {
     let buffer = draw(
         "<table class=\"bare\"><tr>\
