@@ -84,6 +84,7 @@ impl BaseDocument {
 
         // we need to resolve stylist first since it will need to drive our layout bits
         self.resolve_stylist(current_time_for_animations);
+        self.resolve_generated_content();
         timer.record_time("style");
 
         // Non-incremental mode is "every node is damaged every frame": mark the
@@ -121,6 +122,7 @@ impl BaseDocument {
                 break;
             }
             self.resolve_stylist(current_time_for_animations);
+            self.resolve_generated_content();
             self.propagate_damage_flags(root_node_id);
             self.resolve_layout_children();
             self.resolve_deferred_tasks();

@@ -30,6 +30,7 @@ use taffy::{
 pub(crate) mod construct;
 pub(crate) mod counter_style;
 pub(crate) mod damage;
+pub(crate) mod generated_content;
 pub(crate) mod inline;
 pub(crate) mod list;
 pub(crate) mod paint_tree;

@@ -39,22 +39,27 @@ pub(crate) fn draw_inline_backgrounds<'a>(
                 continue;
             };
 
-            let node_id = glyph_run.style().brush.id;
-            if node_id == inline_root_id {
-                continue;
+            let mut colors = Vec::new();
+            let mut next_id = Some(glyph_run.style().brush.id);
+            while let Some(node) = next_id
+                .filter(|node_id| *node_id != inline_root_id)
+                .and_then(|node_id| doc.get_node(node_id))
+            {
+                next_id = node.parent;
+                let Some(styles) = node.primary_styles() else {
+                    continue;
+                };
+                let current_color = styles.clone_color();
+                let bg_color = styles
+                    .get_background()
+                    .background_color
+                    .resolve_to_absolute(&current_color)
+                    .as_srgb_color();
+                if bg_color != Color::TRANSPARENT {
+                    colors.push(bg_color);
+                }
             }
-
-            let Some(styles) = doc.get_node(node_id).and_then(|node| node.primary_styles()) else {
-                continue;
-            };
-
-            let current_color = styles.clone_color();
-            let bg_color = styles
-                .get_background()
-                .background_color
-                .resolve_to_absolute(&current_color)
-                .as_srgb_color();
-            if bg_color == Color::TRANSPARENT {
+            if colors.is_empty() {
                 continue;
             }
 
@@ -66,7 +71,9 @@ pub(crate) fn draw_inline_backgrounds<'a>(
             let y1 = baseline + metrics.descent as f64;
             let rect = Rect::new(x, y0, x + w, y1);
 
-            scene.fill(Fill::NonZero, transform, bg_color, None, &rect);
+            for bg_color in colors.into_iter().rev() {
+                scene.fill(Fill::NonZero, transform, bg_color, None, &rect);
+            }
         }
     }
 }

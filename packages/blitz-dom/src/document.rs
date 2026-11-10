@@ -390,6 +390,7 @@ pub struct BaseDocument {
     /// May contain multiple nodes for the same id: `get_element_by_id`
     /// returns the first in tree order.
     pub(crate) nodes_to_id: HashMap<String, SmallVec<[NodeId; 1]>>,
+    pub(crate) generated_content: crate::layout::generated_content::GeneratedContent,
     /// Map of `<style>` and `<link>` node IDs to their associated stylesheet
     pub(crate) nodes_to_stylesheet: BTreeMap<NodeId, DocumentStyleSheet>,
     /// Incremented whenever `nodes_to_stylesheet` changes (a stylesheet is
@@ -545,6 +546,7 @@ impl BaseDocument {
             animations: DocumentAnimationSet::default(),
             snapshots,
             nodes_to_id,
+            generated_content: HashMap::new(),
             viewport,
             media_type,
             pending_device_changes: DeviceChanges::empty(),

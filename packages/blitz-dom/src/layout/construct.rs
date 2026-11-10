@@ -672,6 +672,18 @@ pub(super) fn pe_content_text(style: &style::properties::ComputedValues) -> Opti
     }
 }
 
+fn pseudo_text(
+    doc: &BaseDocument,
+    owner: NodeId,
+    slot: usize,
+    style: &style::properties::ComputedValues,
+) -> Option<String> {
+    doc.generated_content
+        .get(&owner)
+        .and_then(|texts| texts[slot].clone())
+        .or_else(|| pe_content_text(style))
+}
+
 fn flush_pseudo_elements(doc: &mut BaseDocument, node_id: NodeId) {
     let (before_style, after_style, before_node_id, after_node_id) = {
         let node = &doc.nodes[node_id];
@@ -718,7 +730,7 @@ fn flush_pseudo_elements(doc: &mut BaseDocument, node_id: NodeId) {
                     .insert(NodeFlags::IS_IN_DOCUMENT);
             }
 
-            if let Some(text) = pe_content_text(pe_style) {
+            if let Some(text) = pseudo_text(doc, node_id, idx, pe_style) {
                 let text_node_id = doc.create_text_node(&text);
                 doc.nodes[text_node_id].parent = Some(new_node_id);
                 doc.nodes[new_node_id].children.push(text_node_id);
@@ -749,7 +761,7 @@ fn flush_pseudo_elements(doc: &mut BaseDocument, node_id: NodeId) {
             // the style-pointer comparison below, as the pseudo-element's style may
             // already have been updated by `sync_pseudo_element_styles` during the
             // style traversal without the text having been updated.
-            let new_text = pe_content_text(&pe_style);
+            let new_text = pseudo_text(doc, node_id, idx, &pe_style);
             let existing_text_node_id = doc.nodes[pe_node_id]
                 .children
                 .first()
@@ -1006,7 +1018,7 @@ pub(crate) fn find_inline_layout_embedded_boxes(
     fn flush_inline_pseudos_recursive(doc: &mut BaseDocument, node_id: NodeId) {
         doc.iter_children_mut(node_id, |child_id, doc| {
             flush_pseudo_elements(doc, child_id);
-            let display = doc.nodes[node_id]
+            let display = doc.nodes[child_id]
                 .display_style()
                 .unwrap_or(Display::inline());
             let do_recurse = match (display.outside(), display.inside()) {
