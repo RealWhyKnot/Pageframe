@@ -260,7 +260,11 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
         let position_styles = self.style.get_position();
         self.size(taffy::Size {
             width: convert::dimension(&position_styles.width),
-            height: convert::dimension(&position_styles.height),
+            height: if convert::is_table_cell(&self.style) {
+                taffy::style_helpers::auto()
+            } else {
+                convert::dimension(&position_styles.height)
+            },
         })
     }
 
@@ -269,7 +273,11 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
         let position_styles = self.style.get_position();
         self.size(taffy::Size {
             width: convert::min_size(&position_styles.min_width),
-            height: convert::min_size(&position_styles.min_height),
+            height: if convert::is_table_cell(&self.style) {
+                convert::min_size(&position_styles.height)
+            } else {
+                convert::min_size(&position_styles.min_height)
+            },
         })
     }
 

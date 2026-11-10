@@ -279,3 +279,15 @@ fn cells_without_a_table_sit_in_one_row() {
     );
     assert_eq!(column(&buffer, 5, &[9, 10]), [GREEN, WHITE]);
 }
+
+#[test]
+fn content_taller_than_a_cell_height_grows_the_cell() {
+    let buffer = draw(
+        "<table class=\"bare\"><tr><td style=\"height:10px\">\
+         <i style=\"width:10px;height:30px\"></i></td></tr></table>",
+    );
+    assert_eq!(
+        column(&buffer, 5, &[0, 1, 2, 31, 32, 33, 34]),
+        [BLACK, BLACK, GREEN, GREEN, BLACK, BLACK, WHITE]
+    );
+}

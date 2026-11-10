@@ -190,9 +190,12 @@ pub fn border(
     taffy::style_helpers::length(width.0.to_f32_px())
 }
 
-pub fn is_collapsed_cell(style: &stylo::ComputedValues) -> bool {
+pub fn is_table_cell(style: &stylo::ComputedValues) -> bool {
     style.clone_display().inside() == stylo::DisplayInside::TableCell
-        && style.clone_border_collapse() == stylo::BorderCollapse::Collapse
+}
+
+pub fn is_collapsed_cell(style: &stylo::ComputedValues) -> bool {
+    is_table_cell(style) && style.clone_border_collapse() == stylo::BorderCollapse::Collapse
 }
 
 #[inline]
