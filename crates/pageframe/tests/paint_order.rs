@@ -241,3 +241,34 @@ fn a_raised_child_is_clipped_to_the_padding_box_of_a_nested_box() {
     assert_eq!(pixel(&buffer, 15, 24), [0, 0, 255, 255]);
     assert_eq!(pixel(&buffer, 15, 27), WHITE);
 }
+
+#[test]
+fn a_raised_child_clipped_by_two_boxes_that_miss_each_other_is_not_painted() {
+    let buffer = draw(
+        "<div style=\"width:20px;height:20px;overflow:hidden\">\
+         <div style=\"margin-left:30px;width:20px;height:20px;overflow:hidden\">\
+         <b style=\"display:block;width:60px;height:20px;background:red;left:-40px;\
+         position:relative;z-index:1\"></b></div></div>",
+    );
+    for x in [5, 25, 35, 55] {
+        assert_eq!(pixel(&buffer, x, 10), WHITE);
+    }
+}
+
+#[test]
+fn a_click_on_the_clipped_part_of_a_raised_child_misses_it() {
+    let html = format!(
+        "<html><head><style>{BASE}.on{{background:#00f !important}}</style></head><body>\
+         <div style=\"width:20px;height:20px;overflow:hidden\">\
+         <b id=\"kid\" style=\"display:block;width:40px;height:40px;background:red;\
+         position:relative;z-index:1\"></b></div></body></html>"
+    );
+    let app = App::new((), &html).on("#kid", EventKind::Click, |(), ui, _| {
+        ui.select("#kid").add_class("on");
+    });
+    let mut harness = open(app);
+    harness.click_at(30.0, 10.0);
+    assert_eq!(pixel(&render(&mut harness), 10, 10), RED);
+    harness.click_at(10.0, 10.0);
+    assert_eq!(pixel(&render(&mut harness), 10, 10), [0, 0, 255, 255]);
+}

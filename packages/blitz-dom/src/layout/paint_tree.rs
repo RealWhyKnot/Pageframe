@@ -69,24 +69,26 @@ fn hoisted_child_geometry(
         };
         let location = node.final_layout().location;
         let scroll_offset = *node.scroll_offset();
+        position.x += location.x - scroll_offset.x as f32;
+        position.y += location.y - scroll_offset.y as f32;
         if let Some(bounds) = node.overflow_clip_bounds() {
-            let x = position.x - scroll_offset.x as f32;
-            let y = position.y - scroll_offset.y as f32;
+            let x = position.x - location.x;
+            let y = position.y - location.y;
             let inner = clip.unwrap_or(Rect {
                 left: f32::NEG_INFINITY,
                 right: f32::INFINITY,
                 top: f32::NEG_INFINITY,
                 bottom: f32::INFINITY,
             });
+            let left = (bounds.left - x).max(inner.left);
+            let top = (bounds.top - y).max(inner.top);
             clip = Some(Rect {
-                left: (bounds.left - x).max(inner.left),
-                right: (bounds.right - x).min(inner.right),
-                top: (bounds.top - y).max(inner.top),
-                bottom: (bounds.bottom - y).min(inner.bottom),
+                left,
+                right: (bounds.right - x).min(inner.right).max(left),
+                top,
+                bottom: (bounds.bottom - y).min(inner.bottom).max(top),
             });
         }
-        position.x += location.x - scroll_offset.x as f32;
-        position.y += location.y - scroll_offset.y as f32;
         current = node.containing_block();
     }
     let origin = tree[sc_root_id].absolute_position(0.0, 0.0);
@@ -548,12 +550,13 @@ impl BaseDocument {
 
 impl Node {
     fn overflow_clip_bounds(&self) -> Option<Rect<f32>> {
-        use style::values::computed::Overflow;
+        use style::values::computed::{Contain, Overflow};
 
         let style = self.primary_styles()?;
         let box_style = style.get_box();
-        let clips_x = box_style.overflow_x != Overflow::Visible;
-        let clips_y = box_style.overflow_y != Overflow::Visible;
+        let contains_paint = box_style.slow_clone_contain().contains(Contain::PAINT);
+        let clips_x = contains_paint || box_style.overflow_x != Overflow::Visible;
+        let clips_y = contains_paint || box_style.overflow_y != Overflow::Visible;
         if !clips_x && !clips_y {
             return None;
         }
