@@ -660,7 +660,7 @@ impl Edges {
                 continue;
             };
             let layout = cell_node.unrounded_layout();
-            let offset = cell_node.relative_offset(layout.size, is_rtl);
+            let offset = table.cell_offset(cell_node, is_rtl);
             let left = f64::from(layout.location.x - offset.x);
             let right = left + f64::from(layout.size.width);
             let top = f64::from(layout.location.y - offset.y);
@@ -874,7 +874,7 @@ impl ElementCx<'_, '_> {
             .filter(|edges| edges.cells.contains_key(&self.node.id))
     }
 
-    pub(crate) fn paints_under_cell_borders(&self) -> bool {
+    pub(crate) fn has_cell_layer(&self, cell: &Node) -> bool {
         let has_layer = |node: &Node| {
             node.is_stacking_context_root(false)
                 || node.primary_styles().is_some_and(|style| {
@@ -883,12 +883,19 @@ impl ElementCx<'_, '_> {
                         || contain.intersects(Contain::PAINT | Contain::LAYOUT)
                 })
         };
-        let mut part = Some(self.node);
+        let mut part = Some(cell);
         while let Some(node) = part.filter(|node| !node.flags.is_table_root()) {
             if has_layer(node) {
-                return false;
+                return true;
             }
             part = node.parent.and_then(|id| self.context.dom.get_node(id));
+        }
+        false
+    }
+
+    pub(crate) fn paints_under_cell_borders(&self) -> bool {
+        if self.has_cell_layer(self.node) {
+            return false;
         }
         let is_hidden = covers_background(&self.style) && self.has_covering_child();
         !is_hidden && self.cell_edges().is_some()

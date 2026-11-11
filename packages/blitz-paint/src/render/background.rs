@@ -325,13 +325,20 @@ impl ElementCx<'_, '_> {
             return;
         }
 
+        let is_collapsed = self.has_collapsed_borders();
         let cell_rect = |cell_id: NodeId| -> Option<Rect> {
-            let layout = self.context.dom.get_node(cell_id)?.final_layout();
+            let cell = self.context.dom.get_node(cell_id)?;
+            let layout = cell.final_layout();
+            let border = if is_collapsed && self.has_cell_layer(cell) {
+                layout.border
+            } else {
+                taffy::Rect::ZERO
+            };
             Some(Rect::new(
-                layout.location.x as f64,
-                layout.location.y as f64,
-                (layout.location.x + layout.size.width) as f64,
-                (layout.location.y + layout.size.height) as f64,
+                f64::from(layout.location.x + border.left),
+                f64::from(layout.location.y + border.top),
+                f64::from(layout.location.x + layout.size.width - border.right),
+                f64::from(layout.location.y + layout.size.height - border.bottom),
             ))
         };
 

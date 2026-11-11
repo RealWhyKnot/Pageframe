@@ -1225,6 +1225,7 @@ fn collect_table_cells(
                 .unwrap_or(1)
                 .min(section_end.saturating_sub(*row).saturating_add(1));
             let mut style = table_taffy_style(stylo_style, wm);
+            style.inset = style_helpers::auto();
             let col = cursor.next_free();
 
             if border_collapse == BorderCollapse::Collapse {
@@ -1578,6 +1579,33 @@ fn percent_fit(limits: &ColumnLimits, fixed: &[Option<f32>]) -> Option<f32> {
 }
 
 impl TableContext {
+    fn row_width(&self) -> f32 {
+        let info = self.computed_grid_info.borrow();
+        let Some(info) = info.as_ref() else {
+            return 0.0;
+        };
+        let lines = info
+            .columns
+            .positions
+            .iter()
+            .skip(usize::from(info.columns.negative_implicit_tracks));
+        let (low, high) = lines.fold((f32::MAX, f32::MIN), |(low, high), line| {
+            (
+                low.min(line.start).min(line.end),
+                high.max(line.start).max(line.end),
+            )
+        });
+        (high - low).max(0.0)
+    }
+
+    pub fn cell_offset(&self, cell: &crate::Node, is_rtl: bool) -> taffy::Point<f32> {
+        let basis = taffy::Size {
+            width: self.row_width(),
+            height: 0.0,
+        };
+        cell.relative_offset(basis, is_rtl)
+    }
+
     pub fn has_collapsed_columns(&self) -> bool {
         self.has_collapsed_columns
     }
@@ -2289,6 +2317,22 @@ impl TableTreeWrapper<'_, '_> {
         widened
     }
 
+    pub(crate) fn offset_cells(&mut self, table: NodeId, inputs: &taffy::tree::LayoutInput) {
+        if inputs.run_mode != taffy::RunMode::PerformLayout {
+            return;
+        }
+        let ctx = Arc::clone(&self.ctx);
+        let is_rtl = self.doc.nodes[table]
+            .primary_styles()
+            .is_some_and(|style| style.clone_direction() == Direction::Rtl);
+        for cell in &ctx.cells {
+            let offset = ctx.cell_offset(&self.doc.nodes[cell.node_id], is_rtl);
+            let location = &mut self.doc.nodes[cell.node_id].unrounded_layout_mut().location;
+            location.x += offset.x;
+            location.y += offset.y;
+        }
+    }
+
     pub(crate) fn place_captions(
         &mut self,
         inputs: &taffy::tree::LayoutInput,
@@ -2389,11 +2433,33 @@ impl TableTreeWrapper<'_, '_> {
             };
             let mut layout =
                 taffy::Layout::with_order(u32::try_from(first_order + index).unwrap_or(u32::MAX));
-            let basis = taffy::Size {
-                width,
-                height: output.size.height,
+            let basis = {
+                let style = self.style.as_ref().unwrap_or(&ctx.style);
+                let parent_width = inputs.parent_size.width;
+                let frame = style
+                    .padding
+                    .resolve_or_zero(parent_width, resolve_calc_value)
+                    + style
+                        .border
+                        .resolve_or_zero(parent_width, resolve_calc_value);
+                let gap = style
+                    .gap
+                    .resolve_or_zero(taffy::Size::NONE, resolve_calc_value);
+                let height = if style.size.height.is_auto() {
+                    0.0
+                } else {
+                    grid_height - frame.vertical_axis_sum() + 2.0 * gap.height
+                };
+                taffy::Size {
+                    width: width - frame.horizontal_axis_sum() + 2.0 * gap.width,
+                    height,
+                }
             };
-            let offset = self.doc.nodes[caption.node_id].relative_offset(basis, false);
+            let is_rtl = self.doc.nodes[caption.node_id]
+                .parent
+                .and_then(|parent| self.doc.nodes[parent].primary_styles())
+                .is_some_and(|style| style.clone_direction() == Direction::Rtl);
+            let offset = self.doc.nodes[caption.node_id].relative_offset(basis, is_rtl);
             layout.location.x = placed.x + offset.x;
             layout.location.y = *edge + placed.margin.top + offset.y;
             layout.size = placed.size;

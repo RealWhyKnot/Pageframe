@@ -342,3 +342,90 @@ fn a_cell_in_a_positioned_row_keeps_its_colour_inside_a_see_through_border() {
         "{red} {green} {blue}"
     );
 }
+
+const SHIFTED: &str = "<td style=\"position:relative;left:3px;top:3px\"><b></b></td>";
+const PLAIN: &str = "<td><b></b></td>";
+
+#[test]
+fn a_shifted_cell_keeps_its_offset_beside_a_collapsed_column() {
+    let buffer = draw(
+        "width:20px;height:14px",
+        &format!(
+            "<table><col><col style=\"visibility:collapse\"><col>\
+             <tr>{SHIFTED}{PLAIN}{PLAIN}</tr></table>"
+        ),
+    );
+    assert_eq!(pixel(&buffer, 3, 3), WHITE);
+    assert_eq!(pixel(&buffer, 5, 5), YELLOW);
+}
+
+#[test]
+fn a_shifted_cell_keeps_its_offset_above_a_collapsed_row() {
+    let buffer = draw(
+        "width:20px;height:14px",
+        &format!(
+            "<table><tr>{SHIFTED}</tr>\
+             <tr style=\"visibility:collapse\">{PLAIN}</tr><tr>{PLAIN}</tr></table>"
+        ),
+    );
+    assert_eq!(pixel(&buffer, 3, 3), WHITE);
+    assert_eq!(pixel(&buffer, 5, 5), YELLOW);
+}
+
+#[test]
+fn a_caption_in_a_right_to_left_table_follows_right_over_left() {
+    let buffer = draw(
+        "width:20px;height:14px",
+        &format!(
+            "<table style=\"direction:rtl;margin-left:20px\">\
+             <caption style=\"position:relative;left:5px;right:10px;height:4px;\
+             background:red\"></caption><tr>{PLAIN}</tr></table>"
+        ),
+    );
+    assert_eq!(pixel(&buffer, 12, 2), RED);
+    assert_eq!(pixel(&buffer, 40, 2), WHITE);
+}
+
+#[test]
+fn a_percent_offset_on_a_cell_uses_the_row_width_only() {
+    let buffer = draw(
+        "width:20px;height:14px",
+        &format!(
+            "<table><tr><td style=\"position:relative;left:50%;top:50%\"><b></b></td>\
+             {PLAIN}</tr><tr>{PLAIN}{PLAIN}</tr></table>"
+        ),
+    );
+    assert_eq!(pixel(&buffer, 10, 10), WHITE);
+    assert_eq!(pixel(&buffer, 30, 10), YELLOW);
+    assert_eq!(pixel(&buffer, 45, 10), BLACK);
+    assert_eq!(pixel(&buffer, 30, 16), BLACK);
+}
+
+#[test]
+fn a_percent_offset_on_a_caption_uses_the_table_content_width() {
+    let buffer = draw(
+        "width:20px;height:14px",
+        &format!(
+            "<table><caption style=\"position:relative;left:50%;top:50%;height:4px;\
+             background:red\"></caption><tr>{PLAIN}</tr></table>"
+        ),
+    );
+    assert_eq!(pixel(&buffer, 10, 2), WHITE);
+    assert_eq!(pixel(&buffer, 11, 2), RED);
+    assert_eq!(pixel(&buffer, 34, 2), RED);
+    assert_eq!(pixel(&buffer, 35, 2), WHITE);
+}
+
+#[test]
+fn a_row_colour_under_a_shifted_cell_stays_inside_its_borders() {
+    let buffer = draw(
+        "width:20px;height:14px",
+        "<table><tr style=\"background:red\">\
+         <td style=\"position:relative;left:3px;top:3px;background:none;padding:3px\">\
+         <b></b></td></tr></table>",
+    );
+    assert_eq!(line(&buffer, 10, &[3, 4, 5]), [WHITE, WHITE, RED]);
+    assert_eq!(pixel(&buffer, 10, 4), WHITE);
+    assert_eq!(pixel(&buffer, 10, 5), RED);
+    assert_eq!(pixel(&buffer, 8, 8), YELLOW);
+}
