@@ -1,4 +1,5 @@
 mod app;
+mod canvas;
 mod error;
 mod event;
 mod net;
@@ -19,6 +20,7 @@ pub mod events {
 }
 
 pub use app::App;
+pub use canvas::{Canvas, Color, LineCap, LineJoin};
 pub use error::Error;
 pub use event::Event;
 pub use events::{EventData, EventKind, Key, NamedKey};

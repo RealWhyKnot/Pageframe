@@ -8,14 +8,17 @@ rust-version = "1.99"
 publish = false
 
 [dependencies]
+anyrender = { workspace = true }
 anyrender_vello = { workspace = true }
 pageframe-dom = { workspace = true, features = ["default", "floats"] }
 pageframe-html = { workspace = true }
-pageframe-paint = { workspace = true, features = ["svg"] }
+pageframe-paint = { workspace = true, features = ["svg", "custom-widget"] }
 pageframe-shell = { workspace = true, features = ["accessibility"] }
 pageframe-traits = { workspace = true }
 data-url = { workspace = true }
 keyboard-types = { workspace = true }
+kurbo = { workspace = true }
+peniko = { workspace = true }
 selectors = { workspace = true }
 style = { workspace = true }
 style_dom = { workspace = true }
@@ -25,7 +28,6 @@ url = { workspace = true }
 winit = { workspace = true }
 
 [dev-dependencies]
-anyrender = { workspace = true }
 anyrender_vello_cpu = { workspace = true }
 pageframe-test-harness = { workspace = true }
 

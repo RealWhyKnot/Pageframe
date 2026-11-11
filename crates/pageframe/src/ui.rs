@@ -2,6 +2,8 @@ use pageframe_dom::{BaseDocument, LocalName, QualName, ns};
 use pageframe_traits::NodeId;
 use style_dom::ElementState;
 
+use crate::canvas::Canvas;
+
 pub struct Ui<'d> {
     doc: &'d mut BaseDocument,
 }
@@ -228,6 +230,32 @@ impl Selection<'_> {
         }
         self.doc.shell_provider.request_redraw();
         self
+    }
+
+    pub fn draw(&mut self, paint: impl Fn(&mut Canvas)) -> &mut Self {
+        for &node in &self.nodes {
+            let Some((width, height)) = self.canvas_size(node) else {
+                continue;
+            };
+            let mut canvas = Canvas::new(width, height);
+            paint(&mut canvas);
+            self.doc
+                .mutate()
+                .set_custom_widget(node, canvas.into_widget());
+        }
+        self.doc.shell_provider.request_redraw();
+        self
+    }
+
+    fn canvas_size(&self, node: NodeId) -> Option<(u32, u32)> {
+        let node = self.doc.get_node(node)?;
+        if *node.element_data()?.name.local != *"canvas" {
+            return None;
+        }
+        Some(Canvas::size_from_attrs(
+            node.attr(LocalName::from("width")),
+            node.attr(LocalName::from("height")),
+        ))
     }
 
     pub fn set_style(&mut self, property: &str, value: &str) -> &mut Self {

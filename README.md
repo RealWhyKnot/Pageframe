@@ -57,7 +57,17 @@ assert_eq!(harness.text_content("#count"), "1");
 
 ## Status
 
-Early, and the API will change. CSS support comes from Blitz. Flexbox, CSS variables, rounded corners, box and text shadows, gradients, `mix-blend-mode`, 2D and 3D transforms including `perspective()`, `text-overflow: ellipsis` and `line-clamp` work. The prefixed `-webkit-line-clamp` isn't parsed yet, and text shadows skip underlines. In my tests multi-column layout and `<select>` didn't render.
+Early, and the API will change. CSS support comes from Blitz. Flexbox, CSS variables, rounded corners, box and text shadows, gradients, `mix-blend-mode`, 2D and 3D transforms including `perspective()`, `text-overflow: ellipsis` and `line-clamp` work. The prefixed `-webkit-line-clamp` isn't parsed yet, and text shadows skip underlines. `<select>` doesn't render yet.
+
+A `<canvas>` is drawn from Rust:
+
+```rust
+ui.select("#chart").draw(|canvas| {
+    canvas.set_fill(Color::rgb(59, 130, 246)).fill_rect(10.0, 10.0, 80.0, 40.0);
+});
+```
+
+Rectangles, paths, arcs, strokes, transforms, clipping and alpha work. Text and images on a canvas don't yet.
 
 `crates/pageframe` is the API apps use. The engine under it is in the other crates in `crates/`, which started as Blitz's packages.
 
