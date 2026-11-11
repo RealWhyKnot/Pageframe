@@ -1869,14 +1869,21 @@ impl TableTreeWrapper<'_, '_> {
                 positions[start].start
             };
             layout.size.width = (positions[end - 1].end - positions[start].start).max(0.0);
-            if layout.size.width > 0.0 {
-                self.doc.compute_child_layout(
+            let mut moved = self
+                .doc
+                .compute_child_layout(
                     crate::taffy_node_id(cell.node_id),
                     taffy::tree::LayoutInput {
                         known_dimensions: layout.size.map(Some),
                         ..*inputs
                     },
-                );
+                )
+                .oof_candidates;
+            moved.translate(layout.location);
+            for candidate in output.oof_candidates.as_mut_slice() {
+                if let Some(fresh) = moved.iter().find(|fresh| fresh.node == candidate.node) {
+                    candidate.static_position = fresh.static_position;
+                }
             }
             self.doc
                 .set_unrounded_layout(crate::taffy_node_id(cell.node_id), &layout);

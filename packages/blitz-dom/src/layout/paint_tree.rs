@@ -321,8 +321,16 @@ impl BaseDocument {
             hoisted_past_parent.sort_by_key(|&(anchor, _)| anchor);
             let mut next_hoisted = 0;
 
-            let is_layer_root =
-                stacking_context.is_none() || self.nodes[node_id].is_paint_layer_root();
+            let in_removed_column = self.nodes[node_id]
+                .layout_parent
+                .get()
+                .and_then(|parent_id| self.nodes[parent_id].element_data())
+                .is_some_and(|element| match &element.special_data {
+                    SpecialElementData::TableRoot(table) => table.column_cell_is_collapsed(node_id),
+                    _ => false,
+                });
+            let is_layer_root = stacking_context.is_none()
+                || (self.nodes[node_id].is_paint_layer_root() && !in_removed_column);
             let keyed_base = self.scratch.keyed_children.len();
 
             for (index, &child_id) in children.iter().enumerate() {
@@ -337,6 +345,9 @@ impl BaseDocument {
                             }
                         });
                     if removed_column {
+                        if !self.nodes[child_id].is_stacking_context_root(is_flex_or_grid) {
+                            self.build_paint_tree_impl(child_id, Some(&mut entries));
+                        }
                         continue;
                     }
                     let is_sc_root = self.nodes[child_id].is_stacking_context_root(is_flex_or_grid);

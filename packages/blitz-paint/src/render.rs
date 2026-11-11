@@ -602,11 +602,18 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             None,
         );
 
-        let paints_own_box = !node.is_inline_with_only_block_children();
         let parent = node
             .layout_parent
             .get()
             .and_then(|parent_id| self.dom.as_ref().tree().get(parent_id));
+        let is_removed_cell =
+            parent
+                .and_then(|parent| parent.element_data())
+                .is_some_and(|element| match &element.special_data {
+                    SpecialElementData::TableRoot(table) => table.cell_is_collapsed(node.id),
+                    _ => false,
+                });
+        let paints_own_box = !node.is_inline_with_only_block_children() && !is_removed_cell;
         let parent_is_flex_or_grid = parent.is_some_and(is_flex_or_grid);
         let is_paint_scope = parent.is_none_or(|parent| parent.flags.is_inline_root())
             || parent_is_flex_or_grid
