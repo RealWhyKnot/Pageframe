@@ -15,7 +15,7 @@ impl BaseDocument {
         self.has_tag(node_id, &local_name!("select"))
     }
 
-    pub fn select_options(&self, select: NodeId) -> Vec<NodeId> {
+    pub(crate) fn select_options(&self, select: NodeId) -> Vec<NodeId> {
         let mut options = Vec::new();
         let Some(node) = self.get_node(select) else {
             return options;
@@ -31,7 +31,7 @@ impl BaseDocument {
         options
     }
 
-    pub fn option_select(&self, option: NodeId) -> Option<NodeId> {
+    pub(crate) fn option_select(&self, option: NodeId) -> Option<NodeId> {
         let parent = self.get_node(option)?.parent?;
         if self.is_select(parent) {
             return Some(parent);
@@ -46,7 +46,7 @@ impl BaseDocument {
             .is_some_and(|element| element.element_state.contains(ElementState::CHECKED))
     }
 
-    pub fn option_is_disabled(&self, option: NodeId) -> bool {
+    pub(crate) fn option_is_disabled(&self, option: NodeId) -> bool {
         let disabled = |id: NodeId| self.nodes[id].attr(local_name!("disabled")).is_some();
         disabled(option)
             || self.nodes[option].parent.is_some_and(|parent| {
@@ -54,7 +54,7 @@ impl BaseDocument {
             })
     }
 
-    pub fn option_value(&self, option: NodeId) -> String {
+    pub(crate) fn option_value(&self, option: NodeId) -> String {
         let node = &self.nodes[option];
         match node.attr(local_name!("value")) {
             Some(value) => value.to_owned(),
@@ -66,13 +66,13 @@ impl BaseDocument {
         }
     }
 
-    pub fn selected_options(&self, select: NodeId) -> Vec<NodeId> {
+    pub(crate) fn selected_options(&self, select: NodeId) -> Vec<NodeId> {
         let mut options = self.select_options(select);
         options.retain(|&option| self.option_is_selected(option));
         options
     }
 
-    pub fn selected_option(&self, select: NodeId) -> Option<NodeId> {
+    pub(crate) fn selected_option(&self, select: NodeId) -> Option<NodeId> {
         self.selected_options(select).first().copied()
     }
 
@@ -97,7 +97,7 @@ impl BaseDocument {
         });
     }
 
-    pub fn set_selected_option(&mut self, select: NodeId, option: NodeId) {
+    pub(crate) fn set_selected_option(&mut self, select: NodeId, option: NodeId) {
         let options = self.select_options(select);
         if !options.contains(&option) {
             return;
@@ -118,15 +118,10 @@ impl BaseDocument {
             .iter()
             .copied()
             .find(|&option| self.option_value(option) == value);
-        match found {
-            Some(option) => {
-                for other in options {
-                    self.set_option_selected(other, other == option);
-                }
-                true
-            }
-            None => false,
+        for other in options {
+            self.set_option_selected(other, Some(other) == found);
         }
+        found.is_some()
     }
 
     pub(crate) fn reset_select(&mut self, select: NodeId) {

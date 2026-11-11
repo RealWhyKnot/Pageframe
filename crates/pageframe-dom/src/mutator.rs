@@ -75,6 +75,8 @@ pub struct DocumentMutator<'doc> {
     style_nodes: HashSet<NodeId>,
     form_nodes: HashSet<NodeId>,
     picked_options: Vec<NodeId>,
+    changed_options: Vec<NodeId>,
+    changed_selects: HashSet<NodeId>,
     selects_changed: bool,
 
     /// Whether an element/attribute that affect animation status has been seen
@@ -110,6 +112,8 @@ impl DocumentMutator<'_> {
             style_nodes: HashSet::new(),
             form_nodes: HashSet::new(),
             picked_options: Vec::new(),
+            changed_options: Vec::new(),
+            changed_selects: HashSet::new(),
             selects_changed: false,
             recompute_is_animating: false,
             mutations_occurred: false,
@@ -1196,12 +1200,31 @@ impl<'doc> DocumentMutator<'doc> {
         }
 
         for option in self.picked_options.drain(..) {
-            if let Some(select) = self.doc.option_select(option) {
+            let picked = self.doc.get_node(option).is_some_and(|node| {
+                node.flags.is_in_document() && node.attr(local_name!("selected")).is_some()
+            });
+            if let Some(select) = self.doc.option_select(option).filter(|_| picked) {
                 self.doc.set_selected_option(select, option);
             }
         }
+        for node in self.changed_options.drain(..) {
+            let parent = self.doc.get_node(node).and_then(|node| node.parent);
+            let owner = self.doc.option_select(node).or(parent);
+            match owner.filter(|&owner| self.doc.is_select(owner)) {
+                Some(select) => {
+                    self.changed_selects.insert(select);
+                }
+                None => self.selects_changed = true,
+            }
+        }
         if std::mem::take(&mut self.selects_changed) {
+            self.changed_selects.clear();
             self.doc.reset_selects();
+        }
+        for select in self.changed_selects.drain() {
+            if self.doc.is_select(select) {
+                self.doc.reset_select(select);
+            }
         }
 
         #[cfg(feature = "autofocus")]
@@ -1288,9 +1311,11 @@ impl<'doc> DocumentMutator<'doc> {
                     self.eager_op_queue
                         .push(SpecialOp::ProcessButtonInput(node_id));
                     self.form_nodes.insert(node_id);
-                    self.selects_changed |= tag == "select";
+                    if tag == "select" {
+                        self.changed_selects.insert(node_id);
+                    }
                 }
-                "option" | "optgroup" => self.selects_changed = true,
+                "option" | "optgroup" => self.changed_options.push(node_id),
                 _ => {}
             }
 

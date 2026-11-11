@@ -43,7 +43,7 @@ fn set_value_picks_the_matching_option() {
     harness.doc.ui().select("#fruit").set_value("a");
     assert_eq!(value(&mut harness, "#fruit").as_deref(), Some("a"));
     harness.doc.ui().select("#fruit").set_value("missing");
-    assert_eq!(value(&mut harness, "#fruit").as_deref(), Some("a"));
+    assert_eq!(value(&mut harness, "#fruit"), None);
     harness.doc.ui().select("#fruit").set_value("Cherry");
     assert_eq!(value(&mut harness, "#fruit").as_deref(), Some("Cherry"));
 }
