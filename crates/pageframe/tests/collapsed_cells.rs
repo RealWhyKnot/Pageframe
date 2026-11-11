@@ -226,3 +226,42 @@ fn an_inline_table_keeps_its_first_row_baseline() {
     ));
     assert_eq!(pixel(&buffer, 40, 13), RED);
 }
+
+const LINE: &str = "<div style=\"font-size:0\"><b></b></div>";
+
+#[test]
+fn an_inline_block_uses_the_line_before_a_table_as_its_baseline() {
+    let buffer = draw(&format!(
+        "<div><span style=\"display:inline-block\">{LINE}<table>{CELLS}</table></span>{MARKER}</div>"
+    ));
+    assert_eq!(pixel(&buffer, 40, 13), RED);
+    assert_eq!(pixel(&buffer, 3, 3), WHITE);
+    assert_eq!(pixel(&buffer, 3, 5), YELLOW);
+}
+
+#[test]
+fn an_inline_block_uses_its_last_line_as_its_baseline() {
+    let buffer = draw(&format!(
+        "<div><span style=\"display:inline-block\">{LINE}<table>{CELLS}</table>{LINE}</span>{MARKER}</div>"
+    ));
+    assert_eq!(pixel(&buffer, 40, 37), RED);
+    assert_eq!(pixel(&buffer, 40, 9), WHITE);
+}
+
+#[test]
+fn an_inline_block_holding_an_inline_table_keeps_its_baseline() {
+    let buffer = draw(&format!(
+        "<div><span style=\"display:inline-block;font-size:0\">\
+         <table style=\"display:inline-table\">{CELLS}{CELLS}</table></span>{MARKER}</div>"
+    ));
+    assert_eq!(pixel(&buffer, 40, 13), RED);
+}
+
+#[test]
+fn an_inline_block_holding_an_inline_block_with_a_table_keeps_its_line() {
+    let buffer = draw(&format!(
+        "<div><span style=\"display:inline-block;font-size:0\">\
+         <span style=\"display:inline-block\"><table>{CELLS}</table></span></span>{MARKER}</div>"
+    ));
+    assert_eq!(pixel(&buffer, 40, 17), RED);
+}

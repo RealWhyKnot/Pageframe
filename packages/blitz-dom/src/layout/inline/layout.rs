@@ -29,6 +29,12 @@ use crate::layout::LayoutPassState;
 use crate::layout::resolve_calc_value;
 use crate::stylo_to_parley;
 
+enum LastBaseline {
+    At(f32),
+    Missing,
+    Unknown,
+}
+
 /// Subtract a child's margins from the definite axes of the available space it is laid out in.
 /// Taffy's convention is that the parent subtracts a child's margins from the available space
 /// before passing it to the child, and that the child does not subtract them again.
@@ -473,39 +479,44 @@ impl LayoutPassState<'_> {
         }
     }
 
-    fn takes_baseline_from_tables_only(&self, box_id: NodeId) -> bool {
-        let mut has_table = false;
-        let mut pending = vec![box_id];
-        while let Some(id) = pending.pop() {
-            let children = self.nodes[id].layout_children.borrow();
-            let Some(children) = children.as_ref() else {
-                continue;
-            };
-            for child_id in children.iter().copied() {
-                let child = &self.nodes[child_id];
-                let style = self.child_layout_style(child);
+    fn last_line_baseline(&self, box_id: NodeId) -> LastBaseline {
+        let mut pending = vec![(box_id, 0.0)];
+        let mut is_box = true;
+        while let Some((id, top)) = pending.pop() {
+            let node = &self.nodes[id];
+            if !std::mem::take(&mut is_box) {
+                let style = self.child_layout_style(node);
                 #[cfg(feature = "floats")]
                 let is_floated = style.float().is_floated();
                 #[cfg(not(feature = "floats"))]
                 let is_floated = false;
-                if is_floated || style.position().is_out_of_flow() {
-                    continue;
-                }
-                if child.flags.is_table_root() {
-                    has_table = true;
+                if is_floated || style.position().is_out_of_flow() || node.flags.is_table_root() {
                     continue;
                 }
                 let is_block = matches!(
                     style.effective_display().inside(),
                     DisplayInside::Flow | DisplayInside::FlowRoot
                 );
-                if child.flags.is_inline_root() || !is_block {
-                    return false;
+                if !is_block {
+                    return LastBaseline::Unknown;
                 }
-                pending.push(child_id);
+            }
+            let top = top + node.unrounded_layout().location.y;
+            if node.flags.is_inline_root() {
+                let baseline = node
+                    .element_data()
+                    .and_then(|element| element.inline_layout_data.as_deref())
+                    .and_then(|layout| layout.last_baseline);
+                if let Some(baseline) = baseline {
+                    return LastBaseline::At(top + baseline);
+                }
+                continue;
+            }
+            if let Some(children) = node.layout_children.borrow().as_ref() {
+                pending.extend(children.iter().map(|child_id| (*child_id, top)));
             }
         }
-        has_table
+        LastBaseline::Missing
     }
 
     /// The out-of-flow positions for which an inline span between the inline box `box_id` and its
@@ -764,8 +775,24 @@ impl LayoutPassState<'_> {
                 || (baseline_source == BaselineSource::Auto && is_block_axis_scroll_container));
             let box_inputs = inline_box_inputs(style.size().width, margin, child_inputs);
             drop(style);
-            let exports_baseline = exports_baseline
-                && !(is_flow && self.takes_baseline_from_tables_only(NodeId::from_u64(ibox.id)));
+            let box_id = NodeId::from_u64(ibox.id);
+            let walks_blocks = is_flow
+                && uses_last_baseline
+                && exports_baseline
+                && !self.nodes[box_id].flags.is_inline_root()
+                && self.nodes[box_id]
+                    .layout_children
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|children| !children.is_empty());
+            let box_inputs = match walks_blocks {
+                true => LayoutInput {
+                    run_mode: RunMode::PerformLayout,
+                    axis: RequestedAxis::Both,
+                    ..box_inputs
+                },
+                false => box_inputs,
+            };
 
             if is_out_of_flow || is_floated {
                 ibox.width = 0.0;
@@ -774,11 +801,20 @@ impl LayoutPassState<'_> {
             } else {
                 let output = self.compute_child_layout(taffy::NodeId::from(ibox.id), box_inputs);
                 ibox.width = (margin.left + margin.right + output.size.width) * scale;
+                let last_baseline = match walks_blocks {
+                    true => self.last_line_baseline(box_id),
+                    false => LastBaseline::Unknown,
+                };
                 ibox.baseline = if exports_baseline {
-                    let baseline = if uses_last_baseline {
-                        output.baselines.last.or(output.baselines.first)
-                    } else {
-                        output.baselines.first.or(output.baselines.last)
+                    let baseline = match last_baseline {
+                        LastBaseline::At(baseline) => {
+                            Some(baseline - self.nodes[box_id].unrounded_layout().location.y)
+                        }
+                        LastBaseline::Missing => None,
+                        LastBaseline::Unknown if uses_last_baseline => {
+                            output.baselines.last.or(output.baselines.first)
+                        }
+                        LastBaseline::Unknown => output.baselines.first.or(output.baselines.last),
                     };
                     baseline.map(|baseline| {
                         let baseline = if is_scroll_container {
@@ -1569,6 +1605,7 @@ impl LayoutPassState<'_> {
             .map(line_baseline);
 
         if inputs.run_mode == RunMode::PerformLayout {
+            inline_layout.last_baseline = last_baseline;
             inline_layout.span_cb_flags = span_cb_flags;
         }
 
