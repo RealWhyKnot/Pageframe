@@ -455,6 +455,56 @@ pub(crate) fn build_table_context(
             .min(u16::try_from(section_rows).unwrap_or(u16::MAX));
         cell.style.grid_row.end = style_helpers::span(cell.row_span);
     }
+    if cells.iter().any(|cell| cell.column_span > 1) {
+        let length = usize::from(cursor.num_columns).max(column_sizes.len());
+        let mut occupied = vec![false; length];
+        for cell in &cells {
+            occupied[usize::from(cell.column)] = true;
+        }
+        for (index, column) in columns.iter().enumerate() {
+            let sized = column_sizes.get(index).is_some_and(|track| {
+                track_length(track).is_some_and(|width| width > 0.0)
+                    || (track.min.into_raw().tag() == taffy::CompactLength::LENGTH_TAG
+                        && track.min.into_raw().value() > 0.0)
+            });
+            let percent = doc.nodes[column.node_id]
+                .primary_styles()
+                .is_some_and(|style| {
+                    let width = stylo_taffy::convert::dimension(style.get_width());
+                    width.tag() == taffy::CompactLength::PERCENT_TAG && width.value() > 0.0
+                });
+            occupied[index] |= sized || percent;
+        }
+        if occupied.iter().any(|&occupied| !occupied) {
+            let mut offsets = Vec::with_capacity(length + 1);
+            offsets.push(0_u16);
+            for &occupied in &occupied {
+                offsets.push(offsets.last().copied().unwrap_or(0) + u16::from(occupied));
+            }
+            for cell in &mut cells {
+                let start = usize::from(cell.column);
+                let end = start + usize::from(cell.column_span);
+                cell.column = offsets[start];
+                cell.column_span = offsets[end] - offsets[start];
+                cell.style.grid_column.end = style_helpers::span(cell.column_span);
+            }
+            cursor.num_columns = offsets[usize::from(cursor.num_columns)];
+            columns = columns
+                .into_iter()
+                .enumerate()
+                .filter_map(|(index, column)| occupied[index].then_some(column))
+                .collect();
+            column_sizes = column_sizes
+                .into_iter()
+                .enumerate()
+                .filter_map(|(index, column)| occupied[index].then_some(column))
+                .collect();
+            for (column, _, _) in &mut percent_columns {
+                *column = offsets[usize::from(*column)];
+            }
+        }
+    }
+
     let remaining_column = if is_fixed {
         style_helpers::minmax(style_helpers::length(0.0), style_helpers::fr(1.0))
     } else {
@@ -630,7 +680,7 @@ pub(crate) fn build_table_context(
     let collapsed_column_cells = cells
         .iter()
         .filter_map(|cell| {
-            (usize::from(cell.column)..usize::from(cell.column + cell.column_span))
+            (usize::from(cell.column)..(usize::from(cell.column) + usize::from(cell.column_span)))
                 .all(|index| columns.get(index).is_some_and(|column| column.is_collapsed))
                 .then_some(cell.node_id)
         })
@@ -641,7 +691,8 @@ pub(crate) fn build_table_context(
             (rows
                 .get(usize::from(cell.row))
                 .is_some_and(|row| row.is_collapsed)
-                || (usize::from(cell.column)..usize::from(cell.column + cell.column_span))
+                || (usize::from(cell.column)
+                    ..(usize::from(cell.column) + usize::from(cell.column_span)))
                     .all(|index| columns.get(index).is_some_and(|column| column.is_collapsed)))
             .then_some(cell.node_id)
         })
@@ -695,7 +746,13 @@ fn collect_columns(
     };
 
     match display.inside() {
-        DisplayInside::TableColumnGroup if !node.children.is_empty() => {
+        DisplayInside::TableColumnGroup
+            if node.children.iter().any(|&child| {
+                doc.nodes[child]
+                    .display_style()
+                    .is_some_and(|display| display.inside() == DisplayInside::TableColumn)
+            }) =>
+        {
             let first_column = columns.len();
             let children = std::mem::take(&mut doc.nodes[node_id].children);
             for child_id in children.iter().copied() {
@@ -1391,15 +1448,13 @@ impl TableTreeWrapper<'_, '_> {
 
         spanning.sort_by_key(|(span, _, _)| span.len());
         for (span, min, max) in spanning {
-            if span.clone().all(|index| fixed[index].is_some()) {
-                continue;
-            }
+            let all_fixed = span.clone().all(|index| fixed[index].is_some());
             let gaps = spacing * (count(span.len()) - 1.0);
             let weights: Vec<f32> = span
                 .clone()
                 .map(|index| match fixed[index] {
-                    Some(_) => 0.0,
-                    None => maxes[index].max(1.0),
+                    Some(_) if !all_fixed => 0.0,
+                    _ => maxes[index].max(1.0),
                 })
                 .collect();
             grow(&mut mins[span.clone()], &weights, min - gaps);
@@ -1692,6 +1747,19 @@ impl TableTreeWrapper<'_, '_> {
         if lines.is_empty() {
             return;
         }
+        let padding = ctx
+            .style
+            .padding
+            .resolve_or_zero(inputs.parent_size.width, resolve_calc_value);
+        let border = ctx
+            .style
+            .border
+            .resolve_or_zero(inputs.parent_size.width, resolve_calc_value);
+        let edge = lines
+            .iter()
+            .map(|line| line.start.max(line.end))
+            .fold(0.0_f32, f32::max);
+        output.size.width = output.size.width.max(edge + padding.right + border.right);
         let rtl = lines.get(1).is_some_and(|line| line.start < lines[0].start);
         if rtl {
             for line in &mut lines {
