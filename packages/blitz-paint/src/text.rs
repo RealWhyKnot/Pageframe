@@ -145,23 +145,34 @@ fn hung_space(
     (width > 0.0).then_some((f64::from(left), f64::from(width)))
 }
 
-fn covers_its_edges(doc: &BaseDocument, owner: NodeId) -> bool {
+fn covers_its_start(doc: &BaseDocument, owner: NodeId, is_rtl: bool) -> bool {
     let Some(styles) = doc.get_node(owner).and_then(|node| node.primary_styles()) else {
         return false;
     };
     let border = styles.get_border();
-    let has_side_border = [
-        (border.border_left_style, &border.border_left_width),
-        (border.border_right_style, &border.border_right_width),
-    ]
-    .iter()
-    .any(|(line, width)| !line.none_or_hidden() && width.0.to_f32_px() > 0.0);
-    let background = styles
-        .get_background()
-        .background_color
-        .resolve_to_absolute(&styles.clone_color())
-        .as_srgb_color();
-    has_side_border || background.components[3] >= 1.0
+    let (line, width, color) = if is_rtl {
+        (
+            border.border_right_style,
+            &border.border_right_width,
+            &border.border_right_color,
+        )
+    } else {
+        (
+            border.border_left_style,
+            &border.border_left_width,
+            &border.border_left_color,
+        )
+    };
+    let current_color = styles.clone_color();
+    let is_opaque = |color: &style::values::computed::Color| {
+        color
+            .resolve_to_absolute(&current_color)
+            .as_srgb_color()
+            .components[3]
+            >= 1.0
+    };
+    let has_border = !line.none_or_hidden() && width.0.to_f32_px() > 0.0 && is_opaque(color);
+    has_border || is_opaque(&styles.get_background().background_color)
 }
 
 fn push_spacer_holes(
@@ -1348,7 +1359,7 @@ pub(crate) fn stroke_text<'a>(
                 let run_text = layout_text
                     .and_then(|text| text.get(run.text_range()))
                     .unwrap_or_default();
-                let snap_origin = covers_its_edges(doc, glyph_run.style().brush.id)
+                let snap_origin = covers_its_start(doc, glyph_run.style().brush.id, run.is_rtl())
                     .then(|| transform.translation().x);
                 push_spacer_holes(&glyph_run, run_text, snap_origin, &mut holes);
                 if !run_text.trim_end_matches(is_end_mark).is_empty() {

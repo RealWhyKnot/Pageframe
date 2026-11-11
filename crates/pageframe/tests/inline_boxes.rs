@@ -434,6 +434,9 @@ fn an_underline_ends_where_a_span_background_starts() {
     };
     assert!(row("none").contains(&6));
     assert!(!row("#fff").contains(&6));
+    assert!(row("none;border-right:1px solid #fff").contains(&6));
+    assert!(!row("none;border-left:1px solid #fff").contains(&6));
+    assert!(row("none;border-left:1px solid #fff8").contains(&6));
 }
 
 #[test]
