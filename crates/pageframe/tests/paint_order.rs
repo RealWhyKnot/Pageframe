@@ -488,7 +488,11 @@ fn a_span_background_has_whole_pixel_edges() {
     let buffer = span("aa");
     let column: Vec<[u8; 4]> = (0..40).map(|y| pixel(&buffer, 4, y)).collect();
     assert!(column.contains(&LIME));
-    assert!(column.iter().all(|colour| *colour == LIME || *colour == WHITE));
+    assert!(
+        column
+            .iter()
+            .all(|colour| *colour == LIME || *colour == WHITE)
+    );
 }
 
 #[test]
@@ -511,7 +515,12 @@ fn a_span_background_has_whole_pixel_edges_at_a_fractional_offset() {
     let column: Vec<[u8; 4]> = (0..40).map(|y| pixel(&buffer, 4, y)).collect();
     let row: Vec<[u8; 4]> = (0..30).map(|x| pixel(&buffer, x, 20)).collect();
     assert!(column.contains(&LIME) && row.contains(&LIME));
-    assert!(column.iter().chain(&row).all(|colour| *colour == LIME || *colour == WHITE));
+    assert!(
+        column
+            .iter()
+            .chain(&row)
+            .all(|colour| *colour == LIME || *colour == WHITE)
+    );
 }
 
 #[test]

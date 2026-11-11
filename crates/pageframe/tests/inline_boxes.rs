@@ -141,7 +141,10 @@ fn a_span_in_right_to_left_text_keeps_both_side_borders() {
 #[test]
 fn a_span_outline_is_painted_outside_its_box() {
     let plain = painted(&boxed_span("margin-left:5px", "aa"), 20);
-    let row = painted(&boxed_span("margin-left:5px;outline:2px solid blue", "aa"), 20);
+    let row = painted(
+        &boxed_span("margin-left:5px;outline:2px solid blue", "aa"),
+        20,
+    );
     let colours: Vec<[u8; 4]> = row.iter().map(|(_, colour)| *colour).collect();
     assert_eq!(row.first().map(|(x, _)| *x), Some(3));
     assert_eq!(row.len(), plain.len() + 4);
@@ -179,7 +182,10 @@ fn a_relative_span_moves_its_text_and_underline() {
         .filter(|x| (0..40).any(|y| pixel(&buffer, *x, y) != WHITE))
         .collect();
     assert_eq!(columns.first(), Some(&20));
-    assert!(columns.len() >= 6, "the glyph and its underline are painted");
+    assert!(
+        columns.len() >= 6,
+        "the glyph and its underline are painted"
+    );
 }
 
 #[test]

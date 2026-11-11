@@ -3,7 +3,8 @@ mod support;
 use pageframe::App;
 use support::{open, pixel, render};
 
-const BASE: &str = "html,body{margin:0;background:white;font:10px/20px monospace;color:transparent}";
+const BASE: &str =
+    "html,body{margin:0;background:white;font:10px/20px monospace;color:transparent}";
 const RED: [u8; 4] = [255, 0, 0, 255];
 const BLUE: [u8; 4] = [0, 0, 255, 255];
 const WHITE: [u8; 4] = [255, 255, 255, 255];
@@ -70,7 +71,10 @@ fn line_gaps(style: &str) -> usize {
         "<div style=\"font-size:32px;line-height:50px;{style}\">aga</div>"
     )));
     assert!(columns.len() > 20, "{style} paints a line");
-    columns.windows(2).filter(|pair| pair[1] != pair[0] + 1).count()
+    columns
+        .windows(2)
+        .filter(|pair| pair[1] != pair[0] + 1)
+        .count()
 }
 
 #[test]

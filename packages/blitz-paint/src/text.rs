@@ -1231,8 +1231,8 @@ pub(crate) fn stroke_text<'a>(
                     holes.push((start, start + f64::from(glyph_run.advance())));
                     continue;
                 }
-                let transform =
-                    transform * Affine::translate(stack.last().map_or(Vec2::ZERO, |entry| entry.shift));
+                let transform = transform
+                    * Affine::translate(stack.last().map_or(Vec2::ZERO, |entry| entry.shift));
 
                 let fill_color = brush_override
                     .unwrap_or_else(|| stack.last().map(|e| e.fill_color).unwrap_or(Color::BLACK));
