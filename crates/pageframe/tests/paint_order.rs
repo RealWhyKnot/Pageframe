@@ -272,3 +272,12 @@ fn a_click_on_the_clipped_part_of_a_raised_child_misses_it() {
     harness.click_at(10.0, 10.0);
     assert_eq!(pixel(&render(&mut harness), 10, 10), [0, 0, 255, 255]);
 }
+
+#[test]
+fn paint_containment_on_an_inline_box_does_not_clip_a_raised_child() {
+    let buffer = draw(
+        "<div><span style=\"contain:paint\"><b style=\"display:inline-block;width:10px;\
+         height:10px;background:red;position:relative;z-index:1;top:30px\"></b></span></div>",
+    );
+    assert_eq!(pixel(&buffer, 5, 35), RED);
+}

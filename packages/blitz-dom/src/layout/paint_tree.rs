@@ -21,7 +21,7 @@ use crate::{BaseDocument, Node};
 use style::properties::generated::longhands::position::computed_value::T as Position;
 use style::selector_parser::RestyleDamage;
 use style::values::computed::Float;
-use style::values::specified::box_::DisplayInside;
+use style::values::specified::box_::{DisplayInside, DisplayOutside};
 use taffy::{Point, Rect};
 
 /// Offset of the hoisted child `child_id` from the border box of its
@@ -554,7 +554,12 @@ impl Node {
 
         let style = self.primary_styles()?;
         let box_style = style.get_box();
-        let contains_paint = box_style.slow_clone_contain().contains(Contain::PAINT);
+        let display = box_style.display;
+        let is_table_part = display.outside() == DisplayOutside::InternalTable
+            && display.inside() != DisplayInside::TableCell;
+        let contains_paint = box_style.slow_clone_contain().contains(Contain::PAINT)
+            && !display.is_inline_flow()
+            && !is_table_part;
         let clips_x = contains_paint || box_style.overflow_x != Overflow::Visible;
         let clips_y = contains_paint || box_style.overflow_y != Overflow::Visible;
         if !clips_x && !clips_y {
