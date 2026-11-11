@@ -1,9 +1,9 @@
 use anyrender::{ImageRenderer as _, PaintScene as _};
-use blitz_dom::util::Color;
-use blitz_dom::{BaseDocument, Document as _};
-use blitz_paint::paint_scene;
 use image::{ImageBuffer, ImageFormat};
 use log::warn;
+use pageframe_dom::util::Color;
+use pageframe_dom::{BaseDocument, Document as _};
+use pageframe_paint::paint_scene;
 use peniko::Fill;
 use peniko::kurbo::Rect;
 use std::fs;
@@ -14,7 +14,7 @@ use std::time::Duration;
 use url::Url;
 
 use super::fuzzy::{FuzzySpec, fuzzy_buffer_diff, parse_fuzzy_metas, tolerance_for_reference};
-use blitz_vibey_script::ScriptDocument;
+use pageframe_script::ScriptDocument;
 
 use super::{
     document_has_scripts, parse_and_resolve_document, pump_net_provider, pump_timers,
@@ -292,7 +292,7 @@ fn wait_for_screenshot_ready(document: &mut ScriptDocument) {
 fn has_reftest_wait(document: &BaseDocument) -> bool {
     document
         .try_root_element()
-        .and_then(|root| root.attr(blitz_dom::local_name!("class")))
+        .and_then(|root| root.attr(pageframe_dom::local_name!("class")))
         .is_some_and(|class| class.split_ascii_whitespace().any(|c| c == "reftest-wait"))
 }
 

@@ -1,8 +1,8 @@
 use anyrender::render_to_buffer;
 use anyrender_vello_cpu::VelloCpuImageRenderer;
-use blitz_paint::paint_scene;
-use blitz_test_harness::Harness;
 use pageframe::{App, Page};
+use pageframe_paint::paint_scene;
+use pageframe_test_harness::Harness;
 
 const WIDTH: u32 = 640;
 const HEIGHT: u32 = 400;
@@ -252,7 +252,11 @@ fn a_container_that_stops_being_a_block_drops_its_columns() {
         .base()
         .query_selector_all("#c")
         .expect("the selector parses")[0];
-    let name = blitz_dom::QualName::new(None, blitz_dom::ns!(), blitz_dom::local_name!("style"));
+    let name = pageframe_dom::QualName::new(
+        None,
+        pageframe_dom::ns!(),
+        pageframe_dom::local_name!("style"),
+    );
     harness
         .base_mut()
         .mutate()

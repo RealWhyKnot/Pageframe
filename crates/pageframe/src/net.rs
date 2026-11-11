@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use blitz_traits::net::{Bytes, NetHandler, NetProvider, Request};
 use data_url::DataUrl;
+use pageframe_traits::net::{Bytes, NetHandler, NetProvider, Request};
 use url::Url;
 
 pub(crate) const EMBEDDED_BASE: &str = "pageframe://app/";

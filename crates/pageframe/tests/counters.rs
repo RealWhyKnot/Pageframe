@@ -1,7 +1,7 @@
 mod support;
 
-use blitz_test_harness::Harness;
 use pageframe::{App, Page};
+use pageframe_test_harness::Harness;
 use support::{open, pixel, render};
 
 const BASE: &str = "html,body{margin:0;background:white;font:10px/16px monospace;color:black}\

@@ -1,12 +1,12 @@
 //! Runner for testharness.js tests: executes the test file's JavaScript (including
-//! the real testharness.js framework) using `blitz-vibey-script`, and collects the
+//! the real testharness.js framework) using `pageframe-script`, and collects the
 //! harness results via a custom `testharnessreport.js`.
 
 use std::path::PathBuf;
 use std::time::Duration;
 
-use blitz_vibey_script::{FetchError, ScriptFetcher};
 use log::{debug, warn};
+use pageframe_script::{FetchError, ScriptFetcher};
 use url::Url;
 
 use super::{SubtestResult, parse_and_resolve_document, pump_timers, run_document_scripts};
@@ -18,7 +18,7 @@ const HARNESS_TIMEOUT: Duration = Duration::from_secs(10);
 /// Custom `testharnessreport.js` served in place of WPT's stock one (which is
 /// designed to be replaced by test runners). It disables the DOM output section
 /// and reports results to the runner via the `__blitz_send_message` native
-/// function provided by blitz-vibey-script.
+/// function provided by pageframe-script.
 ///
 /// The `timeout_multiplier` scales down testharness's internal timeout (10s by
 /// default) so that tests which will never complete (e.g. ones waiting for
@@ -285,9 +285,9 @@ pub(super) fn parse_results(message: &str) -> Option<(i64, Vec<SubtestResult>)> 
 
 #[cfg(test)]
 mod tests {
-    use blitz_dom::DocumentConfig;
-    use blitz_html::HtmlDocument;
-    use blitz_vibey_script::ScriptDocument;
+    use pageframe_dom::DocumentConfig;
+    use pageframe_html::HtmlDocument;
+    use pageframe_script::ScriptDocument;
 
     use super::*;
 

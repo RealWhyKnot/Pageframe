@@ -125,7 +125,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
       - run: mkdir -p "$CLIPPY_CONF_DIR"
       - run: cargo clippy --workspace --exclude pageframe -- -D warnings
-      - run: cargo clippy -p blitz-dom --no-default-features --features svg,woff,accessibility,system-fonts,file-input,custom-widget --all-targets -- -D warnings
+      - run: cargo clippy -p pageframe-dom --no-default-features --features svg,woff,accessibility,system-fonts,file-input,custom-widget --all-targets -- -D warnings
 
   ci-scripts:
     name: "Test CI scripts"

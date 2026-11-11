@@ -1,6 +1,6 @@
-use blitz_traits::NodeId;
-use blitz_traits::events::EventState;
 use keyboard_types::Key;
+use pageframe_traits::NodeId;
+use pageframe_traits::events::EventState;
 
 use crate::events::{EventData, EventKind};
 

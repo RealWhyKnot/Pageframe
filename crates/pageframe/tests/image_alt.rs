@@ -139,7 +139,11 @@ fn changing_and_removing_alt_rebuilds_the_fallback() {
         .base()
         .query_selector_all("#image")
         .expect("the selector parses")[0];
-    let name = blitz_dom::QualName::new(None, blitz_dom::ns!(), blitz_dom::local_name!("alt"));
+    let name = pageframe_dom::QualName::new(
+        None,
+        pageframe_dom::ns!(),
+        pageframe_dom::local_name!("alt"),
+    );
     harness
         .base_mut()
         .mutate()
@@ -256,7 +260,7 @@ fn alt_text_grows_with_the_viewport_scale() {
     let scheme = harness.base().get_viewport().color_scheme;
     harness
         .base_mut()
-        .set_viewport(blitz_traits::shell::Viewport::new(
+        .set_viewport(pageframe_traits::shell::Viewport::new(
             support::WIDTH * 2,
             support::HEIGHT * 2,
             2.0,
@@ -269,7 +273,7 @@ fn alt_text_grows_with_the_viewport_scale() {
         _,
     >(
         |scene| {
-            blitz_paint::paint_scene(
+            pageframe_paint::paint_scene(
                 scene,
                 &mut doc,
                 2.0,
@@ -323,7 +327,11 @@ fn changing_and_removing_the_source_swaps_image_and_fallback() {
         .base()
         .query_selector_all("#image")
         .expect("the selector parses")[0];
-    let name = blitz_dom::QualName::new(None, blitz_dom::ns!(), blitz_dom::local_name!("src"));
+    let name = pageframe_dom::QualName::new(
+        None,
+        pageframe_dom::ns!(),
+        pageframe_dom::local_name!("src"),
+    );
     let mut sizes = Vec::new();
     for step in 0..3 {
         match step {

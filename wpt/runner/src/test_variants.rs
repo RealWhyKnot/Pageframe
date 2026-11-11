@@ -255,9 +255,9 @@ mod tests {
 
     #[test]
     fn script_location_uses_wrapper_url_and_variant() {
-        let mut doc = blitz_vibey_script::ScriptDocument::from_html(
+        let mut doc = pageframe_script::ScriptDocument::from_html(
             "",
-            blitz_dom::DocumentConfig {
+            pageframe_dom::DocumentConfig {
                 base_url: Some(format!(
                     "http://dummy.local/{}",
                     test_url("dom/test.any.js", "?a=1&b=2#part")

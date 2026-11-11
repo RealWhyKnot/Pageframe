@@ -1,6 +1,6 @@
-use blitz_test_harness::Harness;
 use pageframe::events::{MouseEventButton, PointerEvent};
 use pageframe::{App, Error, EventData, EventKind, Page};
+use pageframe_test_harness::Harness;
 
 const COUNTER: &str = r#"<html><body>
 <button id="inc"><span id="label">Add</span></button>

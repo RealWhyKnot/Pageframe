@@ -1,8 +1,8 @@
 
 flowchart TB
 
-    blitz-paint[**blitz-paint**] --> anyrender
-    blitz-paint --> blitz-dom
+    pageframe-paint[**pageframe-paint**] --> anyrender
+    pageframe-paint --> pageframe-dom
 
     anyrender[**AnyRender**
     vello_cpu
@@ -19,9 +19,9 @@ flowchart TB
     %% vello --> wgpu
     %% vello_hybrid --> wgpu
 
-    blitz-html --> blitz-dom
+    pageframe-html --> pageframe-dom
 
-    blitz-dom["`**Blitz DOM**
+    pageframe-dom["`**Blitz DOM**
     stylo (css)
     taffy (box layout)
     parley (text layout)
@@ -29,40 +29,40 @@ flowchart TB
     Accessibility
     `"]
 
-    %% blitz-net --> blitz-traits
-    %% blitz-html --> blitz-traits
-    %% blitz-shell --> blitz-traits
-    blitz-dom --> blitz-traits
-    blitz-dom --> stylo
-    blitz-dom --> taffy
-    blitz-dom --> parley
-    blitz-dom --> accesskit
-    %% blitz-dom -.-> anyrender
+    %% blitz-net --> pageframe-traits
+    %% pageframe-html --> pageframe-traits
+    %% pageframe-shell --> pageframe-traits
+    pageframe-dom --> pageframe-traits
+    pageframe-dom --> stylo
+    pageframe-dom --> taffy
+    pageframe-dom --> parley
+    pageframe-dom --> accesskit
+    %% pageframe-dom -.-> anyrender
 
     dioxus-native["`**Dioxus Native**
     `"]
 
-    dioxus-native --> blitz-paint[**blitz-paint**
+    dioxus-native --> pageframe-paint[**pageframe-paint**
     AnyRender]
-    dioxus-native --> blitz-shell[**blitz-shell**
+    dioxus-native --> pageframe-shell[**pageframe-shell**
     Winit]
     dioxus-native --> dioxus-native-dom[**dioxus-native-dom**]
     dioxus-native --> blitz-net[**blitz-net**
     Reqwest/Hyper]
-    dioxus-native --> blitz-html[**blitz-html**
+    dioxus-native --> pageframe-html[**pageframe-html**
     html5ever]
 
-        dioxus-native-dom --> blitz-dom
+        dioxus-native-dom --> pageframe-dom
 
-    blitz-shell --> blitz-dom
+    pageframe-shell --> pageframe-dom
 
     %% Styles
 
-    %% style blitz-paint fill:#0097B2,color:#FFFFFF
-    %% style blitz-html color:#FFFFFF,fill:#0097B2
-    %% style blitz-shell color:#FFFFFF,fill:#0097B2
+    %% style pageframe-paint fill:#0097B2,color:#FFFFFF
+    %% style pageframe-html color:#FFFFFF,fill:#0097B2
+    %% style pageframe-shell color:#FFFFFF,fill:#0097B2
     %% style blitz-net color:#FFFFFF,fill:#0097B2
-    %% style blitz-dom fill:#0097B2,color:#FFFFFF
+    %% style pageframe-dom fill:#0097B2,color:#FFFFFF
     %% style anyrender fill:#5CE1E6
     %% style taffy color:#000000,fill:#5CE1E6
     %% style parley fill:#5CE1E6
@@ -70,5 +70,5 @@ flowchart TB
     %% style dioxus-native-dom fill:#00BF63,color:#FFFFFF
     %% style stylo color:#FFFFFF,fill:#FF5757
     %% style wgpu fill:#FF5757,color:#FFFFFF
-    %% style blitz-traits color:#FFFFFF,fill:#0097B2
+    %% style pageframe-traits color:#FFFFFF,fill:#0097B2
     %% style accesskit color:#FFFFFF,fill:#545454

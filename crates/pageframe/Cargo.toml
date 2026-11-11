@@ -9,11 +9,11 @@ publish = false
 
 [dependencies]
 anyrender_vello = { workspace = true }
-blitz-dom = { workspace = true, features = ["default", "floats"] }
-blitz-html = { workspace = true }
-blitz-paint = { workspace = true, features = ["svg"] }
-blitz-shell = { workspace = true, features = ["accessibility"] }
-blitz-traits = { workspace = true }
+pageframe-dom = { workspace = true, features = ["default", "floats"] }
+pageframe-html = { workspace = true }
+pageframe-paint = { workspace = true, features = ["svg"] }
+pageframe-shell = { workspace = true, features = ["accessibility"] }
+pageframe-traits = { workspace = true }
 data-url = { workspace = true }
 keyboard-types = { workspace = true }
 selectors = { workspace = true }
@@ -27,7 +27,7 @@ winit = { workspace = true }
 [dev-dependencies]
 anyrender = { workspace = true }
 anyrender_vello_cpu = { workspace = true }
-blitz-test-harness = { workspace = true }
+pageframe-test-harness = { workspace = true }
 
 [lints]
 workspace = true

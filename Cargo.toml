@@ -1,20 +1,20 @@
 [workspace]
 members = [
-    "packages/accesskit_xplat",
-    "packages/debug_timer",
-    "packages/blitz-traits",
-    "packages/blitz-dom",
-    "packages/blitz-html",
-    "packages/blitz-paint",
-    "packages/blitz-vibey-script",
-    "packages/blitz-shell",
-    "packages/blitz-vibey-cdp-server",
-    "packages/stylo_taffy",
-    "packages/dioxus-native-dom",
-    "packages/blitz-test-harness",
+    "crates/accesskit_xplat",
+    "crates/debug_timer",
+    "crates/pageframe-traits",
+    "crates/pageframe-dom",
+    "crates/pageframe-html",
+    "crates/pageframe-paint",
+    "crates/pageframe-script",
+    "crates/pageframe-shell",
+    "crates/pageframe-devtools",
+    "crates/stylo_taffy",
+    "crates/dioxus-native-dom",
+    "crates/pageframe-test-harness",
     "crates/pageframe",
     "wpt/runner",
-    "tests/blitz-tests",
+    "tests/pageframe-tests",
 ]
 default-members = ["crates/pageframe"]
 exclude = ["sites", "vendor"]
@@ -31,18 +31,18 @@ rust-version = "1.91.0"
 
 [workspace.dependencies]
 # Blitz dependencies(in-repo)
-blitz-dom = { version = "=0.3.0-beta.4", path = "./packages/blitz-dom", default-features = false }
-blitz-html = { version = "=0.3.0-beta.4", path = "./packages/blitz-html", default-features = false }
-blitz-paint = { version = "=0.3.0-beta.4", path = "./packages/blitz-paint", default-features = false }
-blitz-vibey-script = { version = "=0.3.0-beta.4", path = "./packages/blitz-vibey-script", default-features = false }
-blitz-shell = { version = "=0.3.0-beta.4", path = "./packages/blitz-shell", default-features = false }
-blitz-vibey-cdp-server = { version = "=0.3.0-beta.4", path = "./packages/blitz-vibey-cdp-server", default-features = false }
-blitz-traits = { version = "=0.3.0-beta.4", path = "./packages/blitz-traits", default-features = false }
-stylo_taffy = { version = "=0.3.0-beta.4", path = "./packages/stylo_taffy", default-features = false }
-dioxus-native-dom = { version = "0.7.0", path = "./packages/dioxus-native-dom", default-features = false }
-debug_timer = { version = "0.1.2", path = "./packages/debug_timer" }
-accesskit_xplat = { version = "0.2", path = "./packages/accesskit_xplat", default-features = false }
-blitz-test-harness = { path = "./packages/blitz-test-harness" }
+pageframe-dom = { version = "=0.3.0-beta.4", path = "./crates/pageframe-dom", default-features = false }
+pageframe-html = { version = "=0.3.0-beta.4", path = "./crates/pageframe-html", default-features = false }
+pageframe-paint = { version = "=0.3.0-beta.4", path = "./crates/pageframe-paint", default-features = false }
+pageframe-script = { version = "=0.3.0-beta.4", path = "./crates/pageframe-script", default-features = false }
+pageframe-shell = { version = "=0.3.0-beta.4", path = "./crates/pageframe-shell", default-features = false }
+pageframe-devtools = { version = "=0.3.0-beta.4", path = "./crates/pageframe-devtools", default-features = false }
+pageframe-traits = { version = "=0.3.0-beta.4", path = "./crates/pageframe-traits", default-features = false }
+stylo_taffy = { version = "=0.3.0-beta.4", path = "./crates/stylo_taffy", default-features = false }
+dioxus-native-dom = { version = "0.7.0", path = "./crates/dioxus-native-dom", default-features = false }
+debug_timer = { version = "0.1.2", path = "./crates/debug_timer" }
+accesskit_xplat = { version = "0.2", path = "./crates/accesskit_xplat", default-features = false }
+pageframe-test-harness = { path = "./crates/pageframe-test-harness" }
 pageframe = { path = "./crates/pageframe" }
 thiserror = "2"
 

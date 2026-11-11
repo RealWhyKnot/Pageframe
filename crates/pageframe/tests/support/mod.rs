@@ -1,8 +1,8 @@
 use anyrender::render_to_buffer;
 use anyrender_vello_cpu::VelloCpuImageRenderer;
-use blitz_paint::paint_scene;
-use blitz_test_harness::Harness;
 use pageframe::{App, Page};
+use pageframe_paint::paint_scene;
+use pageframe_test_harness::Harness;
 
 pub(crate) const WIDTH: u32 = 120;
 pub(crate) const HEIGHT: u32 = 80;

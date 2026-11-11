@@ -3,10 +3,10 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyrender_vello::VelloWindowRenderer;
-use blitz_dom::{DocumentConfig, LocalName, QualName, UserAgentStylesheet, ns};
-use blitz_html::{HtmlDocument, HtmlProvider};
-use blitz_shell::{BlitzApplication, BlitzShellProxy, WindowConfig, create_default_event_loop};
-use blitz_traits::shell::{ColorScheme, Viewport};
+use pageframe_dom::{DocumentConfig, LocalName, QualName, UserAgentStylesheet, ns};
+use pageframe_html::{HtmlDocument, HtmlProvider};
+use pageframe_shell::{BlitzApplication, BlitzShellProxy, WindowConfig, create_default_event_loop};
+use pageframe_traits::shell::{ColorScheme, Viewport};
 use url::Url;
 use winit::dpi::LogicalSize;
 use winit::window::WindowAttributes;

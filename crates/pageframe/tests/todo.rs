@@ -1,8 +1,8 @@
 #[path = "../examples/todo/app.rs"]
 mod todo;
 
-use blitz_test_harness::Harness;
 use pageframe::Page;
+use pageframe_test_harness::Harness;
 use todo::{MAX_TITLE, Todos};
 
 fn open() -> Harness<Page<Todos>> {

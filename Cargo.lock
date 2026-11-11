@@ -592,205 +592,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "blitz-dom"
-version = "0.3.0-beta.4"
-dependencies = [
- "accesskit",
- "anyrender",
- "app_units",
- "atomic_refcell",
- "bitflags 2.13.2",
- "blitz-traits",
- "color",
- "cssparser",
- "cursor-icon",
- "debug_timer 0.1.3",
- "euclid",
- "html-escape",
- "icu_casemap",
- "icu_locale_core",
- "icu_properties",
- "icu_segmenter",
- "image",
- "keyboard-types",
- "kurbo",
- "linebender_resource_handle",
- "markup5ever",
- "objc2 0.6.5",
- "parley",
- "percent-encoding",
- "rayon",
- "selectors",
- "skrifa",
- "slotmap",
- "smallvec",
- "stylo",
- "stylo_dom",
- "stylo_static_prefs",
- "stylo_taffy",
- "stylo_traits",
- "svgtypes",
- "taffy",
- "thin-vec",
- "thread_local",
- "tracing",
- "url",
- "usvg",
- "web-time",
- "writeable",
- "wuff",
-]
-
-[[package]]
-name = "blitz-html"
-version = "0.3.0-beta.4"
-dependencies = [
- "blitz-dom",
- "blitz-traits",
- "html5ever",
- "tracing",
- "xml5ever",
-]
-
-[[package]]
-name = "blitz-paint"
-version = "0.3.0-beta.4"
-dependencies = [
- "anyrender",
- "anyrender_svg",
- "anyrender_vello_cpu",
- "blitz-dom",
- "blitz-traits",
- "bytemuck",
- "color",
- "euclid",
- "kurbo",
- "num-traits",
- "parley",
- "peniko",
- "skrifa",
- "smallvec",
- "stylo",
- "taffy",
- "tracing",
- "usvg",
-]
-
-[[package]]
-name = "blitz-shell"
-version = "0.3.0-beta.4"
-dependencies = [
- "accesskit",
- "accesskit_xplat",
- "android-activity",
- "anyrender",
- "atomic_refcell",
- "blitz-dom",
- "blitz-paint",
- "blitz-traits",
- "blitz-vibey-cdp-server",
- "data-url",
- "futures-util",
- "keyboard-types",
- "rfd",
- "tracing",
- "wasm-bindgen",
- "web-sys",
- "web-time",
- "webbrowser",
- "winit",
-]
-
-[[package]]
-name = "blitz-test-harness"
-version = "0.3.0-beta.4"
-dependencies = [
- "blitz-dom",
- "blitz-html",
- "blitz-traits",
- "dioxus-core",
- "dioxus-native-dom",
- "keyboard-types",
- "smol_str",
-]
-
-[[package]]
-name = "blitz-tests"
-version = "0.3.0-beta.4"
-dependencies = [
- "accesskit",
- "anyrender",
- "anyrender_vello_cpu",
- "blitz-dom",
- "blitz-html",
- "blitz-paint",
- "blitz-test-harness",
- "blitz-traits",
- "cursor-icon",
- "dioxus",
- "dioxus-core",
- "dioxus-native-dom",
- "keyboard-types",
- "markup5ever",
- "stylo",
- "taffy",
- "test-that",
- "usvg",
-]
-
-[[package]]
-name = "blitz-traits"
-version = "0.3.0-beta.4"
-dependencies = [
- "atomic_refcell",
- "bitflags 2.13.2",
- "bytes",
- "cursor-icon",
- "http",
- "keyboard-types",
- "serde",
- "smol_str",
- "url",
-]
-
-[[package]]
-name = "blitz-vibey-cdp-server"
-version = "0.3.0-beta.4"
-dependencies = [
- "blitz-chrome-devtools-frontend",
- "blitz-dom",
- "blitz-html",
- "blitz-traits",
- "cssparser",
- "serde",
- "serde_json",
- "stylo",
- "tracing",
- "tungstenite 0.30.0",
-]
-
-[[package]]
-name = "blitz-vibey-script"
-version = "0.3.0-beta.4"
-dependencies = [
- "blitz-dom",
- "blitz-html",
- "blitz-traits",
- "boa_engine",
- "boa_gc",
- "boa_runtime",
- "data-url",
- "icu_properties",
- "keyboard-types",
- "log",
- "markup5ever",
- "stylo",
- "tracing",
- "url",
- "web-time",
-]
-
-[[package]]
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1882,13 +1683,13 @@ dependencies = [
 name = "dioxus-native-dom"
 version = "0.7.0"
 dependencies = [
- "blitz-dom",
- "blitz-traits",
  "dioxus",
  "dioxus-core",
  "dioxus-html",
  "futures-util",
  "keyboard-types",
+ "pageframe-dom",
+ "pageframe-traits",
  "tracing",
 ]
 
@@ -4079,14 +3880,14 @@ dependencies = [
  "anyrender",
  "anyrender_vello",
  "anyrender_vello_cpu",
- "blitz-dom",
- "blitz-html",
- "blitz-paint",
- "blitz-shell",
- "blitz-test-harness",
- "blitz-traits",
  "data-url",
  "keyboard-types",
+ "pageframe-dom",
+ "pageframe-html",
+ "pageframe-paint",
+ "pageframe-shell",
+ "pageframe-test-harness",
+ "pageframe-traits",
  "selectors",
  "stylo",
  "stylo_dom",
@@ -4094,6 +3895,205 @@ dependencies = [
  "tracing",
  "url",
  "winit",
+]
+
+[[package]]
+name = "pageframe-devtools"
+version = "0.3.0-beta.4"
+dependencies = [
+ "blitz-chrome-devtools-frontend",
+ "cssparser",
+ "pageframe-dom",
+ "pageframe-html",
+ "pageframe-traits",
+ "serde",
+ "serde_json",
+ "stylo",
+ "tracing",
+ "tungstenite 0.30.0",
+]
+
+[[package]]
+name = "pageframe-dom"
+version = "0.3.0-beta.4"
+dependencies = [
+ "accesskit",
+ "anyrender",
+ "app_units",
+ "atomic_refcell",
+ "bitflags 2.13.2",
+ "color",
+ "cssparser",
+ "cursor-icon",
+ "debug_timer 0.1.3",
+ "euclid",
+ "html-escape",
+ "icu_casemap",
+ "icu_locale_core",
+ "icu_properties",
+ "icu_segmenter",
+ "image",
+ "keyboard-types",
+ "kurbo",
+ "linebender_resource_handle",
+ "markup5ever",
+ "objc2 0.6.5",
+ "pageframe-traits",
+ "parley",
+ "percent-encoding",
+ "rayon",
+ "selectors",
+ "skrifa",
+ "slotmap",
+ "smallvec",
+ "stylo",
+ "stylo_dom",
+ "stylo_static_prefs",
+ "stylo_taffy",
+ "stylo_traits",
+ "svgtypes",
+ "taffy",
+ "thin-vec",
+ "thread_local",
+ "tracing",
+ "url",
+ "usvg",
+ "web-time",
+ "writeable",
+ "wuff",
+]
+
+[[package]]
+name = "pageframe-html"
+version = "0.3.0-beta.4"
+dependencies = [
+ "html5ever",
+ "pageframe-dom",
+ "pageframe-traits",
+ "tracing",
+ "xml5ever",
+]
+
+[[package]]
+name = "pageframe-paint"
+version = "0.3.0-beta.4"
+dependencies = [
+ "anyrender",
+ "anyrender_svg",
+ "anyrender_vello_cpu",
+ "bytemuck",
+ "color",
+ "euclid",
+ "kurbo",
+ "num-traits",
+ "pageframe-dom",
+ "pageframe-traits",
+ "parley",
+ "peniko",
+ "skrifa",
+ "smallvec",
+ "stylo",
+ "taffy",
+ "tracing",
+ "usvg",
+]
+
+[[package]]
+name = "pageframe-script"
+version = "0.3.0-beta.4"
+dependencies = [
+ "boa_engine",
+ "boa_gc",
+ "boa_runtime",
+ "data-url",
+ "icu_properties",
+ "keyboard-types",
+ "log",
+ "markup5ever",
+ "pageframe-dom",
+ "pageframe-html",
+ "pageframe-traits",
+ "stylo",
+ "tracing",
+ "url",
+ "web-time",
+]
+
+[[package]]
+name = "pageframe-shell"
+version = "0.3.0-beta.4"
+dependencies = [
+ "accesskit",
+ "accesskit_xplat",
+ "android-activity",
+ "anyrender",
+ "atomic_refcell",
+ "data-url",
+ "futures-util",
+ "keyboard-types",
+ "pageframe-devtools",
+ "pageframe-dom",
+ "pageframe-paint",
+ "pageframe-traits",
+ "rfd",
+ "tracing",
+ "wasm-bindgen",
+ "web-sys",
+ "web-time",
+ "webbrowser",
+ "winit",
+]
+
+[[package]]
+name = "pageframe-test-harness"
+version = "0.3.0-beta.4"
+dependencies = [
+ "dioxus-core",
+ "dioxus-native-dom",
+ "keyboard-types",
+ "pageframe-dom",
+ "pageframe-html",
+ "pageframe-traits",
+ "smol_str",
+]
+
+[[package]]
+name = "pageframe-tests"
+version = "0.3.0-beta.4"
+dependencies = [
+ "accesskit",
+ "anyrender",
+ "anyrender_vello_cpu",
+ "cursor-icon",
+ "dioxus",
+ "dioxus-core",
+ "dioxus-native-dom",
+ "keyboard-types",
+ "markup5ever",
+ "pageframe-dom",
+ "pageframe-html",
+ "pageframe-paint",
+ "pageframe-test-harness",
+ "pageframe-traits",
+ "stylo",
+ "taffy",
+ "test-that",
+ "usvg",
+]
+
+[[package]]
+name = "pageframe-traits"
+version = "0.3.0-beta.4"
+dependencies = [
+ "atomic_refcell",
+ "bitflags 2.13.2",
+ "bytes",
+ "cursor-icon",
+ "http",
+ "keyboard-types",
+ "serde",
+ "smol_str",
+ "url",
 ]
 
 [[package]]
@@ -7204,11 +7204,6 @@ dependencies = [
  "anyrender_vello_cpu",
  "atomic_float",
  "bitflags 2.13.2",
- "blitz-dom",
- "blitz-html",
- "blitz-paint",
- "blitz-traits",
- "blitz-vibey-script",
  "data-url",
  "dify",
  "env_logger",
@@ -7221,6 +7216,11 @@ dependencies = [
  "mimalloc",
  "os_info",
  "owo-colors",
+ "pageframe-dom",
+ "pageframe-html",
+ "pageframe-paint",
+ "pageframe-script",
+ "pageframe-traits",
  "parley",
  "peniko",
  "png 0.17.16",

@@ -45,7 +45,7 @@ In a handler, `ui.select(selector)` returns the matching elements. Read them wit
 
 ## Testing
 
-`app.page(width, height)` builds the page without opening a window. Wrap it in `blitz-test-harness` to click, type and check layout:
+`app.page(width, height)` builds the page without opening a window. Wrap it in `pageframe-test-harness` to click, type and check layout:
 
 ```rust
 let mut harness = Harness::wrap(app.page(400, 300).expect("selectors are valid"));

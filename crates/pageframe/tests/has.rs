@@ -1,7 +1,7 @@
 mod support;
 
-use blitz_test_harness::Harness;
 use pageframe::{App, Page};
+use pageframe_test_harness::Harness;
 use support::{open, pixel, render};
 
 const RED: [u8; 3] = [255, 0, 0];

@@ -91,7 +91,7 @@ into an application's files can make those files subject to MPL. See
   describe system libraries, code downloaded by build scripts (for example the
   optional Skia backend), fonts, or application content.
 - The bundled Mozilla bullet font is outside the Cargo license check, as are the
-  MPL-licensed stylesheets in `blitz-dom/assets`. Preserve font notices and verify
+  MPL-licensed stylesheets in `pageframe-dom/assets`. Preserve font notices and verify
   provenance/licensing for redistributed font assets before release. The bundled
   bullet font identifies Mozilla and Mats Palmgren but does not embed a license
   notice. Mozilla's

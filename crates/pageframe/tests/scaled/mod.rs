@@ -1,10 +1,10 @@
 use crate::support::{HEIGHT, WIDTH};
 use anyrender::render_to_buffer;
 use anyrender_vello_cpu::VelloCpuImageRenderer;
-use blitz_paint::paint_scene;
-use blitz_test_harness::Harness;
-use blitz_traits::shell::Viewport;
 use pageframe::Page;
+use pageframe_paint::paint_scene;
+use pageframe_test_harness::Harness;
+use pageframe_traits::shell::Viewport;
 
 pub(crate) fn render_at_scale<S: 'static>(harness: &mut Harness<Page<S>>, scale: u16) -> Vec<u8> {
     let (width, height) = (WIDTH * u32::from(scale), HEIGHT * u32::from(scale));

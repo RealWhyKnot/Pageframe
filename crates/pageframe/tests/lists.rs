@@ -1,7 +1,7 @@
 mod support;
 
-use blitz_test_harness::Harness;
 use pageframe::{App, Page};
+use pageframe_test_harness::Harness;
 use support::{HEIGHT, WIDTH, open, pixel, render};
 
 const OUTSIDE_GAP: usize = 7;

@@ -1,5 +1,5 @@
-use blitz_dom::{BaseDocument, LocalName, QualName, ns};
-use blitz_traits::NodeId;
+use pageframe_dom::{BaseDocument, LocalName, QualName, ns};
+use pageframe_traits::NodeId;
 use style_dom::ElementState;
 
 pub struct Ui<'d> {
@@ -129,12 +129,12 @@ impl Selection<'_> {
         self.nodes.is_empty()
     }
 
-    fn first(&self) -> Option<&blitz_dom::Node> {
+    fn first(&self) -> Option<&pageframe_dom::Node> {
         self.doc.get_node(*self.nodes.first()?)
     }
 
     pub fn text(&self) -> Option<String> {
-        self.first().map(blitz_dom::Node::text_content)
+        self.first().map(pageframe_dom::Node::text_content)
     }
 
     pub fn attr(&self, name: &str) -> Option<String> {

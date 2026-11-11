@@ -1,7 +1,7 @@
-use blitz_dom::{DocGuard, DocGuardMut, Document, EventDriver, EventHandler};
-use blitz_html::HtmlDocument;
-use blitz_traits::NodeId;
-use blitz_traits::events::{DomEvent, EventState, UiEvent};
+use pageframe_dom::{DocGuard, DocGuardMut, Document, EventDriver, EventHandler};
+use pageframe_html::HtmlDocument;
+use pageframe_traits::NodeId;
+use pageframe_traits::events::{DomEvent, EventState, UiEvent};
 use selectors::SelectorList;
 use style::selector_parser::SelectorImpl;
 

@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use anyrender::{ImageRenderer as _, PaintScene as _};
-use blitz_dom::util::Color;
-use blitz_dom::{BaseDocument, Document as _};
-use blitz_paint::paint_scene;
+use pageframe_dom::util::Color;
+use pageframe_dom::{BaseDocument, Document as _};
+use pageframe_paint::paint_scene;
 use peniko::Fill;
 use peniko::kurbo::Rect;
 
