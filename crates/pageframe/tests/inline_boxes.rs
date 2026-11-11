@@ -212,3 +212,20 @@ fn a_faded_span_without_a_box_fades_its_text() {
     assert_eq!(darkest(""), Some(0));
     assert!(darkest("opacity:.5").is_some_and(|value| (126..=129).contains(&value)));
 }
+
+#[test]
+fn an_underline_fades_under_a_faded_child_only() {
+    let buffer = draw(
+        "<div style=\"line-height:40px;text-decoration:underline\">\
+         aa<span style=\"opacity:.5\">aa</span>aa</div>",
+    );
+    let row = (0..40)
+        .rev()
+        .find(|y| painted(&buffer, *y).len() >= 30)
+        .expect("the underline is painted");
+    let line = painted(&buffer, row);
+    let right = line.last().map_or(0, |(x, _)| *x);
+    assert_eq!(pixel(&buffer, 2, row), [0, 0, 0, 255]);
+    assert_eq!(pixel(&buffer, right - 2, row), [0, 0, 0, 255]);
+    assert!((126..=129).contains(&pixel(&buffer, right / 2, row)[0]));
+}

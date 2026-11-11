@@ -857,6 +857,7 @@ struct LineInk<'a, 'l> {
     line: &'a Line<'l, TextBrush>,
     cut: Option<LineCut>,
     cache: &'a mut ink::InkCache,
+    holes: SmallVec<[(f64, f64); 2]>,
 }
 
 impl LineInk<'_, '_> {
@@ -867,7 +868,7 @@ impl LineInk<'_, '_> {
         top: f64,
         thickness: f64,
     ) -> Vec<(f64, f64)> {
-        let mut skips = Vec::new();
+        let mut skips = self.holes.to_vec();
         if !decoration.deco.skips_ink {
             return skips;
         }
@@ -1118,7 +1119,7 @@ fn flush_line_decorations(
                 deco.style,
                 inset_start,
                 inset_end,
-                &[],
+                &ink.holes,
             );
         }
     }
@@ -1176,6 +1177,7 @@ pub(crate) fn stroke_text<'a>(
         // draws one decoration per box rather than one stepped segment per differently-sized
         // run. Clearing preserves the allocation for the next line and inline context.
         deco_boxes.clear();
+        let mut holes: SmallVec<[(f64, f64); 2]> = SmallVec::new();
 
         for (item_index, item) in line.items().enumerate() {
             if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
@@ -1225,6 +1227,8 @@ pub(crate) fn stroke_text<'a>(
                     stack.push(entry);
                 }
                 if stack.last().and_then(|entry| entry.group) != group {
+                    let start = f64::from(glyph_run.offset());
+                    holes.push((start, start + f64::from(glyph_run.advance())));
                     continue;
                 }
                 let transform =
@@ -1426,6 +1430,7 @@ pub(crate) fn stroke_text<'a>(
             }
         }
 
+        holes.sort_by(|a, b| a.0.total_cmp(&b.0));
         flush_line_decorations(
             scene,
             transform,
@@ -1437,6 +1442,7 @@ pub(crate) fn stroke_text<'a>(
                 line: &line,
                 cut,
                 cache: ink,
+                holes,
             },
         );
     }
