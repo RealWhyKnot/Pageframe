@@ -388,3 +388,56 @@ pub fn clamp_hides_lines(style: &style::properties::ComputedValues) -> bool {
     !style_box.line_clamp.webkit_legacy
         || style_box.overflow_y != style::values::computed::Overflow::Visible
 }
+
+#[derive(Clone, Copy)]
+pub struct CloneInsets {
+    pub left: f32,
+    pub right: f32,
+    pub margin_left: f32,
+    pub margin_right: f32,
+}
+
+pub fn inline_clone_insets(node: &Node, basis: f32) -> Option<CloneInsets> {
+    use style::values::computed::{BorderSideWidth, BoxDecorationBreak, CSSPixelLength};
+    use style::values::generics::length::GenericMargin;
+    use style::values::specified::border::BorderStyle;
+    use style::values::specified::box_::{DisplayInside, DisplayOutside};
+    use stylo_taffy::CopyStyleGetters as _;
+
+    let style = node.primary_styles()?;
+    let border = style.get_border();
+    let display = style.clone_display();
+    if border.box_decoration_break != BoxDecorationBreak::Clone
+        || display.outside() != DisplayOutside::Inline
+        || display.inside() != DisplayInside::Flow
+    {
+        return None;
+    }
+    let basis = CSSPixelLength::new(basis);
+    let padding = style.get_padding();
+    let border_px = |width: &BorderSideWidth, line: BorderStyle| {
+        if line.none_or_hidden() {
+            0.0
+        } else {
+            width.0.to_f32_px()
+        }
+    };
+    let left = border_px(&border.border_left_width, border.border_left_style)
+        + padding.padding_left.0.resolve(basis).px();
+    let right = border_px(&border.border_right_width, border.border_right_style)
+        + padding.padding_right.0.resolve(basis).px();
+    let margin = style.get_margin();
+    let margin_px = |value: &style::values::computed::Margin| match value {
+        GenericMargin::LengthPercentage(value) => value.resolve(basis).px(),
+        _ => 0.0,
+    };
+    let margin_left = margin_px(&margin.margin_left);
+    let margin_right = margin_px(&margin.margin_right);
+    let has_insets = left > 0.0 || right > 0.0 || margin_left != 0.0 || margin_right != 0.0;
+    has_insets.then_some(CloneInsets {
+        left,
+        right,
+        margin_left,
+        margin_right,
+    })
+}

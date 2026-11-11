@@ -154,6 +154,11 @@ pub(crate) fn inline_fragments<'a>(
 ) -> Vec<InlineFragment> {
     let mut fragments = Vec::new();
     let mut font_ratios: Option<(f64, f64)> = None;
+    let clone_basis = doc
+        .get_node(inline_root_id)
+        .and_then(|node| node.element_data())
+        .and_then(|element| element.inline_layout_data.as_ref())
+        .map_or(0.0, |layout| layout.percent_basis);
     for line in lines {
         let line_baseline = f64::from(line.metrics().baseline);
         let mut boxes: Vec<SpanBox> = Vec::new();
@@ -284,7 +289,15 @@ pub(crate) fn inline_fragments<'a>(
 
         let inked_right = line_right - f64::from(line.metrics().hanging_advance);
         boxes.sort_by_key(|span_box| span_box.depth);
-        for mut span_box in boxes {
+        let clones: Vec<_> = boxes
+            .iter()
+            .map(|span_box| {
+                doc.get_node(span_box.node_id)
+                    .and_then(|node| blitz_dom::util::inline_clone_insets(node, clone_basis))
+                    .map(|insets| (insets, span_box.is_start, span_box.is_end))
+            })
+            .collect();
+        for (index, mut span_box) in boxes.into_iter().enumerate() {
             if let Some((space_left, space_width)) = hung.filter(|_| is_hung_closed)
                 && span_box.right > space_left
             {
@@ -292,6 +305,25 @@ pub(crate) fn inline_fragments<'a>(
             }
             if !span_box.is_end {
                 span_box.right = span_box.right.min(inked_right).max(span_box.left);
+            }
+            if let Some((insets, _, _)) = clones.get(index).copied().flatten() {
+                let inner = || clones.iter().skip(index + 1).flatten();
+                if !span_box.is_start {
+                    let nested: f32 = inner()
+                        .filter(|(_, is_start, _)| !is_start)
+                        .map(|(inner, _, _)| inner.left + inner.margin_left)
+                        .sum();
+                    span_box.left -= f64::from(insets.left + nested) * scale;
+                }
+                if !span_box.is_end {
+                    let nested: f32 = inner()
+                        .filter(|(_, _, is_end)| !is_end)
+                        .map(|(inner, _, _)| inner.right + inner.margin_right)
+                        .sum();
+                    span_box.right += f64::from(insets.right + nested) * scale;
+                }
+                span_box.is_start = true;
+                span_box.is_end = true;
             }
             let extent = span_box.extent.or_else(|| {
                 font_ratios.map(|(ascent, descent)| {

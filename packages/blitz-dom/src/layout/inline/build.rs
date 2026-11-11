@@ -7,7 +7,7 @@ use style::{
     computed_values::{direction::T as Direction, position::T as PositionProperty},
     properties::ComputedValues,
     values::{
-        computed::{BorderSideWidth, Display, Float, Length, LengthPercentage},
+        computed::{BorderSideWidth, BoxDecorationBreak, Display, Float, Length, LengthPercentage},
         generics::length::GenericMargin,
         specified::{
             border::BorderStyle,
@@ -75,6 +75,7 @@ fn trailing_space(nodes: &crate::NodeTree, node_id: NodeId) -> Option<bool> {
 struct EdgeBasis {
     width: f32,
     has_percent: bool,
+    has_clone: bool,
 }
 
 fn inline_edges(style: &ComputedValues, basis: &mut EdgeBasis) -> InlineEdges {
@@ -82,6 +83,7 @@ fn inline_edges(style: &ComputedValues, basis: &mut EdgeBasis) -> InlineEdges {
     let margin = style.get_margin();
     let padding = style.get_padding();
     let border = style.get_border();
+    basis.has_clone |= border.box_decoration_break == BoxDecorationBreak::Clone;
     let margin_px = |value: &GenericMargin<LengthPercentage>| match value {
         GenericMargin::LengthPercentage(value) => value.resolve(basis_width).px(),
         _ => 0.0,
@@ -249,6 +251,7 @@ pub(crate) fn build_inline_layout_into(
     let mut edge_basis = EdgeBasis {
         width: text_layout.percent_basis,
         has_percent: false,
+        has_clone: false,
     };
 
     if let Some(before_id) = root_node.before() {
@@ -284,6 +287,7 @@ pub(crate) fn build_inline_layout_into(
 
     text_layout.text = builder.build_into(&mut text_layout.layout);
     text_layout.has_percent_edges = edge_basis.has_percent;
+    text_layout.has_clone_spans = edge_basis.has_clone;
     return;
 
     fn build_inline_layout_recursive(

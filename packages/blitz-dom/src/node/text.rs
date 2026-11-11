@@ -44,6 +44,7 @@ pub struct TextLayout {
     pub line_budget: Option<LineBudget>,
     pub percent_basis: f32,
     pub has_percent_edges: bool,
+    pub has_clone_spans: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

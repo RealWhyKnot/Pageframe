@@ -305,3 +305,41 @@ fn a_span_break_follows_the_span_text_and_wrap_mode() {
         hung
     );
 }
+
+#[test]
+fn a_cloned_span_keeps_its_padding_on_every_line() {
+    let tight = painted(&boxed_span("padding:0 3px", "aa"), 20).len();
+    let sliced = boxed_span("padding:0 3px", "aa aa");
+    assert_eq!(painted(&sliced, 20).len() + 3, tight);
+    assert_eq!(painted(&sliced, 60).len() + 3, tight);
+    let cloned = boxed_span("padding:0 3px;box-decoration-break:clone", "aa aa");
+    assert_eq!(painted(&cloned, 20).len(), tight);
+    assert_eq!(painted(&cloned, 60), painted(&cloned, 20));
+}
+
+#[test]
+fn a_cloned_span_end_overflows_and_its_start_takes_room() {
+    let plain = painted(&boxed_span("", "aa a"), 20).len();
+    let ended = boxed_span("padding-right:8px;box-decoration-break:clone", "aa a");
+    assert_eq!(painted(&ended, 20).len(), plain + 8);
+    assert_eq!(painted(&ended, 60).len(), 0);
+    let word = painted(&boxed_span("", "aa"), 20).len();
+    let sliced = boxed_span("padding-left:10px", "aa aa a");
+    assert_eq!(painted(&sliced, 60).len(), plain);
+    let started = boxed_span("padding-left:10px;box-decoration-break:clone", "aa aa a");
+    assert_eq!(painted(&started, 60).len(), word + 10);
+}
+
+#[test]
+fn a_cloned_span_closes_around_a_cloned_child_on_every_line() {
+    let buffer = boxed_span(
+        "padding-right:4px;box-decoration-break:clone",
+        "<span style=\"background:#00f;padding-right:4px;box-decoration-break:clone\">aaa aaa</span>",
+    );
+    for y in [20, 60] {
+        let row = painted(&buffer, y);
+        let lime = row.iter().filter(|(_, colour)| *colour == LIME).count();
+        assert_eq!(lime, 4);
+        assert_eq!(row.last().map(|(_, colour)| *colour), Some(LIME));
+    }
+}
