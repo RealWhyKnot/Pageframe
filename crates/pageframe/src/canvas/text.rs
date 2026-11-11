@@ -74,26 +74,30 @@ impl Canvas {
             TextAlign::Right => -width,
         };
         let paint = Paint::from(self.state.fill.brush(self.state.alpha));
+        let baseline = self.state.text_baseline;
+        let mut first_shift: Option<f32> = None;
         for line in layout.lines() {
             for item in line.items() {
                 let PositionedLayoutItem::GlyphRun(glyph_run) = item else {
                     continue;
                 };
                 let run = glyph_run.run();
-                let metrics = run.font_metrics();
-                let height = metrics.ascent + metrics.descent;
-                let em = if height > 0.0 {
-                    run.font_size() / height
-                } else {
-                    1.0
-                };
-                let (ascent, descent) = (metrics.ascent * em, metrics.descent * em);
-                let shift_y = match self.state.text_baseline {
-                    TextBaseline::Alphabetic => 0.0,
-                    TextBaseline::Top => ascent,
-                    TextBaseline::Middle => (ascent - descent) / 2.0,
-                    TextBaseline::Bottom => -descent,
-                };
+                let shift_y = *first_shift.get_or_insert_with(|| {
+                    let metrics = run.font_metrics();
+                    let height = metrics.ascent + metrics.descent;
+                    let em = if height > 0.0 {
+                        run.font_size() / height
+                    } else {
+                        1.0
+                    };
+                    let (ascent, descent) = (metrics.ascent * em, metrics.descent * em);
+                    match baseline {
+                        TextBaseline::Alphabetic => 0.0,
+                        TextBaseline::Top => ascent,
+                        TextBaseline::Middle => (ascent - descent) / 2.0,
+                        TextBaseline::Bottom => -descent,
+                    }
+                });
                 let origin = Vec2::new(
                     x + shift_x,
                     y + f64::from(shift_y) - f64::from(glyph_run.baseline()),
@@ -128,7 +132,10 @@ impl Canvas {
         let text: String = text
             .chars()
             .map(|ch| {
-                if matches!(ch, '\t' | '\n' | '\u{c}' | '\r') {
+                if matches!(
+                    ch,
+                    '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | '\u{85}' | '\u{2028}' | '\u{2029}'
+                ) {
                     ' '
                 } else {
                     ch

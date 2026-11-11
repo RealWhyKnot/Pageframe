@@ -180,9 +180,14 @@ fn measured_width_grows_with_text_and_size() {
 fn line_breaks_and_tabs_count_as_spaces() {
     let spaced = measured(|canvas| canvas.measure_text("a b c"));
     let broken = measured(|canvas| canvas.measure_text("a\nb\tc"));
+    let exotic = measured(|canvas| canvas.measure_text("a\u{2028}b\u{b}c"));
+    assert!(spaced > 0.0);
     assert!((spaced - broken).abs() < f64::EPSILON, "{spaced} {broken}");
+    assert!((spaced - exotic).abs() < f64::EPSILON, "{spaced} {exotic}");
     let buffer = drawn(|canvas| {
-        canvas.set_font("Arial", 12.0).fill_text("a\nb", 10.0, 20.0);
+        canvas
+            .set_font("Arial", 12.0)
+            .fill_text("a\nb\u{2029}c\u{85}d", 10.0, 20.0);
     });
     let ink = ink(&buffer).expect("text leaves ink");
     assert!(ink.bottom <= 21, "bottom {}", ink.bottom);
@@ -199,6 +204,7 @@ fn restore_brings_back_the_font() {
             .restore();
         canvas.measure_text("abc")
     });
+    assert!(small > 0.0);
     assert!(
         (small - restored).abs() < f64::EPSILON,
         "{small} {restored}"
@@ -218,6 +224,7 @@ fn bad_font_settings_keep_the_last_good_ones() {
             .set_font_weight(0.0)
             .measure_text("abc")
     });
+    assert!(good > 0.0);
     assert!((good - after).abs() < f64::EPSILON, "{good} {after}");
 }
 
