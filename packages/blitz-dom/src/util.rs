@@ -348,7 +348,15 @@ pub fn inline_box_is_decorated(style: &style::properties::ComputedValues) -> boo
         .0
         .iter()
         .any(|image| !matches!(image, style::values::generics::image::GenericImage::None));
-    has_border || has_padding || has_radius || has_image
+    let outline = style.get_outline();
+    let has_outline = match outline.outline_style {
+        style::values::computed::OutlineStyle::Auto => false,
+        style::values::computed::OutlineStyle::BorderStyle(line) => {
+            !line.none_or_hidden() && outline.outline_width.0.to_f32_px() > 0.0
+        }
+    };
+    let has_shadow = !style.get_effects().box_shadow.0.is_empty();
+    has_border || has_padding || has_radius || has_image || has_outline || has_shadow
 }
 
 pub fn clamp_hides_lines(style: &style::properties::ComputedValues) -> bool {

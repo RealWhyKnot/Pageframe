@@ -1394,9 +1394,13 @@ impl ElementCx<'_, '_> {
             transform * Affine::translate((left, top)),
             None,
         );
-        cx.frame = CssBox::new(size.to_rect(), border, padding, 0.0, radii);
+        let outline_width = style.get_outline().outline_width.0.to_f64_px() * self.scale;
+        cx.frame = CssBox::new(size.to_rect(), border, padding, outline_width, radii);
+        cx.draw_outset_box_shadow(scene);
         cx.draw_background(scene);
+        cx.draw_inset_box_shadow(scene);
         cx.draw_border(scene);
+        cx.draw_outline(scene);
     }
 
     fn draw_inline_layout(&self, scene: &mut impl PaintScene, pos: Point) {

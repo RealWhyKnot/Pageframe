@@ -137,3 +137,23 @@ fn a_span_in_right_to_left_text_keeps_both_side_borders() {
     assert_eq!(colours[..4], [BLUE, BLUE, BLUE, LIME]);
     assert_eq!(colours[colours.len() - 3..], [LIME, BLUE, BLUE]);
 }
+
+#[test]
+fn a_span_outline_is_painted_outside_its_box() {
+    let plain = painted(&boxed_span("margin-left:5px", "aa"), 20);
+    let row = painted(&boxed_span("margin-left:5px;outline:2px solid blue", "aa"), 20);
+    let colours: Vec<[u8; 4]> = row.iter().map(|(_, colour)| *colour).collect();
+    assert_eq!(row.first().map(|(x, _)| *x), Some(3));
+    assert_eq!(row.len(), plain.len() + 4);
+    assert_eq!(colours[..3], [BLUE, BLUE, LIME]);
+    assert_eq!(colours[colours.len() - 3..], [LIME, BLUE, BLUE]);
+}
+
+#[test]
+fn a_span_box_shadow_is_painted_beside_its_box() {
+    let plain = painted(&boxed_span("", "aa"), 20);
+    let row = painted(&boxed_span("box-shadow:3px 0 0 blue", "aa"), 20);
+    let colours: Vec<[u8; 4]> = row.iter().map(|(_, colour)| *colour).collect();
+    assert_eq!(row.len(), plain.len() + 3);
+    assert_eq!(colours[colours.len() - 4..], [LIME, BLUE, BLUE, BLUE]);
+}
