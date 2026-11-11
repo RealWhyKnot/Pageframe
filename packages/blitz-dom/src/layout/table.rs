@@ -1586,28 +1586,36 @@ impl TableTreeWrapper<'_, '_> {
             .resolve_or_zero(parent_width, resolve_calc_value);
         let frame = padding.left + padding.right + border.left + border.right;
         let gaps = auto.spacing * (count(fixed.len()) - 1.0);
+        let outer = |width: f32| match ctx.style.box_sizing {
+            taffy::BoxSizing::BorderBox => width,
+            taffy::BoxSizing::ContentBox => width + frame,
+        };
+        let min_outer = ctx
+            .style
+            .min_size
+            .width
+            .maybe_resolve(parent_width, resolve_calc_value)
+            .map_or(0.0, outer);
+        let max_outer = ctx
+            .style
+            .max_size
+            .width
+            .maybe_resolve(parent_width, resolve_calc_value)
+            .map_or(f32::INFINITY, outer)
+            .max(min_outer);
         let specified = inputs.known_dimensions.width.or_else(|| {
             let width = ctx
                 .style
                 .size
                 .width
                 .maybe_resolve(parent_width, resolve_calc_value)?;
-            let outer = |width: f32| match ctx.style.box_sizing {
-                taffy::BoxSizing::BorderBox => width,
-                taffy::BoxSizing::ContentBox => width + frame,
-            };
-            let max = ctx
-                .style
-                .max_size
-                .width
-                .maybe_resolve(parent_width, resolve_calc_value)
-                .map_or(f32::INFINITY, outer);
-            Some(outer(width).min(max))
+            Some(outer(width).min(max_outer).max(min_outer))
         });
         let space = match (specified, inputs.available_space.width) {
-            (Some(width), _) | (None, AvailableSpace::Definite(width)) => width - frame - gaps,
+            (Some(width), _) => width - frame - gaps,
+            (None, AvailableSpace::Definite(width)) => width.min(max_outer) - frame - gaps,
             (None, AvailableSpace::MinContent) => 0.0,
-            (None, AvailableSpace::MaxContent) => f32::INFINITY,
+            (None, AvailableSpace::MaxContent) => max_outer - frame - gaps,
         };
         let is_stretched = specified.is_some();
         if ctx.has_collapsed_columns() && is_stretched && preferred.iter().all(Option::is_some) {
@@ -1635,14 +1643,14 @@ impl TableTreeWrapper<'_, '_> {
                 widths = column_widths(&limits, &fixed, fit, true);
             }
         }
-        let floor = self.caption_floor(inputs);
+        let floor = self.caption_floor(inputs).max(min_outer);
         if widths.iter().sum::<f32>() + frame + gaps < floor {
             widths = column_widths(&limits, &fixed, floor - frame - gaps, true);
         }
 
         let mut style = ctx.style.clone();
         let content = widths.iter().sum::<f32>() + gaps;
-        if specified.is_some_and(|width| width < content + frame) {
+        if specified.unwrap_or(max_outer) < content + frame {
             style.min_size.width = style_helpers::length(match style.box_sizing {
                 taffy::BoxSizing::BorderBox => content + frame,
                 taffy::BoxSizing::ContentBox => content,
