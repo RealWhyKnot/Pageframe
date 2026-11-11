@@ -218,7 +218,7 @@ impl DerefMut for DocGuardMut<'_> {
 }
 
 /// Abstraction over wrappers around [`BaseDocument`] to allow for them all to
-/// be driven by [`pageframe-shell`](https://docs.rs/pageframe-shell)
+/// be driven by `pageframe-shell`
 pub trait Document: Any + 'static {
     fn inner(&self) -> DocGuard<'_>;
     fn inner_mut(&mut self) -> DocGuardMut<'_>;

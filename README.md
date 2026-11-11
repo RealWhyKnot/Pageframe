@@ -59,7 +59,7 @@ assert_eq!(harness.text_content("#count"), "1");
 
 Early, and the API will change. CSS support comes from Blitz. Flexbox, CSS variables, rounded corners, box and text shadows, gradients, `mix-blend-mode`, 2D and 3D transforms including `perspective()`, `text-overflow: ellipsis` and `line-clamp` work. The prefixed `-webkit-line-clamp` isn't parsed yet, and text shadows skip underlines. In my tests multi-column layout and `<select>` didn't render.
 
-`crates/pageframe` is the API apps use. The engine under it is in the other `crates/pageframe-*` crates, which started as Blitz's packages.
+`crates/pageframe` is the API apps use. The engine under it is in the other crates in `crates/`, which started as Blitz's packages.
 
 ## License
 
