@@ -1598,11 +1598,19 @@ impl TableContext {
         (high - low).max(0.0)
     }
 
-    pub fn cell_offset(&self, cell: &crate::Node, is_rtl: bool) -> taffy::Point<f32> {
-        let basis = taffy::Size {
+    fn offset_basis(&self) -> taffy::Size<f32> {
+        taffy::Size {
             width: self.row_width(),
             height: 0.0,
-        };
+        }
+    }
+
+    pub fn group_offset(&self, group: &crate::Node, is_rtl: bool) -> taffy::Point<f32> {
+        group.relative_offset(self.offset_basis(), is_rtl)
+    }
+
+    pub fn cell_offset(&self, cell: &crate::Node, is_rtl: bool) -> taffy::Point<f32> {
+        let basis = self.offset_basis();
         let mut offset = taffy::Point::ZERO;
         let mut part = Some(cell);
         while let Some(node) = part.filter(|node| !node.flags.is_table_root()) {

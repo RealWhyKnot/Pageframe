@@ -606,6 +606,7 @@ pub(crate) struct Edges {
     column_lines: Vec<f64>,
     row_lines: Vec<f64>,
     sections: Vec<Range<usize>>,
+    shifts: Vec<Vec2>,
     cells: HashMap<NodeId, (Range<usize>, Range<usize>)>,
     is_rtl: bool,
 }
@@ -700,15 +701,22 @@ impl Edges {
                 _ => sections.push(index..index + 1),
             }
         }
+        let mut shifts = Vec::with_capacity(sections.len() + 1);
         for section in &sections {
             order += 1;
             let group = table.rows[section.start].group;
+            let shift = group
+                .and_then(|group| dom.get_node(group))
+                .map(|group| table.group_offset(group, is_rtl))
+                .unwrap_or(taffy::Point::ZERO);
+            shifts.push(Vec2::new(f64::from(shift.x), f64::from(shift.y)) * scale);
             if let Some(sides) = group.and_then(|group| sides(group, order)) {
                 grid.merge(section.clone(), 0..columns, &sides);
             }
         }
         if table.rows.len() < rows {
             sections.push(table.rows.len()..rows);
+            shifts.push(Vec2::ZERO);
         }
         let is_column = |node_id: NodeId| {
             dom.get_node(node_id)
@@ -759,6 +767,7 @@ impl Edges {
             column_lines: column_lines.into_iter().flatten().collect(),
             row_lines: row_lines.into_iter().flatten().collect(),
             sections,
+            shifts,
             cells,
             is_rtl,
         })
@@ -774,7 +783,7 @@ impl Edges {
 
     fn paint<S: PaintScene>(&self, brush: &mut Brush<'_, S>) {
         let grid = &self.grid;
-        for section in &self.sections {
+        for (section, shift) in self.sections.iter().zip(&self.shifts) {
             for row in section.start..=section.end {
                 for column in 0..=grid.columns {
                     let above = row.checked_sub(1);
@@ -804,7 +813,7 @@ impl Edges {
                         stretch(&mut top, &mut height, end.down, end_wins, false);
                         let (x0, x1) =
                             self.physical(self.column_lines[column] - line.width / 2.0, line.width);
-                        brush.edge(Rect::new(x0, top, x1, top + height), false, line);
+                        brush.edge(Rect::new(x0, top, x1, top + height) + *shift, false, line);
                     }
                     let is_painted_above = row == section.start && section.start > 0;
                     if column < grid.columns
@@ -832,7 +841,11 @@ impl Edges {
                         stretch(&mut inline, &mut width, end.across, end_wins, false);
                         let (x0, x1) = self.physical(inline, width);
                         let top = self.row_lines[row] - line.width / 2.0;
-                        brush.edge(Rect::new(x0, top, x1, top + line.width), true, line);
+                        brush.edge(
+                            Rect::new(x0, top, x1, top + line.width) + *shift,
+                            true,
+                            line,
+                        );
                     }
                 }
             }

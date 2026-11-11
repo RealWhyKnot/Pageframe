@@ -483,6 +483,24 @@ fn a_faded_row_fades_its_cells_and_its_own_colour_together() {
 }
 
 #[test]
+fn a_shifted_row_group_takes_its_borders_along() {
+    let buffer = draw(
+        "width:20px;height:14px",
+        &format!(
+            "<table><tbody style=\"position:relative;top:3px;left:5px\">\
+             <tr>{PLAIN}{PLAIN}</tr></tbody>\
+             <tbody><tr>{PLAIN}{PLAIN}</tr></tbody></table>"
+        ),
+    );
+    assert_eq!(pixel(&buffer, 1, 1), WHITE);
+    assert_eq!(pixel(&buffer, 6, 4), BLACK);
+    assert_eq!(pixel(&buffer, 48, 20), BLACK);
+    assert_eq!(pixel(&buffer, 1, 17), WHITE);
+    assert_eq!(pixel(&buffer, 1, 20), BLACK);
+    assert_eq!(pixel(&buffer, 10, 10), YELLOW);
+}
+
+#[test]
 fn a_shifted_row_paints_its_colour_over_the_borders() {
     let buffer = draw(
         "width:20px;height:14px",
