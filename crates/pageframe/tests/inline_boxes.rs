@@ -157,3 +157,27 @@ fn a_span_box_shadow_is_painted_beside_its_box() {
     assert_eq!(row.len(), plain.len() + 3);
     assert_eq!(colours[colours.len() - 4..], [LIME, BLUE, BLUE, BLUE]);
 }
+
+#[test]
+fn a_relative_span_moves_its_box_by_its_offsets() {
+    let top = |buffer: &[u8]| (0..40).find(|y| pixel(buffer, 8, *y) == LIME);
+    let plain = boxed_span("", "aa");
+    let moved = boxed_span("position:relative;top:6px;left:4px", "aa");
+    assert_eq!(top(&moved), top(&plain).map(|y| y + 6));
+    let row = top(&moved).expect("the span is painted");
+    assert_eq!(painted(&moved, row).first().map(|(x, _)| *x), Some(4));
+    assert_eq!(painted(&moved, row).len(), painted(&plain, row - 6).len());
+}
+
+#[test]
+fn a_relative_span_moves_its_text_and_underline() {
+    let buffer = draw(
+        "<div style=\"line-height:40px\">\
+         <span style=\"position:relative;left:20px;text-decoration:underline\">a</span></div>",
+    );
+    let columns: Vec<usize> = (0..60)
+        .filter(|x| (0..40).any(|y| pixel(&buffer, *x, y) != WHITE))
+        .collect();
+    assert_eq!(columns.first(), Some(&20));
+    assert!(columns.len() >= 6, "the glyph and its underline are painted");
+}

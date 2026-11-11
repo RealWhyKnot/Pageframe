@@ -313,6 +313,28 @@ pub fn is_inline_spacer(ch: char) -> bool {
     .any(|spacer| spacer.contains(ch))
 }
 
+pub fn inline_relative_offset(style: &style::properties::ComputedValues) -> (f32, f32) {
+    use style::values::generics::position::GenericInset;
+    use stylo_taffy::CopyStyleGetters as _;
+    if style.get_box().position != style::computed_values::position::T::Relative {
+        return (0.0, 0.0);
+    }
+    let zero = style::values::computed::CSSPixelLength::new(0.0);
+    let position = style.get_position();
+    let resolve = |inset: &style::values::computed::Inset| match inset {
+        GenericInset::LengthPercentage(value) => Some(value.resolve(zero).px()),
+        _ => None,
+    };
+    let (left, right) = (resolve(&position.left), resolve(&position.right));
+    let x = if style.clone_direction() == style::computed_values::direction::T::Rtl {
+        right.map(|value| -value).or(left)
+    } else {
+        left.or(right.map(|value| -value))
+    };
+    let y = resolve(&position.top).or(resolve(&position.bottom).map(|value| -value));
+    (x.unwrap_or(0.0), y.unwrap_or(0.0))
+}
+
 pub fn inline_box_is_decorated(style: &style::properties::ComputedValues) -> bool {
     let border = style.get_border();
     let padding = style.get_padding();

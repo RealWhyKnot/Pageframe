@@ -1,7 +1,7 @@
 use anyrender::PaintScene;
 use blitz_dom::CopyStyleGetters;
 use blitz_dom::{BaseDocument, NodeId, node::TextBrush, util::ToColorColor};
-use kurbo::{Affine, BezPath, Cap, Circle, Rect, Shape as _, Stroke};
+use kurbo::{Affine, BezPath, Cap, Circle, Rect, Shape as _, Stroke, Vec2};
 use num_traits::ToPrimitive;
 use parley::{Affinity, Cursor, Layout, Line, PositionedLayoutItem, Selection};
 use peniko::Fill;
@@ -43,6 +43,7 @@ struct SpanBox {
     is_own_font: bool,
     is_start: bool,
     is_end: bool,
+    shift: Vec2,
 }
 
 struct SpanItem {
@@ -59,6 +60,7 @@ struct InlineAncestor {
     color: Color,
     is_boxed: bool,
     font_size: f64,
+    shift: Vec2,
 }
 
 fn inline_ancestors(
@@ -94,9 +96,15 @@ fn inline_ancestors(
             color,
             is_boxed: blitz_dom::util::inline_box_is_decorated(&styles),
             font_size: f64::from(styles.get_font().font_size.used_size.0.px()),
+            shift: relative_shift(&styles),
         });
     }
     ancestors
+}
+
+fn relative_shift(styles: &style::properties::ComputedValues) -> Vec2 {
+    let (x, y) = blitz_dom::util::inline_relative_offset(styles);
+    Vec2::new(f64::from(x), f64::from(y))
 }
 
 pub(crate) fn inline_fragments<'a>(
@@ -161,7 +169,12 @@ pub(crate) fn inline_fragments<'a>(
             line_right = line_right.max(span_item.right);
             let ancestors = inline_ancestors(doc, start, inline_root_id);
             let depth_of_first = ancestors.len();
+            let mut outer_shift = ancestors
+                .iter()
+                .fold(Vec2::ZERO, |sum, ancestor| sum + ancestor.shift);
             for (index, ancestor) in ancestors.into_iter().enumerate() {
+                let shift = outer_shift * scale;
+                outer_shift -= ancestor.shift;
                 if ancestor.color == Color::TRANSPARENT && !ancestor.is_boxed {
                     continue;
                 }
@@ -184,6 +197,7 @@ pub(crate) fn inline_fragments<'a>(
                             is_own_font: false,
                             is_start: false,
                             is_end: false,
+                            shift,
                         });
                         boxes.len() - 1
                     });
@@ -231,7 +245,7 @@ pub(crate) fn inline_fragments<'a>(
                     span_box.baseline - ascent.round(),
                     span_box.right,
                     span_box.baseline + descent.round(),
-                ),
+                ) + span_box.shift,
                 is_boxed: span_box.is_boxed,
                 is_start: span_box.is_start,
                 is_end: span_box.is_end,
@@ -327,6 +341,7 @@ struct DecorationStackEntry {
     decoration: Option<ResolvedDecoration>,
     /// This node's (inherited) `text-shadow` list, in CSS pixels.
     shadows: Vec<ResolvedTextShadow>,
+    shift: Vec2,
 }
 
 struct ResolvedTextShadow {
@@ -343,6 +358,7 @@ fn resolve_decoration_entry(doc: &BaseDocument, node_id: NodeId) -> DecorationSt
             fill_color: Color::BLACK,
             decoration: None,
             shadows: Vec::new(),
+            shift: Vec2::ZERO,
         };
     };
 
@@ -409,6 +425,11 @@ fn resolve_decoration_entry(doc: &BaseDocument, node_id: NodeId) -> DecorationSt
         fill_color,
         decoration,
         shadows,
+        shift: if styles.get_box().display == Display::Inline {
+            relative_shift(&styles)
+        } else {
+            Vec2::ZERO
+        },
     }
 }
 
@@ -447,6 +468,7 @@ struct LineDecoration {
     /// this line, e.g. it only wraps differently-sized descendants).
     first: Option<DecorationRunGeometry>,
     runs: SmallVec<[usize; 4]>,
+    shift: Vec2,
 }
 
 /// Reusable scratch storage for drawing text across all inline formatting contexts in a
@@ -888,6 +910,7 @@ fn flush_line_decorations(
     // per-run drawing order this replaced (`stack.iter().rev()`).
     for acc in deco_boxes.iter().rev() {
         let deco = &acc.deco;
+        let transform = transform * Affine::translate(acc.shift);
         // Prefer the decorating box's own font; fall back to the first run it covers.
         let geom = match (&acc.own, &acc.first) {
             (Some(own), _) => own.clone(),
@@ -1167,8 +1190,16 @@ pub(crate) fn stroke_text<'a>(
                     .count();
                 stack.truncate(shared);
                 for &node_id in &path_scratch[shared..] {
-                    stack.push(resolve_decoration_entry(doc, node_id));
+                    let mut entry = resolve_decoration_entry(doc, node_id);
+                    entry.shift = if node_id == inline_root_id {
+                        Vec2::ZERO
+                    } else {
+                        stack.last().map_or(Vec2::ZERO, |outer| outer.shift) + entry.shift * scale
+                    };
+                    stack.push(entry);
                 }
+                let transform =
+                    transform * Affine::translate(stack.last().map_or(Vec2::ZERO, |entry| entry.shift));
 
                 let fill_color = brush_override
                     .unwrap_or_else(|| stack.last().map(|e| e.fill_color).unwrap_or(Color::BLACK));
@@ -1345,6 +1376,7 @@ pub(crate) fn stroke_text<'a>(
                                 own: None,
                                 first: None,
                                 runs: SmallVec::new(),
+                                shift: entry.shift,
                             });
                             deco_boxes.len() - 1
                         }
