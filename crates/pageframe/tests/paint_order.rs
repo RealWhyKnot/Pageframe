@@ -310,3 +310,55 @@ fn a_faded_static_box_fades_its_fixed_child() {
     let buffer = faded_wrapper("position:fixed;left:0;top:0");
     assert_eq!(pixel(&buffer, 5, 5), HALF_RED);
 }
+
+fn clipped_fade(clipper: &str, child: &str) -> Vec<u8> {
+    draw(&format!(
+        "<div style=\"width:30px;height:30px;{clipper}\"><div style=\"opacity:.5\">\
+         <b style=\"width:20px;height:20px;background:red;{child}\"></b></div></div>"
+    ))
+}
+
+#[test]
+fn a_clipping_box_around_a_faded_box_does_not_clip_its_absolute_child() {
+    let buffer = clipped_fade("overflow:hidden", "position:absolute;left:50px;top:50px");
+    assert_eq!(pixel(&buffer, 55, 55), HALF_RED);
+}
+
+#[test]
+fn a_scrolling_box_around_a_faded_box_does_not_clip_its_fixed_child() {
+    let buffer = clipped_fade("overflow:auto", "position:fixed;left:50px;top:50px");
+    assert_eq!(pixel(&buffer, 55, 55), HALF_RED);
+}
+
+#[test]
+fn a_clipping_box_does_not_clip_an_absolute_child_at_its_static_position() {
+    let buffer = clipped_fade(
+        "overflow:hidden;padding-top:20px;box-sizing:border-box",
+        "position:absolute",
+    );
+    assert_eq!(pixel(&buffer, 5, 25), HALF_RED);
+    assert_eq!(pixel(&buffer, 5, 35), HALF_RED);
+}
+
+#[test]
+fn a_faded_clipping_box_fades_but_does_not_clip_its_absolute_child() {
+    let buffer = draw(
+        "<div style=\"width:30px;height:30px;overflow:hidden;opacity:.5\">\
+         <b style=\"width:20px;height:20px;background:red;position:absolute;left:50px;top:50px\">\
+         </b></div>",
+    );
+    assert_eq!(pixel(&buffer, 55, 55), HALF_RED);
+}
+
+#[test]
+fn nested_faded_boxes_in_a_clipping_box_fade_an_absolute_child_twice() {
+    let buffer = draw(
+        "<div style=\"width:30px;height:30px;overflow:hidden\"><div style=\"opacity:.5\">\
+         <div style=\"opacity:.5\">\
+         <b style=\"width:20px;height:20px;background:red;position:absolute;left:50px;top:50px\">\
+         </b></div></div></div>",
+    );
+    let [red, green, blue, _] = pixel(&buffer, 55, 55);
+    assert_eq!(red, 255);
+    assert!(green.abs_diff(191) <= 1 && blue.abs_diff(191) <= 1);
+}

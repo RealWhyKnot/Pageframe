@@ -598,22 +598,55 @@ impl Node {
         let Some(containing_block) = self.oof_containing_block.get() else {
             return false;
         };
+        let mut is_in_context = false;
+        let mut is_clipped = false;
         let mut current = self.layout_parent.get();
         while let Some(id) = current {
             if id == containing_block {
                 break;
             }
             let ancestor = self.with(id);
-            if (ancestor.is_stacking_context_root(false) && !ancestor.is_removed_column_cell())
-                || ancestor.primary_styles().is_some_and(|style| {
-                    !matches!(style.get_clip_path(), ClipPath::None | ClipPath::Url(_))
-                })
-            {
+            if ancestor.primary_styles().is_some_and(|style| {
+                !matches!(style.get_clip_path(), ClipPath::None | ClipPath::Url(_))
+            }) {
                 return true;
+            }
+            is_in_context |= ancestor.is_stacking_context_root(ancestor.is_flex_or_grid_item())
+                && !ancestor.is_removed_column_cell();
+            is_clipped |= ancestor.overflow_clip_bounds().is_some();
+            current = ancestor.layout_parent.get();
+        }
+        is_in_context && !is_clipped
+    }
+
+    fn is_flex_or_grid_item(&self) -> bool {
+        self.layout_parent.get().is_some_and(|id| {
+            matches!(
+                self.with(id).taffy_display(),
+                taffy::Display::Flex | taffy::Display::Grid
+            )
+        })
+    }
+
+    pub fn skipped_ancestor_opacity(&self) -> f32 {
+        let Some(containing_block) = self.oof_containing_block.get() else {
+            return 1.0;
+        };
+        if self.has_clipping_paint_ancestor() {
+            return 1.0;
+        }
+        let mut opacity = 1.0;
+        let mut current = self.layout_parent.get();
+        while let Some(id) = current.filter(|&id| id != containing_block) {
+            let ancestor = self.with(id);
+            if !ancestor.is_removed_column_cell() {
+                opacity *= ancestor
+                    .primary_styles()
+                    .map_or(1.0, |style| style.clone_opacity());
             }
             current = ancestor.layout_parent.get();
         }
-        false
+        opacity
     }
 
     /// Whether this node paints its positioned descendants itself (CSS 2.1
@@ -682,14 +715,7 @@ impl Node {
     }
 
     pub fn removed_cell_opacity(&self) -> f32 {
-        let is_item = |node: &Node| {
-            node.layout_parent.get().is_some_and(|id| {
-                matches!(
-                    node.with(id).taffy_display(),
-                    taffy::Display::Flex | taffy::Display::Grid
-                )
-            })
-        };
+        let is_item = Node::is_flex_or_grid_item;
         let is_context = self.is_stacking_context_root(is_item(self));
         let is_positioned = self
             .primary_styles()

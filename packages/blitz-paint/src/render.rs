@@ -454,7 +454,8 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             return;
         }
         let has_opacity = opacity < 1.0;
-        let row_opacity = node.row_opacity() * node.removed_cell_opacity();
+        let row_opacity =
+            node.row_opacity() * node.removed_cell_opacity() * node.skipped_ancestor_opacity();
         if row_opacity == 0.0 {
             return;
         }
