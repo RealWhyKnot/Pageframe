@@ -235,3 +235,24 @@ fn an_underline_fades_under_a_faded_child_only() {
     assert_eq!(pixel(&buffer, right - 2, row), [0, 0, 0, 255]);
     assert!((126..=129).contains(&pixel(&buffer, right / 2, row)[0]));
 }
+
+#[test]
+fn percent_span_padding_resolves_against_the_block_width() {
+    let row = |style: &str| {
+        let buffer = draw(&format!(
+            "<div style=\"line-height:40px;width:50px\">\
+             <span style=\"background:#0f0;color:transparent;{style}\">aa</span></div>"
+        ));
+        painted(&buffer, 20).len()
+    };
+    assert_eq!(row("padding:0 10%"), row("padding:0 5px"));
+    assert_eq!(row("margin-left:10%"), row(""));
+    let left = |style: &str| {
+        let buffer = draw(&format!(
+            "<div style=\"line-height:40px;width:50px\">\
+             <span style=\"background:#0f0;color:transparent;{style}\">aa</span></div>"
+        ));
+        painted(&buffer, 20).first().map(|(x, _)| *x)
+    };
+    assert_eq!(left("margin-left:10%"), Some(5));
+}

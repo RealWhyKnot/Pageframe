@@ -706,6 +706,27 @@ impl LayoutPassState<'_> {
                 }),
         };
 
+        let edge_basis = available_space.width.into_option().unwrap_or(0.0);
+        if inline_layout.has_percent_edges
+            && (edge_basis - inline_layout.percent_basis).abs() > f32::EPSILON
+        {
+            let document: &mut crate::BaseDocument = self;
+            let font_ctx = std::sync::Arc::clone(&document.font_ctx);
+            let mut font_ctx = font_ctx
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            inline_layout.percent_basis = edge_basis;
+            inline_layout.content_widths = None;
+            super::build_inline_layout_into(
+                &document.nodes,
+                &mut document.layout_ctx,
+                &mut font_ctx,
+                &mut inline_layout,
+                scale,
+                node_id,
+            );
+        }
+
         // Compute size of inline boxes
         let child_inputs = taffy::tree::LayoutInput {
             known_dimensions: Size::NONE,

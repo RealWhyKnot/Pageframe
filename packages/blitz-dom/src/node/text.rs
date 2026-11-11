@@ -42,6 +42,8 @@ pub struct TextLayout {
     /// position while box edges stay snapped. Set by the `writing-mode` layout pass; zero otherwise.
     pub content_box_subpixel_offset: taffy::Point<f32>,
     pub line_budget: Option<LineBudget>,
+    pub percent_basis: f32,
+    pub has_percent_edges: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

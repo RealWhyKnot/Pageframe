@@ -1338,7 +1338,12 @@ impl ElementCx<'_, '_> {
             return;
         };
 
-        let zero = CSSPixelLength::new(0.0);
+        let basis = self
+            .element
+            .inline_layout_data
+            .as_ref()
+            .map_or(0.0, |layout| layout.percent_basis);
+        let zero = CSSPixelLength::new(basis);
         let s_border = style.get_border();
         let s_padding = style.get_padding();
         let width = |width: &style::values::computed::BorderSideWidth, line: BorderStyle| {

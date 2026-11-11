@@ -36,8 +36,13 @@ struct InlineEdges {
     margin_end: f32,
 }
 
-fn inline_edges(style: &ComputedValues) -> InlineEdges {
-    let zero = Length::new(0.0);
+struct EdgeBasis {
+    width: f32,
+    has_percent: bool,
+}
+
+fn inline_edges(style: &ComputedValues, basis: &mut EdgeBasis) -> InlineEdges {
+    let zero = Length::new(basis.width);
     let margin = style.get_margin();
     let padding = style.get_padding();
     let border = style.get_border();
@@ -45,6 +50,11 @@ fn inline_edges(style: &ComputedValues) -> InlineEdges {
         GenericMargin::LengthPercentage(value) => value.resolve(zero).px(),
         _ => 0.0,
     };
+    let margin_has_percent = |value: &GenericMargin<LengthPercentage>| matches!(value, GenericMargin::LengthPercentage(value) if value.has_percentage());
+    basis.has_percent |= margin_has_percent(&margin.margin_left)
+        || margin_has_percent(&margin.margin_right)
+        || padding.padding_left.0.has_percentage()
+        || padding.padding_right.0.has_percentage();
     let border_px = |width: &BorderSideWidth, line: BorderStyle| {
         if line.none_or_hidden() {
             0.0
@@ -185,6 +195,10 @@ pub(crate) fn build_inline_layout_into(
     // The marker is a separate box, so words in the content don't continue from it.
     let mut text_transformer = TextTransformer::default();
     text_transformer.word_break(&builder);
+    let mut edge_basis = EdgeBasis {
+        width: text_layout.percent_basis,
+        has_percent: false,
+    };
 
     if let Some(before_id) = root_node.before() {
         build_inline_layout_recursive(
@@ -193,6 +207,7 @@ pub(crate) fn build_inline_layout_into(
             nodes,
             before_id,
             &text_transform,
+            &mut edge_basis,
         );
     }
     for child_id in root_node.children.iter().copied() {
@@ -202,6 +217,7 @@ pub(crate) fn build_inline_layout_into(
             nodes,
             child_id,
             &text_transform,
+            &mut edge_basis,
         );
     }
     if let Some(after_id) = root_node.after() {
@@ -211,10 +227,12 @@ pub(crate) fn build_inline_layout_into(
             nodes,
             after_id,
             &text_transform,
+            &mut edge_basis,
         );
     }
 
     text_layout.text = builder.build_into(&mut text_layout.layout);
+    text_layout.has_percent_edges = edge_basis.has_percent;
     return;
 
     fn build_inline_layout_recursive(
@@ -223,6 +241,7 @@ pub(crate) fn build_inline_layout_into(
         nodes: &crate::NodeTree,
         node_id: NodeId,
         parent_text_transform: &CaseTransform,
+        edge_basis: &mut EdgeBasis,
     ) {
         let node = &nodes[node_id];
 
@@ -285,6 +304,7 @@ pub(crate) fn build_inline_layout_into(
                                 nodes,
                                 child_id,
                                 &text_transform,
+                                edge_basis,
                             );
                         }
                         builder.pop_style_span();
@@ -322,7 +342,7 @@ pub(crate) fn build_inline_layout_into(
                             builder.pop_style_span();
                             text_transformer.word_break(builder);
                         } else {
-                            let edges = node.primary_styles().map(|s| inline_edges(&s));
+                            let edges = node.primary_styles().map(|s| inline_edges(&s, edge_basis));
                             if let Some(edges) = &edges {
                                 push_margin_spacer(
                                     builder,
@@ -355,6 +375,7 @@ pub(crate) fn build_inline_layout_into(
                                     nodes,
                                     before_id,
                                     &text_transform,
+                                    edge_basis,
                                 );
                             }
 
@@ -365,6 +386,7 @@ pub(crate) fn build_inline_layout_into(
                                     nodes,
                                     child_id,
                                     &text_transform,
+                                    edge_basis,
                                 );
                             }
                             if let Some(after_id) = node.after() {
@@ -374,6 +396,7 @@ pub(crate) fn build_inline_layout_into(
                                     nodes,
                                     after_id,
                                     &text_transform,
+                                    edge_basis,
                                 );
                             }
 
