@@ -211,7 +211,11 @@ impl ElementCx<'_, '_> {
 
     fn clip_box(&self, clip: BoxModelBox) -> BoxModelBox {
         let is_cell = self.style.clone_display().inside() == DisplayInside::TableCell;
-        if clip == BoxModelBox::BorderBox && is_cell && self.has_collapsed_borders() {
+        if clip == BoxModelBox::BorderBox
+            && is_cell
+            && self.has_collapsed_borders()
+            && !self.paints_under_cell_borders()
+        {
             BoxModelBox::PaddingBox
         } else {
             clip

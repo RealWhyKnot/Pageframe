@@ -1,13 +1,12 @@
 use anyrender::PaintScene;
 use blitz_dom::CopyStyleGetters;
 use blitz_dom::node::SpecialElementData;
-use kurbo::{BezPath, Cap, Circle, Insets, Join, PathEl, Point, Rect, Shape as _, Stroke, Vec2};
+use kurbo::{BezPath, Cap, Circle, Insets, Join, PathEl, Point, Shape as _, Stroke, Vec2};
 use peniko::{Color, Fill};
 use smallvec::SmallVec;
 use style::{
     computed_values::border_collapse::T as BorderCollapse,
-    properties::ComputedValues,
-    values::computed::{BorderSideWidth, BorderStyle, OutlineStyle},
+    values::computed::{BorderStyle, OutlineStyle},
     values::specified::box_::DisplayInside,
 };
 
@@ -66,7 +65,7 @@ fn squared_distance(color: Color, target: f32) -> f32 {
         .sum()
 }
 
-fn beveled_edge_color(color: Color, edge: Edge, inset: bool) -> Color {
+pub(super) fn beveled_edge_color(color: Color, edge: Edge, inset: bool) -> Color {
     let top_or_left = matches!(edge, Edge::Top | Edge::Left);
     let (base, dark) = if squared_distance(color, 0.0) <= DARK_THRESHOLD {
         let lightened = lighten(color);
@@ -148,161 +147,6 @@ fn sample_points_along_path(path: &BezPath, spacing: f64, count: usize) -> Vec<P
         points.push(poly[seg].lerp(poly[seg + 1], t));
     }
     points
-}
-
-const EDGE_SLACK: f64 = 0.5;
-
-struct CollapsedLine {
-    rect: Rect,
-    color: Color,
-    width: f64,
-    edge: Edge,
-}
-
-struct SeamLine {
-    line: CollapsedLine,
-    boundary: usize,
-    y: f64,
-    span: std::ops::Range<f64>,
-}
-
-impl SeamLine {
-    fn key(&self) -> f64 {
-        (self.y * 64.0).round()
-    }
-
-    fn crosses(&self, other: &Self) -> bool {
-        self.span.start < other.span.end && other.span.start < self.span.end
-    }
-}
-
-fn seam_rects(seams: &mut [SeamLine]) -> Vec<(Rect, Color)> {
-    seams.sort_by(|first, second| {
-        first
-            .key()
-            .total_cmp(&second.key())
-            .then(first.boundary.cmp(&second.boundary))
-            .then(first.line.width.total_cmp(&second.line.width))
-    });
-    let mut rects = Vec::with_capacity(seams.len());
-    for run in seams.chunk_by(|first, second| first.key() == second.key()) {
-        let (Some(first), Some(last)) = (run.first(), run.last()) else {
-            continue;
-        };
-        let above: Vec<&SeamLine> = run
-            .iter()
-            .filter(|seam| seam.boundary == first.boundary)
-            .collect();
-        let below: Vec<&SeamLine> = run
-            .iter()
-            .filter(|seam| seam.boundary == last.boundary)
-            .collect();
-        let widest = |group: &[&SeamLine], seam: &SeamLine| {
-            group
-                .iter()
-                .filter(|other| other.crosses(seam))
-                .map(|other| other.line.width)
-                .fold(0.0, f64::max)
-        };
-        for seam in run {
-            let half = seam.line.width / 2.0;
-            let top = seam.y - half.min(widest(&above, seam) / 2.0);
-            let bottom = seam.y + half.min(widest(&below, seam) / 2.0);
-            if bottom > top {
-                let rect = Rect::new(seam.line.rect.x0, top, seam.line.rect.x1, bottom);
-                rects.push((rect, seam.line.color));
-            }
-        }
-    }
-    rects
-}
-
-fn inset(rect: Rect, by: Insets) -> Rect {
-    Rect::new(
-        rect.x0 + by.x0,
-        rect.y0 + by.y0,
-        rect.x1 - by.x1,
-        rect.y1 - by.y1,
-    )
-}
-
-fn layout_border(layout: &taffy::Layout) -> Insets {
-    Insets::new(
-        f64::from(layout.border.left),
-        f64::from(layout.border.top),
-        f64::from(layout.border.right),
-        f64::from(layout.border.bottom),
-    )
-}
-
-fn collapsed_widths(style: &ComputedValues) -> Insets {
-    let border = style.get_border();
-    let side = |width: &BorderSideWidth, style: BorderStyle| {
-        if style.none_or_hidden() {
-            0.0
-        } else {
-            f64::from(width.0.to_f32_px())
-        }
-    };
-    Insets::new(
-        side(&border.border_left_width, border.border_left_style),
-        side(&border.border_top_width, border.border_top_style),
-        side(&border.border_right_width, border.border_right_style),
-        side(&border.border_bottom_width, border.border_bottom_style),
-    )
-}
-
-fn push_collapsed_lines(
-    lines: &mut Vec<CollapsedLine>,
-    inner: Rect,
-    widths: Insets,
-    style: &ComputedValues,
-) {
-    let border = style.get_border();
-    let current_color = style.clone_color();
-    let outer = Rect::new(
-        inner.x0 - widths.x0,
-        inner.y0 - widths.y0,
-        inner.x1 + widths.x1,
-        inner.y1 + widths.y1,
-    );
-    let sides = [
-        (
-            widths.x0,
-            &border.border_left_color,
-            Rect::new(outer.x0, outer.y0, inner.x0, outer.y1),
-            Edge::Left,
-        ),
-        (
-            widths.y0,
-            &border.border_top_color,
-            Rect::new(outer.x0, outer.y0, outer.x1, inner.y0),
-            Edge::Top,
-        ),
-        (
-            widths.x1,
-            &border.border_right_color,
-            Rect::new(inner.x1, outer.y0, outer.x1, outer.y1),
-            Edge::Right,
-        ),
-        (
-            widths.y1,
-            &border.border_bottom_color,
-            Rect::new(outer.x0, inner.y1, outer.x1, outer.y1),
-            Edge::Bottom,
-        ),
-    ];
-    for (width, color, rect, edge) in sides {
-        let color = color.resolve_to_absolute(&current_color).as_srgb_color();
-        if width > 0.0 && color != Color::TRANSPARENT {
-            lines.push(CollapsedLine {
-                rect,
-                color,
-                width,
-                edge,
-            });
-        }
-    }
 }
 
 impl ElementCx<'_, '_> {
@@ -663,131 +507,6 @@ impl ElementCx<'_, '_> {
                 self.element.has_collapsed_border() && !removed
             }
             _ => false,
-        }
-    }
-
-    pub(crate) fn draw_table_borders(&self, scene: &mut impl PaintScene) {
-        let SpecialElementData::TableRoot(table) = &self.element.special_data else {
-            return;
-        };
-        if table.has_collapsed_columns() {
-            self.context.deferred_paints.borrow_mut().push(
-                crate::render::DeferredPaint::TableBorders {
-                    node_id: self.node.id,
-                    transform: self.transform,
-                },
-            );
-        } else {
-            self.paint_table_borders(scene);
-        }
-    }
-
-    pub(crate) fn paint_table_borders(&self, scene: &mut impl PaintScene) {
-        let SpecialElementData::TableRoot(table) = &self.element.special_data else {
-            return;
-        };
-        if table.border_collapse != BorderCollapse::Collapse {
-            return;
-        }
-
-        let layout = self.node.final_layout();
-        let (above, below) = self.caption_space();
-        let table_box = Rect::new(
-            0.0,
-            f64::from(above),
-            f64::from(layout.size.width),
-            f64::from(layout.size.height - below),
-        );
-        let cells_box = inset(table_box, layout_border(layout));
-        let own = self.style.get_border();
-        let hidden = |style: BorderStyle| style == BorderStyle::Hidden;
-
-        let mut lines = Vec::new();
-        let mut seams = Vec::new();
-        let has_seams = table.has_collapsed_rows();
-        let own_widths = collapsed_widths(&self.style);
-        push_collapsed_lines(
-            &mut lines,
-            inset(table_box, own_widths),
-            own_widths,
-            &self.style,
-        );
-        for cell in table.cells.iter().rev() {
-            let Some(node) = self.context.dom.get_node(cell.node_id) else {
-                continue;
-            };
-            let Some(style) = node.primary_styles() else {
-                continue;
-            };
-            let layout = node.final_layout();
-            let left = f64::from(layout.location.x);
-            let top = f64::from(layout.location.y);
-            let cell_box = Rect::new(
-                left,
-                top,
-                left + f64::from(layout.size.width),
-                top + f64::from(
-                    table
-                        .collapsed_cell_span_height(cell.node_id)
-                        .unwrap_or(layout.size.height),
-                ),
-            );
-            let mut widths = collapsed_widths(&style);
-            if hidden(own.border_left_style) && cell_box.x0 <= cells_box.x0 + EDGE_SLACK {
-                widths.x0 = 0.0;
-            }
-            if hidden(own.border_top_style) && cell_box.y0 <= cells_box.y0 + EDGE_SLACK {
-                widths.y0 = 0.0;
-            }
-            if hidden(own.border_right_style) && cell_box.x1 >= cells_box.x1 - EDGE_SLACK {
-                widths.x1 = 0.0;
-            }
-            if hidden(own.border_bottom_style) && cell_box.y1 >= cells_box.y1 - EDGE_SLACK {
-                widths.y1 = 0.0;
-            }
-            let first = lines.len();
-            push_collapsed_lines(
-                &mut lines,
-                inset(cell_box, layout_border(layout)),
-                widths,
-                &style,
-            );
-            if has_seams {
-                let [top, bottom] = table.seam_edges(cell);
-                let mut index = first;
-                while index < lines.len() {
-                    let seam = match lines[index].edge {
-                        Edge::Top => top.map(|boundary| (boundary, cell_box.y0)),
-                        Edge::Bottom => bottom.map(|boundary| (boundary, cell_box.y1)),
-                        Edge::Left | Edge::Right => None,
-                    };
-                    match seam {
-                        Some((boundary, y)) => seams.push(SeamLine {
-                            line: lines.remove(index),
-                            boundary,
-                            y,
-                            span: cell_box.x0..cell_box.x1,
-                        }),
-                        None => index += 1,
-                    }
-                }
-            }
-        }
-
-        lines.sort_by(|first, second| first.width.total_cmp(&second.width));
-        for run in lines.chunk_by(|first, second| first.color == second.color) {
-            let Some(line) = run.first() else {
-                continue;
-            };
-            let mut shape = BezPath::new();
-            for line in run {
-                shape.extend(line.rect.scale_from_origin(self.scale).path_elements(0.1));
-            }
-            scene.fill(Fill::NonZero, self.transform, line.color, None, &shape);
-        }
-        for (rect, color) in seam_rects(&mut seams) {
-            let rect = rect.scale_from_origin(self.scale);
-            scene.fill(Fill::NonZero, self.transform, color, None, &rect);
         }
     }
 

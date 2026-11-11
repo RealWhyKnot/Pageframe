@@ -2437,15 +2437,16 @@ fn a_wide_border_above_a_collapsed_row_stops_at_the_row_below() {
     let buffer = seam_table("border-bottom:6px solid black", "", "");
     assert_eq!(
         column(&buffer, 5, &[11, 12, 13, 14, 15, 16]),
-        [GREEN, BLACK, BLACK, RED, RED, GREEN]
+        [GREEN, BLACK, BLACK, RED, RED, BLACK]
     );
+    assert_eq!(column(&buffer, 5, &[17, 18]), [BLACK, GREEN]);
 }
 
 #[test]
 fn a_wide_border_below_a_collapsed_row_stops_at_the_row_above() {
     let buffer = seam_table("", "", "border-top:6px solid black");
     assert_eq!(
-        column(&buffer, 5, &[11, 12, 15, 16]),
+        column(&buffer, 5, &[9, 10, 15, 16]),
         [GREEN, BLACK, BLACK, GREEN]
     );
 }

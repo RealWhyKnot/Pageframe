@@ -95,6 +95,17 @@ pub struct TableCell {
     style: taffy::Style<Atom>,
 }
 
+impl TableCell {
+    pub fn columns(&self) -> Range<usize> {
+        self.column..self.column + self.column_span
+    }
+
+    pub fn rows(&self) -> Range<usize> {
+        let start = usize::from(self.row);
+        start..start + usize::from(self.row_span)
+    }
+}
+
 /// Tracks the current column position while walking the table's cells, so that
 /// cells are assigned the same columns Taffy's dense auto-placement will give them
 /// (skipping columns still occupied by rowspan cells from earlier rows).
@@ -1370,16 +1381,6 @@ impl TableContext {
 
     pub fn has_collapsed_rows(&self) -> bool {
         self.rows.iter().any(|row| row.is_collapsed)
-    }
-
-    pub fn seam_edges(&self, cell: &TableCell) -> [Option<usize>; 2] {
-        let start = usize::from(cell.row);
-        let end = start + usize::from(cell.row_span);
-        let collapsed = |row: usize| self.rows.get(row).is_some_and(|row| row.is_collapsed);
-        let inside = (start..end).all(collapsed);
-        let top = inside || start.checked_sub(1).is_some_and(collapsed);
-        let bottom = inside || collapsed(end);
-        [top.then_some(start), bottom.then_some(end)]
     }
 
     pub fn collapsed_cell_span_height(&self, node_id: NodeId) -> Option<f32> {

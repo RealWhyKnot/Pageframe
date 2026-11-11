@@ -9,11 +9,13 @@ mod pixels;
 mod projection;
 mod resizer;
 mod ring;
+mod table_borders;
 mod text_field;
 
 use blitz_dom::CopyStyleGetters;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use super::kurbo_css::CssBox;
 use crate::blend::convert_blend_mode;
@@ -85,6 +87,7 @@ pub struct BlitzDomPainter<'dom, 'a> {
     /// Reusable scratch allocations shared by all text layouts painted for this document.
     pub(crate) draw_text_context: RefCell<DrawTextContext>,
     pub(crate) deferred_paints: RefCell<Vec<DeferredPaint>>,
+    pub(crate) table_edges: RefCell<HashMap<NodeId, Option<Rc<table_borders::Edges>>>>,
     /// Cached selection ranges for O(1) lookup: node_id -> (start_offset, end_offset)
     pub(crate) selection_ranges: HashMap<NodeId, (usize, usize)>,
 
@@ -127,6 +130,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             layer_manager,
             draw_text_context: RefCell::new(DrawTextContext::default()),
             deferred_paints: RefCell::new(Vec::new()),
+            table_edges: RefCell::new(HashMap::new()),
             selection_ranges,
             custom_widget_scenes,
         }
@@ -615,8 +619,9 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
                 });
         let paints_own_box = !node.is_inline_with_only_block_children() && !is_removed_cell;
         let parent_is_flex_or_grid = parent.is_some_and(is_flex_or_grid);
+        let is_table_part = parent.is_some_and(|parent| parent.flags.is_table_root());
         let is_paint_scope = parent.is_none_or(|parent| parent.flags.is_inline_root())
-            || parent_is_flex_or_grid
+            || (parent_is_flex_or_grid && !is_table_part)
             || node.stacking_context.is_some()
             || is_painted_above_text(node, parent_is_flex_or_grid)
             || styles.clone_float() != StyloFloat::None
@@ -748,7 +753,6 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
         scene: &mut impl PaintScene,
         body: &EffectBody<'_>,
     ) {
-        #[cfg(feature = "scrollbars")]
         let unscrolled_transform = cx.transform;
         let native_text_field = cx.has_native_text_field();
         let mut other_box = cx.table_grid_box();
@@ -767,7 +771,6 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             cx.swap_box(other);
         }
         cx.draw_table_row_backgrounds(scene);
-        cx.draw_table_borders(scene);
         if let Some(other) = &mut other_box {
             cx.swap_box(other);
         }
@@ -823,6 +826,14 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
                 let flush_from = body
                     .is_paint_scope
                     .then(|| self.deferred_paints.borrow().len());
+                if flush_from.is_some() && cx.is_table_root() {
+                    self.deferred_paints
+                        .borrow_mut()
+                        .push(DeferredPaint::TableBorders {
+                            node_id: body.node.id,
+                            transform: unscrolled_transform,
+                        });
+                }
                 if let Some(columns) = body.node.columns() {
                     let base = cx.transform;
                     let last = columns.fragments.len().saturating_sub(1);
@@ -886,11 +897,9 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             },
         );
 
+        cx.transform = unscrolled_transform;
         #[cfg(feature = "scrollbars")]
-        {
-            cx.transform = unscrolled_transform;
-            cx.draw_scrollbars(scene);
-        }
+        cx.draw_scrollbars(scene);
     }
 
     fn render_node(
@@ -930,15 +939,16 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
                         DeferredPaint::Element {
                             level: ElementLevel::Positioned,
                             ..
-                        } | DeferredPaint::TableBorders { .. }
+                        }
                     )
                 });
-            let batch = if foregrounds.is_empty() {
+            let mut batch = if foregrounds.is_empty() {
                 elements
             } else {
                 self.deferred_paints.borrow_mut().extend(elements);
                 foregrounds
             };
+            batch.sort_by_key(|paint| matches!(paint, DeferredPaint::TableBorders { .. }));
             for paint in batch {
                 match paint {
                     DeferredPaint::TableBorders { node_id, transform } => {
