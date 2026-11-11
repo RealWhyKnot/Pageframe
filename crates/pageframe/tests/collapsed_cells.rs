@@ -184,3 +184,16 @@ fn a_faded_row_fades_the_children_of_its_cell_in_a_collapsed_column() {
     assert_eq!(red, 255);
     assert!(green.abs_diff(191) <= 1 && blue.abs_diff(191) <= 1);
 }
+
+#[test]
+fn a_faded_cell_in_a_collapsed_column_fades_an_absolute_child_of_a_clipping_box() {
+    let buffer = draw(
+        "<table><col style=\"visibility:collapse\"><col><tr>\
+         <td style=\"opacity:.5\"><b></b><div style=\"overflow:hidden\">\
+         <b class=\"r\" style=\"position:absolute\"></b></div></td>\
+         <td class=\"v\"><b></b></td></tr></table>",
+    );
+    let [red, green, blue, _] = pixel(&buffer, 5, 20);
+    assert_eq!(red, 255);
+    assert!(green.abs_diff(127) <= 1 && blue.abs_diff(127) <= 1);
+}

@@ -678,6 +678,8 @@ impl Node {
             return 1.0;
         }
         let passes_layers = is_context && self.z_index() != 0;
+        let mut outer_block = self.oof_containing_block.get();
+        let mut opacity = 1.0;
         let mut part = self.parent.map(|id| self.with(id));
         while let Some(ancestor) = part {
             let is_removed_cell = ancestor
@@ -690,20 +692,23 @@ impl Node {
                     }
                     _ => false,
                 });
-            if is_removed_cell {
-                let opacity = ancestor
-                    .primary_styles()
-                    .map_or(1.0, |style| style.clone_opacity());
-                return opacity * ancestor.row_opacity();
+            if outer_block == Some(ancestor.id) {
+                outer_block = None;
             }
-            if ancestor.is_stacking_context_root(is_item(ancestor))
-                || (!passes_layers && ancestor.is_paint_layer_root())
+            if is_removed_cell {
+                opacity *= ancestor
+                    .primary_styles()
+                    .map_or(1.0, |style| style.clone_opacity())
+                    * ancestor.row_opacity();
+            } else if outer_block.is_none()
+                && (ancestor.is_stacking_context_root(is_item(ancestor))
+                    || (!passes_layers && ancestor.is_paint_layer_root()))
             {
-                return 1.0;
+                return opacity;
             }
             part = ancestor.parent.map(|id| self.with(id));
         }
-        1.0
+        opacity
     }
 
     pub fn is_float_under_text(&self) -> bool {
