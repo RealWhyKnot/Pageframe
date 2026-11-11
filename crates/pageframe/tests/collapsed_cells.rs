@@ -197,3 +197,32 @@ fn a_faded_cell_in_a_collapsed_column_fades_an_absolute_child_of_a_clipping_box(
     assert_eq!(red, 255);
     assert!(green.abs_diff(127) <= 1 && blue.abs_diff(127) <= 1);
 }
+
+const MARKER: &str = "<i style=\"display:inline-block;width:5px;height:1px;background:red\"></i>";
+const CELLS: &str = "<tr><td><b></b></td><td><b></b></td><td><b></b></td></tr>";
+
+#[test]
+fn an_inline_block_holding_only_a_table_sits_on_the_baseline() {
+    let buffer = draw(&format!(
+        "<div><span style=\"display:inline-block\"><table>{CELLS}</table></span>{MARKER}</div>"
+    ));
+    assert_eq!(pixel(&buffer, 40, 17), RED);
+    assert_eq!(pixel(&buffer, 40, 13), WHITE);
+}
+
+#[test]
+fn an_inline_block_holding_a_table_in_a_block_sits_on_the_baseline() {
+    let buffer = draw(&format!(
+        "<div><span style=\"display:inline-block\"><div><table>{CELLS}</table></div></span>{MARKER}</div>"
+    ));
+    assert_eq!(pixel(&buffer, 40, 17), RED);
+    assert_eq!(pixel(&buffer, 40, 13), WHITE);
+}
+
+#[test]
+fn an_inline_table_keeps_its_first_row_baseline() {
+    let buffer = draw(&format!(
+        "<div><table style=\"display:inline-table\">{CELLS}{CELLS}</table>{MARKER}</div>"
+    ));
+    assert_eq!(pixel(&buffer, 40, 13), RED);
+}

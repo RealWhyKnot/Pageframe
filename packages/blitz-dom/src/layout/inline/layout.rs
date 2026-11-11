@@ -473,6 +473,41 @@ impl LayoutPassState<'_> {
         }
     }
 
+    fn takes_baseline_from_tables_only(&self, box_id: NodeId) -> bool {
+        let mut has_table = false;
+        let mut pending = vec![box_id];
+        while let Some(id) = pending.pop() {
+            let children = self.nodes[id].layout_children.borrow();
+            let Some(children) = children.as_ref() else {
+                continue;
+            };
+            for child_id in children.iter().copied() {
+                let child = &self.nodes[child_id];
+                let style = self.child_layout_style(child);
+                #[cfg(feature = "floats")]
+                let is_floated = style.float().is_floated();
+                #[cfg(not(feature = "floats"))]
+                let is_floated = false;
+                if is_floated || style.position().is_out_of_flow() {
+                    continue;
+                }
+                if child.flags.is_table_root() {
+                    has_table = true;
+                    continue;
+                }
+                let is_block = matches!(
+                    style.effective_display().inside(),
+                    DisplayInside::Flow | DisplayInside::FlowRoot
+                );
+                if child.flags.is_inline_root() || !is_block {
+                    return false;
+                }
+                pending.push(child_id);
+            }
+        }
+        has_table
+    }
+
     /// The out-of-flow positions for which an inline span between the inline box `box_id` and its
     /// inline root `root_id` is a containing block (as `SPAN_*_CB` flags)
     fn inline_span_cb_flags(&self, root_id: NodeId, box_id: NodeId) -> StyleFlags {
@@ -729,6 +764,8 @@ impl LayoutPassState<'_> {
                 || (baseline_source == BaselineSource::Auto && is_block_axis_scroll_container));
             let box_inputs = inline_box_inputs(style.size().width, margin, child_inputs);
             drop(style);
+            let exports_baseline = exports_baseline
+                && !(is_flow && self.takes_baseline_from_tables_only(NodeId::from_u64(ibox.id)));
 
             if is_out_of_flow || is_floated {
                 ibox.width = 0.0;
