@@ -7,6 +7,7 @@ use stylo_taffy::WritingModeExt;
 
 use atomic_refcell::AtomicRefCell;
 use markup5ever::local_name;
+use style::computed_values::direction::T as Direction;
 use style::typed_om::NumericBaseType;
 use style::values::computed::calc::CalcPercentageLeaf;
 use style::values::computed::length_percentage::{
@@ -14,6 +15,7 @@ use style::values::computed::length_percentage::{
 };
 use style::values::computed::{Length, LengthPercentage};
 use style::values::generics::Optional;
+use style::values::specified::border::BorderStyle;
 use style::values::specified::box_::{DisplayInside, DisplayOutside};
 use style::{
     Atom, computed_values::border_collapse::T as BorderCollapse,
@@ -233,21 +235,196 @@ fn refresh_candidates(
     }
 }
 
+const NO_BORDER: taffy::Rect<f32> = taffy::Rect {
+    left: 0.0,
+    right: 0.0,
+    top: 0.0,
+    bottom: 0.0,
+};
+
+fn widen(rect: taffy::Rect<f32>, other: taffy::Rect<f32>) -> taffy::Rect<f32> {
+    taffy::Rect {
+        left: rect.left.max(other.left),
+        right: rect.right.max(other.right),
+        top: rect.top.max(other.top),
+        bottom: rect.bottom.max(other.bottom),
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Frame {
+    wm: WritingMode,
+    is_ltr: bool,
+}
+
+fn visible(width: f32) -> f32 {
+    if width.is_finite() { width } else { 0.0 }
+}
+
+fn mark_hidden(
+    border: taffy::Rect<f32>,
+    style: &ComputedValues,
+    wm: WritingMode,
+) -> taffy::Rect<f32> {
+    if wm.is_vertical() {
+        return border;
+    }
+    let styles = style.get_border();
+    let side = |width: f32, style: BorderStyle| {
+        if style == BorderStyle::Hidden {
+            f32::INFINITY
+        } else {
+            width
+        }
+    };
+    taffy::Rect {
+        left: side(border.left, styles.border_left_style),
+        right: side(border.right, styles.border_right_style),
+        top: side(border.top, styles.border_top_style),
+        bottom: side(border.bottom, styles.border_bottom_style),
+    }
+}
+
+fn part_half_border(doc: &BaseDocument, node_id: NodeId, frame: Frame) -> taffy::Rect<f32> {
+    doc.nodes[node_id]
+        .primary_styles()
+        .map_or(NO_BORDER, |style| {
+            let border = table_taffy_style(&style, frame.wm)
+                .border
+                .resolve_or_zero(None, resolve_calc_value);
+            let border = mark_hidden(border, &style, frame.wm);
+            flip_inline(border.map(|width| width / 2.0), frame.is_ltr)
+        })
+}
+
+fn track_half_borders(
+    doc: &BaseDocument,
+    tracks: &[(NodeId, Option<NodeId>)],
+    frame: Frame,
+    is_row: bool,
+) -> Vec<taffy::Rect<f32>> {
+    tracks
+        .iter()
+        .enumerate()
+        .map(|(index, (node_id, group))| {
+            let own = part_half_border(doc, *node_id, frame);
+            let Some(group_id) = group else {
+                return own;
+            };
+            let is_first = index == 0 || tracks[index - 1].1 != *group;
+            let is_last = tracks.get(index + 1).is_none_or(|next| next.1 != *group);
+            let mut outer = part_half_border(doc, *group_id, frame);
+            if is_row {
+                if !is_first {
+                    outer.top = 0.0;
+                }
+                if !is_last {
+                    outer.bottom = 0.0;
+                }
+            } else {
+                if !is_first {
+                    outer.left = 0.0;
+                }
+                if !is_last {
+                    outer.right = 0.0;
+                }
+            }
+            widen(own, outer)
+        })
+        .collect()
+}
+
+struct TrackBorders {
+    frame: Frame,
+    rows: Vec<taffy::Rect<f32>>,
+    columns: Vec<taffy::Rect<f32>>,
+}
+
+impl TrackBorders {
+    fn new(doc: &BaseDocument, rows: &[TableRow], columns: &[TableColumn], frame: Frame) -> Self {
+        let rows: Vec<_> = rows.iter().map(|row| (row.node_id, row.group)).collect();
+        let columns: Vec<_> = columns
+            .iter()
+            .map(|column| (column.node_id, column.group))
+            .collect();
+        Self {
+            frame,
+            rows: track_half_borders(doc, &rows, frame, true),
+            columns: track_half_borders(doc, &columns, frame, false),
+        }
+    }
+
+    fn row(&self, index: usize) -> taffy::Rect<f32> {
+        self.rows.get(index).copied().unwrap_or(NO_BORDER)
+    }
+
+    fn column(&self, index: usize) -> taffy::Rect<f32> {
+        self.columns.get(index).copied().unwrap_or(NO_BORDER)
+    }
+
+    fn around(
+        &self,
+        columns: &Range<usize>,
+        rows: &Range<usize>,
+        num_columns: usize,
+        num_rows: usize,
+    ) -> taffy::Rect<f32> {
+        let widest = |values: &mut dyn Iterator<Item = f32>| values.fold(0.0, f32::max);
+        let mut half = NO_BORDER;
+        if columns.is_empty() || rows.is_empty() {
+            return half;
+        }
+        half.left = self.column(columns.start).left;
+        if columns.start == 0 {
+            let edge = widest(&mut rows.clone().map(|row| self.row(row).left));
+            half.left = half.left.max(edge);
+        } else {
+            half.left = half.left.max(self.column(columns.start - 1).right);
+        }
+        half.right = self.column(columns.end - 1).right;
+        if columns.end >= num_columns {
+            let edge = widest(&mut rows.clone().map(|row| self.row(row).right));
+            half.right = half.right.max(edge);
+        } else {
+            half.right = half.right.max(self.column(columns.end).left);
+        }
+        half.top = self.row(rows.start).top;
+        if rows.start == 0 {
+            let edge = widest(&mut columns.clone().map(|column| self.column(column).top));
+            half.top = half.top.max(edge);
+        } else {
+            half.top = half.top.max(self.row(rows.start - 1).bottom);
+        }
+        half.bottom = self.row(rows.end - 1).bottom;
+        if rows.end >= num_rows {
+            let edge = widest(&mut columns.clone().map(|column| self.column(column).bottom));
+            half.bottom = half.bottom.max(edge);
+        } else {
+            half.bottom = half.bottom.max(self.row(rows.end).top);
+        }
+        half
+    }
+}
+
 fn resolve_collapsed_borders(
     doc: &mut BaseDocument,
     cells: &mut [TableCell],
     num_columns: usize,
-    num_rows: usize,
+    tracks: &TrackBorders,
     own: taffy::Rect<f32>,
-    wm: WritingMode,
 ) -> taffy::Rect<taffy::LengthPercentage> {
-    let is_ltr = wm.direction() == taffy::Direction::Ltr;
+    let Frame { wm, is_ltr } = tracks.frame;
     let columns = num_columns;
+    let num_rows = tracks.rows.len();
     let table = flip_inline(own.map(|width| width / 2.0), is_ltr);
     let halves: Vec<taffy::Rect<f32>> = cells
         .iter()
         .map(|cell| {
             let border = cell.style.border.resolve_or_zero(None, resolve_calc_value);
+            let border = match doc.nodes[cell.node_id].primary_styles() {
+                Some(style) => mark_hidden(border, &style, wm),
+                None => border,
+            };
             flip_inline(border, is_ltr)
         })
         .collect();
@@ -269,14 +446,13 @@ fn resolve_collapsed_borders(
         }
     }
 
-    let mut outer = table;
+    let mut outer = table.map(visible);
     for (index, cell) in cells.iter_mut().enumerate() {
         let (cell_columns, cell_rows) = span(cell);
-        let own = halves[index];
-        let mut half = own;
+        let around = tracks.around(&cell_columns, &cell_rows, columns, num_rows);
+        let mut half = widen(halves[index], around);
         if cell_columns.start == 0 {
             half.left = half.left.max(table.left);
-            outer.left = outer.left.max(half.left);
         } else {
             let slots = cell_rows
                 .clone()
@@ -287,7 +463,6 @@ fn resolve_collapsed_borders(
         }
         if cell_columns.end >= columns {
             half.right = half.right.max(table.right);
-            outer.right = outer.right.max(half.right);
         } else {
             let slots = cell_rows
                 .clone()
@@ -298,7 +473,6 @@ fn resolve_collapsed_borders(
         }
         if cell_rows.start == 0 {
             half.top = half.top.max(table.top);
-            outer.top = outer.top.max(half.top);
         } else {
             let slots = cell_columns
                 .clone()
@@ -309,7 +483,6 @@ fn resolve_collapsed_borders(
         }
         if cell_rows.end >= num_rows {
             half.bottom = half.bottom.max(table.bottom);
-            outer.bottom = outer.bottom.max(half.bottom);
         } else {
             let slots = cell_columns
                 .clone()
@@ -319,6 +492,19 @@ fn resolve_collapsed_borders(
                 .max(widest(slots, &grid, |cell| halves[cell].top));
         }
 
+        let half = half.map(visible);
+        if cell_columns.start == 0 {
+            outer.left = outer.left.max(half.left);
+        }
+        if cell_columns.end >= columns {
+            outer.right = outer.right.max(half.right);
+        }
+        if cell_rows.start == 0 {
+            outer.top = outer.top.max(half.top);
+        }
+        if cell_rows.end >= num_rows {
+            outer.bottom = outer.bottom.max(half.bottom);
+        }
         let half = flip_inline(half, is_ltr);
         cell.style.border = half.map(style_helpers::length);
         if let Some(element) = doc.nodes[cell.node_id].element_data_mut() {
@@ -549,7 +735,21 @@ pub(crate) fn build_table_context(
     column_sizes.resize(num_columns, remaining_column);
     if border_collapse == BorderCollapse::Collapse {
         let own = style.border.resolve_or_zero(None, resolve_calc_value);
-        style.border = resolve_collapsed_borders(doc, &mut cells, num_columns, rows.len(), own, wm);
+        let table_style = doc.nodes[table_root_node_id].primary_styles();
+        let is_rtl = table_style
+            .as_ref()
+            .is_some_and(|style| style.clone_direction() == Direction::Rtl);
+        let own = match &table_style {
+            Some(style) => mark_hidden(own, style, wm),
+            None => own,
+        };
+        drop(table_style);
+        let frame = Frame {
+            wm,
+            is_ltr: wm.direction() == taffy::Direction::Ltr && !is_rtl,
+        };
+        let tracks = TrackBorders::new(doc, &rows, &columns, frame);
+        style.border = resolve_collapsed_borders(doc, &mut cells, num_columns, &tracks, own);
         for cell in &cells {
             let Some(counted) = cell.column_width_border else {
                 continue;

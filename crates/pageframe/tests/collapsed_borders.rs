@@ -171,3 +171,72 @@ fn a_see_through_border_shows_the_cell_colour_under_it() {
         "{red} {green} {blue}"
     );
 }
+
+fn parts(table: &str, columns: &str, row: &str) -> Vec<u8> {
+    draw(
+        "width:20px;height:14px",
+        &format!(
+            "<table style=\"{table}\">{columns}\
+             <tr style=\"{row}\"><td><b></b></td><td><b></b></td></tr>\
+             <tr><td><b></b></td><td><b></b></td></tr></table>"
+        ),
+    )
+}
+
+fn line(buffer: &[u8], y: usize, xs: &[usize]) -> Vec<[u8; 4]> {
+    xs.iter().map(|x| pixel(buffer, *x, y)).collect()
+}
+
+#[test]
+fn a_row_border_makes_room_around_the_row() {
+    let buffer = parts("", "", "border:6px solid blue");
+    assert_eq!(
+        line(&buffer, 10, &[0, 5, 6, 25, 26, 27, 28, 47, 48, 53, 54]),
+        [
+            BLUE, BLUE, YELLOW, YELLOW, BLACK, BLACK, YELLOW, YELLOW, BLUE, BLUE, WHITE
+        ]
+    );
+    assert_eq!(pixel(&buffer, 10, 5), BLUE);
+    assert_eq!(pixel(&buffer, 10, 6), YELLOW);
+    assert_eq!(pixel(&buffer, 10, 19), YELLOW);
+    assert_eq!(pixel(&buffer, 10, 20), BLUE);
+    assert_eq!(pixel(&buffer, 10, 25), BLUE);
+    assert_eq!(pixel(&buffer, 10, 26), YELLOW);
+}
+
+#[test]
+fn a_row_border_in_a_right_to_left_table_sits_on_the_table_edges() {
+    let buffer = parts("direction:rtl", "", "border:6px solid blue");
+    assert_eq!(
+        line(&buffer, 10, &[0, 5, 6, 25, 26, 27, 28, 47, 48, 53, 54]),
+        [
+            BLUE, BLUE, YELLOW, YELLOW, BLACK, BLACK, YELLOW, YELLOW, BLUE, BLUE, WHITE
+        ]
+    );
+}
+
+#[test]
+fn a_column_border_makes_room_around_the_column() {
+    let buffer = parts("", "<col style=\"border:6px solid blue\"><col>", "");
+    assert_eq!(
+        line(&buffer, 10, &[0, 5, 6, 25, 26, 31, 32, 51, 52, 53, 54]),
+        [
+            BLUE, BLUE, YELLOW, YELLOW, BLUE, BLUE, YELLOW, YELLOW, BLACK, BLACK, WHITE
+        ]
+    );
+    assert_eq!(pixel(&buffer, 10, 5), BLUE);
+    assert_eq!(pixel(&buffer, 10, 6), YELLOW);
+}
+
+#[test]
+fn a_hidden_column_border_takes_no_room() {
+    let buffer = parts("", "<col style=\"border:6px hidden blue\"><col>", "");
+    assert_eq!(
+        line(&buffer, 5, &[0, 19, 20, 39, 40, 41, 42]),
+        [YELLOW, YELLOW, YELLOW, YELLOW, BLACK, BLACK, WHITE]
+    );
+    assert_eq!(pixel(&buffer, 5, 0), WHITE);
+    assert_eq!(pixel(&buffer, 5, 1), LIME);
+    assert_eq!(pixel(&buffer, 5, 2), YELLOW);
+    assert_eq!(pixel(&buffer, 25, 0), BLACK);
+}
