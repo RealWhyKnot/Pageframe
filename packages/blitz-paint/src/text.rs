@@ -145,9 +145,29 @@ fn hung_space(
     (width > 0.0).then_some((f64::from(left), f64::from(width)))
 }
 
+fn covers_its_edges(doc: &BaseDocument, owner: NodeId) -> bool {
+    let Some(styles) = doc.get_node(owner).and_then(|node| node.primary_styles()) else {
+        return false;
+    };
+    let border = styles.get_border();
+    let has_side_border = [
+        (border.border_left_style, &border.border_left_width),
+        (border.border_right_style, &border.border_right_width),
+    ]
+    .iter()
+    .any(|(line, width)| !line.none_or_hidden() && width.0.to_f32_px() > 0.0);
+    let background = styles
+        .get_background()
+        .background_color
+        .resolve_to_absolute(&styles.clone_color())
+        .as_srgb_color();
+    has_side_border || background.components[3] >= 1.0
+}
+
 fn push_spacer_holes(
     glyph_run: &parley::GlyphRun<'_, TextBrush>,
     run_text: &str,
+    snap_origin: Option<f64>,
     holes: &mut SmallVec<[(f64, f64); 2]>,
 ) {
     let is_spacer = |ch: &char| blitz_dom::util::is_inline_spacer(*ch);
@@ -156,7 +176,8 @@ fn push_spacer_holes(
     if leading + trailing == 0 {
         return;
     }
-    let (first, last) = if glyph_run.run().is_rtl() {
+    let is_rtl = glyph_run.run().is_rtl();
+    let (first, last) = if is_rtl {
         (trailing, leading)
     } else {
         (leading, trailing)
@@ -164,10 +185,27 @@ fn push_spacer_holes(
     let count = glyph_run.positioned_glyphs().count();
     for (index, glyph) in glyph_run.positioned_glyphs().enumerate() {
         let is_mark = index < first || index + last >= count;
-        if is_mark && glyph.advance > 0.0 {
-            let left = f64::from(glyph.x);
-            holes.push((left, left + f64::from(glyph.advance)));
+        if !is_mark || glyph.advance <= 0.0 {
+            continue;
         }
+        let mut left = f64::from(glyph.x);
+        let mut right = left + f64::from(glyph.advance);
+        let from_start = if is_rtl { count - 1 - index } else { index };
+        let mark = if from_start < leading {
+            run_text.chars().nth(from_start)
+        } else {
+            run_text.chars().rev().nth(count - 1 - from_start)
+        };
+        if let (Some(origin), Some(mark)) = (snap_origin, mark)
+            && blitz_dom::util::INLINE_EDGE_START.contains(mark)
+        {
+            if is_rtl {
+                right = right.max((right + origin).round() - origin);
+            } else {
+                left = left.min((left + origin).round() - origin);
+            }
+        }
+        holes.push((left, right));
     }
 }
 
@@ -1310,7 +1348,9 @@ pub(crate) fn stroke_text<'a>(
                 let run_text = layout_text
                     .and_then(|text| text.get(run.text_range()))
                     .unwrap_or_default();
-                push_spacer_holes(&glyph_run, run_text, &mut holes);
+                let snap_origin = covers_its_edges(doc, glyph_run.style().brush.id)
+                    .then(|| transform.translation().x);
+                push_spacer_holes(&glyph_run, run_text, snap_origin, &mut holes);
                 if !run_text.trim_end_matches(is_end_mark).is_empty() {
                     hung = hung_space(&glyph_run, run_text, doc, glyph_run.style().brush.id);
                 }

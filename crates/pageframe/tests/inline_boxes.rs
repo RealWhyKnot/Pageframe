@@ -425,6 +425,18 @@ fn underline_row(inner: &str) -> Vec<usize> {
 }
 
 #[test]
+fn an_underline_ends_where_a_span_background_starts() {
+    let row = |background: &str| {
+        underline_row(&format!(
+            "<span style=\"font-size:11.6px\">a</span>\
+             <span style=\"background:{background};padding:0 4px\">a</span>"
+        ))
+    };
+    assert!(row("none").contains(&6));
+    assert!(!row("#fff").contains(&6));
+}
+
+#[test]
 fn an_underline_stops_before_the_space_a_line_wraps_at() {
     let word = underline_row("aaa");
     assert_eq!(underline_row("aaa aaa"), word);
