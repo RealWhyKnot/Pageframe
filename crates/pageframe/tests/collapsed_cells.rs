@@ -142,3 +142,13 @@ fn an_absolute_child_below_a_collapsed_row_moves_up_with_its_cell() {
     assert_eq!(pixel(&buffer, 12, 24), RED);
     assert_eq!(pixel(&buffer, 12, 50), WHITE);
 }
+
+#[test]
+fn a_faded_cell_in_a_collapsed_column_fades_its_relative_child() {
+    let buffer = draw(&column_table("opacity:.5", "position:relative"));
+    let [red, green, blue, _] = pixel(&buffer, 5, 17);
+    assert_eq!(red, 255);
+    assert!(green.abs_diff(127) <= 1 && blue.abs_diff(127) <= 1);
+    let [red, green, blue, _] = pixel(&buffer, 5, 14);
+    assert!(red.abs_diff(127) <= 1 && green == 0 && blue == 0);
+}
