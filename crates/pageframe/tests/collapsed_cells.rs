@@ -284,3 +284,16 @@ fn a_hidden_child_after_the_last_line_does_not_change_the_baseline() {
     ));
     assert_eq!(pixel(&buffer, 40, 37), RED);
 }
+
+#[test]
+fn a_faded_box_in_a_faded_collapsed_cell_fades_its_absolute_child_once() {
+    let buffer = draw(
+        "<table><col style=\"visibility:collapse\"><col><tr>\
+         <td style=\"opacity:.5\"><b></b><div style=\"opacity:.5\">\
+         <b class=\"r\" style=\"position:absolute\"></b></div></td>\
+         <td class=\"v\"><b></b></td></tr></table>",
+    );
+    let [red, green, blue, _] = pixel(&buffer, 5, 20);
+    assert_eq!(red, 255);
+    assert!(green.abs_diff(191) <= 1 && blue.abs_diff(191) <= 1);
+}

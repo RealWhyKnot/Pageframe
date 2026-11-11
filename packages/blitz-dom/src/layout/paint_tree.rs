@@ -698,7 +698,10 @@ impl Node {
             return 1.0;
         }
         let passes_layers = is_context && self.z_index() != 0;
-        let mut outer_block = self.oof_containing_block.get();
+        let mut outer_block = match self.has_clipping_paint_ancestor() {
+            true => None,
+            false => self.oof_containing_block.get(),
+        };
         let mut opacity = 1.0;
         let mut part = self.parent.map(|id| self.with(id));
         while let Some(ancestor) = part {
