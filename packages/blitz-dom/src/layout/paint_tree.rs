@@ -377,6 +377,17 @@ impl BaseDocument {
                                 }
                             });
                         if !collapsed_cell {
+                            let is_caption = paint_order == (0, 0)
+                                && self.nodes[node_id].element_data().is_some_and(|element| {
+                                    match &element.special_data {
+                                        SpecialElementData::TableRoot(table) => table
+                                            .captions
+                                            .iter()
+                                            .any(|caption| caption.node_id == child_id),
+                                        _ => false,
+                                    }
+                                });
+                            let paint_order = if is_caption { (0, -1) } else { paint_order };
                             self.scratch.keyed_children.push((paint_order, child_id));
                         }
                     }

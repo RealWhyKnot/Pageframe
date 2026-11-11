@@ -624,7 +624,6 @@ impl ElementCx<'_, '_> {
         let SpecialElementData::TableRoot(table) = &self.element.special_data else {
             return (0.0, 0.0);
         };
-        let height = self.node.final_layout().size.height;
         let mut above = 0.0_f32;
         let mut below = 0.0_f32;
         for caption in &table.captions {
@@ -632,11 +631,11 @@ impl ElementCx<'_, '_> {
                 continue;
             };
             let layout = node.final_layout();
-            let top = layout.location.y;
+            let space = layout.margin.top + layout.size.height + layout.margin.bottom;
             if caption.is_below {
-                below = below.max(height - top + layout.margin.top);
+                below += space;
             } else {
-                above = above.max(top + layout.size.height + layout.margin.bottom);
+                above += space;
             }
         }
         (above, below)

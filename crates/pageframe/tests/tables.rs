@@ -2629,3 +2629,37 @@ fn margins_of_stacked_captions_add_up() {
         ],
     );
 }
+
+const CAPTION_PAINT_STYLE: &str = "<style>table{border-collapse:separate;border-spacing:2px;border:2px solid black}td{border:0;padding:0;font-size:0}b{display:inline-block;width:40px;height:10px}</style>";
+
+#[test]
+fn the_table_frame_starts_below_overlapping_captions() {
+    let buffer = draw(&format!(
+        "{CAPTION_PAINT_STYLE}<table><caption style=\"height:20px\"></caption><caption style=\"margin-top:-15px\"><b></b></caption><tr><td><b></b><b></b></td></tr></table>"
+    ));
+    assert_eq!(
+        column(&buffer, 30, &[0, 14, 15, 18, 19, 28, 29, 30, 31, 32, 33]),
+        [
+            BLUE, BLUE, BLUE, BLUE, GREEN, GREEN, WHITE, WHITE, BLACK, BLACK, WHITE
+        ]
+    );
+    assert_eq!(
+        column(&buffer, 0, &[15, 19, 20, 32, 33]),
+        [BLUE, BLUE, BLACK, BLACK, WHITE]
+    );
+}
+
+#[test]
+fn cells_paint_over_a_caption_pulled_onto_the_table() {
+    let buffer = draw(&format!(
+        "{CAPTION_PAINT_STYLE}<table><caption style=\"margin:-5px\"><b></b></caption><tr><td><b></b><b></b></td></tr></table>"
+    ));
+    assert_eq!(
+        column(&buffer, 50, &[0, 3, 4, 13, 14, 15, 16, 17, 18]),
+        [
+            BLUE, BLUE, GREEN, GREEN, WHITE, WHITE, BLACK, BLACK, WHITE
+        ]
+    );
+    assert_eq!(row(&buffer, &[0, 1, 2, 3, 4], 4), [BLUE, BLUE, BLUE, BLUE, GREEN]);
+    assert_eq!(row(&buffer, &[0, 1, 2], 8), [BLACK, BLACK, WHITE]);
+}
