@@ -13,9 +13,9 @@ use kurbo::{Affine, BezPath, Point, Rect, Vec2};
 use peniko::{Color, Fill};
 use style::{
     computed_values::border_collapse::T as BorderCollapse,
-    computed_values::direction::T as Direction, computed_values::visibility::T as Visibility,
-    properties::ComputedValues, values::computed::BorderStyle,
-    values::specified::box_::DisplayInside,
+    computed_values::direction::T as Direction, computed_values::position::T as Position,
+    computed_values::visibility::T as Visibility, properties::ComputedValues,
+    values::computed::BorderStyle, values::specified::box_::DisplayInside,
 };
 
 use crate::{
@@ -873,6 +873,11 @@ impl ElementCx<'_, '_> {
     }
 
     pub(crate) fn paints_under_cell_borders(&self) -> bool {
+        let has_layer = self.node.is_stacking_context_root(false)
+            || self.style.clone_position() != Position::Static;
+        if has_layer {
+            return false;
+        }
         let is_hidden = covers_background(&self.style) && self.has_covering_child();
         !is_hidden && self.cell_edges().is_some()
     }

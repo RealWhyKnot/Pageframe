@@ -289,3 +289,16 @@ fn a_row_group_border_goes_around_the_group_only() {
         ]
     );
 }
+
+#[test]
+fn a_positioned_cell_keeps_its_colour_inside_a_see_through_border() {
+    let buffer = grid(
+        "position:relative;border:6px solid rgba(0,0,255,.5);background:red",
+        "",
+    );
+    let [red, green, blue, _] = pixel(&buffer, 10, 4);
+    assert!(
+        red > 100 && green > 100 && blue == 255,
+        "{red} {green} {blue}"
+    );
+}
