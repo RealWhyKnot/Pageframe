@@ -18,70 +18,173 @@ use style::values::generics::text::{GenericTextDecorationInset, GenericTextDecor
 use crate::color::{Color, ToColorColor as _};
 use crate::{FONT_EMBOLDEN_ENABLED, SELECTION_COLOR};
 
-/// Draw the backgrounds of inline elements (e.g. `<span style="background: ...">`).
-///
-/// Each glyph run carries the node id of the innermost inline element it belongs to
-/// (via its brush). We look up that node's `background-color` and, if non-transparent,
-/// fill a rectangle covering the run's advance and its font's ascent/descent so that the
-/// background sits behind the text.
-///
-/// The inline root's own background is painted separately (as a normal block box), so
-/// runs belonging to the root are skipped to avoid drawing it twice.
+struct SpanBox {
+    node_id: NodeId,
+    depth: usize,
+    color: Color,
+    font_size: f64,
+    left: f64,
+    right: f64,
+    baseline: f64,
+    extent: Option<(f64, f64)>,
+    is_own_font: bool,
+}
+
+struct SpanItem {
+    left: f64,
+    right: f64,
+    baseline: f64,
+    font: Option<(NodeId, f64, f64, f64)>,
+}
+
+fn inline_ancestors(
+    doc: &BaseDocument,
+    start: Option<NodeId>,
+    inline_root_id: NodeId,
+) -> Vec<(NodeId, Color, f64)> {
+    let mut ancestors = Vec::new();
+    let mut next_id = start;
+    while let Some(node) = next_id
+        .filter(|node_id| *node_id != inline_root_id)
+        .and_then(|node_id| doc.get_node(node_id))
+    {
+        next_id = node.parent;
+        let Some(styles) = node.primary_styles() else {
+            break;
+        };
+        let display = styles.get_box().display;
+        if display.is_contents() {
+            continue;
+        }
+        if display != Display::Inline {
+            break;
+        }
+        let current_color = styles.clone_color();
+        let color = styles
+            .get_background()
+            .background_color
+            .resolve_to_absolute(&current_color)
+            .as_srgb_color();
+        let font_size = f64::from(styles.get_font().font_size.used_size.0.px());
+        ancestors.push((node.id, color, font_size));
+    }
+    ancestors
+}
+
 pub(crate) fn draw_inline_backgrounds<'a>(
     scene: &mut impl PaintScene,
     lines: impl Iterator<Item = Line<'a, TextBrush>>,
     doc: &BaseDocument,
     transform: Affine,
     inline_root_id: NodeId,
+    scale: f64,
 ) {
+    let mut font_ratios: Option<(f64, f64)> = None;
     for line in lines {
+        let line_baseline = f64::from(line.metrics().baseline);
+        let mut boxes: Vec<SpanBox> = Vec::new();
         for item in line.items() {
-            let PositionedLayoutItem::GlyphRun(glyph_run) = item else {
-                continue;
+            let (start, span_item) = match item {
+                PositionedLayoutItem::GlyphRun(glyph_run) => {
+                    let metrics = glyph_run.run().font_metrics();
+                    let left = f64::from(glyph_run.offset());
+                    let font_size = f64::from(glyph_run.run().font_size());
+                    let ascent = f64::from(metrics.ascent);
+                    let descent = f64::from(metrics.descent);
+                    if font_size > 0.0 {
+                        font_ratios = Some((ascent / font_size, descent / font_size));
+                    }
+                    let owner = glyph_run.style().brush.id;
+                    (
+                        Some(owner),
+                        SpanItem {
+                            left,
+                            right: left + f64::from(glyph_run.advance()),
+                            baseline: f64::from(glyph_run.baseline()),
+                            font: Some((owner, ascent, descent, font_size)),
+                        },
+                    )
+                }
+                PositionedLayoutItem::InlineBox(inline_box)
+                    if inline_box.kind == parley::InlineBoxKind::InFlow =>
+                {
+                    let left = f64::from(inline_box.x);
+                    (
+                        doc.get_node(NodeId::from_u64(inline_box.id))
+                            .and_then(|node| node.parent),
+                        SpanItem {
+                            left,
+                            right: left + f64::from(inline_box.width),
+                            baseline: line_baseline,
+                            font: None,
+                        },
+                    )
+                }
+                PositionedLayoutItem::InlineBox(_) => continue,
             };
 
-            let mut colors = Vec::new();
-            let mut next_id = Some(glyph_run.style().brush.id);
-            while let Some(node) = next_id
-                .filter(|node_id| *node_id != inline_root_id)
-                .and_then(|node_id| doc.get_node(node_id))
-            {
-                next_id = node.parent;
-                let Some(styles) = node.primary_styles() else {
-                    break;
-                };
-                let display = styles.get_box().display;
-                if display.is_contents() {
+            let ancestors = inline_ancestors(doc, start, inline_root_id);
+            let depth_of_first = ancestors.len();
+            for (index, (node_id, color, font_size)) in ancestors.into_iter().enumerate() {
+                if color == Color::TRANSPARENT {
                     continue;
                 }
-                if display != Display::Inline {
-                    break;
+                let position = boxes
+                    .iter()
+                    .position(|span_box| span_box.node_id == node_id)
+                    .unwrap_or_else(|| {
+                        boxes.push(SpanBox {
+                            node_id,
+                            depth: depth_of_first - index,
+                            color,
+                            font_size: font_size * scale,
+                            left: span_item.left,
+                            right: span_item.right,
+                            baseline: span_item.baseline,
+                            extent: None,
+                            is_own_font: false,
+                        });
+                        boxes.len() - 1
+                    });
+                let span_box = &mut boxes[position];
+                span_box.left = span_box.left.min(span_item.left);
+                span_box.right = span_box.right.max(span_item.right);
+                let Some((owner, ascent, descent, run_font_size)) = span_item.font else {
+                    continue;
+                };
+                if span_box.is_own_font {
+                    continue;
                 }
-                let current_color = styles.clone_color();
-                let bg_color = styles
-                    .get_background()
-                    .background_color
-                    .resolve_to_absolute(&current_color)
-                    .as_srgb_color();
-                if bg_color != Color::TRANSPARENT {
-                    colors.push(bg_color);
+                if owner == node_id {
+                    span_box.is_own_font = true;
+                    span_box.baseline = span_item.baseline;
+                    span_box.extent = Some((ascent, descent));
+                } else if span_box.extent.is_none() && run_font_size > 0.0 {
+                    let ratio = span_box.font_size / run_font_size;
+                    span_box.baseline = span_item.baseline;
+                    span_box.extent = Some((ascent * ratio, descent * ratio));
                 }
             }
-            if colors.is_empty() {
+        }
+
+        boxes.sort_by_key(|span_box| span_box.depth);
+        for span_box in boxes {
+            let extent = span_box.extent.or_else(|| {
+                font_ratios.map(|(ascent, descent)| {
+                    (ascent * span_box.font_size, descent * span_box.font_size)
+                })
+            });
+            let Some((ascent, descent)) = extent else {
                 continue;
-            }
-
-            let metrics = glyph_run.run().font_metrics();
-            let x = glyph_run.offset() as f64;
-            let w = glyph_run.advance() as f64;
-            let baseline = glyph_run.baseline() as f64;
-            let y0 = baseline - metrics.ascent as f64;
-            let y1 = baseline + metrics.descent as f64;
-            let rect = Rect::new(x, y0, x + w, y1);
-
-            for bg_color in colors.into_iter().rev() {
-                scene.fill(Fill::NonZero, transform, bg_color, None, &rect);
-            }
+            };
+            let baseline = span_box.baseline.round();
+            let rect = Rect::new(
+                span_box.left.round(),
+                baseline - ascent.round(),
+                span_box.right.round(),
+                baseline + descent.round(),
+            );
+            scene.fill(Fill::NonZero, transform, span_box.color, None, &rect);
         }
     }
 }

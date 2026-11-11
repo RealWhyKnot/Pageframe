@@ -1341,6 +1341,7 @@ impl ElementCx<'_, '_> {
                 self.context.dom,
                 transform,
                 self.node.id,
+                self.scale,
             );
 
             // Render text selection highlight (if any) using cached selection ranges
@@ -2173,7 +2174,6 @@ fn line_ellipsis(
     (visible_lines, ellipsis)
 }
 
-/// Convert Stylo and Taffy types into Kurbo types
 fn has_corner_radius(style: &ComputedValues) -> bool {
     let border = style.get_border();
     [
@@ -2188,6 +2188,7 @@ fn has_corner_radius(style: &ComputedValues) -> bool {
     })
 }
 
+/// Convert Stylo and Taffy types into Kurbo types
 fn create_css_rect(style: &ComputedValues, layout: &Layout, scale: f64) -> CssBox {
     // Resolve and rescale
     // We have to scale since document pixels are not same same as rendered pixels

@@ -414,7 +414,9 @@ fn a_raised_child_is_clipped_inside_the_border_of_a_rounded_clipping_box() {
         "position:relative;z-index:1",
     );
     assert_eq!(pixel(&buffer, 12, 12), RED);
-    assert_eq!(pixel(&buffer, 14, 1), [0, 0, 255, 255]);
+    assert_eq!(pixel(&buffer, 14, 1), BLUE);
+    let [red, _, blue, _] = pixel(&buffer, 4, 4);
+    assert!(red < 16 && blue > 239);
     assert_eq!(pixel(&buffer, 0, 0), WHITE);
     assert_eq!(pixel(&buffer, 23, 23), WHITE);
 }
@@ -456,4 +458,46 @@ fn layout_containment_keeps_a_lowered_child_above_its_box() {
 fn size_and_style_containment_let_a_raised_child_cover_a_later_layer() {
     assert_eq!(pixel(&contained("size", 2), 15, 15), RED);
     assert_eq!(pixel(&contained("style", 2), 15, 15), RED);
+}
+
+fn span(inner: &str) -> Vec<u8> {
+    draw(&format!(
+        "<div style=\"line-height:40px\">\
+         <span style=\"background:#0f0;color:transparent\">{inner}</span></div>"
+    ))
+}
+
+#[test]
+fn a_span_background_runs_under_an_inline_block_inside_it() {
+    let buffer = span("aa<i style=\"display:inline-block;width:20px;height:2px\"></i>aa");
+    assert_eq!(pixel(&buffer, 4, 20), LIME);
+    assert_eq!(pixel(&buffer, 22, 20), LIME);
+    assert_eq!(pixel(&buffer, 40, 20), LIME);
+}
+
+#[test]
+fn a_span_background_keeps_its_height_around_larger_text() {
+    let buffer = span("aa<span style=\"font-size:30px\">a</span>");
+    assert_eq!(pixel(&buffer, 4, 25), LIME);
+    assert_eq!(pixel(&buffer, 20, 25), LIME);
+    assert_eq!(pixel(&buffer, 20, 8), WHITE);
+}
+
+#[test]
+fn a_span_background_has_whole_pixel_edges() {
+    let buffer = span("aa");
+    let column: Vec<[u8; 4]> = (0..40).map(|y| pixel(&buffer, 4, y)).collect();
+    assert!(column.contains(&LIME));
+    assert!(column.iter().all(|colour| *colour == LIME || *colour == WHITE));
+}
+
+#[test]
+fn containment_on_an_inline_box_lets_a_raised_child_cover_a_later_layer() {
+    let buffer = draw(
+        "<span style=\"contain:paint\"><b style=\"display:inline-block;width:20px;height:30px;\
+         background:red;position:relative;z-index:2\"></b></span>\
+         <div style=\"position:absolute;left:10px;top:10px;width:40px;height:20px;\
+         background:blue;z-index:1\"></div>",
+    );
+    assert_eq!(pixel(&buffer, 15, 15), RED);
 }
