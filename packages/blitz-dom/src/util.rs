@@ -301,6 +301,7 @@ pub const INLINE_EDGE_START: &str = "\u{2063}";
 pub const INLINE_EDGE_END: &str = "\u{2060}";
 pub const INLINE_MARGIN_START: &str = "\u{2064}";
 pub const INLINE_MARGIN_END: &str = "\u{feff}";
+pub const INLINE_BREAK: &str = "\u{200b}";
 
 pub fn is_inline_spacer(ch: char) -> bool {
     [
@@ -308,6 +309,7 @@ pub fn is_inline_spacer(ch: char) -> bool {
         INLINE_EDGE_END,
         INLINE_MARGIN_START,
         INLINE_MARGIN_END,
+        INLINE_BREAK,
     ]
     .iter()
     .any(|spacer| spacer.contains(ch))

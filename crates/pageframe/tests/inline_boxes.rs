@@ -265,3 +265,16 @@ fn a_space_before_a_span_close_hangs_at_the_line_end() {
     let inner = painted(&boxed_span("padding:0 3px", "aa <i>a</i>"), 20);
     assert!(inner.len() > tight.len() + 6);
 }
+
+#[test]
+fn a_line_wraps_after_a_span_that_ends_in_a_space() {
+    let tight = painted(&boxed_span("padding:0 3px", "aa"), 20);
+    let buffer = draw(
+        "<div style=\"line-height:40px;width:30px\">\
+         <span style=\"background:#0f0;color:transparent;padding:0 3px\">aa </span>aaa</div>",
+    );
+    let row = painted(&buffer, 20);
+    assert_eq!(row.len(), tight.len());
+    assert!(row.iter().all(|(_, colour)| *colour == LIME));
+    assert!((40..80).any(|y| !painted(&buffer, y).is_empty()));
+}

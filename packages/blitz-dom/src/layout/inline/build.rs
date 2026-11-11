@@ -37,6 +37,26 @@ struct InlineEdges {
     has_percent_margin: bool,
 }
 
+impl InlineEdges {
+    fn has_end_mark(&self) -> bool {
+        self.has_edge_marks || self.has_percent_margin || self.margin_end.abs() >= f32::EPSILON
+    }
+}
+
+fn ends_in_space(nodes: &crate::NodeTree, node_id: NodeId) -> bool {
+    let node = &nodes[node_id];
+    if node.after().is_some() {
+        return false;
+    }
+    match &node.data {
+        NodeData::Text(data) => data.content.ends_with(char::is_whitespace),
+        _ => node
+            .children
+            .last()
+            .is_some_and(|child| ends_in_space(nodes, *child)),
+    }
+}
+
 struct EdgeBasis {
     width: f32,
     has_percent: bool,
@@ -427,6 +447,9 @@ pub(crate) fn build_inline_layout_into(
                                     crate::util::INLINE_MARGIN_END,
                                     edges.margin_end,
                                 );
+                                if edges.has_end_mark() && ends_in_space(nodes, node_id) {
+                                    builder.push_text(crate::util::INLINE_BREAK);
+                                }
                             }
                         }
                     }

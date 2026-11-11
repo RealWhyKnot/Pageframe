@@ -114,6 +114,7 @@ fn relative_shift(styles: &style::properties::ComputedValues) -> Vec2 {
 fn is_end_mark(character: char) -> bool {
     blitz_dom::util::INLINE_EDGE_END.contains(character)
         || blitz_dom::util::INLINE_MARGIN_END.contains(character)
+        || blitz_dom::util::INLINE_BREAK.contains(character)
 }
 
 fn hung_space(
