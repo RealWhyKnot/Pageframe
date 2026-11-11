@@ -607,7 +607,6 @@ pub(crate) struct Edges {
     sections: Vec<Range<usize>>,
     cells: HashMap<NodeId, (Range<usize>, Range<usize>)>,
     is_rtl: bool,
-    is_opaque: bool,
 }
 
 impl Edges {
@@ -753,12 +752,6 @@ impl Edges {
                 &Sides::new(style, is_rtl, scale, order),
             );
         }
-        let is_opaque = grid
-            .across
-            .iter()
-            .chain(&grid.down)
-            .filter_map(|slot| slot.line())
-            .all(|line| line.color.components[3] >= 1.0);
         Some(Self {
             grid,
             column_lines: column_lines.into_iter().flatten().collect(),
@@ -766,7 +759,6 @@ impl Edges {
             sections,
             cells,
             is_rtl,
-            is_opaque,
         })
     }
 
@@ -877,7 +869,7 @@ impl ElementCx<'_, '_> {
             return None;
         }
         self.table_edges(self.node.layout_parent.get()?)
-            .filter(|edges| edges.is_opaque && edges.cells.contains_key(&self.node.id))
+            .filter(|edges| edges.cells.contains_key(&self.node.id))
     }
 
     pub(crate) fn paints_under_cell_borders(&self) -> bool {

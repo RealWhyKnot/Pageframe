@@ -153,3 +153,21 @@ fn a_double_border_in_a_collapsed_row_is_drawn_as_two_stripes() {
     assert_eq!(pixel(&buffer, 11, 13), BLACK);
     assert_eq!(pixel(&buffer, 13, 13), RED);
 }
+
+#[test]
+fn a_table_that_clips_its_overflow_keeps_its_border() {
+    let buffer = grid("", "overflow:hidden;border:6px solid blue");
+    assert_eq!(pixel(&buffer, 1, 1), BLUE);
+    assert_eq!(pixel(&buffer, 10, 4), BLUE);
+    assert_eq!(pixel(&buffer, 10, 10), YELLOW);
+}
+
+#[test]
+fn a_see_through_border_shows_the_cell_colour_under_it() {
+    let buffer = grid("border:6px solid rgba(0,0,255,.5);background:red", "");
+    let [red, green, blue, _] = pixel(&buffer, 10, 4);
+    assert!(
+        red > 100 && green == 0 && blue > 100,
+        "{red} {green} {blue}"
+    );
+}

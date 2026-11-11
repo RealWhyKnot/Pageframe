@@ -826,7 +826,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
                 let flush_from = body
                     .is_paint_scope
                     .then(|| self.deferred_paints.borrow().len());
-                if flush_from.is_some() && cx.is_table_root() {
+                if flush_from.is_some() && !body.should_clip && cx.is_table_root() {
                     self.deferred_paints
                         .borrow_mut()
                         .push(DeferredPaint::TableBorders {
@@ -898,6 +898,9 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
         );
 
         cx.transform = unscrolled_transform;
+        if body.should_clip {
+            cx.paint_table_borders(scene);
+        }
         #[cfg(feature = "scrollbars")]
         cx.draw_scrollbars(scene);
     }
