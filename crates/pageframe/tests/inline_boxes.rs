@@ -264,6 +264,9 @@ fn a_space_before_a_span_close_hangs_at_the_line_end() {
     assert_eq!(spaced.len(), tight.len());
     let inner = painted(&boxed_span("padding:0 3px", "aa <i>a</i>"), 20);
     assert!(inner.len() > tight.len() + 6);
+    let one_sided = painted(&boxed_span("padding-left:3px", "aa"), 20);
+    let one_sided_spaced = painted(&boxed_span("padding-left:3px", "aa "), 20);
+    assert_eq!(one_sided_spaced.len(), one_sided.len());
 }
 
 #[test]

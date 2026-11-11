@@ -118,7 +118,13 @@ fn inline_edges(style: &ComputedValues, basis: &mut EdgeBasis) -> InlineEdges {
 }
 
 fn push_spacer(builder: &mut TreeBuilder<TextBrush>, spacer: &str, width: f32) {
-    builder.push_style_modification_span(&[parley::StyleProperty::LetterSpacing(width)]);
+    let is_start =
+        spacer == crate::util::INLINE_EDGE_START || spacer == crate::util::INLINE_MARGIN_START;
+    let run_mark = if is_start { 1.0 } else { 2.0 };
+    builder.push_style_modification_span(&[
+        parley::StyleProperty::LetterSpacing(width),
+        parley::StyleProperty::WordSpacing(run_mark),
+    ]);
     builder.push_text(spacer);
     builder.pop_style_span();
 }
