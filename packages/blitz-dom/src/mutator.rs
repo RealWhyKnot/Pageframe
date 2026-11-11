@@ -443,8 +443,13 @@ impl DocumentMutator<'_> {
 
         if (tag, attr) == tag_and_attr!("input", "checked") {
             set_input_checked_state(element, value.to_string());
-        } else if (tag, attr) == tag_and_attr!("img", "src") {
+        } else if (tag, attr) == tag_and_attr!("img", "src")
+            || (tag, attr) == tag_and_attr!("video", "poster")
+        {
             self.load_image(node_id);
+        } else if (tag, attr) == tag_and_attr!("img", "alt") {
+            node.clear_layout_cache();
+            node.insert_damage(ALL_DAMAGE);
         } else if (tag, attr) == tag_and_attr!("canvas", "src") {
             self.load_custom_paint_src(node_id);
         } else if (tag, attr) == tag_and_attr!("link", "href")
@@ -557,6 +562,13 @@ impl DocumentMutator<'_> {
             node.set_restyle_hint(RestyleHint::RESTYLE_STYLE_ATTRIBUTE);
         } else if (tag, attr) == tag_and_attr!("input", "checked") {
             element.set_checkbox_input_checked(false);
+        } else if (tag, attr) == tag_and_attr!("img", "src")
+            || (tag, attr) == tag_and_attr!("video", "poster")
+        {
+            self.load_image(node_id);
+        } else if (tag, attr) == tag_and_attr!("img", "alt") {
+            node.clear_layout_cache();
+            node.insert_damage(ALL_DAMAGE);
         } else if (tag, attr) == tag_and_attr!("canvas", "src") {
             self.recompute_is_animating = true;
         } else if (tag, attr) == tag_and_attr!("link", "href") {
@@ -1244,7 +1256,7 @@ impl<'doc> DocumentMutator<'doc> {
                 }
                 _ if has_custom_widget => {}
                 "link" => self.eager_op_queue.push(SpecialOp::LoadStylesheet(node_id)),
-                "img" => self.eager_op_queue.push(SpecialOp::LoadImage(node_id)),
+                "img" | "video" => self.eager_op_queue.push(SpecialOp::LoadImage(node_id)),
                 "iframe" => self.eager_op_queue.push(SpecialOp::LoadIframe(node_id)),
                 "canvas" => self
                     .eager_op_queue
@@ -1327,7 +1339,7 @@ impl<'doc> DocumentMutator<'doc> {
                 SpecialElementData::Stylesheet(_) => self
                     .eager_op_queue
                     .push(SpecialOp::UnloadStylesheet(node_id)),
-                SpecialElementData::Image(_) => {}
+                SpecialElementData::Image(_) | SpecialElementData::ImageFallback(_) => {}
                 SpecialElementData::Canvas(_) => {
                     self.recompute_is_animating = true;
                 }
@@ -1446,8 +1458,30 @@ impl<'doc> DocumentMutator<'doc> {
     }
 
     fn load_image(&mut self, target_id: NodeId) {
+        let node = &mut self.doc.nodes[target_id];
+        let is_video = node
+            .element_data()
+            .is_some_and(|element| element.name.local == local_name!("video"));
+        let source = if is_video {
+            local_name!("poster")
+        } else {
+            local_name!("src")
+        };
+        let loading = node.attr(source.clone()).is_some_and(|src| !src.is_empty());
+        if let Some(element) = node.element_data_mut() {
+            element.special_data = if is_video {
+                SpecialElementData::None
+            } else {
+                SpecialElementData::ImageFallback(Box::new(crate::node::ImageFallback {
+                    loading,
+                    ..Default::default()
+                }))
+            };
+        }
+        node.clear_layout_cache();
+        node.insert_damage(ALL_DAMAGE);
         let node = &self.doc.nodes[target_id];
-        if let Some(raw_src) = node.attr(local_name!("src")) {
+        if let Some(raw_src) = node.attr(source) {
             if !raw_src.is_empty()
                 && let Some(src) = self.doc.resolve_url(raw_src)
             {

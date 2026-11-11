@@ -1798,8 +1798,79 @@ impl ElementCx<'_, '_> {
         );
     }
 
+    fn draw_image_fallback(&self, scene: &mut impl PaintScene) {
+        let SpecialElementData::ImageFallback(fallback) = &self.element.special_data else {
+            return;
+        };
+        if fallback.loading {
+            return;
+        }
+        let rect = self.frame.content_box;
+        if fallback.inset != 0.0 && rect.width() > 0.0 && rect.height() > 0.0 {
+            let s = self.scale.min(rect.width()).min(rect.height());
+            for edge in [
+                Rect::new(rect.x0, rect.y0, rect.x1, rect.y0 + s),
+                Rect::new(rect.x0, rect.y1 - s, rect.x1, rect.y1),
+                Rect::new(rect.x0, rect.y0, rect.x0 + s, rect.y1),
+                Rect::new(rect.x1 - s, rect.y0, rect.x1, rect.y1),
+            ] {
+                scene.fill(
+                    Fill::NonZero,
+                    self.transform,
+                    Color::from_rgba8(192, 192, 192, 255),
+                    None,
+                    &edge,
+                );
+            }
+        }
+        let inset = f64::from(fallback.inset) * self.scale;
+        let clip = Rect::new(
+            rect.x0 + inset,
+            rect.y0 + inset,
+            (rect.x1 - inset).max(rect.x0 + inset),
+            (rect.y1 - inset).max(rect.y0 + inset),
+        );
+        let transform = self.transform * Affine::translate((rect.x0 + inset, rect.y0 + inset));
+        self.context.layer_manager.maybe_with_layer(
+            scene,
+            true,
+            BlendMode::default(),
+            1.0,
+            self.transform,
+            &clip,
+            None,
+            None,
+            |scene| {
+                crate::text::stroke_text(
+                    scene,
+                    fallback.layout.layout.lines(),
+                    self.context.dom,
+                    transform,
+                    TextPaintOptions {
+                        scale: self.scale,
+                        brush_override: None,
+                        ellipsis: None,
+                    },
+                    self.node.id,
+                    &mut self.context.draw_text_context.borrow_mut(),
+                );
+            },
+        );
+    }
+
     fn draw_image(&self, scene: &mut impl PaintScene) {
-        if let Some(image) = self.element.raster_image_data() {
+        let image = match &self.element.special_data {
+            SpecialElementData::Image(image) => match &**image {
+                blitz_dom::node::ImageData::Raster(image) => image,
+                _ => return,
+            },
+            SpecialElementData::ImageFallback(_) => {
+                self.draw_image_fallback(scene);
+                return;
+            }
+            _ => return,
+        };
+        {
             let width = self.frame.content_box.width() as u32;
             let height = self.frame.content_box.height() as u32;
             let x = self.frame.content_box.origin().x;
@@ -1845,7 +1916,10 @@ impl ElementCx<'_, '_> {
                 x_offset.px(),
                 y_offset.px(),
                 |scene| {
-                    scene.draw_image(to_peniko_image(image, quality).as_ref(), transform);
+                    let mut brush = to_peniko_image(image, quality);
+                    brush.sampler.x_extend = peniko::Extend::Pad;
+                    brush.sampler.y_extend = peniko::Extend::Pad;
+                    scene.draw_image(brush.as_ref(), transform);
                 },
             );
         }

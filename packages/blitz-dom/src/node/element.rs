@@ -379,6 +379,7 @@ pub enum SpecialElementData {
     Stylesheet(DocumentStyleSheet),
     /// An \<img\> element's image data
     Image(Box<ImageData>),
+    ImageFallback(Box<ImageFallback>),
     /// A \<canvas\> element's custom paint source
     Canvas(CanvasData),
     /// Pre-computed table layout data
@@ -403,6 +404,7 @@ impl Clone for SpecialElementData {
             Self::CustomWidget(_) => Self::None, // TODO
             Self::Stylesheet(data) => Self::Stylesheet(data.clone()),
             Self::Image(data) => Self::Image(data.clone()),
+            Self::ImageFallback(data) => Self::ImageFallback(data.clone()),
             Self::Canvas(data) => Self::Canvas(data.clone()),
             Self::TableRoot(data) => Self::TableRoot(data.clone()),
             Self::TextInput(data) => Self::TextInput(data.clone()),
@@ -910,6 +912,14 @@ impl RasterImageData {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ImageFallback {
+    pub loading: bool,
+    pub quirks: bool,
+    pub layout: TextLayout,
+    pub inset: f32,
+}
+
 #[derive(Debug, Clone)]
 pub enum ImageData {
     Raster(RasterImageData),
@@ -963,6 +973,7 @@ impl std::fmt::Debug for SpecialElementData {
                 ImageData::Svg(_) => f.write_str("NodeSpecificData::Image(Svg)"),
                 ImageData::None => f.write_str("NodeSpecificData::Image(None)"),
             },
+            SpecialElementData::ImageFallback(_) => f.write_str("ImageFallback"),
             SpecialElementData::Canvas(_) => f.write_str("NodeSpecificData::Canvas"),
             SpecialElementData::TableRoot(_) => f.write_str("NodeSpecificData::TableRoot"),
             SpecialElementData::TextInput(_) => f.write_str("NodeSpecificData::TextInput"),

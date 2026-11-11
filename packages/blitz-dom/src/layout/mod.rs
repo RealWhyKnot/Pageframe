@@ -31,6 +31,7 @@ pub(crate) mod construct;
 pub(crate) mod counter_style;
 pub(crate) mod damage;
 pub(crate) mod generated_content;
+pub(crate) mod image_fallback;
 pub(crate) mod inline;
 pub(crate) mod line_clamp;
 pub(crate) mod list;
@@ -585,6 +586,12 @@ impl LayoutPassState<'_> {
                 }
 
                 if is_replaced_element(&element_data.name.local) {
+                    if matches!(
+                        element_data.special_data,
+                        SpecialElementData::ImageFallback(_)
+                    ) {
+                        return image_fallback::layout(node, inputs);
+                    }
                     // Width/height attributes are presentational hints mapped to the CSS
                     // width/height properties by
                     // `synthesize_presentational_hints_for_legacy_attributes`, so they

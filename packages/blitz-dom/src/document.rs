@@ -283,6 +283,7 @@ pub enum DocumentEvent {
 }
 
 pub struct BaseDocument {
+    pub in_quirks_mode: bool,
     /// ID of the document
     id: usize,
 
@@ -536,6 +537,7 @@ impl BaseDocument {
         let (tx, rx) = channel();
 
         let mut doc = Self {
+            in_quirks_mode: false,
             id,
             tx,
             rx: Some(rx),
@@ -1427,7 +1429,19 @@ impl BaseDocument {
                         "Resource load failed"
                     );
                     #[cfg(not(feature = "tracing"))]
-                    let _ = (waiting_nodes, err);
+                    let _ = &err;
+                    for (node_id, kind) in waiting_nodes {
+                        if matches!(kind, ImageType::Image)
+                            && let Some(node) = self.get_node_mut(node_id)
+                            && let Some(element) = node.element_data_mut()
+                            && let SpecialElementData::ImageFallback(fallback) =
+                                &mut element.special_data
+                        {
+                            fallback.loading = false;
+                            node.clear_layout_cache();
+                            node.insert_damage(ALL_DAMAGE);
+                        }
+                    }
                 } else {
                     #[cfg(feature = "tracing")]
                     tracing::warn!(error = err.as_str(), "Resource load failed (no url)");

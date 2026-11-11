@@ -517,7 +517,12 @@ impl BaseDocument {
                 continue;
             };
 
-            if element.inline_layout_data.is_some() {
+            if matches!(
+                element.special_data,
+                crate::node::SpecialElementData::ImageFallback(_)
+            ) {
+                node.insert_damage(ALL_DAMAGE);
+            } else if element.inline_layout_data.is_some() {
                 if node.is_anonymous() {
                     anon_nodes.push(node.id);
                 } else {

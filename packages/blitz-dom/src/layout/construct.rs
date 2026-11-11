@@ -464,6 +464,15 @@ fn collect_layout_children_with_wrap(
     }
 
     flush_pseudo_elements(doc, container_node_id);
+    if matches!(
+        doc.nodes[container_node_id]
+            .element_data()
+            .map(|e| &e.special_data),
+        Some(SpecialElementData::ImageFallback(_))
+    ) {
+        super::image_fallback::prepare(doc, container_node_id);
+        return;
+    }
 
     if let Some(el) = doc.nodes[container_node_id].data.downcast_element() {
         // Handle text inputs
