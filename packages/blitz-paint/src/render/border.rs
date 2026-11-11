@@ -580,12 +580,42 @@ impl ElementCx<'_, '_> {
         }
         match self.style.clone_display().inside() {
             DisplayInside::Table => true,
-            DisplayInside::TableCell => self.element.has_collapsed_border(),
+            DisplayInside::TableCell => {
+                let removed = self
+                    .node
+                    .layout_parent
+                    .get()
+                    .and_then(|id| self.context.dom.get_node(id))
+                    .and_then(|node| node.element_data())
+                    .is_some_and(|element| match &element.special_data {
+                        SpecialElementData::TableRoot(table) => {
+                            table.cell_is_collapsed(self.node.id)
+                        }
+                        _ => false,
+                    });
+                self.element.has_collapsed_border() && !removed
+            }
             _ => false,
         }
     }
 
     pub(crate) fn draw_table_borders(&self, scene: &mut impl PaintScene) {
+        let SpecialElementData::TableRoot(table) = &self.element.special_data else {
+            return;
+        };
+        if table.has_collapsed_columns() {
+            self.context.deferred_paints.borrow_mut().push(
+                crate::render::DeferredPaint::TableBorders {
+                    node_id: self.node.id,
+                    transform: self.transform,
+                },
+            );
+        } else {
+            self.paint_table_borders(scene);
+        }
+    }
+
+    pub(crate) fn paint_table_borders(&self, scene: &mut impl PaintScene) {
         let SpecialElementData::TableRoot(table) = &self.element.special_data else {
             return;
         };

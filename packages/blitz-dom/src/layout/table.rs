@@ -65,6 +65,8 @@ pub struct TableContext {
     auto_columns: Option<AutoColumns>,
     spreads_rows: bool,
     collapsed_cells: HashSet<NodeId>,
+    collapsed_column_cells: HashSet<NodeId>,
+    has_collapsed_columns: bool,
     pub captions: Vec<TableCaption>,
     /// Backing storage for `calc()` track sizes synthesised by the table layout code.
     /// Taffy stores calc values as raw pointers, so these must outlive the `style`.
@@ -138,6 +140,7 @@ impl ColumnCursor {
 #[derive(Debug, Clone)]
 pub struct TableColumn {
     pub node_id: NodeId,
+    pub is_collapsed: bool,
     /// The column group (if any) that contains the column
     pub group: Option<NodeId>,
 }
@@ -533,6 +536,21 @@ pub(crate) fn build_table_context(
         }
     }
 
+    if is_fixed
+        && columns.iter().any(|column| column.is_collapsed)
+        && column_sizes
+            .iter()
+            .all(|column| track_length(column).is_some())
+    {
+        for column in &mut column_sizes {
+            let width = track_length(column).unwrap_or(0.0);
+            *column = style_helpers::minmax(
+                style_helpers::length(width),
+                style_helpers::fr(width.max(1.0)),
+            );
+        }
+    }
+
     let auto_columns = (!is_fixed && !wm.is_vertical()).then(|| AutoColumns {
         tracks: column_sizes.clone(),
         spacing: match border_collapse {
@@ -608,12 +626,24 @@ pub(crate) fn build_table_context(
         BorderCollapse::Collapse => taffy::Size::ZERO.map(style_helpers::length),
     };
 
+    let has_collapsed_columns = columns.iter().any(|column| column.is_collapsed);
+    let collapsed_column_cells = cells
+        .iter()
+        .filter_map(|cell| {
+            (usize::from(cell.column)..usize::from(cell.column + cell.column_span))
+                .all(|index| columns.get(index).is_some_and(|column| column.is_collapsed))
+                .then_some(cell.node_id)
+        })
+        .collect();
     let collapsed_cells = cells
         .iter()
         .filter_map(|cell| {
-            rows.get(usize::from(cell.row))
+            (rows
+                .get(usize::from(cell.row))
                 .is_some_and(|row| row.is_collapsed)
-                .then_some(cell.node_id)
+                || (usize::from(cell.column)..usize::from(cell.column + cell.column_span))
+                    .all(|index| columns.get(index).is_some_and(|column| column.is_collapsed)))
+            .then_some(cell.node_id)
         })
         .collect();
     let layout_children = cells
@@ -637,6 +667,8 @@ pub(crate) fn build_table_context(
             auto_columns,
             spreads_rows,
             collapsed_cells,
+            collapsed_column_cells,
+            has_collapsed_columns,
             captions,
             calc_values,
         },
@@ -663,7 +695,7 @@ fn collect_columns(
     };
 
     match display.inside() {
-        DisplayInside::TableColumnGroup => {
+        DisplayInside::TableColumnGroup if !node.children.is_empty() => {
             let first_column = columns.len();
             let children = std::mem::take(&mut doc.nodes[node_id].children);
             for child_id in children.iter().copied() {
@@ -674,7 +706,13 @@ fn collect_columns(
                 column.group.get_or_insert(node_id);
             }
         }
-        DisplayInside::TableColumn => {
+        DisplayInside::TableColumn | DisplayInside::TableColumnGroup => {
+            let is_collapsed = node
+                .primary_styles()
+                .unwrap()
+                .get_inherited_box()
+                .visibility
+                == style::computed_values::visibility::T::Collapse;
             let style = table_taffy_style(&node.primary_styles().unwrap(), wm);
             let span: u16 = node
                 .attr(local_name!("span"))
@@ -711,6 +749,7 @@ fn collect_columns(
             for _ in 0..span {
                 columns.push(TableColumn {
                     node_id,
+                    is_collapsed,
                     group: None,
                 });
                 column_sizes.push(column);
@@ -1229,6 +1268,14 @@ fn percent_fit(limits: &ColumnLimits, fixed: &[Option<f32>]) -> Option<f32> {
 }
 
 impl TableContext {
+    pub fn has_collapsed_columns(&self) -> bool {
+        self.has_collapsed_columns
+    }
+
+    pub fn column_cell_is_collapsed(&self, node_id: NodeId) -> bool {
+        self.collapsed_column_cells.contains(&node_id)
+    }
+
     pub fn cell_is_collapsed(&self, node_id: NodeId) -> bool {
         self.collapsed_cells.contains(&node_id)
     }
@@ -1294,6 +1341,20 @@ impl TableTreeWrapper<'_, '_> {
         let mut mins = vec![0.0_f32; columns];
         let mut maxes = vec![0.0_f32; columns];
         let mut percents: Vec<Option<f32>> = vec![None; columns];
+        for (index, column) in ctx
+            .columns
+            .iter()
+            .enumerate()
+            .take(columns)
+            .filter(|_| ctx.has_collapsed_columns())
+        {
+            if let Some(style) = self.doc.nodes[column.node_id].primary_styles() {
+                let width = stylo_taffy::convert::dimension(style.get_width());
+                if width.tag() == taffy::CompactLength::PERCENT_TAG {
+                    percents[index] = Some(width.value());
+                }
+            }
+        }
         let mut spanning = Vec::new();
         for cell in &ctx.cells {
             let start = usize::from(cell.column).min(columns);
@@ -1453,6 +1514,9 @@ impl TableTreeWrapper<'_, '_> {
             (None, AvailableSpace::MaxContent) => f32::INFINITY,
         };
         let is_stretched = specified.is_some();
+        if ctx.has_collapsed_columns() && is_stretched && preferred.iter().all(Option::is_some) {
+            fixed.fill(None);
+        }
         let preferred_floor: f32 = limits
             .mins
             .iter()
@@ -1604,6 +1668,109 @@ impl TableTreeWrapper<'_, '_> {
             .collect();
         self.style = Some(style);
         true
+    }
+
+    pub(crate) fn collapse_columns(
+        &mut self,
+        inputs: &taffy::tree::LayoutInput,
+        output: &mut taffy::tree::LayoutOutput,
+    ) {
+        let ctx = Arc::clone(&self.ctx);
+        if !ctx.has_collapsed_columns() {
+            return;
+        }
+        let mut lines: Vec<taffy::Line<f32>> = match ctx.computed_grid_info.borrow().as_ref() {
+            Some(info) => info
+                .columns
+                .positions
+                .iter()
+                .skip(usize::from(info.columns.negative_implicit_tracks))
+                .copied()
+                .collect(),
+            None => return,
+        };
+        if lines.is_empty() {
+            return;
+        }
+        let rtl = lines.get(1).is_some_and(|line| line.start < lines[0].start);
+        if rtl {
+            for line in &mut lines {
+                *line = taffy::Line {
+                    start: output.size.width - line.end,
+                    end: output.size.width - line.start,
+                };
+            }
+        }
+        let collapsed = |index: usize| {
+            ctx.columns
+                .get(index)
+                .is_some_and(|column| column.is_collapsed)
+        };
+        let gap = lines.get(1).map_or(0.0, |line| line.start - lines[0].end);
+        let all_collapsed = (0..lines.len()).all(collapsed);
+        let mut removed = vec![0.0; lines.len() + 1];
+        let mut positions = Vec::with_capacity(lines.len());
+        let mut seen_visible = false;
+        for (index, line) in lines.iter().enumerate() {
+            let before = removed[index];
+            let mut start = line.start - before;
+            let width = if collapsed(index) {
+                if seen_visible {
+                    start -= gap;
+                }
+                let removed_gap = if all_collapsed && index + 1 == lines.len() {
+                    0.0
+                } else {
+                    gap
+                };
+                removed[index + 1] = before + line.end - line.start + removed_gap;
+                0.0
+            } else {
+                removed[index + 1] = before;
+                seen_visible = true;
+                line.end - line.start
+            };
+            positions.push(taffy::Line {
+                start,
+                end: start + width,
+            });
+        }
+        for cell in &ctx.cells {
+            let start = usize::from(cell.column);
+            let end = start + usize::from(cell.column_span);
+            let mut layout = *self.doc.nodes[cell.node_id].unrounded_layout();
+            layout.location.x = if rtl {
+                output.size.width - removed[lines.len()] - positions[end - 1].end
+            } else {
+                positions[start].start
+            };
+            layout.size.width = (positions[end - 1].end - positions[start].start).max(0.0);
+            if layout.size.width > 0.0 {
+                self.doc.compute_child_layout(
+                    crate::taffy_node_id(cell.node_id),
+                    taffy::tree::LayoutInput {
+                        known_dimensions: layout.size.map(Some),
+                        ..*inputs
+                    },
+                );
+            }
+            self.doc
+                .set_unrounded_layout(crate::taffy_node_id(cell.node_id), &layout);
+        }
+        output.size.width -= removed[lines.len()];
+        output.size.width = output.size.width.max(self.caption_floor(inputs));
+        if rtl {
+            for line in &mut positions {
+                *line = taffy::Line {
+                    start: output.size.width - line.end,
+                    end: output.size.width - line.start,
+                };
+            }
+        }
+        if let Some(info) = ctx.computed_grid_info.borrow_mut().as_mut() {
+            let first = usize::from(info.columns.negative_implicit_tracks);
+            info.columns.positions[first..first + positions.len()].copy_from_slice(&positions);
+        }
     }
 
     pub(crate) fn collapse_rows(

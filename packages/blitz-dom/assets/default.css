@@ -594,7 +594,7 @@ table[rules][rules="groups"]>tbody {
 /* caption inherits from table not table-outer */
 caption {
     display: table-caption;
-    text-align: center;
+    text-align: -moz-center;
 }
 
 table[align="center"]>caption {

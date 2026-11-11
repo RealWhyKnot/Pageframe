@@ -433,6 +433,14 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
 
         // Hide elements with a visibility style other than visible
         if styles.get_inherited_box().visibility != StyloVisibility::Visible {
+            if styles.clone_display().inside() == DisplayInside::TableCell
+                && styles.get_inherited_box().visibility == StyloVisibility::Collapse
+            {
+                let transform = self.node_transform(node, parent_style_transform);
+                let cx = self.element_cx(node, *node.final_layout(), transform, None);
+                let base = self.deferred_paints.borrow().len();
+                cx.draw_children(scene, transform, clip_rect, Some(base));
+            }
             return;
         }
 
@@ -849,7 +857,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
                         DeferredPaint::Element {
                             level: ElementLevel::Positioned,
                             ..
-                        }
+                        } | DeferredPaint::TableBorders { .. }
                     )
                 });
             let batch = if foregrounds.is_empty() {
@@ -860,6 +868,11 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             };
             for paint in batch {
                 match paint {
+                    DeferredPaint::TableBorders { node_id, transform } => {
+                        let node = &self.dom.as_ref().tree()[node_id];
+                        let cx = self.element_cx(node, *node.final_layout(), transform, None);
+                        cx.paint_table_borders(scene);
+                    }
                     DeferredPaint::Foreground {
                         node_id,
                         transform,
@@ -990,6 +1003,10 @@ fn to_peniko_image(image: &RasterImageData, quality: peniko::ImageQuality) -> pe
 }
 
 pub(crate) enum DeferredPaint {
+    TableBorders {
+        node_id: NodeId,
+        transform: Affine,
+    },
     Foreground {
         node_id: NodeId,
         transform: Affine,

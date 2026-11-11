@@ -323,6 +323,18 @@ impl BaseDocument {
 
             for (index, &child_id) in children.iter().enumerate() {
                 if owned_here(self, child_id) {
+                    let removed_column =
+                        self.nodes[node_id].element_data().is_some_and(|element| {
+                            match &element.special_data {
+                                SpecialElementData::TableRoot(table) => {
+                                    table.column_cell_is_collapsed(child_id)
+                                }
+                                _ => false,
+                            }
+                        });
+                    if removed_column {
+                        continue;
+                    }
                     let is_sc_root = self.nodes[child_id].is_stacking_context_root(is_flex_or_grid);
                     let first_entry = entries.len();
                     self.build_paint_tree_impl(

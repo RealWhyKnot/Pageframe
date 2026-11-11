@@ -749,7 +749,9 @@ impl LayoutPassState<'_> {
                     table_wrapper.size_auto_columns(&inputs);
                     let inputs = table_wrapper.widen_for_captions(inputs);
                     let mut grid_inputs = inputs;
-                    if table_wrapper.ctx.rows.iter().any(|row| row.is_collapsed) {
+                    if table_wrapper.ctx.rows.iter().any(|row| row.is_collapsed)
+                        || table_wrapper.ctx.has_collapsed_columns()
+                    {
                         grid_inputs.run_mode = RunMode::PerformLayout;
                     }
                     let mut output = compute_grid_layout(&mut table_wrapper, node_id, grid_inputs);
@@ -758,6 +760,11 @@ impl LayoutPassState<'_> {
                     }
                     if table_wrapper.spread_spare_height(&grid_inputs, &output) {
                         output = compute_grid_layout(&mut table_wrapper, node_id, grid_inputs);
+                    }
+                    let width = output.size.width;
+                    table_wrapper.collapse_columns(&grid_inputs, &mut output);
+                    if inputs.run_mode != RunMode::PerformLayout {
+                        output.size.width = width;
                     }
                     table_wrapper.collapse_rows(&grid_inputs, &mut output);
                     table_wrapper.place_captions(&inputs, &mut output);
