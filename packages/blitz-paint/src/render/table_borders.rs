@@ -15,7 +15,8 @@ use style::{
     computed_values::border_collapse::T as BorderCollapse,
     computed_values::direction::T as Direction, computed_values::position::T as Position,
     computed_values::visibility::T as Visibility, properties::ComputedValues,
-    values::computed::BorderStyle, values::specified::box_::DisplayInside,
+    values::computed::BorderStyle, values::computed::Contain,
+    values::specified::box_::DisplayInside,
 };
 
 use crate::{
@@ -874,10 +875,20 @@ impl ElementCx<'_, '_> {
     }
 
     pub(crate) fn paints_under_cell_borders(&self) -> bool {
-        let has_layer = self.node.is_stacking_context_root(false)
-            || self.style.clone_position() != Position::Static;
-        if has_layer {
-            return false;
+        let has_layer = |node: &Node| {
+            node.is_stacking_context_root(false)
+                || node.primary_styles().is_some_and(|style| {
+                    let contain = style.get_box().slow_clone_contain();
+                    style.clone_position() != Position::Static
+                        || contain.intersects(Contain::PAINT | Contain::LAYOUT)
+                })
+        };
+        let mut part = Some(self.node);
+        while let Some(node) = part.filter(|node| !node.flags.is_table_root()) {
+            if has_layer(node) {
+                return false;
+            }
+            part = node.parent.and_then(|id| self.context.dom.get_node(id));
         }
         let is_hidden = covers_background(&self.style) && self.has_covering_child();
         !is_hidden && self.cell_edges().is_some()

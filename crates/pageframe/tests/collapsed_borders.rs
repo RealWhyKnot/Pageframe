@@ -327,3 +327,18 @@ fn a_shifted_caption_moves_over_the_table() {
     assert_eq!(pixel(&buffer, 10, 9), RED);
     assert_eq!(pixel(&buffer, 10, 13), YELLOW);
 }
+
+#[test]
+fn a_cell_in_a_positioned_row_keeps_its_colour_inside_a_see_through_border() {
+    let buffer = draw(
+        "width:20px;height:14px",
+        "<table><tr style=\"position:relative\">\
+         <td style=\"border:6px solid rgba(0,0,255,.5);background:red\"><b></b></td>\
+         </tr></table>",
+    );
+    let [red, green, blue, _] = pixel(&buffer, 10, 4);
+    assert!(
+        red > 100 && green > 100 && blue == 255,
+        "{red} {green} {blue}"
+    );
+}
