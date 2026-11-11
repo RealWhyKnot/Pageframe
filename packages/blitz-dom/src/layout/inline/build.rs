@@ -29,7 +29,7 @@ use crate::{
 const DISCLOSURE_MARKER_GAP_EM: f32 = 0.4;
 
 struct InlineEdges {
-    is_decorated: bool,
+    has_edge_marks: bool,
     margin_start: f32,
     inset_start: f32,
     inset_end: f32,
@@ -68,7 +68,13 @@ fn inline_edges(style: &ComputedValues) -> InlineEdges {
         (left, right)
     };
     InlineEdges {
-        is_decorated: crate::util::inline_box_is_decorated(style),
+        has_edge_marks: crate::util::inline_box_is_decorated(style)
+            || style
+                .get_background()
+                .background_color
+                .resolve_to_absolute(&style.clone_color())
+                .alpha
+                > 0.0,
         margin_start: start.0,
         inset_start: start.1,
         inset_end: end.1,
@@ -89,7 +95,7 @@ fn push_margin_spacer(builder: &mut TreeBuilder<TextBrush>, width: f32) {
 }
 
 fn push_edge_spacer(builder: &mut TreeBuilder<TextBrush>, edges: &InlineEdges, width: f32) {
-    if edges.is_decorated {
+    if edges.has_edge_marks {
         push_spacer(builder, crate::util::INLINE_EDGE_SPACER, width);
     }
 }
