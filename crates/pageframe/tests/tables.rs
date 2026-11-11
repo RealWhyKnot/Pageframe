@@ -2663,3 +2663,17 @@ fn cells_paint_over_a_caption_pulled_onto_the_table() {
     assert_eq!(row(&buffer, &[0, 1, 2, 3, 4], 4), [BLUE, BLUE, BLUE, BLUE, GREEN]);
     assert_eq!(row(&buffer, &[0, 1, 2], 8), [BLACK, BLACK, WHITE]);
 }
+
+#[test]
+fn cells_paint_over_a_bottom_caption_pulled_onto_the_table() {
+    let buffer = draw(&format!(
+        "{CAPTION_PAINT_STYLE}<table><caption style=\"caption-side:bottom;margin:-5px\"><b></b></caption><tr><td><b></b><b></b></td></tr></table>"
+    ));
+    assert_eq!(
+        column(&buffer, 50, &[0, 1, 3, 4, 13, 14, 16, 22, 23]),
+        [
+            BLACK, BLACK, WHITE, GREEN, GREEN, BLUE, BLUE, BLUE, WHITE
+        ]
+    );
+    assert_eq!(column(&buffer, 0, &[8, 14]), [BLACK, BLUE]);
+}
