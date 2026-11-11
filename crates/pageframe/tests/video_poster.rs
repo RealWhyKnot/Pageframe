@@ -17,11 +17,12 @@ fn page(attributes: &str) -> String {
 
 fn size(attributes: &str) -> (f32, f32) {
     let harness = open(App::new((), &page(attributes)));
-    let doc = harness.base();
-    let id = doc
+    let id = harness
+        .base()
         .query_selector_all("#video")
         .expect("the selector parses")[0];
-    let size = doc
+    let size = harness
+        .base()
         .get_node(id)
         .expect("the node exists")
         .final_layout()

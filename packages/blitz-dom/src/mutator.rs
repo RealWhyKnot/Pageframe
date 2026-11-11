@@ -1458,7 +1458,7 @@ impl<'doc> DocumentMutator<'doc> {
     }
 
     fn load_image(&mut self, target_id: NodeId) {
-        let node = &mut self.doc.nodes[target_id];
+        let node = &self.doc.nodes[target_id];
         let is_video = node
             .element_data()
             .is_some_and(|element| element.name.local == local_name!("video"));
@@ -1467,7 +1467,15 @@ impl<'doc> DocumentMutator<'doc> {
         } else {
             local_name!("src")
         };
-        let loading = node.attr(source.clone()).is_some_and(|src| !src.is_empty());
+        let loading = node
+            .attr(source.clone())
+            .is_some_and(|src| !src.is_empty() && self.doc.resolve_url(src).is_some());
+        for waiting in self.doc.pending_images.values_mut() {
+            waiting.retain(|(node_id, kind)| {
+                *node_id != target_id || !matches!(kind, ImageType::Image)
+            });
+        }
+        let node = &mut self.doc.nodes[target_id];
         if let Some(element) = node.element_data_mut() {
             element.special_data = if is_video {
                 SpecialElementData::None

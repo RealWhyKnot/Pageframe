@@ -13,11 +13,12 @@ fn image_size(attributes: &str, standards: bool) -> (f32, f32) {
         "{doctype}<style>html,body{{margin:0;background:white;font:16px/20px Arial}}</style><img id='image' {attributes}>"
     );
     let harness = open(App::new((), &html));
-    let doc = harness.base();
-    let id = doc
+    let id = harness
+        .base()
         .query_selector_all("#image")
         .expect("the selector parses")[0];
-    let size = doc
+    let size = harness
+        .base()
         .get_node(id)
         .expect("the node exists")
         .final_layout()
@@ -238,7 +239,9 @@ fn icon_on_its_own_line_uses_sixteen_pixels() {
 
 fn dark_pixels(buffer: &[u8]) -> usize {
     buffer
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|rgba| rgba[0] < 96 && rgba[1] < 96 && rgba[2] < 96)
         .count()
 }
@@ -300,4 +303,48 @@ fn inline_alt_text_sits_on_the_line_baseline() {
         .final_layout()
         .size;
     assert_eq!(size.height, 20.0);
+}
+
+#[test]
+fn a_source_that_cannot_be_resolved_shows_the_alt_text() {
+    let (width, height) = image_size("src='nope.png' alt='Hello'", true);
+    assert!(width > 20.0, "{width}");
+    assert_eq!(height, 20.0);
+}
+
+#[test]
+fn changing_and_removing_the_source_swaps_image_and_fallback() {
+    const TALL: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAeCAIAAACaFxhnAAAAHUlEQVR4nGP4z8CAB+GTG5UelNKD2nGj0gykSgMA7ngq5Bho73QAAAAASUVORK5CYII=";
+    let mut harness = open(App::new(
+        (),
+        "<!doctype html><style>html,body{margin:0;background:white;font:16px/20px Arial}</style><img id='image' src='data:,bad'>",
+    ));
+    let id = harness
+        .base()
+        .query_selector_all("#image")
+        .expect("the selector parses")[0];
+    let name = blitz_dom::QualName::new(None, blitz_dom::ns!(), blitz_dom::local_name!("src"));
+    let mut sizes = Vec::new();
+    for step in 0..3 {
+        match step {
+            1 => harness
+                .base_mut()
+                .mutate()
+                .set_attribute(id, name.clone(), TALL),
+            2 => harness
+                .base_mut()
+                .mutate()
+                .clear_attribute(id, name.clone()),
+            _ => {}
+        }
+        harness.pump();
+        let size = harness
+            .base()
+            .get_node(id)
+            .expect("the node exists")
+            .final_layout()
+            .size;
+        sizes.push((size.width, size.height));
+    }
+    assert_eq!(sizes, [(16.0, 16.0), (10.0, 30.0), (0.0, 0.0)]);
 }
