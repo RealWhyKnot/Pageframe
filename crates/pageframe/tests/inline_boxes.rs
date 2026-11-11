@@ -256,3 +256,12 @@ fn percent_span_padding_resolves_against_the_block_width() {
     };
     assert_eq!(left("margin-left:10%"), Some(5));
 }
+
+#[test]
+fn a_space_before_a_span_close_hangs_at_the_line_end() {
+    let tight = painted(&boxed_span("padding:0 3px", "aa"), 20);
+    let spaced = painted(&boxed_span("padding:0 3px", "aa "), 20);
+    assert_eq!(spaced.len(), tight.len());
+    let inner = painted(&boxed_span("padding:0 3px", "aa <i>a</i>"), 20);
+    assert!(inner.len() > tight.len() + 6);
+}

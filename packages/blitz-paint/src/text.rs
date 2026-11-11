@@ -111,6 +111,39 @@ fn relative_shift(styles: &style::properties::ComputedValues) -> Vec2 {
     Vec2::new(f64::from(x), f64::from(y))
 }
 
+fn is_end_mark(character: char) -> bool {
+    blitz_dom::util::INLINE_EDGE_END.contains(character)
+        || blitz_dom::util::INLINE_MARGIN_END.contains(character)
+}
+
+fn hung_space(
+    glyph_run: &parley::GlyphRun<'_, TextBrush>,
+    run_text: &str,
+    doc: &BaseDocument,
+    owner: NodeId,
+) -> Option<(f64, f64)> {
+    use style::computed_values::white_space_collapse::T as WhiteSpaceCollapse;
+    let body = run_text.trim_end_matches(is_end_mark);
+    let marks = run_text.get(body.len()..)?.chars().count();
+    if !body.ends_with(' ') || glyph_run.run().is_rtl() {
+        return None;
+    }
+    let styles = doc.get_node(owner)?.primary_styles()?;
+    let collapse = styles.get_inherited_text().white_space_collapse;
+    if !matches!(
+        collapse,
+        WhiteSpaceCollapse::Collapse | WhiteSpaceCollapse::PreserveBreaks
+    ) {
+        return None;
+    }
+    let glyphs: SmallVec<[(f32, f32); 16]> = glyph_run
+        .positioned_glyphs()
+        .map(|glyph| (glyph.x, glyph.advance))
+        .collect();
+    let (left, width) = *glyphs.get(glyphs.len().checked_sub(marks + 1)?)?;
+    (width > 0.0).then_some((f64::from(left), f64::from(width)))
+}
+
 pub(crate) fn inline_fragments<'a>(
     lines: impl Iterator<Item = Line<'a, TextBrush>>,
     doc: &BaseDocument,
@@ -124,6 +157,8 @@ pub(crate) fn inline_fragments<'a>(
         let line_baseline = f64::from(line.metrics().baseline);
         let mut boxes: Vec<SpanBox> = Vec::new();
         let mut line_right = f64::MIN;
+        let mut hung: Option<(f64, f64)> = None;
+        let mut is_hung_closed = false;
         for item in line.items() {
             let (start, span_item) = match item {
                 PositionedLayoutItem::GlyphRun(glyph_run) => {
@@ -138,6 +173,13 @@ pub(crate) fn inline_fragments<'a>(
                     }
                     let owner = glyph_run.style().brush.id;
                     let run_text = text.get(run.text_range()).unwrap_or_default();
+                    let body = run_text.trim_end_matches(is_end_mark);
+                    if body.is_empty() {
+                        is_hung_closed = true;
+                    } else {
+                        hung = hung_space(&glyph_run, run_text, doc, owner);
+                        is_hung_closed = body.len() < run_text.len();
+                    }
                     (
                         Some(owner),
                         SpanItem {
@@ -153,6 +195,7 @@ pub(crate) fn inline_fragments<'a>(
                 PositionedLayoutItem::InlineBox(inline_box)
                     if inline_box.kind == parley::InlineBoxKind::InFlow =>
                 {
+                    hung = None;
                     let left = f64::from(inline_box.x);
                     (
                         doc.get_node(NodeId::from_u64(inline_box.id))
@@ -241,6 +284,11 @@ pub(crate) fn inline_fragments<'a>(
         let inked_right = line_right - f64::from(line.metrics().hanging_advance);
         boxes.sort_by_key(|span_box| span_box.depth);
         for mut span_box in boxes {
+            if let Some((space_left, space_width)) = hung.filter(|_| is_hung_closed)
+                && span_box.right > space_left
+            {
+                span_box.right = (span_box.right - space_width).max(span_box.left);
+            }
             if !span_box.is_end {
                 span_box.right = span_box.right.min(inked_right).max(span_box.left);
             }
