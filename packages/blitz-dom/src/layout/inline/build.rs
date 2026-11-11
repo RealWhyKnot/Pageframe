@@ -4,10 +4,15 @@ use parley::{
     FontContext, InlineBox, InlineBoxKind, LayoutContext, TreeBuilder, WhiteSpaceCollapse,
 };
 use style::{
-    computed_values::position::T as PositionProperty,
+    computed_values::{direction::T as Direction, position::T as PositionProperty},
+    properties::ComputedValues,
     values::{
-        computed::{Display, Float},
-        specified::box_::{DisplayInside, DisplayOutside},
+        computed::{BorderSideWidth, Display, Float, Length, LengthPercentage},
+        generics::length::GenericMargin,
+        specified::{
+            border::BorderStyle,
+            box_::{DisplayInside, DisplayOutside},
+        },
     },
 };
 use stylo_taffy::CopyStyleGetters;
@@ -22,6 +27,72 @@ use crate::{
 };
 
 const DISCLOSURE_MARKER_GAP_EM: f32 = 0.4;
+
+struct InlineEdges {
+    is_decorated: bool,
+    margin_start: f32,
+    inset_start: f32,
+    inset_end: f32,
+    margin_end: f32,
+}
+
+fn inline_edges(style: &ComputedValues) -> InlineEdges {
+    let zero = Length::new(0.0);
+    let margin = style.get_margin();
+    let padding = style.get_padding();
+    let border = style.get_border();
+    let margin_px = |value: &GenericMargin<LengthPercentage>| match value {
+        GenericMargin::LengthPercentage(value) => value.resolve(zero).px(),
+        _ => 0.0,
+    };
+    let border_px = |width: &BorderSideWidth, line: BorderStyle| {
+        if line.none_or_hidden() {
+            0.0
+        } else {
+            width.0.to_f32_px()
+        }
+    };
+    let left = (
+        margin_px(&margin.margin_left),
+        border_px(&border.border_left_width, border.border_left_style)
+            + padding.padding_left.0.resolve(zero).px(),
+    );
+    let right = (
+        margin_px(&margin.margin_right),
+        border_px(&border.border_right_width, border.border_right_style)
+            + padding.padding_right.0.resolve(zero).px(),
+    );
+    let (start, end) = if style.clone_direction() == Direction::Rtl {
+        (right, left)
+    } else {
+        (left, right)
+    };
+    InlineEdges {
+        is_decorated: crate::util::inline_box_is_decorated(style),
+        margin_start: start.0,
+        inset_start: start.1,
+        inset_end: end.1,
+        margin_end: end.0,
+    }
+}
+
+fn push_spacer(builder: &mut TreeBuilder<TextBrush>, spacer: &str, width: f32) {
+    builder.push_style_modification_span(&[parley::StyleProperty::LetterSpacing(width)]);
+    builder.push_text(spacer);
+    builder.pop_style_span();
+}
+
+fn push_margin_spacer(builder: &mut TreeBuilder<TextBrush>, width: f32) {
+    if width.abs() >= f32::EPSILON {
+        push_spacer(builder, crate::util::INLINE_MARGIN_SPACER, width);
+    }
+}
+
+fn push_edge_spacer(builder: &mut TreeBuilder<TextBrush>, edges: &InlineEdges, width: f32) {
+    if edges.is_decorated {
+        push_spacer(builder, crate::util::INLINE_EDGE_SPACER, width);
+    }
+}
 
 pub(crate) fn build_inline_layout_into(
     nodes: &crate::NodeTree,
@@ -240,7 +311,10 @@ pub(crate) fn build_inline_layout_into(
                             builder.pop_style_span();
                             text_transformer.word_break(builder);
                         } else {
-                            // node.remove_damage(CONSTRUCT_DESCENDENT | CONSTRUCT_FC | CONSTRUCT_BOX);
+                            let edges = node.primary_styles().map(|s| inline_edges(&s));
+                            if let Some(edges) = &edges {
+                                push_margin_spacer(builder, edges.margin_start);
+                            }
                             let style = node
                                 .primary_styles()
                                 .map(|s| stylo_to_parley::style(node.id, &s))
@@ -250,6 +324,9 @@ pub(crate) fn build_inline_layout_into(
                                 });
 
                             builder.push_style_span(style);
+                            if let Some(edges) = &edges {
+                                push_edge_spacer(builder, edges, edges.inset_start);
+                            }
 
                             if let Some(before_id) = node.before() {
                                 build_inline_layout_recursive(
@@ -280,7 +357,13 @@ pub(crate) fn build_inline_layout_into(
                                 );
                             }
 
+                            if let Some(edges) = &edges {
+                                push_edge_spacer(builder, edges, edges.inset_end);
+                            }
                             builder.pop_style_span();
+                            if let Some(edges) = &edges {
+                                push_margin_spacer(builder, edges.margin_end);
+                            }
                         }
                     }
                     // Inline box

@@ -35,7 +35,8 @@ use blitz_dom::node::{
 use blitz_dom::{BaseDocument, ElementData, HoistedPaintChild, Node, NodeId, local_name};
 use blitz_traits::devtools::DevtoolSettings;
 
-use style::values::computed::{BorderCornerRadius, ColorOrAuto};
+use num_traits::ToPrimitive as _;
+use style::values::computed::{BorderCornerRadius, BorderStyle, ColorOrAuto};
 use style::{
     dom::TElement,
     properties::{
@@ -1308,6 +1309,95 @@ impl ElementCx<'_, '_> {
         }
     }
 
+    fn draw_inline_fragment(
+        &self,
+        scene: &mut impl PaintScene,
+        transform: Affine,
+        fragment: &crate::text::InlineFragment,
+    ) {
+        let origin = transform.translation();
+        let snap_x = |value: f64| (value + origin.x).round() - origin.x;
+        let snap_y = |value: f64| (value + origin.y).round() - origin.y;
+        let rect = fragment.rect;
+        let node = self.context.dom.get_node(fragment.node_id);
+        let Some((node, style)) = node
+            .filter(|_| fragment.is_boxed)
+            .and_then(|node| Some((node, node.primary_styles()?)))
+        else {
+            let rect = Rect::new(
+                snap_x(rect.x0),
+                snap_y(rect.y0),
+                snap_x(rect.x1),
+                snap_y(rect.y1),
+            );
+            scene.fill(Fill::NonZero, transform, fragment.color, None, &rect);
+            return;
+        };
+
+        let zero = CSSPixelLength::new(0.0);
+        let s_border = style.get_border();
+        let s_padding = style.get_padding();
+        let width = |width: &style::values::computed::BorderSideWidth, line: BorderStyle| {
+            if line.none_or_hidden() {
+                0.0
+            } else {
+                width.0.to_f64_px() * self.scale
+            }
+        };
+        let inset = |value: &style::values::computed::NonNegativeLengthPercentage| {
+            f64::from(value.0.resolve(zero).px()) * self.scale
+        };
+        let is_rtl = style.clone_direction() == Direction::Rtl;
+        let (has_left, has_right) = if is_rtl {
+            (fragment.is_end, fragment.is_start)
+        } else {
+            (fragment.is_start, fragment.is_end)
+        };
+        let side = |is_present: bool, value: f64| if is_present { value } else { 0.0 };
+        let border = Insets::new(
+            side(
+                has_left,
+                width(&s_border.border_left_width, s_border.border_left_style),
+            ),
+            width(&s_border.border_top_width, s_border.border_top_style),
+            side(
+                has_right,
+                width(&s_border.border_right_width, s_border.border_right_style),
+            ),
+            width(&s_border.border_bottom_width, s_border.border_bottom_style),
+        );
+        let padding = Insets::new(
+            side(has_left, inset(&s_padding.padding_left)),
+            inset(&s_padding.padding_top),
+            side(has_right, inset(&s_padding.padding_right)),
+            inset(&s_padding.padding_bottom),
+        );
+        let left = snap_x(rect.x0);
+        let top = snap_y(rect.y0 - border.y0 - padding.y0);
+        let size = Size::new(
+            snap_x(rect.x1) - left,
+            snap_y(rect.y1 + border.y1 + padding.y1) - top,
+        );
+        let mut radii = corner_radii(&style, size, self.scale);
+        if !has_left {
+            radii.top_left = Vec2::ZERO;
+            radii.bottom_left = Vec2::ZERO;
+        }
+        if !has_right {
+            radii.top_right = Vec2::ZERO;
+            radii.bottom_right = Vec2::ZERO;
+        }
+        let mut cx = self.context.element_cx(
+            node,
+            Layout::new(),
+            transform * Affine::translate((left, top)),
+            None,
+        );
+        cx.frame = CssBox::new(size.to_rect(), border, padding, 0.0, radii);
+        cx.draw_background(scene);
+        cx.draw_border(scene);
+    }
+
     fn draw_inline_layout(&self, scene: &mut impl PaintScene, pos: Point) {
         if self.node.flags.is_inline_root() {
             let text_layout = self.element
@@ -1335,14 +1425,16 @@ impl ElementCx<'_, '_> {
 
             // Render inline element backgrounds (e.g. `<span style="background: ...">`)
             // behind the text and selection highlight.
-            crate::text::draw_inline_backgrounds(
-                scene,
+            let fragments = crate::text::inline_fragments(
                 text_layout.layout.lines().take(visible_lines),
                 self.context.dom,
-                transform,
                 self.node.id,
+                &text_layout.text,
                 self.scale,
             );
+            for fragment in &fragments {
+                self.draw_inline_fragment(scene, transform, fragment);
+            }
 
             // Render text selection highlight (if any) using cached selection ranges
             if let Some(&(sel_start, sel_end)) = self.context.selection_ranges.get(&self.node.id) {
@@ -2199,22 +2291,25 @@ fn create_css_rect(style: &ComputedValues, layout: &Layout, scale: f64) -> CssBo
     let padding = insets_from_taffy_rect(layout.padding.map(|p| p as f64 * scale));
     let outline_width = style.get_outline().outline_width.0.to_f64_px() * scale;
 
-    // Resolve the radii to a length. need to downscale since the radii are in document pixels
-    let resolve_w = CSSPixelLength::new(width as _);
-    let resolve_h = CSSPixelLength::new(height as _);
+    let border_radii = corner_radii(style, border_box.size(), scale);
+
+    CssBox::new(border_box, border, padding, outline_width, border_radii)
+}
+
+fn corner_radii(style: &ComputedValues, size: Size, scale: f64) -> NonUniformRoundedRectRadii {
+    let resolve_w = CSSPixelLength::new((size.width / scale).to_f32().unwrap_or(0.0));
+    let resolve_h = CSSPixelLength::new((size.height / scale).to_f32().unwrap_or(0.0));
     let resolve_radii = |radius: &BorderCornerRadius| -> Vec2 {
         Vec2 {
-            x: scale * radius.0.width.0.resolve(resolve_w).px() as f64,
-            y: scale * radius.0.height.0.resolve(resolve_h).px() as f64,
+            x: scale * f64::from(radius.0.width.0.resolve(resolve_w).px()),
+            y: scale * f64::from(radius.0.height.0.resolve(resolve_h).px()),
         }
     };
     let s_border = style.get_border();
-    let border_radii = NonUniformRoundedRectRadii {
+    NonUniformRoundedRectRadii {
         top_left: resolve_radii(&s_border.border_top_left_radius),
         top_right: resolve_radii(&s_border.border_top_right_radius),
         bottom_right: resolve_radii(&s_border.border_bottom_right_radius),
         bottom_left: resolve_radii(&s_border.border_bottom_left_radius),
-    };
-
-    CssBox::new(border_box, border, padding, outline_width, border_radii)
+    }
 }

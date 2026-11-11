@@ -18,16 +18,28 @@ use style::values::generics::text::{GenericTextDecorationInset, GenericTextDecor
 use crate::color::{Color, ToColorColor as _};
 use crate::{FONT_EMBOLDEN_ENABLED, SELECTION_COLOR};
 
+pub(crate) struct InlineFragment {
+    pub(crate) node_id: NodeId,
+    pub(crate) color: Color,
+    pub(crate) rect: Rect,
+    pub(crate) is_boxed: bool,
+    pub(crate) is_start: bool,
+    pub(crate) is_end: bool,
+}
+
 struct SpanBox {
     node_id: NodeId,
     depth: usize,
     color: Color,
+    is_boxed: bool,
     font_size: f64,
     left: f64,
     right: f64,
     baseline: f64,
     extent: Option<(f64, f64)>,
     is_own_font: bool,
+    is_start: bool,
+    is_end: bool,
 }
 
 struct SpanItem {
@@ -35,13 +47,22 @@ struct SpanItem {
     right: f64,
     baseline: f64,
     font: Option<(NodeId, f64, f64, f64)>,
+    opens: bool,
+    closes: bool,
+}
+
+struct InlineAncestor {
+    node_id: NodeId,
+    color: Color,
+    is_boxed: bool,
+    font_size: f64,
 }
 
 fn inline_ancestors(
     doc: &BaseDocument,
     start: Option<NodeId>,
     inline_root_id: NodeId,
-) -> Vec<(NodeId, Color, f64)> {
+) -> Vec<InlineAncestor> {
     let mut ancestors = Vec::new();
     let mut next_id = start;
     while let Some(node) = next_id
@@ -65,39 +86,44 @@ fn inline_ancestors(
             .background_color
             .resolve_to_absolute(&current_color)
             .as_srgb_color();
-        let font_size = f64::from(styles.get_font().font_size.used_size.0.px());
-        ancestors.push((node.id, color, font_size));
+        ancestors.push(InlineAncestor {
+            node_id: node.id,
+            color,
+            is_boxed: blitz_dom::util::inline_box_is_decorated(&styles),
+            font_size: f64::from(styles.get_font().font_size.used_size.0.px()),
+        });
     }
     ancestors
 }
 
-pub(crate) fn draw_inline_backgrounds<'a>(
-    scene: &mut impl PaintScene,
+pub(crate) fn inline_fragments<'a>(
     lines: impl Iterator<Item = Line<'a, TextBrush>>,
     doc: &BaseDocument,
-    transform: Affine,
     inline_root_id: NodeId,
+    text: &str,
     scale: f64,
-) {
-    let origin = transform.translation();
-    let snap_x = |value: f64| (value + origin.x).round() - origin.x;
-    let snap_y = |value: f64| (value + origin.y).round() - origin.y;
+) -> Vec<InlineFragment> {
+    let spacer = blitz_dom::util::INLINE_EDGE_SPACER;
+    let mut fragments = Vec::new();
     let mut font_ratios: Option<(f64, f64)> = None;
     for line in lines {
         let line_baseline = f64::from(line.metrics().baseline);
         let mut boxes: Vec<SpanBox> = Vec::new();
+        let mut line_right = f64::MIN;
         for item in line.items() {
             let (start, span_item) = match item {
                 PositionedLayoutItem::GlyphRun(glyph_run) => {
-                    let metrics = glyph_run.run().font_metrics();
+                    let run = glyph_run.run();
+                    let metrics = run.font_metrics();
                     let left = f64::from(glyph_run.offset());
-                    let font_size = f64::from(glyph_run.run().font_size());
+                    let font_size = f64::from(run.font_size());
                     let ascent = f64::from(metrics.ascent);
                     let descent = f64::from(metrics.descent);
                     if font_size > 0.0 {
                         font_ratios = Some((ascent / font_size, descent / font_size));
                     }
                     let owner = glyph_run.style().brush.id;
+                    let run_text = text.get(run.text_range()).unwrap_or_default();
                     (
                         Some(owner),
                         SpanItem {
@@ -105,6 +131,8 @@ pub(crate) fn draw_inline_backgrounds<'a>(
                             right: left + f64::from(glyph_run.advance()),
                             baseline: f64::from(glyph_run.baseline()),
                             font: Some((owner, ascent, descent, font_size)),
+                            opens: run_text.starts_with(spacer),
+                            closes: run_text.ends_with(spacer),
                         },
                     )
                 }
@@ -120,18 +148,23 @@ pub(crate) fn draw_inline_backgrounds<'a>(
                             right: left + f64::from(inline_box.width),
                             baseline: line_baseline,
                             font: None,
+                            opens: false,
+                            closes: false,
                         },
                     )
                 }
                 PositionedLayoutItem::InlineBox(_) => continue,
             };
 
+            line_right = line_right.max(span_item.right);
             let ancestors = inline_ancestors(doc, start, inline_root_id);
             let depth_of_first = ancestors.len();
-            for (index, (node_id, color, font_size)) in ancestors.into_iter().enumerate() {
-                if color == Color::TRANSPARENT {
+            for (index, ancestor) in ancestors.into_iter().enumerate() {
+                if ancestor.color == Color::TRANSPARENT && !ancestor.is_boxed {
                     continue;
                 }
+                let node_id = ancestor.node_id;
+                let is_own = span_item.font.is_some_and(|(owner, ..)| owner == node_id);
                 let position = boxes
                     .iter()
                     .position(|span_box| span_box.node_id == node_id)
@@ -139,26 +172,30 @@ pub(crate) fn draw_inline_backgrounds<'a>(
                         boxes.push(SpanBox {
                             node_id,
                             depth: depth_of_first - index,
-                            color,
-                            font_size: font_size * scale,
+                            color: ancestor.color,
+                            is_boxed: ancestor.is_boxed,
+                            font_size: ancestor.font_size * scale,
                             left: span_item.left,
                             right: span_item.right,
                             baseline: line_baseline,
                             extent: None,
                             is_own_font: false,
+                            is_start: is_own && span_item.opens,
+                            is_end: false,
                         });
                         boxes.len() - 1
                     });
                 let span_box = &mut boxes[position];
                 span_box.left = span_box.left.min(span_item.left);
                 span_box.right = span_box.right.max(span_item.right);
-                let Some((owner, ascent, descent, run_font_size)) = span_item.font else {
+                span_box.is_end = is_own && span_item.closes;
+                let Some((_, ascent, descent, run_font_size)) = span_item.font else {
                     continue;
                 };
                 if span_box.is_own_font {
                     continue;
                 }
-                if owner == node_id {
+                if is_own {
                     span_box.is_own_font = true;
                     span_box.baseline = span_item.baseline;
                     span_box.extent = Some((ascent, descent));
@@ -169,8 +206,12 @@ pub(crate) fn draw_inline_backgrounds<'a>(
             }
         }
 
+        let inked_right = line_right - f64::from(line.metrics().hanging_advance);
         boxes.sort_by_key(|span_box| span_box.depth);
-        for span_box in boxes {
+        for mut span_box in boxes {
+            if !span_box.is_end {
+                span_box.right = span_box.right.min(inked_right).max(span_box.left);
+            }
             let extent = span_box.extent.or_else(|| {
                 font_ratios.map(|(ascent, descent)| {
                     (ascent * span_box.font_size, descent * span_box.font_size)
@@ -179,15 +220,22 @@ pub(crate) fn draw_inline_backgrounds<'a>(
             let Some((ascent, descent)) = extent else {
                 continue;
             };
-            let rect = Rect::new(
-                snap_x(span_box.left),
-                snap_y(span_box.baseline - ascent.round()),
-                snap_x(span_box.right),
-                snap_y(span_box.baseline + descent.round()),
-            );
-            scene.fill(Fill::NonZero, transform, span_box.color, None, &rect);
+            fragments.push(InlineFragment {
+                node_id: span_box.node_id,
+                color: span_box.color,
+                rect: Rect::new(
+                    span_box.left,
+                    span_box.baseline - ascent.round(),
+                    span_box.right,
+                    span_box.baseline + descent.round(),
+                ),
+                is_boxed: span_box.is_boxed,
+                is_start: span_box.is_start,
+                is_end: span_box.is_end,
+            });
         }
     }
+    fragments
 }
 
 /// Per-font-face cache of the OS/2 `usWinAscent / unitsPerEm` ratio, keyed by the font

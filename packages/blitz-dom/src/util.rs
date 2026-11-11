@@ -297,6 +297,47 @@ pub fn inherited_clamp_line(node: &crate::Node) -> Option<usize> {
     None
 }
 
+pub const INLINE_EDGE_SPACER: &str = "\u{2060}";
+pub const INLINE_MARGIN_SPACER: &str = "\u{feff}";
+
+pub fn inline_box_is_decorated(style: &style::properties::ComputedValues) -> bool {
+    let border = style.get_border();
+    let padding = style.get_padding();
+    let has_border = [
+        (border.border_top_style, &border.border_top_width),
+        (border.border_right_style, &border.border_right_width),
+        (border.border_bottom_style, &border.border_bottom_width),
+        (border.border_left_style, &border.border_left_width),
+    ]
+    .iter()
+    .any(|(line, width)| !line.none_or_hidden() && width.0.to_f32_px() > 0.0);
+    let has_padding = [
+        &padding.padding_top,
+        &padding.padding_right,
+        &padding.padding_bottom,
+        &padding.padding_left,
+    ]
+    .iter()
+    .any(|value| !style::Zero::is_zero(&value.0));
+    let has_radius = [
+        &border.border_top_left_radius,
+        &border.border_top_right_radius,
+        &border.border_bottom_right_radius,
+        &border.border_bottom_left_radius,
+    ]
+    .iter()
+    .any(|radius| {
+        !style::Zero::is_zero(&radius.0.width.0) && !style::Zero::is_zero(&radius.0.height.0)
+    });
+    let has_image = style
+        .get_background()
+        .background_image
+        .0
+        .iter()
+        .any(|image| !matches!(image, style::values::generics::image::GenericImage::None));
+    has_border || has_padding || has_radius || has_image
+}
+
 pub fn clamp_hides_lines(style: &style::properties::ComputedValues) -> bool {
     let style_box = style.get_box();
     !style_box.line_clamp.webkit_legacy
