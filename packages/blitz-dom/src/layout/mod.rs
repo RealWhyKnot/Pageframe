@@ -35,7 +35,7 @@ pub(crate) mod image_fallback;
 pub(crate) mod inline;
 pub(crate) mod line_clamp;
 pub(crate) mod list;
-pub mod multicol;
+pub(crate) mod multicol;
 pub(crate) mod paint_tree;
 pub(crate) mod replaced;
 pub(crate) mod round;
@@ -721,6 +721,9 @@ impl LayoutPassState<'_> {
                 }
 
                 if node.flags.is_table_root() {
+                    if let Some(layout_data) = node.try_layout_data_mut() {
+                        layout_data.columns = None;
+                    }
                     // The space available to an absolutely positioned table never exceeds
                     // the size of its containing block (less the table's margins), even
                     // when negative insets would otherwise add to it
@@ -824,7 +827,8 @@ impl LayoutPassState<'_> {
                 let is_multicol = {
                     let style = node.primary_styles();
                     style.is_some_and(|style| style.is_multicol())
-                };
+                } && (node.flags.is_inline_root()
+                    || matches!(node.taffy_display(), Display::Block | Display::FlowRoot));
                 if !is_multicol && let Some(layout_data) = node.try_layout_data_mut() {
                     layout_data.columns = None;
                 }
@@ -840,8 +844,7 @@ impl LayoutPassState<'_> {
                     }
                     return self.compute_inline_layout(dom_node_id(node_id), inputs, block_ctx);
                 }
-                if is_multicol && matches!(node.taffy_display(), Display::Block | Display::FlowRoot)
-                {
+                if is_multicol {
                     let mut output = self.compute_multicol_layout(
                         dom_node_id(node_id),
                         inputs,

@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use style::values::computed::CSSPixelLength;
 use style::values::generics::column::GenericColumnCount;
 use style::values::generics::length::{
@@ -221,16 +223,20 @@ fn next_start(solids: &[Solid], end: f32, flow_end: f32) -> f32 {
 
 fn fill_columns(
     solids: &[Solid],
-    flow_start: f32,
-    flow_end: f32,
+    flow: Range<f32>,
     height: f32,
+    most: usize,
 ) -> Vec<ColumnFragment> {
+    let Range {
+        start: flow_start,
+        end: flow_end,
+    } = flow;
     let height = height.max(1.0);
     let mut fragments = Vec::new();
     let mut start = flow_start;
     loop {
         let limit = start + height;
-        if limit >= flow_end - EDGE || fragments.len() + 1 >= MAX_COLUMNS {
+        if limit >= flow_end - EDGE || fragments.len() + 1 >= most {
             fragments.push(ColumnFragment {
                 flow_start: start,
                 flow_end: flow_end.max(start),
@@ -254,7 +260,10 @@ fn balanced_height(solids: &[Solid], flow_start: f32, flow_end: f32, count: usiz
     if total <= 0.0 {
         return 0.0;
     }
-    let fits = |height: f32| fill_columns(solids, flow_start, flow_end, height).len() <= count;
+    let fits = |height: f32| {
+        let most = (count + 2).min(MAX_COLUMNS);
+        fill_columns(solids, flow_start..flow_end, height, most).len() <= count
+    };
     let snap = |height: f32| (height * LAYOUT_UNIT - EDGE).ceil() / LAYOUT_UNIT;
     let mut low = total / f32_from(count);
     if fits(low) {
@@ -509,7 +518,7 @@ impl LayoutPassState<'_> {
             .height
             .map(|height| (height - edges.height).max(0.0)));
         let column_height = limit.map_or(balanced, |limit| balanced.min(limit));
-        let fragments = fill_columns(&solids, flow_start, flow_end, column_height);
+        let fragments = fill_columns(&solids, flow_start..flow_end, column_height, MAX_COLUMNS);
         let content_height = fixed.unwrap_or_else(|| {
             column_height.maybe_max(min_size.height.map(|height| height - edges.height))
         });

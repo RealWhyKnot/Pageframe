@@ -243,3 +243,37 @@ fn a_huge_column_count_stays_bounded() {
     let container = rect(&harness, "c");
     assert!((container[3] - 0.015_625).abs() < 0.001, "{container:?}");
 }
+
+#[test]
+fn a_container_that_stops_being_a_block_drops_its_columns() {
+    let mut harness = page(&format!("<div id=\"c\" class=\"c\">{}</div>", blocks(6)));
+    check(&harness, &[("b2", [110.0, 0.0, 100.0, 20.0])]);
+    let id = harness
+        .base()
+        .query_selector_all("#c")
+        .expect("the selector parses")[0];
+    let name = blitz_dom::QualName::new(None, blitz_dom::ns!(), blitz_dom::local_name!("style"));
+    harness
+        .base_mut()
+        .mutate()
+        .set_attribute(id, name, "display:grid");
+    harness.pump();
+    check(
+        &harness,
+        &[
+            ("c", [0.0, 0.0, 320.0, 120.0]),
+            ("b2", [0.0, 40.0, 320.0, 20.0]),
+        ],
+    );
+    assert_eq!(hit_id(&harness, 250.0, 50.0).as_deref(), Some("b2"));
+}
+
+#[test]
+fn many_blocks_in_one_pixel_columns_lay_out_quickly() {
+    let harness = page(&format!(
+        "<div id=\"c\" style=\"width:320px;column-width:1px;column-gap:0\">{}</div>",
+        blocks(5000)
+    ));
+    let container = rect(&harness, "c");
+    assert!(container[3] >= 20.0, "{container:?}");
+}
