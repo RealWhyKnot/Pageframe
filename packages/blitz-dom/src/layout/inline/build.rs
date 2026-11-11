@@ -43,17 +43,32 @@ impl InlineEdges {
     }
 }
 
-fn ends_in_space(nodes: &crate::NodeTree, node_id: NodeId) -> bool {
+fn trailing_space(nodes: &crate::NodeTree, node_id: NodeId) -> Option<bool> {
     let node = &nodes[node_id];
-    if node.after().is_some() {
-        return false;
-    }
     match &node.data {
-        NodeData::Text(data) => data.content.ends_with(char::is_whitespace),
-        _ => node
-            .children
-            .last()
-            .is_some_and(|child| ends_in_space(nodes, *child)),
+        NodeData::Text(data) => data
+            .content
+            .chars()
+            .next_back()
+            .map(|last| matches!(last, ' ' | '\t' | '\n' | '\r' | '\u{c}')),
+        NodeData::Element(element_data) | NodeData::AnonymousBlock(element_data) => {
+            let display = node.display_style()?;
+            if display.is_none() {
+                return None;
+            }
+            let is_span = display.outside() == DisplayOutside::Inline
+                && display.inside() == DisplayInside::Flow
+                && !is_inline_box_element(&element_data.name.local)
+                && element_data.name.local != local_name!("br");
+            if !is_span {
+                return Some(false);
+            }
+            node.after()
+                .into_iter()
+                .chain(node.children.iter().rev().copied())
+                .find_map(|child| trailing_space(nodes, child))
+        }
+        _ => None,
     }
 }
 
@@ -453,8 +468,21 @@ pub(crate) fn build_inline_layout_into(
                                     crate::util::INLINE_MARGIN_END,
                                     edges.margin_end,
                                 );
-                                if edges.has_end_mark() && ends_in_space(nodes, node_id) {
+                                let wraps = node.primary_styles().is_some_and(|style| {
+                                    style.clone_text_wrap_mode()
+                                        == stylo_to_parley::stylo::TextWrapMode::Wrap
+                                });
+                                if wraps
+                                    && edges.has_end_mark()
+                                    && trailing_space(nodes, node_id) == Some(true)
+                                {
+                                    builder.push_style_modification_span(&[
+                                        parley::StyleProperty::TextWrapMode(
+                                            parley::TextWrapMode::Wrap,
+                                        ),
+                                    ]);
                                     builder.push_text(crate::util::INLINE_BREAK);
+                                    builder.pop_style_span();
                                 }
                             }
                         }

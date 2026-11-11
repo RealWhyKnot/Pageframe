@@ -281,3 +281,27 @@ fn a_line_wraps_after_a_span_that_ends_in_a_space() {
     assert!(row.iter().all(|(_, colour)| *colour == LIME));
     assert!((40..80).any(|y| !painted(&buffer, y).is_empty()));
 }
+
+fn wrap_case(span_style: &str, inner: &str, after: &str) -> usize {
+    let buffer = draw(&format!(
+        "<div style=\"line-height:40px;width:30px\">\
+         <span style=\"background:#0f0;color:transparent;padding:0 3px;{span_style}\">{inner}</span>\
+         {after}</div>"
+    ));
+    painted(&buffer, 20).len()
+}
+
+#[test]
+fn a_span_break_follows_the_span_text_and_wrap_mode() {
+    let hung = wrap_case("", "aa ", "aaa");
+    assert!(wrap_case("white-space:nowrap", "aa ", "aaa") > hung);
+    assert_eq!(wrap_case("", "aa <!--c-->", "aaa"), hung);
+    assert_eq!(
+        wrap_case("", "aa <i style=\"display:none\">q</i>", "aaa"),
+        hung
+    );
+    assert_eq!(
+        wrap_case("", "aa ", "<span style=\"white-space:nowrap\">aaa</span>"),
+        hung
+    );
+}
