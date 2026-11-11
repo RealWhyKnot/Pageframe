@@ -28,6 +28,7 @@ pub(crate) struct InlineFragment {
     pub(crate) is_boxed: bool,
     pub(crate) is_start: bool,
     pub(crate) is_end: bool,
+    pub(crate) group: Option<NodeId>,
 }
 
 struct SpanBox {
@@ -44,6 +45,7 @@ struct SpanBox {
     is_start: bool,
     is_end: bool,
     shift: Vec2,
+    group: Option<NodeId>,
 }
 
 struct SpanItem {
@@ -61,6 +63,7 @@ struct InlineAncestor {
     is_boxed: bool,
     font_size: f64,
     shift: Vec2,
+    is_faded: bool,
 }
 
 fn inline_ancestors(
@@ -97,6 +100,7 @@ fn inline_ancestors(
             is_boxed: blitz_dom::util::inline_box_is_decorated(&styles),
             font_size: f64::from(styles.get_font().font_size.used_size.0.px()),
             shift: relative_shift(&styles),
+            is_faded: styles.get_effects().opacity < 1.0,
         });
     }
     ancestors
@@ -172,10 +176,20 @@ pub(crate) fn inline_fragments<'a>(
             let mut outer_shift = ancestors
                 .iter()
                 .fold(Vec2::ZERO, |sum, ancestor| sum + ancestor.shift);
+            let faded = ancestors
+                .iter()
+                .enumerate()
+                .rev()
+                .find(|(_, ancestor)| ancestor.is_faded)
+                .map(|(at, ancestor)| (at, ancestor.node_id));
             for (index, ancestor) in ancestors.into_iter().enumerate() {
                 let shift = outer_shift * scale;
                 outer_shift -= ancestor.shift;
-                if ancestor.color == Color::TRANSPARENT && !ancestor.is_boxed {
+                let group = faded
+                    .filter(|(at, _)| index <= *at)
+                    .map(|(_, node_id)| node_id);
+                if ancestor.color == Color::TRANSPARENT && !ancestor.is_boxed && !ancestor.is_faded
+                {
                     continue;
                 }
                 let node_id = ancestor.node_id;
@@ -198,6 +212,7 @@ pub(crate) fn inline_fragments<'a>(
                             is_start: false,
                             is_end: false,
                             shift,
+                            group,
                         });
                         boxes.len() - 1
                     });
@@ -249,6 +264,7 @@ pub(crate) fn inline_fragments<'a>(
                 is_boxed: span_box.is_boxed,
                 is_start: span_box.is_start,
                 is_end: span_box.is_end,
+                group: span_box.group,
             });
         }
     }
@@ -342,6 +358,7 @@ struct DecorationStackEntry {
     /// This node's (inherited) `text-shadow` list, in CSS pixels.
     shadows: Vec<ResolvedTextShadow>,
     shift: Vec2,
+    group: Option<NodeId>,
 }
 
 struct ResolvedTextShadow {
@@ -359,6 +376,7 @@ fn resolve_decoration_entry(doc: &BaseDocument, node_id: NodeId) -> DecorationSt
             decoration: None,
             shadows: Vec::new(),
             shift: Vec2::ZERO,
+            group: None,
         };
     };
 
@@ -420,16 +438,18 @@ fn resolve_decoration_entry(doc: &BaseDocument, node_id: NodeId) -> DecorationSt
         })
         .collect();
 
+    let is_inline = styles.get_box().display == Display::Inline;
     DecorationStackEntry {
         node_id,
         fill_color,
         decoration,
         shadows,
-        shift: if styles.get_box().display == Display::Inline {
+        shift: if is_inline {
             relative_shift(&styles)
         } else {
             Vec2::ZERO
         },
+        group: (is_inline && styles.get_effects().opacity < 1.0).then_some(node_id),
     }
 }
 
@@ -682,6 +702,7 @@ pub(crate) struct TextPaintOptions<'a> {
     pub brush_override: Option<Color>,
     pub ellipsis: Option<LineEllipsis>,
     pub text: Option<&'a str>,
+    pub group: Option<NodeId>,
 }
 
 /// Where `text-overflow: ellipsis` and `line-clamp` cut lines short with an ellipsis.
@@ -1117,6 +1138,7 @@ pub(crate) fn stroke_text<'a>(
         brush_override,
         ellipsis,
         text: layout_text,
+        group,
     } = options;
     let DrawTextContext {
         stack,
@@ -1191,12 +1213,19 @@ pub(crate) fn stroke_text<'a>(
                 stack.truncate(shared);
                 for &node_id in &path_scratch[shared..] {
                     let mut entry = resolve_decoration_entry(doc, node_id);
-                    entry.shift = if node_id == inline_root_id {
-                        Vec2::ZERO
+                    if node_id == inline_root_id {
+                        entry.shift = Vec2::ZERO;
+                        entry.group = None;
+                    } else if let Some(outer) = stack.last() {
+                        entry.shift = outer.shift + entry.shift * scale;
+                        entry.group = outer.group.or(entry.group);
                     } else {
-                        stack.last().map_or(Vec2::ZERO, |outer| outer.shift) + entry.shift * scale
-                    };
+                        entry.shift *= scale;
+                    }
                     stack.push(entry);
+                }
+                if stack.last().and_then(|entry| entry.group) != group {
+                    continue;
                 }
                 let transform =
                     transform * Affine::translate(stack.last().map_or(Vec2::ZERO, |entry| entry.shift));

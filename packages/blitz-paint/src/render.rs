@@ -59,6 +59,8 @@ use style::computed_values::position::T as StyloPosition;
 use style::values::generics::color::GenericColor;
 use taffy::Layout;
 
+const SPAN_GROUP_REACH: f64 = 256.0;
+
 /// An opacity just below 1.0, used to force the renderer to allocate an isolated
 /// buffer for mask and text-clip isolation layers. Renderers (e.g. vello_cpu) may optimize
 /// layers with `Mix::Normal`/`Compose::SrcOver` and an opacity of exactly 1.0 into
@@ -348,6 +350,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
                         brush_override: Some(Color::BLACK),
                         ellipsis,
                         text: Some(&layout.text),
+                        group: None,
                     },
                     node.id,
                     &mut self.draw_text_context.borrow_mut(),
@@ -1437,39 +1440,87 @@ impl ElementCx<'_, '_> {
                 &text_layout.text,
                 self.scale,
             );
-            for fragment in &fragments {
-                self.draw_inline_fragment(scene, transform, fragment);
+            let cut = (visible_lines, ellipsis);
+            self.draw_inline_group(scene, transform, &fragments, None, cut);
+            let mut groups: Vec<NodeId> = Vec::new();
+            for group in fragments.iter().filter_map(|fragment| fragment.group) {
+                if !groups.contains(&group) {
+                    groups.push(group);
+                }
             }
-
-            // Render text selection highlight (if any) using cached selection ranges
-            if let Some(&(sel_start, sel_end)) = self.context.selection_ranges.get(&self.node.id) {
-                crate::text::draw_text_selection(
+            for group in groups {
+                let bounds = fragments
+                    .iter()
+                    .filter(|fragment| fragment.group == Some(group))
+                    .map(|fragment| fragment.rect)
+                    .reduce(|bounds, rect| bounds.union(rect));
+                let opacity = self
+                    .context
+                    .dom
+                    .get_node(group)
+                    .and_then(|node| node.primary_styles())
+                    .map(|style| style.get_effects().opacity);
+                let (Some(bounds), Some(opacity)) = (bounds, opacity) else {
+                    continue;
+                };
+                let reach = SPAN_GROUP_REACH * self.scale;
+                self.context.layer_manager.maybe_with_layer(
                     scene,
-                    &text_layout.layout,
+                    true,
+                    peniko::Mix::Normal.into(),
+                    opacity,
                     transform,
-                    sel_start,
-                    sel_end,
-                    visible_lines,
+                    &bounds.inflate(reach, reach),
+                    None,
+                    None,
+                    |scene| self.draw_inline_group(scene, transform, &fragments, Some(group), cut),
                 );
             }
+        }
+    }
 
-            // Render text
-            let mut draw_text_context = self.context.draw_text_context.borrow_mut();
-            crate::text::stroke_text(
+    fn draw_inline_group(
+        &self,
+        scene: &mut impl PaintScene,
+        transform: Affine,
+        fragments: &[crate::text::InlineFragment],
+        group: Option<NodeId>,
+        (visible_lines, ellipsis): (usize, Option<LineEllipsis>),
+    ) {
+        let Some(text_layout) = self.element.inline_layout_data.as_ref() else {
+            return;
+        };
+        for fragment in fragments.iter().filter(|fragment| fragment.group == group) {
+            self.draw_inline_fragment(scene, transform, fragment);
+        }
+        if group.is_none()
+            && let Some(&(sel_start, sel_end)) = self.context.selection_ranges.get(&self.node.id)
+        {
+            crate::text::draw_text_selection(
                 scene,
-                text_layout.layout.lines().take(visible_lines),
-                self.context.dom,
+                &text_layout.layout,
                 transform,
-                TextPaintOptions {
-                    scale: self.scale,
-                    brush_override: None,
-                    ellipsis,
-                    text: Some(&text_layout.text),
-                },
-                self.node.id,
-                &mut draw_text_context,
+                sel_start,
+                sel_end,
+                visible_lines,
             );
         }
+        let mut draw_text_context = self.context.draw_text_context.borrow_mut();
+        crate::text::stroke_text(
+            scene,
+            text_layout.layout.lines().take(visible_lines),
+            self.context.dom,
+            transform,
+            TextPaintOptions {
+                scale: self.scale,
+                brush_override: None,
+                ellipsis,
+                text: Some(&text_layout.text),
+                group,
+            },
+            self.node.id,
+            &mut draw_text_context,
+        );
     }
 
     fn draw_text_input_text(&self, scene: &mut impl PaintScene, pos: Point) {
@@ -1545,6 +1596,7 @@ impl ElementCx<'_, '_> {
                     brush_override: None,
                     ellipsis: None,
                     text: None,
+                    group: None,
                 },
                 self.node.id,
                 &mut draw_text_context,
@@ -1744,6 +1796,7 @@ impl ElementCx<'_, '_> {
                 brush_override: self.marker_color(),
                 ellipsis: None,
                 text: None,
+                group: None,
             },
             self.node.id,
             &mut draw_text_context,
@@ -2100,6 +2153,7 @@ impl ElementCx<'_, '_> {
                         brush_override: None,
                         ellipsis: None,
                         text: None,
+                        group: None,
                     },
                     self.node.id,
                     &mut self.context.draw_text_context.borrow_mut(),

@@ -181,3 +181,34 @@ fn a_relative_span_moves_its_text_and_underline() {
     assert_eq!(columns.first(), Some(&20));
     assert!(columns.len() >= 6, "the glyph and its underline are painted");
 }
+
+#[test]
+fn a_faded_span_fades_its_box_and_text_as_one() {
+    let buffer = draw(
+        "<div style=\"line-height:40px\">\
+         <span style=\"opacity:.5;background:#000;padding:0 3px\">aa</span></div>",
+    );
+    let row = painted(&buffer, 20);
+    assert!(row.len() >= 16, "the span is painted");
+    for (x, colour) in row {
+        assert!(
+            (126..=129).contains(&colour[0]) && colour[0] == colour[1] && colour[1] == colour[2],
+            "{colour:?} at {x}"
+        );
+    }
+}
+
+#[test]
+fn a_faded_span_without_a_box_fades_its_text() {
+    let darkest = |style: &str| {
+        let buffer = draw(&format!(
+            "<div style=\"font-size:30px;line-height:40px\"><span style=\"{style}\">ll</span></div>"
+        ));
+        (0..40)
+            .flat_map(|y| (0..60).map(move |x| (x, y)))
+            .map(|(x, y)| pixel(&buffer, x, y)[0])
+            .min()
+    };
+    assert_eq!(darkest(""), Some(0));
+    assert!(darkest("opacity:.5").is_some_and(|value| (126..=129).contains(&value)));
+}
