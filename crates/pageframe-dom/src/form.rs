@@ -269,11 +269,14 @@ fn construct_entry_list(doc: &BaseDocument, form_id: NodeId, submitter_id: NodeI
             continue;
         };
 
-        // TODO: If the field element is a select element,
-        //  then for each option element in the select element's
-        //  list of options whose selectedness is true and that is not disabled,
-        //  create an entry with name and the value of the option element,
-        //  and append it to entry list.
+        if element.name.local == local_name!("select") {
+            for option in doc.selected_options(node.id) {
+                if !doc.option_is_disabled(option) {
+                    create_entry(name, doc.option_value(option).as_str().into());
+                }
+            }
+            continue;
+        }
 
         // Otherwise, if the field element is an input element whose type attribute is in the Checkbox state or the Radio Button state, then:
         if element.name.local == local_name!("input")

@@ -484,6 +484,10 @@ impl ElementData {
             data.element_state.insert(ElementState::CHECKED);
         }
 
+        if data.name.local == local_name!("option") && data.has_attr(local_name!("selected")) {
+            data.element_state.insert(ElementState::CHECKED);
+        }
+
         // The element state needs to be modified if the element can be disabled.
         if data.can_be_disabled() {
             data.element_state

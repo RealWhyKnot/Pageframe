@@ -833,6 +833,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                 cx.draw_custom_widget(scene);
                 cx.draw_sub_document(scene);
                 cx.draw_input(scene);
+                cx.draw_select_arrow(scene);
                 cx.draw_text_input_text(scene, content_position);
                 if !body.is_paint_scope && body.node.flags.is_inline_root() {
                     self.deferred_paints

@@ -2,6 +2,7 @@ use super::ElementCx;
 use crate::color::{Color, ToColorColor as _, contrast_ratio};
 use anyrender::PaintScene;
 use kurbo::{Affine, BezPath, Cap, Join, Rect, Stroke};
+use pageframe_dom::CopyStyleGetters as _;
 use pageframe_dom::local_name;
 use peniko::Fill;
 use style::dom::TElement as _;
@@ -16,6 +17,11 @@ const DARK_FOREGROUND: Color = Color::from_rgba8(0x3b, 0x3b, 0x3b, 0xff);
 const MIN_FOREGROUND_CONTRAST: f32 = 3.0;
 const CHECKBOX_RADIUS: f64 = 2.0;
 const BORDER_WIDTH: f64 = 1.0;
+const ARROW_INSET: f64 = 8.0;
+const ARROW_HEIGHT: f64 = 7.0;
+const ARROW_REACH: f64 = 4.0;
+const ARROW_TOP: f64 = 1.0;
+const ARROW_STROKE: f64 = 2.0;
 
 struct ControlColors {
     accent: Color,
@@ -59,6 +65,27 @@ impl ElementCx<'_, '_> {
         } else {
             draw_radio(scene, transform, rect, checked, &colors);
         }
+    }
+
+    pub(super) fn draw_select_arrow(&self, scene: &mut impl PaintScene) {
+        if self.node.local_name() != "select" || self.node.attr(local_name!("multiple")).is_some() {
+            return;
+        }
+        let border_box = self.frame.border_box;
+        let padding_box = self.frame.padding_box;
+        let height = border_box.height() / self.scale;
+        let middle = padding_box.x1 / self.scale - ARROW_INSET;
+        let top = border_box.y0 / self.scale + ((height - ARROW_HEIGHT) / 2.0 + 0.5).floor();
+        let mut arrow = BezPath::new();
+        arrow.move_to((middle - ARROW_REACH, top + ARROW_TOP));
+        arrow.line_to((middle, top + ARROW_TOP + ARROW_REACH));
+        arrow.line_to((middle + ARROW_REACH, top + ARROW_TOP));
+        let color = self.style.clone_color().as_srgb_color();
+        let transform = self.transform * Affine::scale(self.scale);
+        let stroke = Stroke::new(ARROW_STROKE)
+            .with_caps(Cap::Butt)
+            .with_join(Join::Miter);
+        scene.stroke(&stroke, transform, color, None, &arrow);
     }
 
     fn control_colors(&self) -> ControlColors {

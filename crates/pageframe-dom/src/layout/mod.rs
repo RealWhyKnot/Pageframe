@@ -278,6 +278,13 @@ impl LayoutPassState<'_> {
     ) -> taffy::tree::LayoutOutput {
         let inputs = self.apply_size_containment(node_id, inputs);
         let mut output = self.dispatch_child_layout(node_id, inputs, block_ctx);
+        if inputs.known_dimensions.width.is_none()
+            && self.nodes[dom_node_id(node_id)]
+                .data
+                .is_element_with_tag_name(&local_name!("option"))
+        {
+            output.size.width = output.size.width.ceil();
+        }
         if let Some(line_height) = self.empty_list_item_line_height(node_id, &inputs) {
             output.size.height += line_height;
             output.margins_can_collapse_through = false;

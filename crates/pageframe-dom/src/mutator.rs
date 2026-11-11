@@ -74,6 +74,8 @@ pub struct DocumentMutator<'doc> {
     title_node: Option<NodeId>,
     style_nodes: HashSet<NodeId>,
     form_nodes: HashSet<NodeId>,
+    picked_options: Vec<NodeId>,
+    selects_changed: bool,
 
     /// Whether an element/attribute that affect animation status has been seen
     recompute_is_animating: bool,
@@ -107,6 +109,8 @@ impl DocumentMutator<'_> {
             title_node: None,
             style_nodes: HashSet::new(),
             form_nodes: HashSet::new(),
+            picked_options: Vec::new(),
+            selects_changed: false,
             recompute_is_animating: false,
             mutations_occurred: false,
             #[cfg(feature = "autofocus")]
@@ -443,6 +447,12 @@ impl DocumentMutator<'_> {
 
         if (tag, attr) == tag_and_attr!("input", "checked") {
             set_input_checked_state(element, value.to_string());
+        } else if (tag, attr) == tag_and_attr!("option", "selected") {
+            self.picked_options.push(node_id);
+        } else if (tag, attr) == tag_and_attr!("select", "multiple")
+            || (tag, attr) == tag_and_attr!("option", "disabled")
+        {
+            self.selects_changed = true;
         } else if (tag, attr) == tag_and_attr!("img", "src")
             || (tag, attr) == tag_and_attr!("video", "poster")
         {
@@ -562,6 +572,10 @@ impl DocumentMutator<'_> {
             node.set_restyle_hint(RestyleHint::RESTYLE_STYLE_ATTRIBUTE);
         } else if (tag, attr) == tag_and_attr!("input", "checked") {
             element.set_checkbox_input_checked(false);
+        } else if (tag, attr) == tag_and_attr!("select", "multiple")
+            || (tag, attr) == tag_and_attr!("option", "disabled")
+        {
+            self.selects_changed = true;
         } else if (tag, attr) == tag_and_attr!("img", "src")
             || (tag, attr) == tag_and_attr!("video", "poster")
         {
@@ -1181,6 +1195,15 @@ impl<'doc> DocumentMutator<'doc> {
             self.doc.reset_form_owner(id);
         }
 
+        for option in self.picked_options.drain(..) {
+            if let Some(select) = self.doc.option_select(option) {
+                self.doc.set_selected_option(select, option);
+            }
+        }
+        if std::mem::take(&mut self.selects_changed) {
+            self.doc.reset_selects();
+        }
+
         #[cfg(feature = "autofocus")]
         if let Some(node_id) = self.node_to_autofocus.take() {
             if self.doc.get_node(node_id).is_some() {
@@ -1265,7 +1288,9 @@ impl<'doc> DocumentMutator<'doc> {
                     self.eager_op_queue
                         .push(SpecialOp::ProcessButtonInput(node_id));
                     self.form_nodes.insert(node_id);
+                    self.selects_changed |= tag == "select";
                 }
+                "option" | "optgroup" => self.selects_changed = true,
                 _ => {}
             }
 
@@ -1325,6 +1350,10 @@ impl<'doc> DocumentMutator<'doc> {
             let NodeData::Element(ref mut element) = node.data else {
                 return;
             };
+
+            if matches!(element.name.local.as_ref(), "option" | "optgroup") {
+                self.selects_changed = true;
+            }
 
             match &element.special_data {
                 SpecialElementData::SubDocument(_) => {

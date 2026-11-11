@@ -144,7 +144,11 @@ impl Selection<'_> {
     }
 
     pub fn value(&self) -> Option<String> {
-        let element = self.first()?.element_data()?;
+        let node = self.first()?;
+        if self.doc.is_select(node.id) {
+            return self.doc.select_value(node.id);
+        }
+        let element = node.element_data()?;
         match element.text_input_data() {
             Some(input) => Some(input.value().to_owned()),
             None => element.attr(LocalName::from("value")).map(str::to_owned),
@@ -215,7 +219,19 @@ impl Selection<'_> {
     }
 
     pub fn set_value(&mut self, value: &str) -> &mut Self {
-        self.set_attr("value", value)
+        let selects: Vec<NodeId> = self
+            .nodes
+            .iter()
+            .copied()
+            .filter(|&node| self.doc.is_select(node))
+            .collect();
+        if selects.is_empty() {
+            return self.set_attr("value", value);
+        }
+        for select in selects {
+            self.doc.set_select_value(select, value);
+        }
+        self
     }
 
     pub fn set_checked(&mut self, checked: bool) -> &mut Self {

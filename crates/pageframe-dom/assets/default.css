@@ -137,6 +137,66 @@ select {
     letter-spacing: initial;
     word-spacing: initial;
     line-height: initial;
+    display: inline-flex;
+    flex-direction: column;
+    justify-content: center;
+    box-sizing: border-box;
+    min-width: 22px;
+    border: 1px solid rgb(118, 118, 118);
+    background-color: white;
+    color: black;
+    font: 13.3333px Arial;
+    white-space: nowrap;
+    overflow: clip;
+    cursor: default;
+    user-select: none;
+}
+
+select:disabled {
+    color: rgb(109, 109, 109);
+    border-color: rgba(118, 118, 118, 0.3);
+    background-color: rgb(248, 248, 248);
+    opacity: 0.7;
+}
+
+optgroup {
+    display: contents;
+}
+
+option {
+    display: block;
+    height: 0;
+    margin: 0 16px 0 4px;
+    overflow: hidden;
+    visibility: hidden;
+}
+
+optgroup > option {
+    margin-right: 30px;
+}
+
+option:checked,
+select[multiple] option {
+    height: auto;
+    padding-block: 1px;
+    visibility: visible;
+}
+
+option:checked {
+    order: -1;
+}
+
+option:checked:empty::before,
+select:empty::before {
+    content: "";
+    display: block;
+    width: 0;
+    overflow: hidden;
+    white-space: pre;
+}
+
+select:empty::before {
+    padding-block: 1px;
 }
 
 input:focus,
@@ -191,10 +251,6 @@ legend {
     display: block;
     padding-inline-start: 2px;
     padding-inline-end: 2px;
-}
-
-option {
-    display: none;
 }
 
 source {
