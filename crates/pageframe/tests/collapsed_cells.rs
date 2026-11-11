@@ -265,3 +265,22 @@ fn an_inline_block_holding_an_inline_block_with_a_table_keeps_its_line() {
     ));
     assert_eq!(pixel(&buffer, 40, 17), RED);
 }
+
+#[test]
+fn a_shrink_wrapped_line_fits_an_inline_table_by_its_baseline() {
+    let buffer = draw(&format!(
+        "<div style=\"position:absolute;background:blue\">\
+         <table style=\"display:inline-table\">{CELLS}{CELLS}</table>{MARKER}</div>"
+    ));
+    assert_eq!(pixel(&buffer, 40, 33), BLUE);
+    assert_eq!(pixel(&buffer, 40, 35), WHITE);
+}
+
+#[test]
+fn a_hidden_child_after_the_last_line_does_not_change_the_baseline() {
+    let buffer = draw(&format!(
+        "<div><span style=\"display:inline-block\">{LINE}<table>{CELLS}</table>{LINE}\
+         <div style=\"display:none\"></div></span>{MARKER}</div>"
+    ));
+    assert_eq!(pixel(&buffer, 40, 37), RED);
+}

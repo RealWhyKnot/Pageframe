@@ -89,6 +89,8 @@ fn inline_box_inputs(
         }
         _ => {}
     }
+    inputs.run_mode = RunMode::PerformLayout;
+    inputs.axis = RequestedAxis::Both;
     inputs
 }
 
@@ -486,6 +488,9 @@ impl LayoutPassState<'_> {
             let node = &self.nodes[id];
             if !std::mem::take(&mut is_box) {
                 let style = self.child_layout_style(node);
+                if style.style.get_box().display.is_none() {
+                    continue;
+                }
                 #[cfg(feature = "floats")]
                 let is_floated = style.float().is_floated();
                 #[cfg(not(feature = "floats"))]
@@ -785,14 +790,6 @@ impl LayoutPassState<'_> {
                     .borrow()
                     .as_ref()
                     .is_some_and(|children| !children.is_empty());
-            let box_inputs = match walks_blocks {
-                true => LayoutInput {
-                    run_mode: RunMode::PerformLayout,
-                    axis: RequestedAxis::Both,
-                    ..box_inputs
-                },
-                false => box_inputs,
-            };
 
             if is_out_of_flow || is_floated {
                 ibox.width = 0.0;
