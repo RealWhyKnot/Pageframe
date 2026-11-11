@@ -614,6 +614,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             || is_painted_above_text(node, parent_is_flex_or_grid)
             || styles.clone_float() != StyloFloat::None
             || node.flags.is_table_root()
+            || node.columns().is_some()
             || should_clip
             || !filters.is_empty()
             || has_clip_path
@@ -815,6 +816,62 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
                 let flush_from = body
                     .is_paint_scope
                     .then(|| self.deferred_paints.borrow().len());
+                if let Some(columns) = body.node.columns() {
+                    let base = cx.transform;
+                    let last = columns.fragments.len().saturating_sub(1);
+                    let origin = base.translation().y;
+                    let top = f64::from(columns.content_top) * self.scale;
+                    for (index, fragment) in columns.fragments.iter().enumerate() {
+                        let offset = columns.offset(index);
+                        let shift = Vec2::new(
+                            (f64::from(offset.x) * self.scale).round(),
+                            (f64::from(offset.y) * self.scale).round(),
+                        );
+                        let length = f64::from(fragment.flow_end - fragment.flow_start);
+                        let local = |edge: f64| (origin + edge).round() - origin - shift.y;
+                        let clip_top = local(top);
+                        let clip = Rect::new(
+                            -COLUMN_CLIP_REACH,
+                            if index == 0 {
+                                -COLUMN_CLIP_REACH
+                            } else {
+                                clip_top
+                            },
+                            COLUMN_CLIP_REACH,
+                            if index == last {
+                                COLUMN_CLIP_REACH
+                            } else {
+                                local(top + length * self.scale)
+                            },
+                        );
+                        cx.transform = base * Affine::translate(shift);
+                        self.layer_manager.maybe_with_layer(
+                            scene,
+                            true,
+                            BlendMode::default(),
+                            1.0,
+                            cx.transform,
+                            &clip,
+                            None,
+                            None,
+                            |scene| {
+                                cx.draw_float_children(scene, cx.transform, body.child_clip_rect);
+                                cx.draw_inline_layout(scene, content_position);
+                                if index == 0 {
+                                    cx.draw_marker(scene, content_position);
+                                }
+                                cx.draw_children(
+                                    scene,
+                                    cx.transform,
+                                    body.child_clip_rect,
+                                    flush_from,
+                                );
+                            },
+                        );
+                    }
+                    cx.transform = base;
+                    return;
+                }
                 cx.draw_float_children(scene, cx.transform, body.child_clip_rect);
                 cx.draw_inline_layout(scene, content_position);
                 cx.draw_marker(scene, content_position);
@@ -1061,6 +1118,7 @@ struct EffectBody<'n> {
 }
 
 const DISCLOSURE_OUTSIDE_GAP: f64 = 8.0;
+const COLUMN_CLIP_REACH: f64 = 1.0e7;
 const MARKER_LINE_SEARCH_DEPTH: usize = 8;
 
 /// A context of loaded and hot data to draw the element from

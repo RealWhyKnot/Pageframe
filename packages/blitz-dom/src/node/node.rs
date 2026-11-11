@@ -216,6 +216,15 @@ impl Node {
         }
     }
 
+    pub fn columns(&self) -> Option<&crate::layout::multicol::ColumnLayout> {
+        match &self.data {
+            NodeData::Element(data) | NodeData::AnonymousBlock(data) => {
+                data.layout_data.as_deref()?.columns.as_deref()
+            }
+            _ => None,
+        }
+    }
+
     /// Mutable access to this node's layout output state, if it has been
     /// allocated. Never allocates. Returns `None` for node kinds which do not
     /// participate in layout.
@@ -1552,6 +1561,19 @@ impl Node {
         // where content-box coordinates are wanted, or atomic inlines in a
         // padded inline root are hit one padding down and right of where
         // they are painted.
+        let (x, y) = match self.columns().map(|columns| columns.flow_point(x, y)) {
+            Some(Some(point)) => (point.x, point.y),
+            Some(None) => {
+                return (matches_self && !pointer_events_none).then_some(HitResult {
+                    node_id: self.id,
+                    x,
+                    y,
+                    is_text: false,
+                });
+            }
+            None => (x, y),
+        };
+
         let content_box_offset = if self.flags.is_inline_root() {
             taffy::Point {
                 x: self.final_layout().padding.left + self.final_layout().border.left,
@@ -1777,7 +1799,13 @@ impl Node {
 
         // Recurse up the positioning hierarchy
         self.containing_block()
-            .map(|i| self.with(i).absolute_position(x, y))
+            .map(|i| {
+                let parent = self.with(i);
+                let shift = parent
+                    .columns()
+                    .map_or(taffy::Point::ZERO, |columns| columns.offset_at(y));
+                parent.absolute_position(x + shift.x, y + shift.y)
+            })
             .unwrap_or(crate::util::Point { x, y })
     }
 

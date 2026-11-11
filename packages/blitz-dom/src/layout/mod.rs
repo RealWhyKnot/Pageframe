@@ -35,6 +35,7 @@ pub(crate) mod image_fallback;
 pub(crate) mod inline;
 pub(crate) mod line_clamp;
 pub(crate) mod list;
+pub mod multicol;
 pub(crate) mod paint_tree;
 pub(crate) mod replaced;
 pub(crate) mod round;
@@ -820,8 +821,34 @@ impl LayoutPassState<'_> {
                     return output;
                 }
 
+                let is_multicol = {
+                    let style = node.primary_styles();
+                    style.is_some_and(|style| style.is_multicol())
+                };
+                if !is_multicol && let Some(layout_data) = node.try_layout_data_mut() {
+                    layout_data.columns = None;
+                }
                 if node.flags.is_inline_root() {
+                    if is_multicol {
+                        return self.compute_multicol_layout(
+                            dom_node_id(node_id),
+                            inputs,
+                            |doc, inputs| {
+                                doc.compute_inline_layout(dom_node_id(node_id), inputs, None)
+                            },
+                        );
+                    }
                     return self.compute_inline_layout(dom_node_id(node_id), inputs, block_ctx);
+                }
+                if is_multicol && matches!(node.taffy_display(), Display::Block | Display::FlowRoot)
+                {
+                    let mut output = self.compute_multicol_layout(
+                        dom_node_id(node_id),
+                        inputs,
+                        |doc, inputs| compute_block_layout(doc, node_id, inputs, None),
+                    );
+                    self.clamp_child_lines(dom_node_id(node_id), &inputs, &mut output);
+                    return output;
                 }
 
                 // The default CSS file will set

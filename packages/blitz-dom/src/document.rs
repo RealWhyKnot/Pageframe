@@ -2494,15 +2494,40 @@ impl BaseDocument {
         &self,
         node_id: NodeId,
     ) -> (crate::util::Point<f32>, taffy::Layout) {
-        let mut pos = crate::util::Point { x: 0.0, y: 0.0 };
+        let mut layout = *self.nodes[node_id].unrounded_layout();
+        let (pos, size) = self.column_mapped_box(node_id, taffy::Point::ZERO, layout.size);
+        layout.size = size;
+        (crate::util::Point { x: pos.x, y: pos.y }, layout)
+    }
+
+    fn column_mapped_box(
+        &self,
+        node_id: NodeId,
+        mut pos: taffy::Point<f32>,
+        mut size: taffy::Size<f32>,
+    ) -> (taffy::Point<f32>, taffy::Size<f32>) {
         let mut current = Some(node_id);
         while let Some(id) = current {
             let node = &self.nodes[id];
             pos.x += node.unrounded_layout().location.x - node.scroll_offset().x as f32;
             pos.y += node.unrounded_layout().location.y - node.scroll_offset().y as f32;
             current = node.containing_block();
+            if let Some(columns) = current.and_then(|parent| self.nodes[parent].columns()) {
+                (pos, size) = columns.visual_box(pos, size);
+            }
         }
-        (pos, *self.nodes[node_id].unrounded_layout())
+        (pos, size)
+    }
+
+    fn has_column_ancestor(&self, node_id: NodeId) -> bool {
+        let mut current = self.nodes[node_id].containing_block();
+        while let Some(id) = current {
+            if self.nodes[id].columns().is_some() {
+                return true;
+            }
+            current = self.nodes[id].containing_block();
+        }
+        false
     }
 
     /// Computes the size and position of the `Node` relative to the viewport
@@ -2615,13 +2640,48 @@ impl BaseDocument {
         let (root_pos, _) = self.physical_unrounded_geometry(inline_root.id);
         let origin_x = root_pos.x as f64 - self.viewport_scroll().x;
         let origin_y = root_pos.y as f64 - self.viewport_scroll().y;
+        let root_id = inline_root.id;
+        let in_columns =
+            self.has_column_ancestor(root_id) || self.nodes[root_id].columns().is_some();
+        let scroll = self.viewport_scroll();
 
-        Some(fragments.map(move |rect| BoundingRect {
-            x: snap_to_layout_unit(origin_x + rect.left as f64),
-            y: snap_to_layout_unit(origin_y + rect.top as f64),
-            width: snap_to_layout_unit((rect.right - rect.left) as f64),
-            height: snap_to_layout_unit((rect.bottom - rect.top) as f64),
+        Some(fragments.map(move |rect| {
+            if in_columns {
+                let (pos, size) = self.column_mapped_line_box(root_id, rect);
+                return BoundingRect {
+                    x: snap_to_layout_unit(f64::from(pos.x) - scroll.x),
+                    y: snap_to_layout_unit(f64::from(pos.y) - scroll.y),
+                    width: snap_to_layout_unit(f64::from(size.width)),
+                    height: snap_to_layout_unit(f64::from(size.height)),
+                };
+            }
+            BoundingRect {
+                x: snap_to_layout_unit(origin_x + rect.left as f64),
+                y: snap_to_layout_unit(origin_y + rect.top as f64),
+                width: snap_to_layout_unit((rect.right - rect.left) as f64),
+                height: snap_to_layout_unit((rect.bottom - rect.top) as f64),
+            }
         }))
+    }
+
+    fn column_mapped_line_box(
+        &self,
+        root_id: NodeId,
+        rect: taffy::Rect<f32>,
+    ) -> (taffy::Point<f32>, taffy::Size<f32>) {
+        let pos = taffy::Point {
+            x: rect.left,
+            y: rect.top,
+        };
+        let size = taffy::Size {
+            width: rect.right - rect.left,
+            height: rect.bottom - rect.top,
+        };
+        let (pos, size) = match self.nodes[root_id].columns() {
+            Some(columns) => columns.visual_box(pos, size),
+            None => (pos, size),
+        };
+        self.column_mapped_box(root_id, pos, size)
     }
 
     /// The first element in tree order with the given tag name. The root element and
