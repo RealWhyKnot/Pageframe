@@ -31,7 +31,7 @@ use style::values::computed::CSSPixelLength;
 use style::values::computed::Display as StyloDisplay;
 use style::values::computed::Rotate;
 use style::values::generics::transform::{Scale, Translate};
-use style::values::specified::box_::{DisplayInside, DisplayOutside};
+use style::values::specified::box_::{DisplayInside, DisplayOutside, WillChangeBits};
 use style_dom::ElementState;
 use style_traits::values::ToCss;
 use stylo_taffy::CopyStyleGetters;
@@ -1392,6 +1392,17 @@ impl Node {
         }
 
         let box_style = style.get_box();
+        let mut hinted = WillChangeBits::STACKING_CONTEXT_UNCONDITIONAL
+            | WillChangeBits::TRANSFORM
+            | WillChangeBits::OPACITY
+            | WillChangeBits::PERSPECTIVE
+            | WillChangeBits::CONTAIN;
+        if position != Position::Static || is_flex_or_grid_item {
+            hinted |= WillChangeBits::Z_INDEX;
+        }
+        if box_style.will_change.bits.intersects(hinted) {
+            return true;
+        }
         if !box_style.transform.0.is_empty()
             || !matches!(box_style.rotate, Rotate::None)
             || !matches!(box_style.scale, Scale::None)
