@@ -1603,7 +1603,15 @@ impl TableContext {
             width: self.row_width(),
             height: 0.0,
         };
-        cell.relative_offset(basis, is_rtl)
+        let mut offset = taffy::Point::ZERO;
+        let mut part = Some(cell);
+        while let Some(node) = part.filter(|node| !node.flags.is_table_root()) {
+            let own = node.relative_offset(basis, is_rtl);
+            offset.x += own.x;
+            offset.y += own.y;
+            part = node.parent.map(|id| node.with(id));
+        }
+        offset
     }
 
     pub fn has_collapsed_columns(&self) -> bool {

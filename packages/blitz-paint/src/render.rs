@@ -1122,6 +1122,7 @@ fn is_flex_or_grid(node: &Node) -> bool {
 
 fn is_painted_above_text(node: &Node, is_flex_or_grid_item: bool) -> bool {
     node.is_stacking_context_root(is_flex_or_grid_item)
+        || node.is_in_positioned_row()
         || node
             .primary_styles()
             .is_some_and(|style| style.clone_position() != StyloPosition::Static)

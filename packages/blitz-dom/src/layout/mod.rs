@@ -779,7 +779,7 @@ impl LayoutPassState<'_> {
                     }
                     table_wrapper.collapse_rows(&grid_inputs, &mut output);
                     table_wrapper.place_captions(&inputs, &mut output);
-                    table_wrapper.offset_cells(dom_node_id(node_id), &inputs);
+                    table_wrapper.offset_cells(dom_node_id(node_id), &grid_inputs);
 
                     // Absolutely positioned children take no part in the table grid. Their
                     // static position is the top-left of the table's content box.

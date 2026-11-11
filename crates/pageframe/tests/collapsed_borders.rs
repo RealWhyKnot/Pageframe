@@ -429,3 +429,34 @@ fn a_row_colour_under_a_shifted_cell_stays_inside_its_borders() {
     assert_eq!(pixel(&buffer, 10, 5), RED);
     assert_eq!(pixel(&buffer, 8, 8), YELLOW);
 }
+
+#[test]
+fn a_shifted_row_moves_its_cells_over_the_borders() {
+    let buffer = draw(
+        "width:20px;height:14px",
+        &format!(
+            "<table><tr style=\"position:relative;top:3px;left:5px\">{PLAIN}{PLAIN}</tr>\
+             <tr>{PLAIN}{PLAIN}</tr></table>"
+        ),
+    );
+    assert_eq!(
+        line(&buffer, 10, &[1, 3, 6, 7, 23]),
+        [BLACK, WHITE, WHITE, YELLOW, YELLOW]
+    );
+    assert_eq!(line(&buffer, 3, &[10, 23]), [WHITE, BLACK]);
+    assert_eq!(pixel(&buffer, 10, 17), YELLOW);
+    assert_eq!(pixel(&buffer, 3, 17), BLACK);
+}
+
+#[test]
+fn a_shifted_row_paints_its_colour_over_the_borders() {
+    let buffer = draw(
+        "width:20px;height:14px",
+        "<table><tr style=\"position:relative;left:5px;background:red\">\
+         <td style=\"background:none;padding:3px\"><b></b></td>\
+         <td><b></b></td></tr></table>",
+    );
+    assert_eq!(line(&buffer, 10, &[6, 7, 9, 10]), [WHITE, RED, RED, YELLOW]);
+    assert_eq!(pixel(&buffer, 29, 3), RED);
+    assert_eq!(pixel(&buffer, 29, 1), BLACK);
+}

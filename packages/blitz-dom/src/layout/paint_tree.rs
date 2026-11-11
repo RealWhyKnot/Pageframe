@@ -364,6 +364,11 @@ impl BaseDocument {
                     let child = &self.nodes[child_id];
                     let z_index = child.z_index();
                     let paint_order = node_to_paint_order(child, is_flex_or_grid);
+                    let paint_order = if paint_order.0 < 2 && child.is_in_positioned_row() {
+                        (2, paint_order.1)
+                    } else {
+                        paint_order
+                    };
                     if is_sc_root && z_index != 0 {
                         entries.push(HoistedPaintChild::new(child_id, z_index))
                     } else if !is_layer_root
@@ -555,6 +560,20 @@ impl Node {
                 Position::Relative | Position::Sticky
             )
         })
+    }
+
+    pub fn is_in_positioned_row(&self) -> bool {
+        let is_cell = self
+            .primary_styles()
+            .is_some_and(|style| style.clone_display().inside() == DisplayInside::TableCell);
+        let mut part = self.parent.filter(|_| is_cell).map(|id| self.with(id));
+        while let Some(node) = part.filter(|node| !node.flags.is_table_root()) {
+            if node.is_in_flow_positioned() {
+                return true;
+            }
+            part = node.parent.map(|id| node.with(id));
+        }
+        false
     }
 
     pub fn is_float_under_text(&self) -> bool {

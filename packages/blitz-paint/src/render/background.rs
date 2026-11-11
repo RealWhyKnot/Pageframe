@@ -128,6 +128,7 @@ impl<'a> ImageLayerStyles<'a> {
 
 impl ElementCx<'_, '_> {
     pub(super) fn draw_background(&self, scene: &mut impl PaintScene) {
+        self.draw_lifted_cell_tracks(scene);
         let bg_styles = &self.style.get_background();
         let image_data = &self.element.background_images;
         let layer_count = bg_styles.background_image.0.len();
@@ -281,6 +282,65 @@ impl ElementCx<'_, '_> {
     /// These backgrounds are only painted behind the table's cells (not in the
     /// `border-spacing` between them, nor where a row has no cell), so they are
     /// painted cell by cell.
+    fn draw_lifted_cell_tracks(&self, scene: &mut impl PaintScene) {
+        if !self.node.is_in_positioned_row() {
+            return;
+        }
+        let dom = &self.context.dom;
+        let Some(table_node) = self
+            .node
+            .layout_parent
+            .get()
+            .and_then(|id| dom.get_node(id))
+        else {
+            return;
+        };
+        let Some(SpecialElementData::TableRoot(table)) = table_node
+            .element_data()
+            .map(|element| &element.special_data)
+        else {
+            return;
+        };
+        let Some(cell) = table.cells.iter().find(|cell| cell.node_id == self.node.id) else {
+            return;
+        };
+        let column = table.columns.get(cell.column);
+        let row = table.rows.get(usize::from(cell.row));
+        let parts = [
+            column.and_then(|column| column.group),
+            column.map(|column| column.node_id),
+            row.and_then(|row| row.group),
+            row.map(|row| row.node_id),
+        ];
+        let layout = self.node.final_layout();
+        let border = if self.has_collapsed_borders() {
+            layout.border
+        } else {
+            taffy::Rect::ZERO
+        };
+        let shape = Rect::new(
+            f64::from(border.left),
+            f64::from(border.top),
+            f64::from(layout.size.width - border.right),
+            f64::from(layout.size.height - border.bottom),
+        )
+        .scale_from_origin(self.scale);
+        for part in parts.into_iter().flatten() {
+            let color = dom.get_node(part).and_then(|node| {
+                let style = node.primary_styles()?;
+                let color = style
+                    .get_background()
+                    .background_color
+                    .resolve_to_absolute(&style.clone_color())
+                    .as_srgb_color();
+                (color != Color::TRANSPARENT).then_some(color)
+            });
+            if let Some(color) = color {
+                scene.fill(Fill::NonZero, self.transform, color, None, &shape);
+            }
+        }
+    }
+
     pub(super) fn draw_table_row_backgrounds(&self, scene: &mut impl PaintScene) {
         let SpecialElementData::TableRoot(table) = &self.element.special_data else {
             return;
@@ -348,6 +408,14 @@ impl ElementCx<'_, '_> {
             let row = row_colors.get(cell.row as usize).unwrap_or(&no_colors);
             let mut colors = column.iter().chain(row).flatten().peekable();
             if colors.peek().is_none() {
+                continue;
+            }
+            let is_lifted = self
+                .context
+                .dom
+                .get_node(cell.node_id)
+                .is_some_and(blitz_dom::Node::is_in_positioned_row);
+            if is_lifted {
                 continue;
             }
             let Some(rect) = cell_rect(cell.node_id) else {
