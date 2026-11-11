@@ -634,9 +634,9 @@ impl ElementCx<'_, '_> {
             let layout = node.final_layout();
             let top = layout.location.y;
             if caption.is_below {
-                below = below.max(height - top);
+                below = below.max(height - top + layout.margin.top);
             } else {
-                above = above.max(top + layout.size.height);
+                above = above.max(top + layout.size.height + layout.margin.bottom);
             }
         }
         (above, below)

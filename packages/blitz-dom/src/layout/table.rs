@@ -1983,8 +1983,24 @@ impl TableTreeWrapper<'_, '_> {
         let ctx = Arc::clone(&self.ctx);
         let mut floor = 0.0_f32;
         for caption in &ctx.captions {
-            let width = self.intrinsic_width(caption.node_id, inputs, AvailableSpace::MinContent);
-            floor = floor.max(width);
+            let content = self.intrinsic_width(caption.node_id, inputs, AvailableSpace::MinContent);
+            let style = self.doc.nodes[caption.node_id].layout_style();
+            let margin = taffy::CoreStyle::margin(&style).resolve_or_zero(None, resolve_calc_value);
+            let specified = taffy::CoreStyle::size(&style)
+                .width
+                .maybe_resolve(None, resolve_calc_value)
+                .map(|width| match taffy::CoreStyle::box_sizing(&style) {
+                    taffy::BoxSizing::BorderBox => width,
+                    taffy::BoxSizing::ContentBox => {
+                        let padding = taffy::CoreStyle::padding(&style)
+                            .resolve_or_zero(None, resolve_calc_value);
+                        let border = taffy::CoreStyle::border(&style)
+                            .resolve_or_zero(None, resolve_calc_value);
+                        width + padding.left + padding.right + border.left + border.right
+                    }
+                });
+            drop(style);
+            floor = floor.max(specified.unwrap_or(content) + margin.left + margin.right);
         }
         floor
     }
@@ -2038,37 +2054,70 @@ impl TableTreeWrapper<'_, '_> {
             return;
         }
         let width = output.size.width;
-        let caption_inputs = taffy::tree::LayoutInput {
-            sizing_mode: taffy::SizingMode::InherentSize,
-            axis: taffy::RequestedAxis::Both,
-            known_dimensions: taffy::Size {
-                width: Some(width),
-                height: None,
-            },
-            parent_size: taffy::Size {
-                width: Some(width),
-                height: None,
-            },
-            available_space: taffy::Size {
-                width: AvailableSpace::Definite(width),
-                height: AvailableSpace::MaxContent,
-            },
-            ..*inputs
-        };
-        let sizes: Vec<taffy::Size<f32>> = ctx
+        let boxes: Vec<CaptionBox> = ctx
             .captions
             .iter()
             .map(|caption| {
+                let (margin, auto, specified) = {
+                    let style = self.doc.nodes[caption.node_id].layout_style();
+                    let margin = taffy::CoreStyle::margin(&style);
+                    let auto = [margin.left.is_auto(), margin.right.is_auto()];
+                    let frame = taffy::CoreStyle::padding(&style)
+                        .resolve_or_zero(Some(width), resolve_calc_value)
+                        .horizontal_axis_sum()
+                        + taffy::CoreStyle::border(&style)
+                            .resolve_or_zero(Some(width), resolve_calc_value)
+                            .horizontal_axis_sum();
+                    let specified = taffy::CoreStyle::size(&style)
+                        .width
+                        .maybe_resolve(Some(width), resolve_calc_value)
+                        .map(|width| match taffy::CoreStyle::box_sizing(&style) {
+                            taffy::BoxSizing::BorderBox => width,
+                            taffy::BoxSizing::ContentBox => width + frame,
+                        });
+                    (
+                        margin.resolve_or_zero(Some(width), resolve_calc_value),
+                        auto,
+                        specified,
+                    )
+                };
+                let space = width - margin.left - margin.right;
+                let box_width = specified.unwrap_or(space.max(0.0));
+                let caption_inputs = taffy::tree::LayoutInput {
+                    sizing_mode: taffy::SizingMode::InherentSize,
+                    axis: taffy::RequestedAxis::Both,
+                    known_dimensions: taffy::Size {
+                        width: Some(box_width),
+                        height: None,
+                    },
+                    parent_size: taffy::Size {
+                        width: Some(width),
+                        height: None,
+                    },
+                    available_space: taffy::Size {
+                        width: AvailableSpace::Definite(box_width),
+                        height: AvailableSpace::MaxContent,
+                    },
+                    ..*inputs
+                };
                 let node_id = crate::taffy_node_id(caption.node_id);
-                self.doc.compute_child_layout(node_id, caption_inputs).size
+                let size = self.doc.compute_child_layout(node_id, caption_inputs).size;
+                let free = (space - size.width).max(0.0);
+                let x = margin.left
+                    + match auto {
+                        [true, true] => free / 2.0,
+                        [true, false] => free,
+                        _ => 0.0,
+                    };
+                CaptionBox { size, margin, x }
             })
             .collect();
         let side_height = |is_below: bool| -> f32 {
             ctx.captions
                 .iter()
-                .zip(&sizes)
+                .zip(&boxes)
                 .filter(|(caption, _)| caption.is_below == is_below)
-                .map(|(_, size)| size.height)
+                .map(|(_, placed)| placed.size.height + placed.margin.top + placed.margin.bottom)
                 .sum()
         };
         let above = side_height(false);
@@ -2087,7 +2136,7 @@ impl TableTreeWrapper<'_, '_> {
         let first_order = ctx.cells.len() + ctx.oof_children.len();
         let mut top = 0.0;
         let mut bottom = above + grid_height;
-        for (index, (caption, size)) in ctx.captions.iter().zip(&sizes).enumerate() {
+        for (index, (caption, placed)) in ctx.captions.iter().zip(&boxes).enumerate() {
             let edge = if caption.is_below {
                 &mut bottom
             } else {
@@ -2095,9 +2144,11 @@ impl TableTreeWrapper<'_, '_> {
             };
             let mut layout =
                 taffy::Layout::with_order(u32::try_from(first_order + index).unwrap_or(u32::MAX));
-            layout.location.y = *edge;
-            layout.size = *size;
-            *edge += size.height;
+            layout.location.x = placed.x;
+            layout.location.y = *edge + placed.margin.top;
+            layout.size = placed.size;
+            layout.margin = placed.margin;
+            *edge += placed.margin.top + placed.size.height + placed.margin.bottom;
             {
                 let style = self.doc.nodes[caption.node_id].layout_style();
                 layout.padding = taffy::CoreStyle::padding(&style)
@@ -2109,6 +2160,12 @@ impl TableTreeWrapper<'_, '_> {
                 .set_unrounded_layout(crate::taffy_node_id(caption.node_id), &layout);
         }
     }
+}
+
+struct CaptionBox {
+    size: taffy::Size<f32>,
+    margin: taffy::Rect<f32>,
+    x: f32,
 }
 
 pub struct RangeIter(Range<usize>);
