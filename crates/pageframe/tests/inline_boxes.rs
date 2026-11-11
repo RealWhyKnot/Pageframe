@@ -370,3 +370,19 @@ fn a_span_break_follows_the_wrap_mode_of_its_last_text() {
         hung
     );
 }
+
+#[test]
+fn a_cloned_span_end_keeps_the_breaks_of_an_indented_line() {
+    let lines = |style: &str| {
+        let buffer = draw(&format!(
+            "<div style=\"line-height:40px;width:30px;text-indent:6px\">\
+             <span style=\"background:#0f0;color:transparent;{style}\">aa a aa</span></div>"
+        ));
+        (painted(&buffer, 20).len(), painted(&buffer, 60).len())
+    };
+    let (first, second) = lines("");
+    assert_eq!(
+        lines("padding-right:8px;box-decoration-break:clone"),
+        (first + 8, second + 8)
+    );
+}

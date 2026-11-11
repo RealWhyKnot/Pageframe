@@ -319,7 +319,7 @@ fn continued_clone_edges(
         .map(|line| {
             let metrics = line.metrics();
             CloneEdge {
-                width: metrics.advance - metrics.hanging_advance,
+                width: metrics.advance - metrics.hanging_advance + metrics.indent,
                 ..CloneEdge::default()
             }
         })
@@ -1223,6 +1223,7 @@ impl LayoutPassState<'_> {
             });
             let balances = wraps
                 && !has_floated_box
+                && !inline_layout.has_clone_spans
                 && self.nodes[node_id]
                     .primary_styles()
                     .is_some_and(|s| s.slow_clone_text_wrap_style() == TextWrapStyle::Balance)
