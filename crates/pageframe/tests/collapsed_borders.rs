@@ -240,3 +240,52 @@ fn a_hidden_column_border_takes_no_room() {
     assert_eq!(pixel(&buffer, 5, 2), YELLOW);
     assert_eq!(pixel(&buffer, 25, 0), BLACK);
 }
+
+#[test]
+fn an_uneven_column_border_in_a_right_to_left_table_keeps_its_sides() {
+    let buffer = parts(
+        "direction:rtl",
+        "<col style=\"border-left:8px solid blue\"><col>",
+        "",
+    );
+    assert_eq!(
+        line(&buffer, 10, &[0, 1, 2, 21, 22, 29, 30, 49, 50, 51, 52]),
+        [
+            BLACK, BLACK, YELLOW, YELLOW, BLUE, BLUE, YELLOW, YELLOW, BLACK, BLACK, WHITE
+        ]
+    );
+}
+
+#[test]
+fn a_column_group_border_goes_around_the_group_only() {
+    let buffer = parts(
+        "",
+        "<colgroup span=\"2\" style=\"border:6px solid blue\"></colgroup>",
+        "",
+    );
+    assert_eq!(
+        line(&buffer, 10, &[0, 5, 6, 25, 26, 27, 28, 47, 48, 53, 54]),
+        [
+            BLUE, BLUE, YELLOW, YELLOW, BLACK, BLACK, YELLOW, YELLOW, BLUE, BLUE, WHITE
+        ]
+    );
+}
+
+#[test]
+fn a_row_group_border_goes_around_the_group_only() {
+    let buffer = draw(
+        "width:20px;height:14px",
+        "<table><tbody style=\"border:6px solid blue\">\
+         <tr><td><b></b></td></tr><tr><td><b></b></td></tr></tbody></table>",
+    );
+    let column: Vec<_> = [0, 5, 6, 19, 20, 21, 22, 35, 36, 41, 42]
+        .iter()
+        .map(|y| pixel(&buffer, 10, *y))
+        .collect();
+    assert_eq!(
+        column,
+        [
+            BLUE, BLUE, YELLOW, YELLOW, BLACK, BLACK, YELLOW, YELLOW, BLUE, BLUE, WHITE
+        ]
+    );
+}

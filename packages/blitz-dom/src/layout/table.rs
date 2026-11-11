@@ -299,7 +299,7 @@ fn part_half_border(doc: &BaseDocument, node_id: NodeId, frame: Frame) -> taffy:
 
 fn track_half_borders(
     doc: &BaseDocument,
-    tracks: &[(NodeId, Option<NodeId>)],
+    tracks: &[(Option<NodeId>, Option<NodeId>)],
     frame: Frame,
     is_row: bool,
 ) -> Vec<taffy::Rect<f32>> {
@@ -307,7 +307,7 @@ fn track_half_borders(
         .iter()
         .enumerate()
         .map(|(index, (node_id, group))| {
-            let own = part_half_border(doc, *node_id, frame);
+            let own = node_id.map_or(NO_BORDER, |node_id| part_half_border(doc, node_id, frame));
             let Some(group_id) = group else {
                 return own;
             };
@@ -342,10 +342,21 @@ struct TrackBorders {
 
 impl TrackBorders {
     fn new(doc: &BaseDocument, rows: &[TableRow], columns: &[TableColumn], frame: Frame) -> Self {
-        let rows: Vec<_> = rows.iter().map(|row| (row.node_id, row.group)).collect();
+        let rows: Vec<_> = rows
+            .iter()
+            .map(|row| (Some(row.node_id), row.group))
+            .collect();
+        let is_column = |node_id: NodeId| {
+            doc.nodes[node_id]
+                .display_style()
+                .is_some_and(|display| display.inside() == DisplayInside::TableColumn)
+        };
         let columns: Vec<_> = columns
             .iter()
-            .map(|column| (column.node_id, column.group))
+            .map(|column| match column.group {
+                None if !is_column(column.node_id) => (None, Some(column.node_id)),
+                group => (Some(column.node_id), group),
+            })
             .collect();
         Self {
             frame,
