@@ -304,6 +304,19 @@ fn a_positioned_cell_keeps_its_colour_inside_a_see_through_border() {
 }
 
 #[test]
+fn a_will_change_cell_keeps_its_colour_inside_a_see_through_border() {
+    let buffer = grid(
+        "will-change:transform;border:6px solid rgba(0,0,255,.5);background:red",
+        "",
+    );
+    let [red, green, blue, _] = pixel(&buffer, 10, 4);
+    assert!(
+        red > 100 && green > 100 && blue == 255,
+        "{red} {green} {blue}"
+    );
+}
+
+#[test]
 fn a_shifted_cell_moves_without_its_borders() {
     let buffer = grid("position:relative;left:3px;top:3px", "");
     assert_eq!(pixel(&buffer, 1, 10), BLACK);
@@ -446,6 +459,27 @@ fn a_shifted_row_moves_its_cells_over_the_borders() {
     assert_eq!(line(&buffer, 3, &[10, 23]), [WHITE, BLACK]);
     assert_eq!(pixel(&buffer, 10, 17), YELLOW);
     assert_eq!(pixel(&buffer, 3, 17), BLACK);
+}
+
+#[test]
+fn a_faded_row_fades_its_cells_and_its_own_colour_together() {
+    let buffer = draw(
+        "width:20px;height:14px",
+        "<table><tr style=\"opacity:.5;background:red\">\
+         <td style=\"background:none;padding:3px\"><b></b></td>\
+         <td><b></b></td></tr></table>",
+    );
+    let is_half = |pixel: [u8; 4], full: [u8; 4]| {
+        pixel
+            .iter()
+            .zip(full)
+            .all(|(got, full)| got.abs_diff(u8::midpoint(full, 255)) <= 1)
+    };
+    assert!(is_half(pixel(&buffer, 3, 3), RED));
+    assert!(is_half(pixel(&buffer, 10, 10), YELLOW));
+    assert!(is_half(pixel(&buffer, 40, 10), YELLOW));
+    assert_eq!(pixel(&buffer, 0, 0), BLACK);
+    assert_eq!(pixel(&buffer, 29, 10), BLACK);
 }
 
 #[test]

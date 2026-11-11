@@ -454,6 +454,10 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             return;
         }
         let has_opacity = opacity < 1.0;
+        let row_opacity = node.row_opacity();
+        if row_opacity == 0.0 {
+            return;
+        }
         let filters = pixel_filters(&effects.filter.0, &styles.clone_color(), self.scale);
 
         let should_clip = self.should_clip_node(node, &styles);
@@ -587,6 +591,17 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             1.0,
             cx.transform,
             &css_clip_rect.unwrap_or(Rect::ZERO),
+            None,
+            None,
+        );
+
+        let row_layer_pushed = self.layer_manager.maybe_push_layer(
+            scene,
+            row_opacity < 1.0,
+            BlendMode::default(),
+            row_opacity,
+            Affine::IDENTITY,
+            &self.viewport_rect(),
             None,
             None,
         );
@@ -734,6 +749,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
 
         self.layer_manager
             .maybe_pop_layer(scene, blend_layer_pushed);
+        self.layer_manager.maybe_pop_layer(scene, row_layer_pushed);
         self.layer_manager
             .maybe_pop_layer(scene, css_clip_layer_pushed);
     }
@@ -1122,7 +1138,7 @@ fn is_flex_or_grid(node: &Node) -> bool {
 
 fn is_painted_above_text(node: &Node, is_flex_or_grid_item: bool) -> bool {
     node.is_stacking_context_root(is_flex_or_grid_item)
-        || node.is_in_positioned_row()
+        || node.is_in_lifted_row()
         || node
             .primary_styles()
             .is_some_and(|style| style.clone_position() != StyloPosition::Static)

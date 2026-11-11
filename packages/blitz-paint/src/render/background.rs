@@ -276,14 +276,8 @@ impl ElementCx<'_, '_> {
         }
     }
 
-    /// Paint the backgrounds of the table's column groups, columns, row groups and rows
-    /// (in that order, bottom to top: CSS 2.1 §17.5.1).
-    ///
-    /// These backgrounds are only painted behind the table's cells (not in the
-    /// `border-spacing` between them, nor where a row has no cell), so they are
-    /// painted cell by cell.
     fn draw_lifted_cell_tracks(&self, scene: &mut impl PaintScene) {
-        if !self.node.is_in_positioned_row() {
+        if !self.node.is_in_lifted_row() {
             return;
         }
         let dom = &self.context.dom;
@@ -341,6 +335,12 @@ impl ElementCx<'_, '_> {
         }
     }
 
+    /// Paint the backgrounds of the table's column groups, columns, row groups and rows
+    /// (in that order, bottom to top: CSS 2.1 §17.5.1).
+    ///
+    /// These backgrounds are only painted behind the table's cells (not in the
+    /// `border-spacing` between them, nor where a row has no cell), so they are
+    /// painted cell by cell.
     pub(super) fn draw_table_row_backgrounds(&self, scene: &mut impl PaintScene) {
         let SpecialElementData::TableRoot(table) = &self.element.special_data else {
             return;
@@ -414,7 +414,7 @@ impl ElementCx<'_, '_> {
                 .context
                 .dom
                 .get_node(cell.node_id)
-                .is_some_and(blitz_dom::Node::is_in_positioned_row);
+                .is_some_and(blitz_dom::Node::is_in_lifted_row);
             if is_lifted {
                 continue;
             }

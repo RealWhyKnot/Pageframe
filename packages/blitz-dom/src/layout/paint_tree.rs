@@ -364,7 +364,7 @@ impl BaseDocument {
                     let child = &self.nodes[child_id];
                     let z_index = child.z_index();
                     let paint_order = node_to_paint_order(child, is_flex_or_grid);
-                    let paint_order = if paint_order.0 < 2 && child.is_in_positioned_row() {
+                    let paint_order = if paint_order.0 < 2 && child.is_in_lifted_row() {
                         (2, paint_order.1)
                     } else {
                         paint_order
@@ -562,18 +562,37 @@ impl Node {
         })
     }
 
-    pub fn is_in_positioned_row(&self) -> bool {
-        let is_cell = self
-            .primary_styles()
-            .is_some_and(|style| style.clone_display().inside() == DisplayInside::TableCell);
+    fn is_table_cell(&self) -> bool {
+        self.primary_styles()
+            .is_some_and(|style| style.clone_display().inside() == DisplayInside::TableCell)
+    }
+
+    pub fn is_in_lifted_row(&self) -> bool {
+        let is_cell = self.is_table_cell();
         let mut part = self.parent.filter(|_| is_cell).map(|id| self.with(id));
         while let Some(node) = part.filter(|node| !node.flags.is_table_root()) {
-            if node.is_in_flow_positioned() {
+            let is_faded = node
+                .primary_styles()
+                .is_some_and(|style| style.clone_opacity() != 1.0);
+            if is_faded || node.is_in_flow_positioned() {
                 return true;
             }
             part = node.parent.map(|id| node.with(id));
         }
         false
+    }
+
+    pub fn row_opacity(&self) -> f32 {
+        let is_cell = self.is_table_cell();
+        let mut opacity = 1.0;
+        let mut part = self.parent.filter(|_| is_cell).map(|id| self.with(id));
+        while let Some(node) = part.filter(|node| !node.flags.is_table_root()) {
+            if let Some(style) = node.primary_styles() {
+                opacity *= style.clone_opacity();
+            }
+            part = node.parent.map(|id| node.with(id));
+        }
+        opacity
     }
 
     pub fn is_float_under_text(&self) -> bool {
