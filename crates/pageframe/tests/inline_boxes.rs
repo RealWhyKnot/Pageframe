@@ -500,3 +500,28 @@ fn a_wrapped_space_hangs_on_the_left_in_right_to_left_text() {
     };
     assert_eq!(underline("aaa aaa"), underline("aaa"));
 }
+
+#[test]
+fn spaces_from_two_runs_hang_together_in_right_to_left_text() {
+    let buffer = draw(
+        "<div dir=\"rtl\" style=\"line-height:40px;width:30px;white-space:pre-wrap;\
+         color:transparent\"><span style=\"background:#0f0\">aaa</span>\
+         <b style=\"font-size:9px\"> </b><i style=\"font-size:8px\"> </i>aaa</div>",
+    );
+    let row = painted(&buffer, 20);
+    assert_eq!(row.last().map(|(x, _)| *x), Some(29));
+}
+
+#[test]
+fn a_span_background_covers_a_preserved_space_that_hangs() {
+    for dir in ["ltr", "rtl"] {
+        let width = |style: &str| {
+            let buffer = draw(&format!(
+                "<div dir=\"{dir}\" style=\"line-height:40px;width:30px\">\
+                 <span style=\"background:#0f0;color:transparent;{style}\">aaa aaa</span></div>"
+            ));
+            painted(&buffer, 20).len()
+        };
+        assert!(width("white-space:pre-wrap") >= width("") + 5, "{dir}");
+    }
+}

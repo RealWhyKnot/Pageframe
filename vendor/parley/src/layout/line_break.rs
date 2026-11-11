@@ -1944,9 +1944,9 @@ fn hanging_whitespace<B: Brush>(
             }
             LayoutItemKind::TextRun => {
                 // Trailing whitespace can only hang if it ends up at the line's end edge after bidi
-                // reordering. We don't currently apply UAX #9 L1 (resetting trailing whitespace to
-                // paragraph level), so only logically-last items that match the paragraph level are
-                // guaranteed to be at that edge.
+                // reordering. `reset_trailing_whitespace_level` moves the last item's trailing
+                // whitespace to the paragraph level (UAX #9 L1), so only items that match the
+                // paragraph level are guaranteed to be at that edge.
                 if line_item.bidi_level != layout.data.base_level {
                     break;
                 }

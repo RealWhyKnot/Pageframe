@@ -117,25 +117,31 @@ fn is_end_mark(character: char) -> bool {
         || blitz_dom::util::INLINE_BREAK.contains(character)
 }
 
+fn collapses_spaces(doc: &BaseDocument, owner: NodeId) -> bool {
+    use style::computed_values::white_space_collapse::T as WhiteSpaceCollapse;
+    doc.get_node(owner)
+        .and_then(|node| node.primary_styles())
+        .is_some_and(|styles| {
+            matches!(
+                styles.get_inherited_text().white_space_collapse,
+                WhiteSpaceCollapse::Collapse | WhiteSpaceCollapse::PreserveBreaks
+            )
+        })
+}
+
 fn hung_space(
     glyph_run: &parley::GlyphRun<'_, TextBrush>,
     run_text: &str,
     doc: &BaseDocument,
     owner: NodeId,
 ) -> Option<(f64, f64)> {
-    use style::computed_values::white_space_collapse::T as WhiteSpaceCollapse;
     let body = run_text.trim_end_matches(is_end_mark);
     let marks = run_text.get(body.len()..)?.chars().count();
     let is_blank = body.chars().all(|ch| ch == ' ');
     if !body.ends_with(' ') || (glyph_run.run().is_rtl() && !is_blank) {
         return None;
     }
-    let styles = doc.get_node(owner)?.primary_styles()?;
-    let collapse = styles.get_inherited_text().white_space_collapse;
-    if !matches!(
-        collapse,
-        WhiteSpaceCollapse::Collapse | WhiteSpaceCollapse::PreserveBreaks
-    ) {
+    if !collapses_spaces(doc, owner) {
         return None;
     }
     if is_blank && marks == 0 {
@@ -248,6 +254,7 @@ pub(crate) fn inline_fragments<'a>(
         let mut line_left = f64::MAX;
         let mut hung: Option<(f64, f64)> = None;
         let mut is_hung_closed = false;
+        let mut edge_owner: Option<NodeId> = None;
         for item in line.items() {
             let (start, span_item) = match item {
                 PositionedLayoutItem::GlyphRun(glyph_run) => {
@@ -268,6 +275,9 @@ pub(crate) fn inline_fragments<'a>(
                     } else {
                         hung = hung_space(&glyph_run, run_text, doc, owner);
                         is_hung_closed = body.len() < run_text.len();
+                        if !(is_rtl && edge_owner.is_some()) {
+                            edge_owner = Some(owner);
+                        }
                     }
                     (
                         Some(owner),
@@ -371,7 +381,11 @@ pub(crate) fn inline_fragments<'a>(
             }
         }
 
-        let hanging = f64::from(line.metrics().hanging_advance);
+        let hanging = if edge_owner.is_some_and(|owner| !collapses_spaces(doc, owner)) {
+            0.0
+        } else {
+            f64::from(line.metrics().hanging_advance)
+        };
         let inked_right = line_right - hanging;
         let inked_left = line_left + hanging;
         boxes.sort_by_key(|span_box| span_box.depth);
