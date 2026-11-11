@@ -9,7 +9,7 @@
 //! subtree can never paint or hit-test a box where layout no longer puts it.
 
 use blitz_traits::node_id::NodeId;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::ops::Range;
 use stylo_taffy::CopyStyleGetters;
 use thin_vec::ThinVec;
@@ -33,17 +33,25 @@ use taffy::{Point, Rect};
 /// hoisted by Taffy, otherwise `layout_parent`, which is set for every layout
 /// child by `resolve_layout_children`, anonymous blocks included).
 pub fn hoisted_child_position(tree: &NodeTree, sc_root_id: NodeId, child_id: NodeId) -> Point<f32> {
-    hoisted_child_geometry(tree, sc_root_id, child_id).0
+    hoisted_child_geometry(tree, sc_root_id, child_id).position
+}
+
+#[derive(Default)]
+struct HoistedGeometry {
+    position: Point<f32>,
+    clip: Option<Rect<f32>>,
+    clippers: ThinVec<(NodeId, Point<f32>)>,
 }
 
 fn hoisted_child_geometry(
     tree: &NodeTree,
     sc_root_id: NodeId,
     child_id: NodeId,
-) -> (Point<f32>, Option<Rect<f32>>) {
+) -> HoistedGeometry {
     let child = &tree[child_id];
     let mut position = Point::ZERO;
     let mut clip: Option<Rect<f32>> = None;
+    let mut clippers = ThinVec::new();
     let mut current = child.containing_block();
 
     // A fixed-position box whose containing block is the root element is
@@ -62,7 +70,11 @@ fn hoisted_child_geometry(
 
     while let Some(id) = current {
         if id == sc_root_id {
-            return (position, clip);
+            return HoistedGeometry {
+                position,
+                clip,
+                clippers,
+            };
         }
         let Some(node) = tree.get(id) else {
             break;
@@ -74,6 +86,7 @@ fn hoisted_child_geometry(
         if let Some(bounds) = node.overflow_clip_bounds() {
             let x = position.x - location.x;
             let y = position.y - location.y;
+            clippers.push((id, Point { x: -x, y: -y }));
             let inner = clip.unwrap_or(Rect {
                 left: f32::NEG_INFINITY,
                 right: f32::INFINITY,
@@ -94,7 +107,11 @@ fn hoisted_child_geometry(
     let origin = tree[sc_root_id].absolute_position(0.0, 0.0);
     position.x -= origin.x;
     position.y -= origin.y;
-    (position, clip)
+    HoistedGeometry {
+        position,
+        clip,
+        clippers,
+    }
 }
 
 /// A child with a z_index that is hoisted up to it's containing Stacking Context for paint purposes
@@ -106,6 +123,7 @@ pub struct HoistedPaintChild {
     /// [`Self::position`]. Generation `0` is never current.
     position: Cell<(u64, Point<f32>)>,
     clip: Cell<Option<Rect<f32>>>,
+    clippers: RefCell<ThinVec<(NodeId, Point<f32>)>>,
 }
 
 impl HoistedPaintChild {
@@ -115,6 +133,7 @@ impl HoistedPaintChild {
             z_index,
             position: Cell::new((0, Point::ZERO)),
             clip: Cell::new(None),
+            clippers: RefCell::new(ThinVec::new()),
         }
     }
 
@@ -127,15 +146,21 @@ impl HoistedPaintChild {
         if stamp == generation {
             return cached;
         }
-        let (position, clip) = hoisted_child_geometry(tree, sc_root_id, self.node_id);
-        self.position.set((generation, position));
-        self.clip.set(clip);
-        position
+        let geometry = hoisted_child_geometry(tree, sc_root_id, self.node_id);
+        self.position.set((generation, geometry.position));
+        self.clip.set(geometry.clip);
+        *self.clippers.borrow_mut() = geometry.clippers;
+        geometry.position
     }
 
     pub fn clip(&self, tree: &NodeTree, sc_root_id: NodeId) -> Option<Rect<f32>> {
         self.position(tree, sc_root_id);
         self.clip.get()
+    }
+
+    pub fn clippers(&self, tree: &NodeTree, sc_root_id: NodeId) -> ThinVec<(NodeId, Point<f32>)> {
+        self.position(tree, sc_root_id);
+        self.clippers.borrow().clone()
     }
 
     pub fn is_clipped_at(&self, tree: &NodeTree, sc_root_id: NodeId, x: f32, y: f32) -> bool {

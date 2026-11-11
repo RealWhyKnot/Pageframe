@@ -362,3 +362,25 @@ fn nested_faded_boxes_in_a_clipping_box_fade_an_absolute_child_twice() {
     assert_eq!(red, 255);
     assert!(green.abs_diff(191) <= 1 && blue.abs_diff(191) <= 1);
 }
+
+#[test]
+fn a_raised_child_is_clipped_to_the_rounded_corners_of_a_clipping_box() {
+    let buffer = clipped_box(
+        "overflow:hidden;border-radius:10px",
+        "position:relative;z-index:1",
+    );
+    assert_eq!(pixel(&buffer, 10, 10), RED);
+    assert_eq!(pixel(&buffer, 1, 1), WHITE);
+    assert_eq!(pixel(&buffer, 18, 18), WHITE);
+}
+
+#[test]
+fn a_raised_child_is_clipped_to_the_rounded_corners_of_an_offset_box() {
+    let buffer = clipped_box(
+        "overflow:hidden;border-radius:10px;margin:30px 0 0 40px",
+        "position:relative;z-index:1",
+    );
+    assert_eq!(pixel(&buffer, 50, 40), RED);
+    assert_eq!(pixel(&buffer, 41, 31), WHITE);
+    assert_eq!(pixel(&buffer, 58, 48), WHITE);
+}

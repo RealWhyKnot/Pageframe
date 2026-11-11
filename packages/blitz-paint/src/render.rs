@@ -1818,7 +1818,37 @@ impl ElementCx<'_, '_> {
             None,
             None,
         );
+        let rounded: Vec<bool> = hoisted_child
+            .clippers(tree, self.node.id)
+            .iter()
+            .map(|&(clipper_id, origin)| {
+                let Some(clipper) = tree.get(clipper_id) else {
+                    return false;
+                };
+                let Some(style) = clipper.primary_styles() else {
+                    return false;
+                };
+                let frame = create_css_rect(&style, clipper.final_layout(), self.scale);
+                let offset = kurbo::Vec2 {
+                    x: f64::from(origin.x) * self.scale,
+                    y: f64::from(origin.y) * self.scale,
+                };
+                self.context.layer_manager.maybe_push_layer(
+                    scene,
+                    frame.has_border_radius(),
+                    BlendMode::default(),
+                    1.0,
+                    transform.pre_translate(offset),
+                    &frame.padding_box_path(),
+                    None,
+                    None,
+                )
+            })
+            .collect();
         self.render_node(scene, hoisted_child.node_id, transform, clip_rect);
+        for &is_pushed in rounded.iter().rev() {
+            self.context.layer_manager.maybe_pop_layer(scene, is_pushed);
+        }
         self.context.layer_manager.maybe_pop_layer(scene, pushed);
     }
 
