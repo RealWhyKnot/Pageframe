@@ -39,6 +39,7 @@ mod document;
 /// The nodes themsleves, and their data.
 pub mod node;
 
+mod clip_path;
 mod config;
 /// CSSOM stylesheet access (`document.styleSheets`, `CSSStyleSheet`, `CSSRule`)
 mod cssom;
@@ -72,6 +73,7 @@ mod tree;
 
 mod url;
 
+pub use clip_path::ResolvedClipPath;
 pub use cssom::{CssRuleInfo, CssomError};
 pub use resolved_style::{
     css_property_is_supported, parse_transform_matrix, resolved_style_property_names,

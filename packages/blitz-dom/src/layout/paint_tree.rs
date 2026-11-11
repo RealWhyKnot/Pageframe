@@ -53,7 +53,7 @@ pub fn hoisted_child_position(tree: &NodeTree, sc_root_id: NodeId, child_id: Nod
 
     while let Some(id) = current {
         if id == sc_root_id {
-            break;
+            return position;
         }
         let Some(node) = tree.get(id) else {
             break;
@@ -64,6 +64,9 @@ pub fn hoisted_child_position(tree: &NodeTree, sc_root_id: NodeId, child_id: Nod
         position.y += location.y - scroll_offset.y as f32;
         current = node.containing_block();
     }
+    let origin = tree[sc_root_id].absolute_position(0.0, 0.0);
+    position.x -= origin.x;
+    position.y -= origin.y;
     position
 }
 
@@ -290,6 +293,7 @@ impl BaseDocument {
                     .oof_containing_block
                     .get()
                     .is_none_or(|cb| cb == node_id)
+                    || doc.nodes[child_id].has_clipping_paint_ancestor()
             };
             // Boxes hoisted to this node from further down the tree, keyed by
             // the index of the layout child they descend from: they are visited
@@ -302,9 +306,9 @@ impl BaseDocument {
                 .iter()
                 .copied()
                 .filter(|&id| {
-                    self.nodes
-                        .get(id)
-                        .is_some_and(|n| n.layout_parent.get() != Some(node_id))
+                    self.nodes.get(id).is_some_and(|n| {
+                        n.layout_parent.get() != Some(node_id) && !n.has_clipping_paint_ancestor()
+                    })
                 })
                 .map(|id| {
                     let anchor = self
@@ -479,6 +483,29 @@ impl BaseDocument {
 }
 
 impl Node {
+    fn has_clipping_paint_ancestor(&self) -> bool {
+        use style::values::computed::basic_shape::ClipPath;
+
+        let Some(containing_block) = self.oof_containing_block.get() else {
+            return false;
+        };
+        let mut current = self.layout_parent.get();
+        while let Some(id) = current {
+            if id == containing_block {
+                break;
+            }
+            let ancestor = self.with(id);
+            if ancestor
+                .primary_styles()
+                .is_some_and(|style| !matches!(style.get_clip_path(), ClipPath::None))
+            {
+                return true;
+            }
+            current = ancestor.layout_parent.get();
+        }
+        false
+    }
+
     /// Whether this node paints its positioned descendants itself (CSS 2.1
     /// Appendix E step 8) rather than leaving them to an ancestor: positioned
     /// boxes, and boxes that clip their contents. Stacking-context roots are

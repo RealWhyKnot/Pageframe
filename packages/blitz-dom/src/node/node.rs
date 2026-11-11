@@ -1461,6 +1461,15 @@ impl Node {
             y = (p.y / scale) as f32;
         }
 
+        if self.clip_path().is_some_and(|clip| {
+            !clip.contains(kurbo::Point::new(
+                f64::from(x) - self.scroll_offset().x,
+                f64::from(y) - self.scroll_offset().y,
+            ))
+        }) {
+            return None;
+        }
+
         let size = self.final_layout().size;
         let matches_self = !(x < self.scroll_offset().x as f32
             || x > size.width + self.scroll_offset().x as f32
@@ -1667,18 +1676,12 @@ impl Node {
         let child_position = child.taffy_position();
         let mut child_x = x;
         let mut child_y = y;
-        if child_position.is_out_of_flow() {
-            // Fixed-position children of the root element are positioned
-            // against the viewport and do not scroll with it. (A fixed box
-            // whose containing block is a transformed ancestor scrolls with
-            // that ancestor like any other out-of-flow box.)
-            if child_position == taffy::Position::Fixed && self.containing_block().is_none() {
-                child_x -= self.scroll_offset().x as f32;
-                child_y -= self.scroll_offset().y as f32;
-                let viewport_scroll = self.tree().viewport_scroll();
-                child_x -= viewport_scroll.x as f32;
-                child_y -= viewport_scroll.y as f32;
-            }
+        if child_position == taffy::Position::Fixed && self.containing_block().is_none() {
+            child_x -= self.scroll_offset().x as f32;
+            child_y -= self.scroll_offset().y as f32;
+            let viewport_scroll = self.tree().viewport_scroll();
+            child_x -= viewport_scroll.x as f32;
+            child_y -= viewport_scroll.y as f32;
         } else if let Some(offset) = child.lifted_paint_offset(self.id) {
             child_x -= offset.x;
             child_y -= offset.y;

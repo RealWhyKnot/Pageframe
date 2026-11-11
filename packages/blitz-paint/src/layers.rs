@@ -44,6 +44,30 @@ impl LayerManager {
         self.maybe_pop_layer(scene, layer_used);
     }
 
+    pub(crate) fn maybe_with_clip_layer<S: PaintScene, F: FnOnce(&mut S)>(
+        &self,
+        scene: &mut S,
+        condition: bool,
+        fill: Fill,
+        transform: Affine,
+        shape: &impl Shape,
+        paint: F,
+    ) {
+        let used = condition && self.claim_layer();
+        if used {
+            scene.push_clip_layer(fill, transform, shape);
+            self.layers_used.update(|x| x + 1);
+            self.layer_depth.update(|x| x + 1);
+        }
+        paint(scene);
+        self.maybe_pop_layer(scene, used);
+    }
+
+    fn claim_layer(&self) -> bool {
+        self.layers_wanted.update(|x| x + 1);
+        self.layers_used.get() + self.layers_reserved.get() <= LAYER_LIMIT
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn maybe_push_layer(
         &self,

@@ -560,10 +560,14 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
         };
 
         // Compute clip-path (if any) and wrap all rendering in a clip layer
-        let clip_path_shape = cx.clip_path_shape();
+        let clip_path_shape = node.clip_path();
         let has_clip_path = clip_path_shape.is_some();
-        let default_clip = cx.frame.border_box_path();
-        let mut clip_path_for_layer = clip_path_shape.unwrap_or(default_clip);
+        let clip_fill = if clip_path_shape.as_ref().is_some_and(|clip| clip.evenodd) {
+            Fill::EvenOdd
+        } else {
+            Fill::NonZero
+        };
+        let mut clip_path_for_layer = clip_path_shape.map(|clip| clip.path).unwrap_or_default();
         clip_path_for_layer.apply_affine(Affine::scale(self.scale));
 
         // CSS 2 `clip` property (absolutely positioned elements only). Applies to the whole of
@@ -626,22 +630,19 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             child_clip_rect,
         };
 
-        if filters.is_empty() {
+        if filters.is_empty() && !has_clip_path {
             cx.draw_outline(scene);
             if paints_own_box {
                 cx.draw_outset_box_shadow(scene);
             }
         }
 
-        self.layer_manager.maybe_with_layer(
+        self.layer_manager.maybe_with_clip_layer(
             scene,
             has_clip_path,
-            BlendMode::default(),
-            1.0,
+            clip_fill,
             cx.transform,
             &clip_path_for_layer,
-            None,
-            None,
             |scene| {
                 let mask_layer_pushed = cx.maybe_push_css_mask_layer(scene);
                 let unscrolled_transform = cx.transform;
@@ -656,7 +657,15 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
                         &self.viewport_rect(),
                         None,
                         None,
-                        |scene| self.paint_effect_body(&mut cx, scene, &body),
+                        |scene| {
+                            if has_clip_path {
+                                cx.draw_outline(scene);
+                                if paints_own_box {
+                                    cx.draw_outset_box_shadow(scene);
+                                }
+                            }
+                            self.paint_effect_body(&mut cx, scene, &body);
+                        },
                     );
                     cx.transform = unscrolled_transform;
                     cx.draw_resizer(scene);
