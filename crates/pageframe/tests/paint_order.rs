@@ -281,3 +281,32 @@ fn paint_containment_on_an_inline_box_does_not_clip_a_raised_child() {
     );
     assert_eq!(pixel(&buffer, 5, 35), RED);
 }
+
+const HALF_RED: [u8; 4] = [255, 127, 127, 255];
+
+fn faded_wrapper(child: &str) -> Vec<u8> {
+    draw(&format!(
+        "<div style=\"opacity:.5;margin:30px 0 0 40px\">\
+         <b style=\"width:20px;height:20px;background:red;{child}\"></b></div>"
+    ))
+}
+
+#[test]
+fn a_faded_static_box_fades_its_absolute_child() {
+    let buffer = faded_wrapper("position:absolute;left:0;top:0");
+    assert_eq!(pixel(&buffer, 5, 5), HALF_RED);
+    assert_eq!(pixel(&buffer, 45, 35), WHITE);
+}
+
+#[test]
+fn a_faded_static_box_fades_its_absolute_child_at_its_static_position() {
+    let buffer = faded_wrapper("position:absolute");
+    assert_eq!(pixel(&buffer, 45, 35), HALF_RED);
+    assert_eq!(pixel(&buffer, 5, 5), WHITE);
+}
+
+#[test]
+fn a_faded_static_box_fades_its_fixed_child() {
+    let buffer = faded_wrapper("position:fixed;left:0;top:0");
+    assert_eq!(pixel(&buffer, 5, 5), HALF_RED);
+}

@@ -582,6 +582,16 @@ impl Node {
         })
     }
 
+    fn is_removed_column_cell(&self) -> bool {
+        self.layout_parent
+            .get()
+            .and_then(|id| self.with(id).element_data())
+            .is_some_and(|element| match &element.special_data {
+                SpecialElementData::TableRoot(table) => table.column_cell_is_collapsed(self.id),
+                _ => false,
+            })
+    }
+
     fn has_clipping_paint_ancestor(&self) -> bool {
         use style::values::computed::basic_shape::ClipPath;
 
@@ -594,9 +604,11 @@ impl Node {
                 break;
             }
             let ancestor = self.with(id);
-            if ancestor.primary_styles().is_some_and(|style| {
-                !matches!(style.get_clip_path(), ClipPath::None | ClipPath::Url(_))
-            }) {
+            if (ancestor.is_stacking_context_root(false) && !ancestor.is_removed_column_cell())
+                || ancestor.primary_styles().is_some_and(|style| {
+                    !matches!(style.get_clip_path(), ClipPath::None | ClipPath::Url(_))
+                })
+            {
                 return true;
             }
             current = ancestor.layout_parent.get();
@@ -690,16 +702,7 @@ impl Node {
         let mut opacity = 1.0;
         let mut part = self.parent.map(|id| self.with(id));
         while let Some(ancestor) = part {
-            let is_removed_cell = ancestor
-                .layout_parent
-                .get()
-                .and_then(|id| self.with(id).element_data())
-                .is_some_and(|element| match &element.special_data {
-                    SpecialElementData::TableRoot(table) => {
-                        table.column_cell_is_collapsed(ancestor.id)
-                    }
-                    _ => false,
-                });
+            let is_removed_cell = ancestor.is_removed_column_cell();
             if outer_block == Some(ancestor.id) {
                 outer_block = None;
             }
