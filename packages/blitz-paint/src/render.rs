@@ -1818,22 +1818,24 @@ impl ElementCx<'_, '_> {
             None,
             None,
         );
-        let rounded: Vec<bool> = hoisted_child
-            .clippers(tree, self.node.id)
-            .iter()
-            .map(|&(clipper_id, origin)| {
+        let rounded = hoisted_child.with_clippers(tree, self.node.id, |clippers| {
+            let mut pushed = 0_usize;
+            for &(clipper_id, origin) in clippers {
                 let Some(clipper) = tree.get(clipper_id) else {
-                    return false;
+                    continue;
                 };
                 let Some(style) = clipper.primary_styles() else {
-                    return false;
+                    continue;
                 };
+                if !has_corner_radius(&style) {
+                    continue;
+                }
                 let frame = create_css_rect(&style, clipper.final_layout(), self.scale);
                 let offset = kurbo::Vec2 {
                     x: f64::from(origin.x) * self.scale,
                     y: f64::from(origin.y) * self.scale,
                 };
-                self.context.layer_manager.maybe_push_layer(
+                let is_pushed = self.context.layer_manager.maybe_push_layer(
                     scene,
                     frame.has_border_radius(),
                     BlendMode::default(),
@@ -1842,12 +1844,14 @@ impl ElementCx<'_, '_> {
                     &frame.padding_box_path(),
                     None,
                     None,
-                )
-            })
-            .collect();
+                );
+                pushed += usize::from(is_pushed);
+            }
+            pushed
+        });
         self.render_node(scene, hoisted_child.node_id, transform, clip_rect);
-        for &is_pushed in rounded.iter().rev() {
-            self.context.layer_manager.maybe_pop_layer(scene, is_pushed);
+        for _ in 0..rounded {
+            self.context.layer_manager.maybe_pop_layer(scene, true);
         }
         self.context.layer_manager.maybe_pop_layer(scene, pushed);
     }
@@ -2170,6 +2174,20 @@ fn line_ellipsis(
 }
 
 /// Convert Stylo and Taffy types into Kurbo types
+fn has_corner_radius(style: &ComputedValues) -> bool {
+    let border = style.get_border();
+    [
+        &border.border_top_left_radius,
+        &border.border_top_right_radius,
+        &border.border_bottom_right_radius,
+        &border.border_bottom_left_radius,
+    ]
+    .iter()
+    .any(|radius| {
+        !style::Zero::is_zero(&radius.0.width.0) && !style::Zero::is_zero(&radius.0.height.0)
+    })
+}
+
 fn create_css_rect(style: &ComputedValues, layout: &Layout, scale: f64) -> CssBox {
     // Resolve and rescale
     // We have to scale since document pixels are not same same as rendered pixels

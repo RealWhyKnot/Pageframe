@@ -163,9 +163,14 @@ impl HoistedPaintChild {
         self.clip.get()
     }
 
-    pub fn clippers(&self, tree: &NodeTree, sc_root_id: NodeId) -> ThinVec<(NodeId, Point<f32>)> {
+    pub fn with_clippers<R>(
+        &self,
+        tree: &NodeTree,
+        sc_root_id: NodeId,
+        visit: impl FnOnce(&[(NodeId, Point<f32>)]) -> R,
+    ) -> R {
         self.position(tree, sc_root_id);
-        self.clippers.borrow().clone()
+        visit(&self.clippers.borrow())
     }
 
     pub fn is_clipped_at(&self, tree: &NodeTree, sc_root_id: NodeId, x: f32, y: f32) -> bool {

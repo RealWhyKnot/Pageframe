@@ -406,3 +406,15 @@ fn a_fixed_child_of_a_positioned_box_in_a_clipped_faded_box_fades_unclipped() {
     );
     assert_eq!(pixel(&buffer, 55, 55), HALF_RED);
 }
+
+#[test]
+fn a_raised_child_is_clipped_inside_the_border_of_a_rounded_clipping_box() {
+    let buffer = clipped_box(
+        "overflow:hidden;border-radius:12px;border:2px solid blue",
+        "position:relative;z-index:1",
+    );
+    assert_eq!(pixel(&buffer, 12, 12), RED);
+    assert_eq!(pixel(&buffer, 14, 1), [0, 0, 255, 255]);
+    assert_eq!(pixel(&buffer, 0, 0), WHITE);
+    assert_eq!(pixel(&buffer, 23, 23), WHITE);
+}
