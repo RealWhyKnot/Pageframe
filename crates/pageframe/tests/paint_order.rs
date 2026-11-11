@@ -418,3 +418,42 @@ fn a_raised_child_is_clipped_inside_the_border_of_a_rounded_clipping_box() {
     assert_eq!(pixel(&buffer, 0, 0), WHITE);
     assert_eq!(pixel(&buffer, 23, 23), WHITE);
 }
+
+fn contained(contain: &str, z_index: i32) -> Vec<u8> {
+    draw(&format!(
+        "<div style=\"width:40px;height:40px;background:#0f0;contain:{contain}\">\
+         <b style=\"display:block;width:20px;height:30px;background:red;position:relative;\
+         z-index:{z_index}\"></b></div>\
+         <div style=\"position:absolute;left:10px;top:10px;width:40px;height:20px;\
+         background:blue;z-index:1\"></div>"
+    ))
+}
+
+const BLUE: [u8; 4] = [0, 0, 255, 255];
+
+#[test]
+fn paint_containment_keeps_a_raised_child_under_a_later_layer() {
+    assert_eq!(pixel(&contained("paint", 2), 15, 15), BLUE);
+}
+
+#[test]
+fn layout_containment_keeps_a_raised_child_under_a_later_layer() {
+    assert_eq!(pixel(&contained("layout", 2), 15, 15), BLUE);
+}
+
+#[test]
+fn strict_and_content_containment_keep_a_raised_child_under_a_later_layer() {
+    assert_eq!(pixel(&contained("strict", 2), 15, 15), BLUE);
+    assert_eq!(pixel(&contained("content", 2), 15, 15), BLUE);
+}
+
+#[test]
+fn layout_containment_keeps_a_lowered_child_above_its_box() {
+    assert_eq!(pixel(&contained("layout", -1), 5, 5), RED);
+}
+
+#[test]
+fn size_and_style_containment_let_a_raised_child_cover_a_later_layer() {
+    assert_eq!(pixel(&contained("size", 2), 15, 15), RED);
+    assert_eq!(pixel(&contained("style", 2), 15, 15), RED);
+}

@@ -28,6 +28,7 @@ use style::servo_arc::Arc as ServoArc;
 use style::shared_lock::SharedRwLock;
 use style::stylesheets::UrlExtraData;
 use style::values::computed::CSSPixelLength;
+use style::values::computed::Contain;
 use style::values::computed::Display as StyloDisplay;
 use style::values::computed::Rotate;
 use style::values::generics::transform::{Scale, Translate};
@@ -1422,9 +1423,15 @@ impl Node {
         if style.get_effects().mix_blend_mode != style::computed_values::mix_blend_mode::T::Normal {
             return true;
         }
-        // TODO: contain
 
-        false
+        let display = box_style.display;
+        let is_table_part = display.outside() == DisplayOutside::InternalTable
+            && display.inside() != DisplayInside::TableCell;
+        box_style
+            .slow_clone_contain()
+            .intersects(Contain::PAINT | Contain::LAYOUT)
+            && !display.is_inline_flow()
+            && !is_table_part
     }
 
     /// Whether this node's styles apply an atomic paint effect (opacity, filter,
