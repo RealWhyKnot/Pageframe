@@ -411,7 +411,7 @@ const FIXTURE: &str = r#"<html><head><style>
         <div id="abs" style="position: absolute; top: 5px; left: 7px; width: 11px; height: 13px;"></div>
         <div id="fixed" style="position: fixed; top: 100px; left: 100px; width: 20px; height: 20px;"></div>
         <div id="neg" style="position: relative; z-index: -1; height: 4px;"></div>
-        <div id="sc" style="opacity: 0.5; height: 20px;">
+        <div id="sc" style="opacity: 0.5; height: 20px; margin-left: 20px;">
             <div id="deep"><div id="z1" style="position: relative; z-index: 1; height: 4px;"></div>
                 text <span id="zi" style="position: relative; z-index: 3;">inline</span></div>
             <div id="z2" style="position: relative; z-index: 2; height: 4px;"></div>
