@@ -109,7 +109,7 @@ fn an_underline_on_a_padded_span_covers_its_text_only() {
 }
 
 #[test]
-fn a_parent_underline_runs_across_a_child_span_padding() {
+fn a_parent_underline_skips_a_child_span_padding() {
     let plain = red_columns(&draw(
         "<div><u style=\"text-decoration-color:red\"><span>aa</span></u></div>",
     ));
@@ -117,6 +117,6 @@ fn a_parent_underline_runs_across_a_child_span_padding() {
         "<div><u style=\"text-decoration-color:red\">\
          <span style=\"padding:0 10px\">aa</span></u></div>",
     ));
-    assert_eq!(padded.first(), Some(&0));
-    assert_eq!(padded.len(), plain.len() + 20);
+    assert_eq!(padded.first(), Some(&10));
+    assert_eq!(padded.len(), plain.len());
 }

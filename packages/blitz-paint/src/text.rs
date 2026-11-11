@@ -145,6 +145,32 @@ fn hung_space(
     (width > 0.0).then_some((f64::from(left), f64::from(width)))
 }
 
+fn push_spacer_holes(
+    glyph_run: &parley::GlyphRun<'_, TextBrush>,
+    run_text: &str,
+    holes: &mut SmallVec<[(f64, f64); 2]>,
+) {
+    let is_spacer = |ch: &char| blitz_dom::util::is_inline_spacer(*ch);
+    let leading = run_text.chars().take_while(is_spacer).count();
+    let trailing = run_text.chars().rev().take_while(is_spacer).count();
+    if leading + trailing == 0 {
+        return;
+    }
+    let (first, last) = if glyph_run.run().is_rtl() {
+        (trailing, leading)
+    } else {
+        (leading, trailing)
+    };
+    let count = glyph_run.positioned_glyphs().count();
+    for (index, glyph) in glyph_run.positioned_glyphs().enumerate() {
+        let is_mark = index < first || index + last >= count;
+        if is_mark && glyph.advance > 0.0 {
+            let left = f64::from(glyph.x);
+            holes.push((left, left + f64::from(glyph.advance)));
+        }
+    }
+}
+
 pub(crate) fn inline_fragments<'a>(
     lines: impl Iterator<Item = Line<'a, TextBrush>>,
     doc: &BaseDocument,
@@ -1269,10 +1295,25 @@ pub(crate) fn stroke_text<'a>(
         // run. Clearing preserves the allocation for the next line and inline context.
         deco_boxes.clear();
         let mut holes: SmallVec<[(f64, f64); 2]> = SmallVec::new();
+        let mut hung: Option<(f64, f64)> = None;
 
         for (item_index, item) in line.items().enumerate() {
+            if let PositionedLayoutItem::InlineBox(inline_box) = &item
+                && inline_box.kind == parley::InlineBoxKind::InFlow
+            {
+                let left = f64::from(inline_box.x);
+                holes.push((left, left + f64::from(inline_box.width)));
+                hung = None;
+            }
             if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
                 let run = glyph_run.run();
+                let run_text = layout_text
+                    .and_then(|text| text.get(run.text_range()))
+                    .unwrap_or_default();
+                push_spacer_holes(&glyph_run, run_text, &mut holes);
+                if !run_text.trim_end_matches(is_end_mark).is_empty() {
+                    hung = hung_space(&glyph_run, run_text, doc, glyph_run.style().brush.id);
+                }
                 let font = run.font();
                 let font_size = run.font_size();
                 let metrics = run.font_metrics();
@@ -1521,6 +1562,11 @@ pub(crate) fn stroke_text<'a>(
             }
         }
 
+        if let Some((left, width)) = hung
+            && line.metrics().hanging_advance > 0.0
+        {
+            holes.push((left, left + width));
+        }
         holes.sort_by(|a, b| a.0.total_cmp(&b.0));
         flush_line_decorations(
             scene,

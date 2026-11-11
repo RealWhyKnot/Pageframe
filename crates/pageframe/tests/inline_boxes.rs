@@ -406,3 +406,39 @@ fn a_cloned_span_in_right_to_left_text_starts_each_line_on_the_right() {
         assert_eq!(row(end, y), (Some(30 - word - 4), word + 4));
     }
 }
+
+fn underline_row(inner: &str) -> Vec<usize> {
+    let buffer = draw(&format!(
+        "<div style=\"line-height:40px;width:30px;color:transparent;\
+         text-decoration:underline black\">{inner}</div>"
+    ));
+    (0..40)
+        .map(|y| painted(&buffer, y))
+        .find(|row| !row.is_empty())
+        .expect("the underline is painted")
+        .into_iter()
+        .map(|(x, _)| x)
+        .collect()
+}
+
+#[test]
+fn an_underline_stops_before_the_space_a_line_wraps_at() {
+    let word = underline_row("aaa");
+    assert_eq!(underline_row("aaa aaa"), word);
+    assert!(
+        underline_row("<span style=\"white-space:pre-wrap\">aaa aaa</span>").len() > word.len()
+    );
+}
+
+#[test]
+fn an_underline_skips_span_padding_and_inline_blocks() {
+    let padded = underline_row("a<span style=\"padding:0 6px\">a</span>a");
+    assert!(padded.contains(&2) && padded.contains(&14) && padded.contains(&26));
+    assert!(!padded.contains(&8) && !padded.contains(&20));
+    let own = underline_row("<span style=\"padding:0 6px;margin:0 3px\">aa</span>");
+    assert_eq!(own.first(), Some(&9));
+    assert_eq!(own.len(), 11);
+    let boxed = underline_row("a<i style=\"display:inline-block;width:10px;height:5px\"></i>a");
+    assert!(boxed.contains(&2) && boxed.contains(&18));
+    assert!(!boxed.contains(&10));
+}
