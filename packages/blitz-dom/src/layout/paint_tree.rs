@@ -15,6 +15,7 @@ use stylo_taffy::CopyStyleGetters;
 use thin_vec::ThinVec;
 
 use crate::layout::damage::ALL_DAMAGE;
+use crate::node::SpecialElementData;
 use crate::tree::NodeTree;
 use crate::{BaseDocument, Node};
 use style::properties::generated::longhands::position::computed_value::T as Position;
@@ -349,7 +350,19 @@ impl BaseDocument {
                         // of their parent: lift them out of this static box.
                         entries.push(HoistedPaintChild::new(child_id, 0))
                     } else {
-                        self.scratch.keyed_children.push((paint_order, child_id));
+                        let collapsed_cell = !is_sc_root
+                            && !child.is_in_flow_positioned()
+                            && self.nodes[node_id].element_data().is_some_and(|element| {
+                                match &element.special_data {
+                                    SpecialElementData::TableRoot(table) => {
+                                        table.cell_is_collapsed(child_id)
+                                    }
+                                    _ => false,
+                                }
+                            });
+                        if !collapsed_cell {
+                            self.scratch.keyed_children.push((paint_order, child_id));
+                        }
                     }
 
                     // Positioned descendants lifted out of the static boxes of

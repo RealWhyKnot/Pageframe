@@ -627,7 +627,11 @@ impl ElementCx<'_, '_> {
                 left,
                 top,
                 left + f64::from(layout.size.width),
-                top + f64::from(layout.size.height),
+                top + f64::from(
+                    table
+                        .collapsed_cell_span_height(cell.node_id)
+                        .unwrap_or(layout.size.height),
+                ),
             );
             let mut widths = collapsed_widths(&style);
             if hidden(own.border_left_style) && cell_box.x0 <= cells_box.x0 + EDGE_SLACK {

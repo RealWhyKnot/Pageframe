@@ -28,7 +28,7 @@ use crate::{CustomWidgetSceneMap, SELECTION_COLOR};
 use anyrender::{PaintScene, Scene};
 use blitz_dom::node::{
     ListItemLayout, ListItemLayoutPosition, Marker, MarkerShape, MarkerSymbol, NodeData,
-    RasterImageData, TextBrush, TextInputData, TextNodeData,
+    RasterImageData, SpecialElementData, TextBrush, TextInputData, TextNodeData,
 };
 use blitz_dom::{BaseDocument, ElementData, Node, NodeId, local_name};
 use blitz_traits::devtools::DevtoolSettings;
@@ -351,6 +351,12 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
         if let Some(children) = &*node.layout_children.borrow() {
             for &child_id in children {
                 let child = &self.dom.as_ref().tree()[child_id];
+                if let SpecialElementData::TableRoot(table) = &cx.element.special_data
+                    && table.cell_is_collapsed(child_id)
+                    && !is_painted_above_text(child, false)
+                {
+                    continue;
+                }
                 self.draw_text_mask(
                     scene,
                     child_id,

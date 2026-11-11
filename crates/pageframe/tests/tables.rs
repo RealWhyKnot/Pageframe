@@ -816,3 +816,696 @@ fn body_sections_share_spare_height_including_their_spacing() {
         ],
     );
 }
+
+fn check_table_boxes(body: &str, expected: &[(&str, [f32; 4])]) {
+    let html = format!(
+        "<html><head><style>{STYLE}td{{padding:0;width:10px;font-size:0}}\
+         i{{width:6px;vertical-align:top}}</style></head><body>{body}</body></html>"
+    );
+    let mut harness = open(App::new((), &html));
+    harness.pump();
+    for &(id, expected) in expected {
+        let doc = harness.base_mut();
+        let node_id = doc
+            .query_selector_all(&format!("#{id}"))
+            .expect("box selector is valid")[0];
+        let node = doc.get_node(node_id).expect("box exists");
+        let position = node.absolute_position(0.0, 0.0);
+        let size = node.final_layout().size;
+        let actual = [position.x, position.y, size.width, size.height];
+        drop(doc);
+        assert!(
+            actual
+                .iter()
+                .zip(expected)
+                .all(|(actual, expected)| (actual - expected).abs() < 0.95),
+            "{id}: {actual:?}, expected {expected:?}"
+        );
+    }
+}
+
+#[test]
+fn a_rowspan_stops_at_the_end_of_its_header() {
+    check_table_boxes(
+        "<style>table{height:122px}</style><table id=\"e\">\
+         <thead>\
+         <tr><td id=\"e1\" rowspan=\"2\"><i style=\"height:10px\"></i></td><td id=\"e2\"><i style=\"height:10px\"></i></td></tr></thead>\
+         <tbody>\
+         <tr><td id=\"e3\"><i style=\"height:10px\"></i></td><td id=\"e4\"><i style=\"height:30px\"></i></td></tr></tbody></table>",
+        &[
+            ("e", [0.0, 0.0, 26.0, 122.0]),
+            ("e1", [1.0, 1.0, 12.0, 12.0]),
+            ("e2", [13.0, 1.0, 12.0, 12.0]),
+            ("e3", [1.0, 13.0, 12.0, 108.0]),
+            ("e4", [13.0, 13.0, 12.0, 108.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_body_rowspan_does_not_enter_the_footer() {
+    check_table_boxes(
+        "<table id=\"b\" style=\"\">\
+         <tbody>\
+         <tr ><td id=\"b1\" rowspan=\"3\"><i style=\"height:10px\"></i></td><td id=\"b2\" ><i style=\"height:10px\"></i></td></tr></tbody>\
+         <tfoot>\
+         <tr ><td id=\"b4\" ><i style=\"height:10px\"></i></td><td id=\"b5\" ><i style=\"height:30px\"></i></td></tr></tfoot></table>",
+        &[
+            ("b", [0.0, 0.0, 26.0, 46.0]),
+            ("b1", [1.0, 1.0, 12.0, 12.0]),
+            ("b2", [13.0, 1.0, 12.0, 12.0]),
+            ("b4", [1.0, 13.0, 12.0, 32.0]),
+            ("b5", [13.0, 13.0, 12.0, 32.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_body_rowspan_does_not_enter_the_next_body() {
+    check_table_boxes(
+        "<table id=\"c\" style=\"\">\
+         <tbody>\
+         <tr ><td id=\"c1\" rowspan=\"3\"><i style=\"height:10px\"></i></td><td id=\"c2\" ><i style=\"height:10px\"></i></td></tr></tbody>\
+         <tbody>\
+         <tr ><td id=\"c4\" ><i style=\"height:10px\"></i></td><td id=\"c5\" ><i style=\"height:30px\"></i></td></tr></tbody></table>",
+        &[
+            ("c", [0.0, 0.0, 26.0, 46.0]),
+            ("c1", [1.0, 1.0, 12.0, 12.0]),
+            ("c2", [13.0, 1.0, 12.0, 12.0]),
+            ("c4", [1.0, 13.0, 12.0, 32.0]),
+            ("c5", [13.0, 13.0, 12.0, 32.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_zero_rowspan_ends_with_its_body() {
+    check_table_boxes(
+        "<table id=\"d\" style=\"\">\
+         <tbody>\
+         <tr ><td id=\"d1\" rowspan=\"0\"><i style=\"height:10px\"></i></td><td id=\"d2\" ><i style=\"height:10px\"></i></td></tr>\
+         <tr ><td id=\"d3\" ><i style=\"height:20px\"></i></td></tr></tbody>\
+         <tbody>\
+         <tr ><td id=\"d4\" ><i style=\"height:10px\"></i></td><td id=\"d5\" ><i style=\"height:30px\"></i></td></tr></tbody></table>",
+        &[
+            ("d", [0.0, 0.0, 26.0, 68.0]),
+            ("d1", [1.0, 1.0, 12.0, 34.0]),
+            ("d2", [13.0, 1.0, 12.0, 12.0]),
+            ("d3", [13.0, 13.0, 12.0, 22.0]),
+            ("d4", [1.0, 35.0, 12.0, 32.0]),
+            ("d5", [13.0, 35.0, 12.0, 32.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_rowspan_can_end_exactly_at_its_section_end() {
+    check_table_boxes(
+        "<table id=\"e\" style=\"\">\
+         <tbody>\
+         <tr ><td id=\"e1\" rowspan=\"2\"><i style=\"height:10px\"></i></td><td id=\"e2\" ><i style=\"height:10px\"></i></td></tr>\
+         <tr ><td id=\"e3\" ><i style=\"height:20px\"></i></td></tr></tbody>\
+         <tfoot>\
+         <tr ><td id=\"e4\" ><i style=\"height:10px\"></i></td><td id=\"e5\" ><i style=\"height:30px\"></i></td></tr></tfoot></table>",
+        &[
+            ("e", [0.0, 0.0, 26.0, 68.0]),
+            ("e1", [1.0, 1.0, 12.0, 34.0]),
+            ("e2", [13.0, 1.0, 12.0, 12.0]),
+            ("e3", [13.0, 13.0, 12.0, 22.0]),
+            ("e4", [1.0, 35.0, 12.0, 32.0]),
+            ("e5", [13.0, 35.0, 12.0, 32.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_zero_rowspan_ends_with_its_header() {
+    check_table_boxes(
+        "<table id=\"f\" style=\"\">\
+         <thead>\
+         <tr ><td id=\"f1\" rowspan=\"0\"><i style=\"height:10px\"></i></td><td id=\"f2\" ><i style=\"height:10px\"></i></td></tr>\
+         <tr ><td id=\"f3\" ><i style=\"height:20px\"></i></td></tr></thead>\
+         <tbody>\
+         <tr ><td id=\"f4\" ><i style=\"height:10px\"></i></td><td id=\"f5\" ><i style=\"height:30px\"></i></td></tr></tbody></table>",
+        &[
+            ("f", [0.0, 0.0, 26.0, 68.0]),
+            ("f1", [1.0, 1.0, 12.0, 34.0]),
+            ("f2", [13.0, 1.0, 12.0, 12.0]),
+            ("f3", [13.0, 13.0, 12.0, 22.0]),
+            ("f4", [1.0, 35.0, 12.0, 32.0]),
+            ("f5", [13.0, 35.0, 12.0, 32.0]),
+        ],
+    );
+}
+
+#[test]
+fn rows_without_explicit_sections_keep_their_spans_separate() {
+    check_table_boxes(
+        "<table id=\"h\">\
+         <tr><td id=\"h1\" rowspan=\"3\"><i style=\"height:10px\"></i></td><td id=\"h2\"></td></tr>\
+         <tbody>\
+         <tr><td id=\"h3\"></td><td id=\"h4\"></td></tr></tbody>\
+         <tr><td id=\"h5\"></td></tr></table>",
+        &[
+            ("h", [0.0, 0.0, 26.0, 18.0]),
+            ("h1", [1.0, 1.0, 12.0, 12.0]),
+            ("h2", [13.0, 1.0, 12.0, 12.0]),
+            ("h3", [1.0, 13.0, 12.0, 2.0]),
+            ("h4", [13.0, 13.0, 12.0, 2.0]),
+            ("h5", [1.0, 15.0, 12.0, 2.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_zero_rowspan_covers_the_remaining_rows() {
+    check_table_boxes(
+        "<table id=\"j\" style=\"\">\
+         <tr ><td id=\"j1\" rowspan=\"0\"><i style=\"height:10px\"></i></td><td id=\"j2\" ><i style=\"height:10px\"></i></td></tr>\
+         <tr ><td id=\"j3\" ><i style=\"height:30px\"></i></td></tr></table>",
+        &[
+            ("j", [0.0, 0.0, 26.0, 46.0]),
+            ("j1", [1.0, 1.0, 12.0, 44.0]),
+            ("j2", [13.0, 1.0, 12.0, 12.0]),
+            ("j3", [13.0, 13.0, 12.0, 32.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_collapsed_row_loses_its_share_of_table_height() {
+    check_table_boxes(
+        "<style>table{height:122px}</style><table id=\"f\">\
+         <tr><td id=\"f1\"><i style=\"height:10px\"></i></td></tr>\
+         <tr style=\"visibility:collapse\"><td id=\"f2\"><i style=\"height:20px\"></i></td></tr>\
+         <tr><td id=\"f3\"><i style=\"height:30px\"></i></td></tr></table>",
+        &[
+            ("f", [0.0, 0.0, 14.0, 82.0]),
+            ("f1", [1.0, 1.0, 12.0, 21.8125]),
+            ("f2", [1.0, 22.8125, 12.0, 0.0]),
+            ("f3", [1.0, 22.8125, 12.0, 58.1875]),
+        ],
+    );
+}
+
+#[test]
+fn a_collapsed_row_is_removed_from_an_auto_height_table() {
+    check_table_boxes(
+        "<table id=\"a\" style=\"\">\
+         <tr ><td id=\"a1\" ><i style=\"height:10px\"></i></td></tr>\
+         <tr style=\"visibility:collapse\"><td id=\"a2\" ><i style=\"height:20px\"></i></td></tr>\
+         <tr ><td id=\"a3\" ><i style=\"height:30px\"></i></td></tr></table>",
+        &[
+            ("a", [0.0, 0.0, 14.0, 46.0]),
+            ("a1", [1.0, 1.0, 12.0, 12.0]),
+            ("a2", [1.0, 13.0, 12.0, 0.0]),
+            ("a3", [1.0, 13.0, 12.0, 32.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_collapsed_row_removes_one_border_spacing_gap() {
+    check_table_boxes(
+        "<table id=\"b\" style=\"border-collapse:separate;border-spacing:4px\">\
+         <tr ><td id=\"b1\" ><i style=\"height:10px\"></i></td></tr>\
+         <tr style=\"visibility:collapse\"><td id=\"b2\" ><i style=\"height:20px\"></i></td></tr>\
+         <tr ><td id=\"b3\" ><i style=\"height:30px\"></i></td></tr></table>",
+        &[
+            ("b", [0.0, 0.0, 22.0, 60.0]),
+            ("b1", [4.0, 4.0, 14.0, 14.0]),
+            ("b2", [4.0, 18.0, 14.0, 0.0]),
+            ("b3", [4.0, 22.0, 14.0, 34.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_collapsed_row_loses_its_spare_height_and_spacing() {
+    check_table_boxes(
+        "<table id=\"c\" style=\"height:122px;border-collapse:separate;border-spacing:4px\">\
+         <tr ><td id=\"c1\" ><i style=\"height:10px\"></i></td></tr>\
+         <tr style=\"visibility:collapse\"><td id=\"c2\" ><i style=\"height:20px\"></i></td></tr>\
+         <tr ><td id=\"c3\" ><i style=\"height:30px\"></i></td></tr></table>",
+        &[
+            ("c", [0.0, 0.0, 22.0, 82.671875]),
+            ("c1", [4.0, 4.0, 14.0, 20.609375]),
+            ("c2", [4.0, 24.609375, 14.0, 0.0]),
+            ("c3", [4.0, 28.609375, 14.0, 50.0625]),
+        ],
+    );
+}
+
+#[test]
+fn a_collapsed_header_loses_its_height() {
+    check_table_boxes(
+        "<table id=\"f\" style=\"height:122px\">\
+         <thead style=\"visibility:collapse\">\
+         <tr ><td id=\"f1\" ><i style=\"height:10px\"></i></td></tr></thead>\
+         <tbody>\
+         <tr ><td id=\"f2\" ><i style=\"height:20px\"></i></td></tr></tbody>\
+         <tfoot>\
+         <tr ><td id=\"f3\" ><i style=\"height:30px\"></i></td></tr></tfoot></table>",
+        &[
+            ("f", [0.0, 0.0, 14.0, 110.0]),
+            ("f1", [1.0, 1.0, 12.0, 0.0]),
+            ("f2", [1.0, 1.0, 12.0, 76.0]),
+            ("f3", [1.0, 77.0, 12.0, 32.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_collapsed_body_loses_its_height() {
+    check_table_boxes(
+        "<table id=\"g\" style=\"height:122px\">\
+         <thead>\
+         <tr ><td id=\"g1\" ><i style=\"height:10px\"></i></td></tr></thead>\
+         <tbody style=\"visibility:collapse\">\
+         <tr ><td id=\"g2\" ><i style=\"height:20px\"></i></td></tr></tbody>\
+         <tfoot>\
+         <tr ><td id=\"g3\" ><i style=\"height:30px\"></i></td></tr></tfoot></table>",
+        &[
+            ("g", [0.0, 0.0, 14.0, 46.0]),
+            ("g1", [1.0, 1.0, 12.0, 12.0]),
+            ("g2", [1.0, 13.0, 12.0, 0.0]),
+            ("g3", [1.0, 13.0, 12.0, 32.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_collapsed_footer_loses_its_height() {
+    check_table_boxes(
+        "<table id=\"h\" style=\"height:122px\">\
+         <thead>\
+         <tr ><td id=\"h1\" ><i style=\"height:10px\"></i></td></tr></thead>\
+         <tbody>\
+         <tr ><td id=\"h2\" ><i style=\"height:20px\"></i></td></tr></tbody>\
+         <tfoot style=\"visibility:collapse\">\
+         <tr ><td id=\"h3\" ><i style=\"height:30px\"></i></td></tr></tfoot></table>",
+        &[
+            ("h", [0.0, 0.0, 14.0, 90.0]),
+            ("h1", [1.0, 1.0, 12.0, 12.0]),
+            ("h2", [1.0, 13.0, 12.0, 76.0]),
+            ("h3", [1.0, 89.0, 12.0, 0.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_rowspan_shrinks_across_a_collapsed_row() {
+    check_table_boxes(
+        "<table id=\"j\" style=\"\">\
+         <tr ><td id=\"j1\" rowspan=\"3\"><i id=\"j1i\" style=\"height:50px\"></i></td><td id=\"j2\" ><i style=\"height:10px\"></i></td></tr>\
+         <tr style=\"visibility:collapse\"><td id=\"j3\" ><i style=\"height:20px\"></i></td></tr>\
+         <tr ><td id=\"j4\" ><i style=\"height:30px\"></i></td></tr></table>",
+        &[
+            ("j", [0.0, 0.0, 26.0, 46.0]),
+            ("j1", [1.0, 1.0, 12.0, 44.0]),
+            ("j1i", [2.0, 2.0, 6.0, 50.0]),
+            ("j2", [13.0, 1.0, 12.0, 12.0]),
+            ("j3", [13.0, 13.0, 12.0, 0.0]),
+            ("j4", [13.0, 13.0, 12.0, 32.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_collapsed_row_keeps_its_column_width() {
+    check_table_boxes(
+        "<table id=\"k\" style=\"\">\
+         <tr ><td id=\"k1\" ><i style=\"height:10px\"></i></td></tr>\
+         <tr style=\"visibility:collapse;background:red\"><td id=\"k2\" style=\"width:50px;background:red;border:6px solid blue\"><i style=\"height:20px\"></i></td></tr>\
+         <tr ><td id=\"k3\" ><i style=\"height:30px\"></i></td></tr></table>",
+        &[
+            ("k", [0.0, 0.0, 62.0, 50.0]),
+            ("k1", [3.0, 1.0, 56.0, 14.0]),
+            ("k2", [3.0, 15.0, 56.0, 0.0]),
+            ("k3", [3.0, 15.0, 56.0, 34.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_rowspan_starting_in_a_collapsed_row_has_zero_height() {
+    check_table_boxes(
+        "<table id=\"n\" style=\"\">\
+         <tr style=\"visibility:collapse\"><td id=\"n1\" rowspan=\"2\"><i id=\"n1i\" style=\"height:50px\"></i></td><td id=\"n2\" ><i style=\"height:10px\"></i></td></tr>\
+         <tr ><td id=\"n3\" ><i style=\"height:30px\"></i></td></tr>\
+         <tr ><td id=\"n4\" ><i style=\"height:10px\"></i></td><td id=\"n5\" ><i style=\"height:10px\"></i></td></tr></table>",
+        &[
+            ("n", [0.0, 0.0, 26.0, 51.828125]),
+            ("n1", [1.0, 1.0, 12.0, 0.0]),
+            ("n1i", [2.0, 2.0, 6.0, 50.0]),
+            ("n2", [13.0, 1.0, 12.0, 0.0]),
+            ("n3", [13.0, 1.0, 12.0, 37.828125]),
+            ("n4", [1.0, 38.828125, 12.0, 12.0]),
+            ("n5", [13.0, 38.828125, 12.0, 12.0]),
+        ],
+    );
+}
+
+#[test]
+fn collapsing_the_first_row_preserves_outer_spacing() {
+    check_table_boxes(
+        "<table id=\"o\" style=\"border-collapse:separate;border-spacing:4px\">\
+         <tr style=\"visibility:collapse\"><td id=\"o1\"><i style=\"height:10px\"></i></td></tr>\
+         <tr><td id=\"o2\"><i style=\"height:20px\"></i></td></tr></table>",
+        &[
+            ("o", [0.0, 0.0, 22.0, 32.0]),
+            ("o1", [4.0, 4.0, 14.0, 0.0]),
+            ("o2", [4.0, 4.0, 14.0, 24.0]),
+        ],
+    );
+}
+
+#[test]
+fn collapsing_every_row_preserves_outer_spacing() {
+    check_table_boxes(
+        "<table id=\"p\" style=\"border-collapse:separate;border-spacing:4px\">\
+         <tr style=\"visibility:collapse\"><td id=\"p1\"><i style=\"height:10px\"></i></td></tr>\
+         <tr style=\"visibility:collapse\"><td id=\"p2\"><i style=\"height:20px\"></i></td></tr></table>",
+        &[
+            ("p", [0.0, 0.0, 22.0, 8.0]),
+            ("p1", [4.0, 4.0, 14.0, 0.0]),
+            ("p2", [4.0, 4.0, 14.0, 0.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_nested_table_fits_its_cells_outer_width() {
+    check_table_boxes(
+        "<style>table{height:122px}</style><table id=\"c\">\
+         <tr><td id=\"c1\"><i style=\"height:10px\"></i></td></tr>\
+         <tr><td id=\"c2\"><table id=\"ci\" style=\"height:80px\">\
+         <tr><td id=\"c3\"><i style=\"height:10px\"></i></td></tr>\
+         <tr><td id=\"c4\"><i style=\"height:30px\"></i></td></tr></table></td></tr></table>",
+        &[
+            ("c", [0.0, 0.0, 14.0, 122.0]),
+            ("c1", [1.0, 1.0, 12.0, 15.3125]),
+            ("c2", [1.0, 16.3125, 12.0, 104.6875]),
+            ("ci", [2.0, 28.65625, 10.0, 80.0]),
+            ("c3", [3.0, 29.65625, 8.0, 21.265625]),
+            ("c4", [3.0, 50.921875, 8.0, 56.734375]),
+        ],
+    );
+}
+
+#[test]
+fn a_nested_table_without_cell_widths_fits_its_parent() {
+    check_table_boxes(
+        "<table id=\"b\" style=\"\">\
+         <tr ><td id=\"b1\"><table id=\"bi\" style=\"\">\
+         <tr ><td id=\"b2\" style=\"width:auto\"><i style=\"height:10px\"></i></td></tr></table></td></tr></table>",
+        &[
+            ("b", [0.0, 0.0, 14.0, 18.0]),
+            ("b1", [1.0, 1.0, 12.0, 16.0]),
+            ("bi", [2.0, 2.0, 10.0, 14.0]),
+            ("b2", [3.0, 3.0, 8.0, 12.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_nested_table_with_separate_borders_can_shrink() {
+    check_table_boxes(
+        "<table id=\"c\" style=\"\">\
+         <tr ><td id=\"c1\"><table id=\"ci\" style=\"border-collapse:separate;border-spacing:0\">\
+         <tr ><td id=\"c2\" style=\"\"><i style=\"height:10px\"></i></td></tr></table></td></tr></table>",
+        &[
+            ("c", [0.0, 0.0, 14.0, 18.0]),
+            ("c1", [1.0, 1.0, 12.0, 16.0]),
+            ("ci", [2.0, 2.0, 10.0, 14.0]),
+            ("c2", [2.0, 2.0, 10.0, 14.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_nested_table_with_two_columns_can_shrink() {
+    check_table_boxes(
+        "<table id=\"d\" style=\"\">\
+         <tr ><td id=\"d1\"><table id=\"di\" style=\"\">\
+         <tr ><td id=\"d2\" style=\"\"><i style=\"height:10px\"></i></td><td id=\"d3\" style=\"\"><i style=\"height:10px\"></i></td></tr></table></td></tr></table>",
+        &[
+            ("d", [0.0, 0.0, 22.0, 18.0]),
+            ("d1", [1.0, 1.0, 20.0, 16.0]),
+            ("di", [2.0, 2.0, 18.0, 14.0]),
+            ("d2", [3.0, 3.0, 8.0, 12.0]),
+            ("d3", [11.0, 3.0, 8.0, 12.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_nested_percent_width_table_fits_its_parent() {
+    check_table_boxes(
+        "<table id=\"e\" style=\"\">\
+         <tr ><td id=\"e1\"><table id=\"ei\" style=\"width:100%\">\
+         <tr ><td id=\"e2\" style=\"\"><i style=\"height:10px\"></i></td></tr></table></td></tr></table>",
+        &[
+            ("e", [0.0, 0.0, 14.0, 18.0]),
+            ("e1", [1.0, 1.0, 12.0, 16.0]),
+            ("ei", [2.0, 2.0, 10.0, 14.0]),
+            ("e2", [3.0, 3.0, 8.0, 12.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_nested_table_keeps_its_border_spacing_when_shrinking() {
+    check_table_boxes(
+        "<table id=\"g\" style=\"\">\
+         <tr ><td id=\"g1\"><table id=\"gi\" style=\"border-collapse:separate;border-spacing:2px\">\
+         <tr ><td id=\"g2\" style=\"\"><i style=\"height:10px\"></i></td><td id=\"g3\" style=\"\"><i style=\"height:10px\"></i></td></tr></table></td></tr></table>",
+        &[
+            ("g", [0.0, 0.0, 30.0, 22.0]),
+            ("g1", [1.0, 1.0, 28.0, 20.0]),
+            ("gi", [2.0, 2.0, 26.0, 18.0]),
+            ("g2", [4.0, 4.0, 10.0, 14.0]),
+            ("g3", [16.0, 4.0, 10.0, 14.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_nested_cell_width_is_a_preference() {
+    check_table_boxes(
+        "<table id=\"k\" style=\"\">\
+         <tr ><td id=\"k1\"><table id=\"ki\" style=\"\">\
+         <tr ><td id=\"k2\" style=\"width:100px\"><i style=\"height:10px\"></i></td></tr></table></td></tr></table>",
+        &[
+            ("k", [0.0, 0.0, 14.0, 18.0]),
+            ("k1", [1.0, 1.0, 12.0, 16.0]),
+            ("ki", [2.0, 2.0, 10.0, 14.0]),
+            ("k2", [3.0, 3.0, 8.0, 12.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_nested_table_keeps_its_own_specified_width() {
+    check_table_boxes(
+        "<table id=\"l\" style=\"\">\
+         <tr ><td id=\"l1\"><table id=\"li\" style=\"width:20px\">\
+         <tr ><td id=\"l2\" style=\"\"><i style=\"height:10px\"></i></td></tr></table></td></tr></table>",
+        &[
+            ("l", [0.0, 0.0, 24.0, 18.0]),
+            ("l1", [1.0, 1.0, 22.0, 16.0]),
+            ("li", [2.0, 2.0, 20.0, 14.0]),
+            ("l2", [3.0, 3.0, 18.0, 12.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_table_can_shrink_inside_a_narrow_block() {
+    check_table_boxes(
+        "<style>td{width:100px}</style><div id=\"a\" style=\"width:10px\"><table id=\"ai\">\
+         <tr><td id=\"a2\"><i></i></td></tr></table></div>",
+        &[
+            ("a", [0.0, 0.0, 10.0, 14.0]),
+            ("ai", [0.0, 0.0, 10.0, 14.0]),
+            ("a2", [1.0, 1.0, 8.0, 12.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_collapsed_row_does_not_paint_visible_children() {
+    let buffer = draw(
+        "<table class=\"bare\"><tr><td style=\"width:10px\"><i style=\"height:10px\"></i></td></tr>\
+         <tr style=\"visibility:collapse;background:red\">\
+         <td style=\"visibility:visible;background:red\"><i style=\"height:20px;background:red\"></i></td></tr>\
+         <tr><td><i style=\"height:30px\"></i></td></tr></table>",
+    );
+    assert_eq!(
+        column(&buffer, 5, &[2, 11, 12, 13, 14, 43, 44, 45, 46]),
+        [
+            GREEN, GREEN, BLACK, BLACK, GREEN, GREEN, BLACK, BLACK, WHITE
+        ]
+    );
+}
+
+#[test]
+fn a_collapsed_row_keeps_the_winning_border_at_the_join() {
+    let buffer = draw(
+        "<table class=\"bare\"><tr><td style=\"width:10px\"><i style=\"height:10px\"></i></td></tr>\
+         <tr style=\"visibility:collapse\">\
+         <td style=\"width:50px;background:red;border:6px solid blue\"><i style=\"height:20px\"></i></td></tr>\
+         <tr><td><i style=\"height:30px\"></i></td></tr></table>",
+    );
+    assert_eq!(
+        column(&buffer, 15, &[11, 12, 13, 14, 15, 16, 17, 18]),
+        [GREEN, BLUE, BLUE, BLUE, BLUE, BLUE, BLUE, GREEN]
+    );
+}
+
+#[test]
+fn visible_rowspan_content_can_overflow_after_a_row_collapses() {
+    let buffer = draw(
+        "<table class=\"bare\"><tr><td rowspan=\"3\" style=\"width:10px\">\
+         <i style=\"width:6px;height:50px;vertical-align:top;background:#ff0\"></i></td>\
+         <td style=\"width:10px\"><i style=\"height:10px\"></i></td></tr>\
+         <tr style=\"visibility:collapse\"><td><i style=\"height:20px\"></i></td></tr>\
+         <tr><td><i style=\"height:30px\"></i></td></tr></table>",
+    );
+    assert_eq!(
+        column(&buffer, 4, &[2, 43, 44, 45, 50, 51, 52]),
+        [
+            [255, 255, 0, 255],
+            [255, 255, 0, 255],
+            [255, 255, 0, 255],
+            [255, 255, 0, 255],
+            [255, 255, 0, 255],
+            [255, 255, 0, 255],
+            WHITE,
+        ]
+    );
+}
+
+#[test]
+fn nested_cell_borders_fit_inside_the_outer_cell() {
+    let buffer = draw(
+        "<table class=\"bare\"><tr><td style=\"width:10px\"><table><tr>\
+         <td style=\"width:10px\"><i style=\"width:6px;vertical-align:top\"></i></td>\
+         </tr></table></td></tr></table>",
+    );
+    assert_eq!(
+        row(&buffer, &[0, 1, 2, 3, 4, 9, 10, 11, 12, 13, 14], 5),
+        [
+            BLACK, BLACK, BLACK, BLACK, GREEN, GREEN, BLACK, BLACK, BLACK, BLACK, WHITE
+        ]
+    );
+}
+
+#[test]
+fn a_header_rowspan_paints_its_border_before_the_body() {
+    let buffer = draw(
+        "<table class=\"bare\"><thead><tr><td rowspan=\"2\" style=\"width:10px\">\
+         <i style=\"height:10px\"></i></td><td style=\"width:10px\"><i></i></td></tr></thead>\
+         <tbody><tr><td><i></i></td><td><i style=\"height:30px\"></i></td></tr></tbody></table>",
+    );
+    assert_eq!(
+        column(&buffer, 5, &[11, 12, 13, 14]),
+        [GREEN, BLACK, BLACK, GREEN]
+    );
+}
+
+#[test]
+fn specified_cell_widths_leave_spare_width_to_auto_cells() {
+    check_table_boxes(
+        "<style>td{width:auto}</style><table id=\"a\" style=\"width:122px\">\
+         <tr><td id=\"a1\" style=\"width:25%\"><i></i></td><td id=\"a2\"><i></i></td><td id=\"a3\" style=\"width:30px\"><i></i></td></tr></table>",
+        &[
+            ("a", [0.0, 0.0, 122.0, 14.0]),
+            ("a1", [1.0, 1.0, 30.0, 12.0]),
+            ("a2", [31.0, 1.0, 58.0, 12.0]),
+            ("a3", [89.0, 1.0, 32.0, 12.0]),
+        ],
+    );
+}
+
+#[test]
+fn specified_cell_widths_shrink_when_the_table_is_tight() {
+    check_table_boxes(
+        "<style>td{width:auto}</style><table id=\"b\" style=\"width:62px\">\
+         <tr><td id=\"b1\" style=\"width:25%\"><i></i></td><td id=\"b2\"><i></i></td><td id=\"b3\" style=\"width:50px\"><i></i></td></tr></table>",
+        &[
+            ("b", [0.0, 0.0, 62.0, 14.0]),
+            ("b1", [1.0, 1.0, 15.0, 12.0]),
+            ("b2", [16.0, 1.0, 8.0, 12.0]),
+            ("b3", [24.0, 1.0, 37.0, 12.0]),
+        ],
+    );
+}
+
+#[test]
+fn auto_columns_do_not_make_cell_widths_inflexible() {
+    check_table_boxes(
+        "<style>td{width:auto}</style><table id=\"c\" style=\"width:122px\"><col><col><col>\
+         <tr><td id=\"c1\" style=\"width:25%\"><i></i></td><td id=\"c2\"><i></i></td><td id=\"c3\" style=\"width:30px\"><i></i></td></tr></table>",
+        &[
+            ("c", [0.0, 0.0, 122.0, 14.0]),
+            ("c1", [1.0, 1.0, 30.0, 12.0]),
+            ("c2", [31.0, 1.0, 58.0, 12.0]),
+            ("c3", [89.0, 1.0, 32.0, 12.0]),
+        ],
+    );
+}
+
+#[test]
+fn visible_cells_and_children_stay_hidden_in_collapsed_sections() {
+    for section in ["thead", "tbody", "tfoot"] {
+        for visible in ["visibility:visible", ""] {
+            let buffer = draw(&format!(
+                "<table class=\"bare\"><{section} style=\"visibility:collapse\">\
+                 <tr><td style=\"width:20px;{visible}\"><i style=\"display:block;\
+                 visibility:visible;width:10px;height:10px;background:red\"></i></td></tr>\
+                 </{section}></table>"
+            ));
+            assert_eq!(pixel(&buffer, 5, 5), WHITE, "{section}: {visible}");
+        }
+    }
+}
+
+#[test]
+fn visible_cells_and_children_stay_hidden_in_collapsed_rows() {
+    for visible in ["visibility:visible", ""] {
+        let buffer = draw(&format!(
+            "<table class=\"bare\"><tr style=\"visibility:collapse\">\
+             <td style=\"width:20px;{visible}\"><i style=\"display:block;\
+             visibility:visible;width:10px;height:10px;background:red\"></i></td></tr></table>"
+        ));
+        assert_eq!(pixel(&buffer, 5, 5), WHITE, "{visible}");
+    }
+}
+
+#[test]
+fn positioned_visible_content_can_paint_from_a_collapsed_row() {
+    for position in [
+        "position:relative",
+        "position:relative;z-index:1",
+        "transform:translateX(0px)",
+    ] {
+        for visible_cell in [false, true] {
+            let (cell, child) = if visible_cell {
+                (position, "")
+            } else {
+                ("", position)
+            };
+            let buffer = draw(&format!(
+                "<table class=\"bare\"><tr style=\"visibility:collapse\">\
+                 <td style=\"width:20px;visibility:visible;{cell}\"><i style=\"display:block;\
+                 visibility:visible;width:10px;height:10px;background:red;{child}\"></i></td></tr></table>"
+            ));
+            assert_eq!(
+                pixel(&buffer, 5, 5),
+                RED,
+                "{position}, cell: {visible_cell}"
+            );
+        }
+    }
+}

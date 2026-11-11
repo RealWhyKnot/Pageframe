@@ -748,10 +748,18 @@ impl LayoutPassState<'_> {
                     };
                     table_wrapper.size_auto_columns(&inputs);
                     let inputs = table_wrapper.widen_for_captions(inputs);
-                    let mut output = compute_grid_layout(&mut table_wrapper, node_id, inputs);
-                    if table_wrapper.spread_spare_height(&inputs, &output) {
-                        output = compute_grid_layout(&mut table_wrapper, node_id, inputs);
+                    let mut grid_inputs = inputs;
+                    if table_wrapper.ctx.rows.iter().any(|row| row.is_collapsed) {
+                        grid_inputs.run_mode = RunMode::PerformLayout;
                     }
+                    let mut output = compute_grid_layout(&mut table_wrapper, node_id, grid_inputs);
+                    if table_wrapper.size_spanning_rows(&grid_inputs) {
+                        output = compute_grid_layout(&mut table_wrapper, node_id, grid_inputs);
+                    }
+                    if table_wrapper.spread_spare_height(&grid_inputs, &output) {
+                        output = compute_grid_layout(&mut table_wrapper, node_id, grid_inputs);
+                    }
+                    table_wrapper.collapse_rows(&grid_inputs, &mut output);
                     table_wrapper.place_captions(&inputs, &mut output);
 
                     // Absolutely positioned children take no part in the table grid. Their
