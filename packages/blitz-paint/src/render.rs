@@ -403,48 +403,6 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
         }
     }
 
-    fn removed_cell_opacity(&self, node: &Node) -> f32 {
-        let tree = self.dom.as_ref().tree();
-        let is_item = |node: &Node| {
-            node.layout_parent
-                .get()
-                .and_then(|id| tree.get(id))
-                .is_some_and(is_flex_or_grid)
-        };
-        if !is_painted_above_text(node, is_item(node)) {
-            return 1.0;
-        }
-        let mut part = node.parent.and_then(|id| tree.get(id));
-        while let Some(ancestor) = part {
-            let Some(style) = ancestor.primary_styles() else {
-                return 1.0;
-            };
-            let is_removed_cell = ancestor
-                .layout_parent
-                .get()
-                .and_then(|id| tree.get(id))
-                .and_then(|table| table.element_data())
-                .is_some_and(|element| match &element.special_data {
-                    SpecialElementData::TableRoot(table) => {
-                        table.column_cell_is_collapsed(ancestor.id)
-                    }
-                    _ => false,
-                });
-            if is_removed_cell {
-                return style.get_effects().opacity;
-            }
-            let box_style = style.get_box();
-            if is_painted_above_text(ancestor, is_item(ancestor))
-                || box_style.overflow_x != Overflow::Visible
-                || box_style.overflow_y != Overflow::Visible
-            {
-                return 1.0;
-            }
-            part = ancestor.parent.and_then(|id| tree.get(id));
-        }
-        1.0
-    }
-
     fn render_element_with(
         &self,
         scene: &mut impl PaintScene,
@@ -496,7 +454,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             return;
         }
         let has_opacity = opacity < 1.0;
-        let row_opacity = node.row_opacity() * self.removed_cell_opacity(node);
+        let row_opacity = node.row_opacity() * node.removed_cell_opacity();
         if row_opacity == 0.0 {
             return;
         }

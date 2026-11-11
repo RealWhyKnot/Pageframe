@@ -152,3 +152,35 @@ fn a_faded_cell_in_a_collapsed_column_fades_its_relative_child() {
     let [red, green, blue, _] = pixel(&buffer, 5, 14);
     assert!(red.abs_diff(127) <= 1 && green == 0 && blue == 0);
 }
+
+fn wrapped_table(wrapper: &str) -> String {
+    format!(
+        "<table><col style=\"visibility:collapse\"><col><tr>\
+         <td style=\"opacity:.5\"><b></b><div style=\"{wrapper}\">\
+         <b class=\"r\" style=\"position:relative;z-index:1\"></b></div></td>\
+         <td class=\"v\"><b></b></td></tr></table>"
+    )
+}
+
+fn check_half_red_over_lime(buffer: &[u8]) {
+    let [red, green, blue, _] = pixel(buffer, 5, 20);
+    assert!(red.abs_diff(128) <= 1 && green.abs_diff(127) <= 1 && blue == 0);
+}
+
+#[test]
+fn a_faded_cell_in_a_collapsed_column_fades_a_child_that_passes_a_relative_box() {
+    check_half_red_over_lime(&draw(&wrapped_table("position:relative")));
+}
+
+#[test]
+fn a_faded_row_fades_the_children_of_its_cell_in_a_collapsed_column() {
+    let buffer = draw(
+        "<table><col style=\"visibility:collapse\"><col><tr style=\"opacity:.5\">\
+         <td style=\"opacity:.5\"><b></b>\
+         <b class=\"r\" style=\"position:relative;top:30px\"></b></td>\
+         <td class=\"v\"><b></b></td></tr></table>",
+    );
+    let [red, green, blue, _] = pixel(&buffer, 6, 48);
+    assert_eq!(red, 255);
+    assert!(green.abs_diff(191) <= 1 && blue.abs_diff(191) <= 1);
+}

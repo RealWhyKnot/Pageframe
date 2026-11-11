@@ -595,6 +595,51 @@ impl Node {
         opacity
     }
 
+    pub fn removed_cell_opacity(&self) -> f32 {
+        let is_item = |node: &Node| {
+            node.layout_parent.get().is_some_and(|id| {
+                matches!(
+                    node.with(id).taffy_display(),
+                    taffy::Display::Flex | taffy::Display::Grid
+                )
+            })
+        };
+        let is_context = self.is_stacking_context_root(is_item(self));
+        let is_positioned = self
+            .primary_styles()
+            .is_some_and(|style| style.clone_position() != Position::Static);
+        if !is_context && !is_positioned {
+            return 1.0;
+        }
+        let passes_layers = is_context && self.z_index() != 0;
+        let mut part = self.parent.map(|id| self.with(id));
+        while let Some(ancestor) = part {
+            let is_removed_cell = ancestor
+                .layout_parent
+                .get()
+                .and_then(|id| self.with(id).element_data())
+                .is_some_and(|element| match &element.special_data {
+                    SpecialElementData::TableRoot(table) => {
+                        table.column_cell_is_collapsed(ancestor.id)
+                    }
+                    _ => false,
+                });
+            if is_removed_cell {
+                let opacity = ancestor
+                    .primary_styles()
+                    .map_or(1.0, |style| style.clone_opacity());
+                return opacity * ancestor.row_opacity();
+            }
+            if ancestor.is_stacking_context_root(is_item(ancestor))
+                || (!passes_layers && ancestor.is_paint_layer_root())
+            {
+                return 1.0;
+            }
+            part = ancestor.parent.map(|id| self.with(id));
+        }
+        1.0
+    }
+
     pub fn is_float_under_text(&self) -> bool {
         self.is_static()
             && !self.is_stacking_context_root(false)
