@@ -114,3 +114,31 @@ fn a_relative_cell_in_a_collapsed_row_paints_its_absolute_child_without_its_box(
         "position:absolute",
     )));
 }
+
+#[test]
+fn a_cell_with_a_z_index_in_a_collapsed_column_paints_its_relative_child() {
+    check_wrapped_child(&draw(&column_table(
+        "position:relative;z-index:1",
+        "position:relative",
+    )));
+}
+
+#[test]
+fn a_transformed_cell_in_a_collapsed_column_paints_its_relative_child() {
+    check_wrapped_child(&draw(&column_table(
+        "transform:translateX(0px)",
+        "position:relative",
+    )));
+}
+
+#[test]
+fn an_absolute_child_below_a_collapsed_row_moves_up_with_its_cell() {
+    let buffer = draw(
+        "<table><tr><td><b></b></td></tr>\
+         <tr style=\"visibility:collapse\"><td><b style=\"height:20px\"></b></td></tr>\
+         <tr><td><b></b><b class=\"r\" style=\"position:absolute\"></b></td></tr></table>",
+    );
+    assert_eq!(pixel(&buffer, 6, 24), YELLOW);
+    assert_eq!(pixel(&buffer, 12, 24), RED);
+    assert_eq!(pixel(&buffer, 12, 50), WHITE);
+}

@@ -209,6 +209,19 @@ fn widest<I: Iterator<Item = usize>>(
         .fold(0.0, f32::max)
 }
 
+fn refresh_candidates(
+    output: &mut taffy::tree::LayoutOutput,
+    mut moved: taffy::tree::OofCandidates,
+    location: taffy::Point<f32>,
+) {
+    moved.translate(location);
+    for candidate in output.oof_candidates.as_mut_slice() {
+        if let Some(fresh) = moved.iter().find(|fresh| fresh.node == candidate.node) {
+            candidate.static_position = fresh.static_position;
+        }
+    }
+}
+
 fn resolve_collapsed_borders(
     doc: &mut BaseDocument,
     cells: &mut [TableCell],
@@ -1869,7 +1882,7 @@ impl TableTreeWrapper<'_, '_> {
                 positions[start].start
             };
             layout.size.width = (positions[end - 1].end - positions[start].start).max(0.0);
-            let mut moved = self
+            let moved = self
                 .doc
                 .compute_child_layout(
                     crate::taffy_node_id(cell.node_id),
@@ -1879,12 +1892,7 @@ impl TableTreeWrapper<'_, '_> {
                     },
                 )
                 .oof_candidates;
-            moved.translate(layout.location);
-            for candidate in output.oof_candidates.as_mut_slice() {
-                if let Some(fresh) = moved.iter().find(|fresh| fresh.node == candidate.node) {
-                    candidate.static_position = fresh.static_position;
-                }
-            }
+            refresh_candidates(output, moved, layout.location);
             self.doc
                 .set_unrounded_layout(crate::taffy_node_id(cell.node_id), &layout);
         }
@@ -1960,21 +1968,39 @@ impl TableTreeWrapper<'_, '_> {
             let start = usize::from(cell.row);
             let end = start + usize::from(cell.row_span);
             let mut layout = *self.doc.nodes[cell.node_id].unrounded_layout();
+            let shift = positions[start].start - layout.location.y;
             layout.location.y = positions[start].start;
+            let mut relaid = None;
             if ctx.rows[start].is_collapsed {
                 layout.size.height = 0.0;
             } else {
                 let height = (layout.size.height - (removed[end] - removed[start])).max(0.0);
                 if height != layout.size.height {
                     layout.size.height = height;
-                    self.doc.compute_child_layout(
+                    let cell_output = self.doc.compute_child_layout(
                         crate::taffy_node_id(cell.node_id),
                         taffy::tree::LayoutInput {
                             known_dimensions: layout.size.map(Some),
                             ..*inputs
                         },
                     );
+                    relaid = Some(cell_output.oof_candidates);
                 }
+            }
+            match relaid {
+                Some(moved) => refresh_candidates(output, moved, layout.location),
+                None if shift != 0.0 => {
+                    for candidate in output.oof_candidates.as_mut_slice() {
+                        let node = crate::dom_node_id(candidate.node);
+                        let mut ancestors =
+                            std::iter::successors(Some(node), |&id| self.doc.nodes[id].parent);
+                        if ancestors.any(|id| id == cell.node_id) {
+                            candidate.static_position.y.area.start += shift;
+                            candidate.static_position.y.area.end += shift;
+                        }
+                    }
+                }
+                None => {}
             }
             self.doc
                 .set_unrounded_layout(crate::taffy_node_id(cell.node_id), &layout);

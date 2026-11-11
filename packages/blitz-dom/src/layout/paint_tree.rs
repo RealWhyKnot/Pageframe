@@ -345,9 +345,7 @@ impl BaseDocument {
                             }
                         });
                     if removed_column {
-                        if !self.nodes[child_id].is_stacking_context_root(is_flex_or_grid) {
-                            self.build_paint_tree_impl(child_id, Some(&mut entries));
-                        }
+                        self.build_paint_tree_impl(child_id, Some(&mut entries));
                         continue;
                     }
                     let is_sc_root = self.nodes[child_id].is_stacking_context_root(is_flex_or_grid);
