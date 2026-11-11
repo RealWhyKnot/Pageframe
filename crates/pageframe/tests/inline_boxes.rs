@@ -475,3 +475,28 @@ fn a_line_breaks_after_a_space_before_punctuation() {
     assert_eq!(painted(&buffer, 20).len(), 0);
     assert_eq!(painted(&buffer, 60).len(), word + 2);
 }
+
+#[test]
+fn a_wrapped_space_hangs_on_the_left_in_right_to_left_text() {
+    let span = |inner: &str| {
+        let buffer = draw(&format!(
+            "<div dir=\"rtl\" style=\"line-height:40px;width:30px\">\
+             <span style=\"background:#0f0;color:transparent\">{inner}</span></div>"
+        ));
+        painted(&buffer, 20)
+    };
+    let single = span("aaa");
+    assert_eq!(single.last().map(|(x, _)| *x), Some(29));
+    assert_eq!(span("aaa aaa"), single);
+    let underline = |inner: &str| {
+        let buffer = draw(&format!(
+            "<div dir=\"rtl\" style=\"line-height:40px;width:30px;color:transparent;\
+             text-decoration:underline black\">{inner}</div>"
+        ));
+        (0..40)
+            .map(|y| painted(&buffer, y))
+            .find(|row| !row.is_empty())
+            .expect("the underline is painted")
+    };
+    assert_eq!(underline("aaa aaa"), underline("aaa"));
+}

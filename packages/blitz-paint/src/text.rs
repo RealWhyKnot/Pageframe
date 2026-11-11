@@ -126,7 +126,8 @@ fn hung_space(
     use style::computed_values::white_space_collapse::T as WhiteSpaceCollapse;
     let body = run_text.trim_end_matches(is_end_mark);
     let marks = run_text.get(body.len()..)?.chars().count();
-    if !body.ends_with(' ') || glyph_run.run().is_rtl() {
+    let is_blank = body.chars().all(|ch| ch == ' ');
+    if !body.ends_with(' ') || (glyph_run.run().is_rtl() && !is_blank) {
         return None;
     }
     let styles = doc.get_node(owner)?.primary_styles()?;
@@ -136,6 +137,10 @@ fn hung_space(
         WhiteSpaceCollapse::Collapse | WhiteSpaceCollapse::PreserveBreaks
     ) {
         return None;
+    }
+    if is_blank && marks == 0 {
+        let left = f64::from(glyph_run.offset());
+        return Some((left, f64::from(glyph_run.advance())));
     }
     let glyphs: SmallVec<[(f32, f32); 16]> = glyph_run
         .positioned_glyphs()
@@ -229,15 +234,18 @@ pub(crate) fn inline_fragments<'a>(
 ) -> Vec<InlineFragment> {
     let mut fragments = Vec::new();
     let mut font_ratios: Option<(f64, f64)> = None;
-    let clone_basis = doc
+    let (clone_basis, is_rtl) = doc
         .get_node(inline_root_id)
         .and_then(|node| node.element_data())
         .and_then(|element| element.inline_layout_data.as_ref())
-        .map_or(0.0, |layout| layout.percent_basis);
+        .map_or((0.0, false), |layout| {
+            (layout.percent_basis, layout.layout.is_rtl())
+        });
     for line in lines {
         let line_baseline = f64::from(line.metrics().baseline);
         let mut boxes: Vec<SpanBox> = Vec::new();
         let mut line_right = f64::MIN;
+        let mut line_left = f64::MAX;
         let mut hung: Option<(f64, f64)> = None;
         let mut is_hung_closed = false;
         for item in line.items() {
@@ -295,6 +303,7 @@ pub(crate) fn inline_fragments<'a>(
             };
 
             line_right = line_right.max(span_item.right);
+            line_left = line_left.min(span_item.left);
             let ancestors = inline_ancestors(doc, start, inline_root_id);
             let depth_of_first = ancestors.len();
             let mut outer_shift = ancestors
@@ -362,7 +371,9 @@ pub(crate) fn inline_fragments<'a>(
             }
         }
 
-        let inked_right = line_right - f64::from(line.metrics().hanging_advance);
+        let hanging = f64::from(line.metrics().hanging_advance);
+        let inked_right = line_right - hanging;
+        let inked_left = line_left + hanging;
         boxes.sort_by_key(|span_box| span_box.depth);
         let clones: Vec<_> = boxes
             .iter()
@@ -373,13 +384,19 @@ pub(crate) fn inline_fragments<'a>(
             })
             .collect();
         for (index, mut span_box) in boxes.into_iter().enumerate() {
-            if let Some((space_left, space_width)) = hung.filter(|_| is_hung_closed)
-                && span_box.right > space_left
-            {
-                span_box.right = (span_box.right - space_width).max(span_box.left);
-            }
-            if !span_box.is_end {
-                span_box.right = span_box.right.min(inked_right).max(span_box.left);
+            if is_rtl {
+                if !span_box.is_end {
+                    span_box.left = span_box.left.max(inked_left).min(span_box.right);
+                }
+            } else {
+                if let Some((space_left, space_width)) = hung.filter(|_| is_hung_closed)
+                    && span_box.right > space_left
+                {
+                    span_box.right = (span_box.right - space_width).max(span_box.left);
+                }
+                if !span_box.is_end {
+                    span_box.right = span_box.right.min(inked_right).max(span_box.left);
+                }
             }
             if let Some((insets, _, _)) = clones.get(index).copied().flatten() {
                 let inner = || clones.iter().skip(index + 1).flatten();
@@ -1317,6 +1334,11 @@ pub(crate) fn stroke_text<'a>(
     stack.clear();
     path_scratch.clear();
     deco_boxes.clear();
+    let is_rtl = doc
+        .get_node(inline_root_id)
+        .and_then(|node| node.element_data())
+        .and_then(|element| element.inline_layout_data.as_ref())
+        .is_some_and(|layout| layout.layout.is_rtl());
 
     // Persistent stack mirroring the ancestor path (inline root -> current run's
     // node) as we walk the runs. The `text-decoration-*` properties are *not*
@@ -1345,6 +1367,7 @@ pub(crate) fn stroke_text<'a>(
         deco_boxes.clear();
         let mut holes: SmallVec<[(f64, f64); 2]> = SmallVec::new();
         let mut hung: Option<(f64, f64)> = None;
+        let mut has_text = false;
 
         for (item_index, item) in line.items().enumerate() {
             if let PositionedLayoutItem::InlineBox(inline_box) = &item
@@ -1362,8 +1385,11 @@ pub(crate) fn stroke_text<'a>(
                 let snap_origin = covers_its_start(doc, glyph_run.style().brush.id, run.is_rtl())
                     .then(|| transform.translation().x);
                 push_spacer_holes(&glyph_run, run_text, snap_origin, &mut holes);
-                if !run_text.trim_end_matches(is_end_mark).is_empty() {
-                    hung = hung_space(&glyph_run, run_text, doc, glyph_run.style().brush.id);
+                let body = run_text.trim_end_matches(is_end_mark);
+                if !body.is_empty() && !(is_rtl && has_text) {
+                    hung = hung_space(&glyph_run, run_text, doc, glyph_run.style().brush.id)
+                        .filter(|_| !is_rtl || body.chars().all(|ch| ch == ' '));
+                    has_text = true;
                 }
                 let font = run.font();
                 let font_size = run.font_size();
