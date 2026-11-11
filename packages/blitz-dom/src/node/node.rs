@@ -1632,6 +1632,9 @@ impl Node {
                     let pos = hoisted_child.position(self.tree(), self.id);
                     let x = x - pos.x;
                     let y = y - pos.y;
+                    if hoisted_child.is_clipped_at(self.tree(), self.id, x, y) {
+                        continue;
+                    }
                     if let Some(hit) = child.hit_inner(x, y, scale, control) {
                         return Some(hit);
                     }
@@ -1663,6 +1666,9 @@ impl Node {
                     let pos = hoisted_child.position(self.tree(), self.id);
                     let x = x - pos.x;
                     let y = y - pos.y;
+                    if hoisted_child.is_clipped_at(self.tree(), self.id, x, y) {
+                        continue;
+                    }
                     if let Some(hit) = child.hit_inner(x, y, scale, control) {
                         return Some(hit);
                     }

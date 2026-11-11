@@ -32,7 +32,7 @@ use blitz_dom::node::{
     ListItemLayout, ListItemLayoutPosition, Marker, MarkerShape, MarkerSymbol, NodeData,
     RasterImageData, SpecialElementData, TextBrush, TextInputData, TextNodeData,
 };
-use blitz_dom::{BaseDocument, ElementData, Node, NodeId, local_name};
+use blitz_dom::{BaseDocument, ElementData, HoistedPaintChild, Node, NodeId, local_name};
 use blitz_traits::devtools::DevtoolSettings;
 
 use style::values::computed::{BorderCornerRadius, ColorOrAuto};
@@ -1702,17 +1702,7 @@ impl ElementCx<'_, '_> {
 
         if let Some(hoisted) = &self.node.stacking_context {
             for hoisted_child in hoisted.neg_z_hoisted_children() {
-                let position = hoisted_child.position(self.node.tree(), self.node.id);
-                let pos = kurbo::Vec2 {
-                    x: position.x as f64 * self.scale,
-                    y: position.y as f64 * self.scale,
-                };
-                self.render_node(
-                    scene,
-                    hoisted_child.node_id,
-                    parent_style_transform.pre_translate(pos),
-                    clip_rect,
-                );
+                self.render_hoisted_child(scene, hoisted_child, parent_style_transform, clip_rect);
             }
         }
 
@@ -1788,19 +1778,47 @@ impl ElementCx<'_, '_> {
         // Positive z_index hoisted nodes
         if let Some(hoisted) = &self.node.stacking_context {
             for hoisted_child in hoisted.pos_z_hoisted_children() {
-                let position = hoisted_child.position(self.node.tree(), self.node.id);
-                let pos = kurbo::Vec2 {
-                    x: position.x as f64 * self.scale,
-                    y: position.y as f64 * self.scale,
-                };
-                self.render_node(
-                    scene,
-                    hoisted_child.node_id,
-                    parent_style_transform.pre_translate(pos),
-                    clip_rect,
-                );
+                self.render_hoisted_child(scene, hoisted_child, parent_style_transform, clip_rect);
             }
         }
+    }
+
+    fn render_hoisted_child(
+        &self,
+        scene: &mut impl PaintScene,
+        hoisted_child: &HoistedPaintChild,
+        parent_style_transform: Affine,
+        clip_rect: Rect,
+    ) {
+        const FAR: f64 = 1.0e7;
+        let tree = self.node.tree();
+        let position = hoisted_child.position(tree, self.node.id);
+        let pos = kurbo::Vec2 {
+            x: f64::from(position.x) * self.scale,
+            y: f64::from(position.y) * self.scale,
+        };
+        let transform = parent_style_transform.pre_translate(pos);
+        let clip = hoisted_child.clip(tree, self.node.id).map(|clip| {
+            let edge = |value: f32| (f64::from(value) * self.scale).clamp(-FAR, FAR);
+            Rect::new(
+                edge(clip.left),
+                edge(clip.top),
+                edge(clip.right),
+                edge(clip.bottom),
+            )
+        });
+        let pushed = self.context.layer_manager.maybe_push_layer(
+            scene,
+            clip.is_some(),
+            BlendMode::default(),
+            1.0,
+            transform,
+            &clip.unwrap_or(Rect::ZERO),
+            None,
+            None,
+        );
+        self.render_node(scene, hoisted_child.node_id, transform, clip_rect);
+        self.context.layer_manager.maybe_pop_layer(scene, pushed);
     }
 
     #[cfg(feature = "svg")]

@@ -191,3 +191,53 @@ fn see_through_flex_items_keep_their_order() {
     );
     assert_eq!(clicked(&body), ["late"]);
 }
+
+const RED: [u8; 4] = [255, 0, 0, 255];
+const LIME: [u8; 4] = [0, 255, 0, 255];
+const WHITE: [u8; 4] = [255, 255, 255, 255];
+
+fn clipped_box(clipper: &str, child: &str) -> Vec<u8> {
+    draw(&format!(
+        "<div style=\"width:20px;height:20px;background:#0f0;{clipper}\">\
+         <b style=\"display:block;width:40px;height:40px;background:red;{child}\"></b></div>"
+    ))
+}
+
+#[test]
+fn a_raised_child_is_clipped_by_a_static_clipping_box() {
+    let buffer = clipped_box("overflow:hidden", "position:relative;z-index:1");
+    assert_eq!(pixel(&buffer, 10, 10), RED);
+    assert_eq!(pixel(&buffer, 30, 10), WHITE);
+    assert_eq!(pixel(&buffer, 10, 30), WHITE);
+}
+
+#[test]
+fn a_lowered_child_is_clipped_by_a_static_clipping_box() {
+    let buffer = clipped_box("overflow:hidden", "position:relative;z-index:-1");
+    assert_eq!(pixel(&buffer, 10, 10), LIME);
+    assert_eq!(pixel(&buffer, 30, 10), WHITE);
+    assert_eq!(pixel(&buffer, 10, 30), WHITE);
+}
+
+#[test]
+fn a_raised_child_is_clipped_on_one_axis_only() {
+    let buffer = clipped_box("overflow-x:clip", "position:relative;z-index:1");
+    assert_eq!(pixel(&buffer, 10, 30), RED);
+    assert_eq!(pixel(&buffer, 30, 10), WHITE);
+}
+
+#[test]
+fn a_raised_child_is_clipped_to_the_padding_box_of_a_nested_box() {
+    let buffer = draw(
+        "<div style=\"position:relative;left:5px;width:50px\">\
+         <div style=\"width:20px;height:20px;border:3px solid blue;overflow:hidden\">\
+         <b style=\"display:block;width:40px;height:40px;background:red;\
+         position:relative;z-index:1\"></b></div></div>",
+    );
+    assert_eq!(pixel(&buffer, 6, 10), [0, 0, 255, 255]);
+    assert_eq!(pixel(&buffer, 9, 10), RED);
+    assert_eq!(pixel(&buffer, 27, 10), RED);
+    assert_eq!(pixel(&buffer, 29, 10), [0, 0, 255, 255]);
+    assert_eq!(pixel(&buffer, 15, 24), [0, 0, 255, 255]);
+    assert_eq!(pixel(&buffer, 15, 27), WHITE);
+}

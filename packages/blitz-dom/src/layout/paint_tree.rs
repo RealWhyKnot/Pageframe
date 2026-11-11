@@ -33,8 +33,17 @@ use taffy::{Point, Rect};
 /// hoisted by Taffy, otherwise `layout_parent`, which is set for every layout
 /// child by `resolve_layout_children`, anonymous blocks included).
 pub fn hoisted_child_position(tree: &NodeTree, sc_root_id: NodeId, child_id: NodeId) -> Point<f32> {
+    hoisted_child_geometry(tree, sc_root_id, child_id).0
+}
+
+fn hoisted_child_geometry(
+    tree: &NodeTree,
+    sc_root_id: NodeId,
+    child_id: NodeId,
+) -> (Point<f32>, Option<Rect<f32>>) {
     let child = &tree[child_id];
     let mut position = Point::ZERO;
+    let mut clip: Option<Rect<f32>> = None;
     let mut current = child.containing_block();
 
     // A fixed-position box whose containing block is the root element is
@@ -53,13 +62,29 @@ pub fn hoisted_child_position(tree: &NodeTree, sc_root_id: NodeId, child_id: Nod
 
     while let Some(id) = current {
         if id == sc_root_id {
-            return position;
+            return (position, clip);
         }
         let Some(node) = tree.get(id) else {
             break;
         };
         let location = node.final_layout().location;
         let scroll_offset = *node.scroll_offset();
+        if let Some(bounds) = node.overflow_clip_bounds() {
+            let x = position.x - scroll_offset.x as f32;
+            let y = position.y - scroll_offset.y as f32;
+            let inner = clip.unwrap_or(Rect {
+                left: f32::NEG_INFINITY,
+                right: f32::INFINITY,
+                top: f32::NEG_INFINITY,
+                bottom: f32::INFINITY,
+            });
+            clip = Some(Rect {
+                left: (bounds.left - x).max(inner.left),
+                right: (bounds.right - x).min(inner.right),
+                top: (bounds.top - y).max(inner.top),
+                bottom: (bounds.bottom - y).min(inner.bottom),
+            });
+        }
         position.x += location.x - scroll_offset.x as f32;
         position.y += location.y - scroll_offset.y as f32;
         current = node.containing_block();
@@ -67,7 +92,7 @@ pub fn hoisted_child_position(tree: &NodeTree, sc_root_id: NodeId, child_id: Nod
     let origin = tree[sc_root_id].absolute_position(0.0, 0.0);
     position.x -= origin.x;
     position.y -= origin.y;
-    position
+    (position, clip)
 }
 
 /// A child with a z_index that is hoisted up to it's containing Stacking Context for paint purposes
@@ -78,6 +103,7 @@ pub struct HoistedPaintChild {
     /// `(geometry generation, offset from the stacking-context root)`, see
     /// [`Self::position`]. Generation `0` is never current.
     position: Cell<(u64, Point<f32>)>,
+    clip: Cell<Option<Rect<f32>>>,
 }
 
 impl HoistedPaintChild {
@@ -86,6 +112,7 @@ impl HoistedPaintChild {
             node_id,
             z_index,
             position: Cell::new((0, Point::ZERO)),
+            clip: Cell::new(None),
         }
     }
 
@@ -98,9 +125,21 @@ impl HoistedPaintChild {
         if stamp == generation {
             return cached;
         }
-        let position = hoisted_child_position(tree, sc_root_id, self.node_id);
+        let (position, clip) = hoisted_child_geometry(tree, sc_root_id, self.node_id);
         self.position.set((generation, position));
+        self.clip.set(clip);
         position
+    }
+
+    pub fn clip(&self, tree: &NodeTree, sc_root_id: NodeId) -> Option<Rect<f32>> {
+        self.position(tree, sc_root_id);
+        self.clip.get()
+    }
+
+    pub fn is_clipped_at(&self, tree: &NodeTree, sc_root_id: NodeId, x: f32, y: f32) -> bool {
+        self.clip(tree, sc_root_id).is_some_and(|clip| {
+            x < clip.left || x >= clip.right || y < clip.top || y >= clip.bottom
+        })
     }
 
     /// Whether [`Self::position`] is memoised for the current geometry generation.
@@ -508,6 +547,33 @@ impl BaseDocument {
 }
 
 impl Node {
+    fn overflow_clip_bounds(&self) -> Option<Rect<f32>> {
+        use style::values::computed::Overflow;
+
+        let style = self.primary_styles()?;
+        let box_style = style.get_box();
+        let clips_x = box_style.overflow_x != Overflow::Visible;
+        let clips_y = box_style.overflow_y != Overflow::Visible;
+        if !clips_x && !clips_y {
+            return None;
+        }
+        let layout = self.final_layout();
+        let (left, right) = match clips_x {
+            true => (layout.border.left, layout.size.width - layout.border.right),
+            false => (f32::NEG_INFINITY, f32::INFINITY),
+        };
+        let (top, bottom) = match clips_y {
+            true => (layout.border.top, layout.size.height - layout.border.bottom),
+            false => (f32::NEG_INFINITY, f32::INFINITY),
+        };
+        Some(Rect {
+            left,
+            right,
+            top,
+            bottom,
+        })
+    }
+
     fn has_clipping_paint_ancestor(&self) -> bool {
         use style::values::computed::basic_shape::ClipPath;
 
