@@ -495,10 +495,9 @@ impl Node {
                 break;
             }
             let ancestor = self.with(id);
-            if ancestor
-                .primary_styles()
-                .is_some_and(|style| !matches!(style.get_clip_path(), ClipPath::None))
-            {
+            if ancestor.primary_styles().is_some_and(|style| {
+                !matches!(style.get_clip_path(), ClipPath::None | ClipPath::Url(_))
+            }) {
                 return true;
             }
             current = ancestor.layout_parent.get();

@@ -1079,3 +1079,52 @@ fn inline_blocks_use_their_own_shape_box() {
         assert_eq!(pixel(&buffer, 60, 40), [0, 136, 204, 255], "{clip}");
     }
 }
+
+#[test]
+fn a_clip_on_a_static_box_clips_its_absolute_child() {
+    let html = r#"<html><head><style>html,body{margin:0;background:white}</style></head><body><div style="position:relative;width:120px;height:80px"><div style="width:60px;height:40px;clip-path:circle(15px);background:#08c"><div id="front" style="position:absolute;left:0;top:0;width:120px;height:80px;background:#c40"></div></div></div></body></html>"#;
+    let app =
+        App::new(Vec::new(), html).on("#front", EventKind::Click, |seen, _, _| seen.push("front"));
+    let mut harness = open(app);
+    let buffer = render(&mut harness);
+    assert_eq!(pixel(&buffer, 30, 20), [204, 68, 0, 255]);
+    assert_eq!(pixel(&buffer, 90, 60), [255; 4]);
+    assert_eq!(pixel(&buffer, 5, 5), [255; 4]);
+    harness.click_at(90.0, 60.0);
+    assert_eq!(harness.doc.state().last(), None);
+    harness.click_at(30.0, 20.0);
+    assert_eq!(harness.doc.state().last(), Some(&"front"));
+}
+
+#[test]
+fn a_missing_clip_reference_leaves_an_absolute_child_alone() {
+    let html = r#"<html><head><style>html,body{margin:0;background:white}</style></head><body><div style="position:relative;width:120px;height:80px"><div style="width:60px;height:40px;clip-path:url(#missing)"><div style="position:absolute;left:0;top:0;width:120px;height:80px;background:#c40"></div></div><div style="position:absolute;left:60px;top:0;width:30px;height:30px;background:#08c"></div></div></body></html>"#;
+    let mut harness = open(App::new((), html));
+    let buffer = render(&mut harness);
+    assert_eq!(pixel(&buffer, 30, 70), [204, 68, 0, 255]);
+    assert_eq!(pixel(&buffer, 70, 10), [0, 136, 204, 255]);
+}
+
+#[test]
+fn a_scrolled_and_scaled_box_is_hit_inside_its_clip() {
+    let html = r#"<html><head><style>html,body{margin:0;background:white}</style></head><body><div id="under" style="position:absolute;inset:0"></div><div id="front" style="position:absolute;left:0;top:0;width:30px;height:30px;overflow:hidden;transform-origin:0 0;transform:scale(2);clip-path:circle(10px at 15px 15px);background:#08c"><div style="height:150px"></div></div></body></html>"#;
+    let app = App::new(Vec::new(), html)
+        .on("#front", EventKind::Click, |seen, _, _| seen.push("front"))
+        .on("#under", EventKind::Click, |seen, _, _| seen.push("under"));
+    let mut harness = open(app);
+    let id = harness.base().query_selector("#front").unwrap().unwrap();
+    harness
+        .base_mut()
+        .get_node_mut(id)
+        .unwrap()
+        .scroll_offset_mut()
+        .y = 20.0;
+    let buffer = render(&mut harness);
+    for (y, inside) in [(14_u16, true), (46, true), (54, false), (6, false)] {
+        let p = pixel(&buffer, 30, usize::from(y));
+        assert_eq!(p == [0, 136, 204, 255], inside, "pixel at 30,{y}");
+        harness.click_at(30.0, f32::from(y));
+        let expected = if inside { "front" } else { "under" };
+        assert_eq!(harness.doc.state().last(), Some(&expected), "hit at 30,{y}");
+    }
+}

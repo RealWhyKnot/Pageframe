@@ -1452,8 +1452,8 @@ impl Node {
             .primary_styles()
             .is_some_and(|style| style.clone_pointer_events() == PointerEvents::None);
 
-        let mut x = x - self.final_layout().location.x + self.scroll_offset().x as f32;
-        let mut y = y - self.final_layout().location.y + self.scroll_offset().y as f32;
+        let mut x = x - self.final_layout().location.x;
+        let mut y = y - self.final_layout().location.y;
 
         if let Some(t) = self.transform().as_deref() {
             let p = t.inverse() * kurbo::Point::new(x as f64 * scale, y as f64 * scale);
@@ -1461,14 +1461,15 @@ impl Node {
             y = (p.y / scale) as f32;
         }
 
-        if self.clip_path().is_some_and(|clip| {
-            !clip.contains(kurbo::Point::new(
-                f64::from(x) - self.scroll_offset().x,
-                f64::from(y) - self.scroll_offset().y,
-            ))
-        }) {
+        if self
+            .clip_path()
+            .is_some_and(|clip| !clip.contains(kurbo::Point::new(f64::from(x), f64::from(y))))
+        {
             return None;
         }
+
+        x += self.scroll_offset().x as f32;
+        y += self.scroll_offset().y as f32;
 
         let size = self.final_layout().size;
         let matches_self = !(x < self.scroll_offset().x as f32
