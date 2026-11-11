@@ -454,4 +454,9 @@ fn a_line_breaks_after_a_space_before_punctuation() {
         assert_eq!(painted(&buffer, 20).len(), word, "{after}");
         assert_eq!(painted(&buffer, 60).len(), word, "{after}");
     }
+    let buffer = draw(
+        "<div style=\"line-height:40px;width:30px;color:transparent\">aaa \n         <span style=\"background:#0f0;padding:0 1px\">,aa</span></div>",
+    );
+    assert_eq!(painted(&buffer, 20).len(), 0);
+    assert_eq!(painted(&buffer, 60).len(), word + 2);
 }
