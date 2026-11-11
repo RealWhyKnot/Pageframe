@@ -87,8 +87,8 @@ pub struct TableCell {
     /// Index (into `TableContext::rows`) of the row the cell originates in
     pub row: u16,
     /// Index of the column the cell originates in
-    pub column: u16,
-    column_span: u16,
+    pub column: usize,
+    column_span: usize,
     row_span: u16,
     column_width_border: Option<f32>,
     percent_width: Option<f32>,
@@ -101,9 +101,9 @@ pub struct TableCell {
 #[derive(Debug, Default)]
 struct ColumnCursor {
     /// The column the next cell in the current row will be placed in
-    col: u16,
+    col: usize,
     /// The total number of columns seen so far
-    num_columns: u16,
+    num_columns: usize,
     /// For each column, how many rows (counting the current one) a rowspan cell still occupies
     rowspans: Vec<u16>,
 }
@@ -117,19 +117,19 @@ impl ColumnCursor {
     }
 
     /// Advance past occupied columns, returning the column of the next cell
-    fn next_free(&mut self) -> u16 {
-        while self.rowspans.get(self.col as usize).is_some_and(|r| *r > 0) {
+    fn next_free(&mut self) -> usize {
+        while self.rowspans.get(self.col).is_some_and(|r| *r > 0) {
             self.col += 1;
         }
         self.col
     }
 
-    fn place(&mut self, colspan: u16, rowspan: u16) {
+    fn place(&mut self, colspan: usize, rowspan: u16) {
         let end = self.col + colspan;
-        if self.rowspans.len() < end as usize {
-            self.rowspans.resize(end as usize, 0);
+        if self.rowspans.len() < end {
+            self.rowspans.resize(end, 0);
         }
-        for remaining in &mut self.rowspans[self.col as usize..end as usize] {
+        for remaining in &mut self.rowspans[self.col..end] {
             *remaining = rowspan;
         }
         self.col = end;
@@ -212,13 +212,13 @@ fn widest<I: Iterator<Item = usize>>(
 fn resolve_collapsed_borders(
     doc: &mut BaseDocument,
     cells: &mut [TableCell],
-    num_columns: u16,
+    num_columns: usize,
     num_rows: usize,
     own: taffy::Rect<f32>,
     wm: WritingMode,
 ) -> taffy::Rect<taffy::LengthPercentage> {
     let is_ltr = wm.direction() == taffy::Direction::Ltr;
-    let columns = usize::from(num_columns);
+    let columns = num_columns;
     let table = flip_inline(own.map(|width| width / 2.0), is_ltr);
     let halves: Vec<taffy::Rect<f32>> = cells
         .iter()
@@ -228,9 +228,9 @@ fn resolve_collapsed_borders(
         })
         .collect();
     let span = |cell: &TableCell| {
-        let first_column = usize::from(cell.column).min(columns);
+        let first_column = cell.column.min(columns);
         let first_row = usize::from(cell.row).min(num_rows);
-        let end_column = (first_column + usize::from(cell.column_span)).min(columns);
+        let end_column = (first_column + cell.column_span).min(columns);
         let end_row = (first_row + usize::from(cell.row_span)).min(num_rows);
         (first_column..end_column, first_row..end_row)
     };
@@ -391,7 +391,7 @@ pub(crate) fn build_table_context(
         }
     }
     // Percentage widths set on first-row cells: (column index, percentage, padding + border)
-    let mut percent_columns: Vec<(u16, f32, f32)> = Vec::new();
+    let mut percent_columns: Vec<(usize, f32, f32)> = Vec::new();
     let mut calc_values: Vec<LengthPercentage> = Vec::new();
     // Header row groups are laid out before other rows, and footer row groups after
     let row_group_order = |doc: &BaseDocument, child_id: NodeId| -> u8 {
@@ -456,10 +456,10 @@ pub(crate) fn build_table_context(
         cell.style.grid_row.end = style_helpers::span(cell.row_span);
     }
     if cells.iter().any(|cell| cell.column_span > 1) {
-        let length = usize::from(cursor.num_columns).max(column_sizes.len());
+        let length = cursor.num_columns.max(column_sizes.len());
         let mut occupied = vec![false; length];
         for cell in &cells {
-            occupied[usize::from(cell.column)] = true;
+            occupied[cell.column] = true;
         }
         for (index, column) in columns.iter().enumerate() {
             let sized = column_sizes.get(index).is_some_and(|track| {
@@ -477,18 +477,19 @@ pub(crate) fn build_table_context(
         }
         if occupied.iter().any(|&occupied| !occupied) {
             let mut offsets = Vec::with_capacity(length + 1);
-            offsets.push(0_u16);
+            offsets.push(0_usize);
             for &occupied in &occupied {
-                offsets.push(offsets.last().copied().unwrap_or(0) + u16::from(occupied));
+                offsets.push(offsets.last().copied().unwrap_or(0) + usize::from(occupied));
             }
             for cell in &mut cells {
-                let start = usize::from(cell.column);
-                let end = start + usize::from(cell.column_span);
+                let start = cell.column;
+                let end = start + cell.column_span;
                 cell.column = offsets[start];
                 cell.column_span = offsets[end] - offsets[start];
-                cell.style.grid_column.end = style_helpers::span(cell.column_span);
+                cell.style.grid_column.end =
+                    style_helpers::span(u16::try_from(cell.column_span).unwrap_or(u16::MAX));
             }
-            cursor.num_columns = offsets[usize::from(cursor.num_columns)];
+            cursor.num_columns = offsets[cursor.num_columns];
             columns = columns
                 .into_iter()
                 .enumerate()
@@ -500,7 +501,7 @@ pub(crate) fn build_table_context(
                 .filter_map(|(index, column)| occupied[index].then_some(column))
                 .collect();
             for (column, _, _) in &mut percent_columns {
-                *column = offsets[usize::from(*column)];
+                *column = offsets[*column];
             }
         }
     }
@@ -512,7 +513,7 @@ pub(crate) fn build_table_context(
     };
     // Trailing `<col>` columns which contain no cells and have no definite width
     // (i.e. would be zero-width) are dropped, so they don't add border-spacing.
-    while column_sizes.len() > cursor.num_columns as usize
+    while column_sizes.len() > cursor.num_columns
         && column_sizes
             .last()
             .is_some_and(|c| c.min.into_raw().tag() == taffy::CompactLength::AUTO_TAG)
@@ -520,8 +521,8 @@ pub(crate) fn build_table_context(
         column_sizes.pop();
         columns.pop();
     }
-    let num_columns = cursor.num_columns.max(column_sizes.len() as u16);
-    column_sizes.resize(num_columns as usize, remaining_column);
+    let num_columns = cursor.num_columns.max(column_sizes.len());
+    column_sizes.resize(num_columns, remaining_column);
     if border_collapse == BorderCollapse::Collapse {
         let own = style.border.resolve_or_zero(None, resolve_calc_value);
         style.border = resolve_collapsed_borders(doc, &mut cells, num_columns, rows.len(), own, wm);
@@ -531,7 +532,7 @@ pub(crate) fn build_table_context(
             };
             let border = cell.style.border.resolve_or_zero(None, resolve_calc_value);
             let growth = border.left + border.right - counted;
-            if let Some(column) = column_sizes.get_mut(usize::from(cell.column)) {
+            if let Some(column) = column_sizes.get_mut(cell.column) {
                 if column.max.into_raw().tag() == taffy::CompactLength::LENGTH_TAG {
                     *column = style_helpers::length(column.max.into_raw().value() + growth);
                 }
@@ -580,7 +581,7 @@ pub(crate) fn build_table_context(
         // Percentage widths on cells apply to the cell's content box, so the
         // cell's horizontal padding and border must be added to the column width.
         for (col_idx, percent, extra) in percent_columns {
-            if let Some(column) = column_sizes.get_mut(col_idx as usize) {
+            if let Some(column) = column_sizes.get_mut(col_idx) {
                 *column = percent_track(percent, extra);
             }
         }
@@ -680,7 +681,7 @@ pub(crate) fn build_table_context(
     let collapsed_column_cells = cells
         .iter()
         .filter_map(|cell| {
-            (usize::from(cell.column)..(usize::from(cell.column) + usize::from(cell.column_span)))
+            (cell.column..(cell.column + cell.column_span))
                 .all(|index| columns.get(index).is_some_and(|column| column.is_collapsed))
                 .then_some(cell.node_id)
         })
@@ -691,8 +692,7 @@ pub(crate) fn build_table_context(
             (rows
                 .get(usize::from(cell.row))
                 .is_some_and(|row| row.is_collapsed)
-                || (usize::from(cell.column)
-                    ..(usize::from(cell.column) + usize::from(cell.column_span)))
+                || (cell.column..(cell.column + cell.column_span))
                     .all(|index| columns.get(index).is_some_and(|column| column.is_collapsed)))
             .then_some(cell.node_id)
         })
@@ -849,7 +849,7 @@ fn collect_table_cells(
     oof_children: &mut Vec<(NodeId, taffy::Position)>,
     rows: &mut Vec<TableRow>,
     columns: &mut Vec<TrackSizingFunction>,
-    percent_columns: &mut Vec<(u16, f32, f32)>,
+    percent_columns: &mut Vec<(usize, f32, f32)>,
     section_end: u16,
 ) {
     let node = &mut doc.nodes[node_id];
@@ -1005,8 +1005,7 @@ fn collect_table_cells(
             }
 
             // Column widths from `<col>` elements take precedence over cell widths
-            let col_needs_width =
-                (col as usize) >= columns.len() || columns[col as usize].max.is_auto();
+            let col_needs_width = col >= columns.len() || columns[col].max.is_auto();
             let mut column_width_border = None;
             if *row == 1 && col_needs_width {
                 let column: TrackSizingFunction = match style.size.width.tag() {
@@ -1050,12 +1049,12 @@ fn collect_table_cells(
                     // Taffy resolves it against the table's inner width.
                     _ => style.size.width.into(),
                 };
-                if (col as usize) < columns.len() {
+                if col < columns.len() {
                     if !column.max.is_auto() {
-                        columns[col as usize] = column;
+                        columns[col] = column;
                     }
                 } else {
-                    columns.resize(col as usize, style_helpers::auto());
+                    columns.resize(col, style_helpers::auto());
                     columns.push(column);
                 }
             }
@@ -1103,14 +1102,14 @@ fn collect_table_cells(
                 node_id,
                 row: row.saturating_sub(1),
                 column: col,
-                column_span: colspan,
+                column_span: usize::from(colspan),
                 row_span: rowspan,
                 column_width_border,
                 percent_width,
                 style,
             });
 
-            cursor.place(colspan, rowspan);
+            cursor.place(usize::from(colspan), rowspan);
         }
         DisplayInside::Flow
         | DisplayInside::FlowRoot
@@ -1158,6 +1157,25 @@ fn grow(values: &mut [f32], weights: &[f32], need: f32) {
         } else {
             even
         };
+    }
+}
+
+fn grow_mins(mins: &mut [f32], maxes: &[f32], weights: &[f32], need: f32) {
+    let total_min: f32 = mins.iter().sum();
+    let total_max: f32 = mins.iter().zip(maxes).map(|(min, max)| max.max(*min)).sum();
+    if need <= total_min {
+        return;
+    }
+    if need >= total_max {
+        for (min, max) in mins.iter_mut().zip(maxes) {
+            *min = max.max(*min);
+        }
+        grow(mins, weights, need);
+        return;
+    }
+    let share = (need - total_min) / (total_max - total_min);
+    for (min, max) in mins.iter_mut().zip(maxes) {
+        *min += (max - *min).max(0.0) * share;
     }
 }
 
@@ -1414,8 +1432,8 @@ impl TableTreeWrapper<'_, '_> {
         }
         let mut spanning = Vec::new();
         for cell in &ctx.cells {
-            let start = usize::from(cell.column).min(columns);
-            let end = (start + usize::from(cell.column_span)).min(columns);
+            let start = cell.column.min(columns);
+            let end = (start + cell.column_span).min(columns);
             if start == end {
                 continue;
             }
@@ -1457,7 +1475,12 @@ impl TableTreeWrapper<'_, '_> {
                     _ => maxes[index].max(1.0),
                 })
                 .collect();
-            grow(&mut mins[span.clone()], &weights, min - gaps);
+            grow_mins(
+                &mut mins[span.clone()],
+                &maxes[span.clone()],
+                &weights,
+                min - gaps,
+            );
             grow(&mut maxes[span], &weights, max - gaps);
         }
         for (max, min) in maxes.iter_mut().zip(&mins) {
@@ -1482,17 +1505,14 @@ impl TableTreeWrapper<'_, '_> {
         };
         let mut preferred: Vec<Option<f32>> = auto.tracks.iter().map(track_length).collect();
         for cell in &ctx.cells {
-            let has_column_width =
-                ctx.columns
-                    .get(usize::from(cell.column))
-                    .is_some_and(|column| {
-                        self.doc.nodes[column.node_id]
-                            .primary_styles()
-                            .is_some_and(|style| {
-                                stylo_taffy::convert::dimension(style.get_width()).tag()
-                                    == taffy::CompactLength::LENGTH_TAG
-                            })
-                    });
+            let has_column_width = ctx.columns.get(cell.column).is_some_and(|column| {
+                self.doc.nodes[column.node_id]
+                    .primary_styles()
+                    .is_some_and(|style| {
+                        stylo_taffy::convert::dimension(style.get_width()).tag()
+                            == taffy::CompactLength::LENGTH_TAG
+                    })
+            });
             if cell.column_span != 1 || has_column_width {
                 continue;
             }
@@ -1515,7 +1535,7 @@ impl TableTreeWrapper<'_, '_> {
                         width.value() + padding.left + padding.right + border.left + border.right
                     }
                 };
-                let preferred = &mut preferred[usize::from(cell.column)];
+                let preferred = &mut preferred[cell.column];
                 *preferred = Some(preferred.map_or(width, |seen| seen.max(width)));
             }
         }
@@ -1558,10 +1578,17 @@ impl TableTreeWrapper<'_, '_> {
                 .size
                 .width
                 .maybe_resolve(parent_width, resolve_calc_value)?;
-            Some(match ctx.style.box_sizing {
+            let outer = |width: f32| match ctx.style.box_sizing {
                 taffy::BoxSizing::BorderBox => width,
                 taffy::BoxSizing::ContentBox => width + frame,
-            })
+            };
+            let max = ctx
+                .style
+                .max_size
+                .width
+                .maybe_resolve(parent_width, resolve_calc_value)
+                .map_or(f32::INFINITY, outer);
+            Some(outer(width).min(max))
         });
         let space = match (specified, inputs.available_space.width) {
             (Some(width), _) | (None, AvailableSpace::Definite(width)) => width - frame - gaps,
@@ -1600,6 +1627,13 @@ impl TableTreeWrapper<'_, '_> {
         }
 
         let mut style = ctx.style.clone();
+        let content = widths.iter().sum::<f32>() + gaps;
+        if specified.is_some_and(|width| width < content + frame) {
+            style.min_size.width = style_helpers::length(match style.box_sizing {
+                taffy::BoxSizing::BorderBox => content + frame,
+                taffy::BoxSizing::ContentBox => content,
+            });
+        }
         style.grid_template_columns = widths
             .into_iter()
             .map(|width| {
@@ -1804,8 +1838,8 @@ impl TableTreeWrapper<'_, '_> {
             });
         }
         for cell in &ctx.cells {
-            let start = usize::from(cell.column);
-            let end = start + usize::from(cell.column_span);
+            let start = cell.column;
+            let end = start + cell.column_span;
             let mut layout = *self.doc.nodes[cell.node_id].unrounded_layout();
             layout.location.x = if rtl {
                 output.size.width - removed[lines.len()] - positions[end - 1].end

@@ -333,9 +333,7 @@ impl ElementCx<'_, '_> {
 
         for cell in &table.cells {
             let no_colors = [None, None];
-            let column = column_colors
-                .get(cell.column as usize)
-                .unwrap_or(&no_colors);
+            let column = column_colors.get(cell.column).unwrap_or(&no_colors);
             let row = row_colors.get(cell.row as usize).unwrap_or(&no_colors);
             let mut colors = column.iter().chain(row).flatten().peekable();
             if colors.peek().is_none() {

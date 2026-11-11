@@ -2340,3 +2340,78 @@ fn a_clamped_large_span_can_cross_a_collapsed_column() {
         ],
     );
 }
+
+const SPAN_STYLE: &str = "<style>table{border-collapse:separate;border-spacing:2px}td{width:auto}b{display:inline-block;width:6px;height:10px;background:yellow}col.x{visibility:collapse}div{position:absolute;left:0;top:0}</style>";
+
+#[test]
+fn max_width_applies_before_a_collapsed_percent_column_is_removed() {
+    check_table_boxes(
+        &format!(
+            r#"{SPAN_STYLE}<div style="width:200px"><table id="a" style="width:50%;max-width:60px"><col class="x" style="width:40%"><tr><td id="a1"><b></b></td><td id="a2"><b></b></td></tr></table></div>"#
+        ),
+        &[
+            ("a", [0.0, 0.0, 36.40625, 18.0]),
+            ("a1", [2.0, 2.0, 0.0, 14.0]),
+            ("a2", [2.0, 2.0, 32.40625, 14.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_right_to_left_table_drops_its_collapsed_percent_column() {
+    check_table_boxes(
+        &format!(
+            r#"{SPAN_STYLE}<div><table id="c" dir="rtl" style="width:50%"><col class="x" style="width:40%"><tr><td id="c1"><b></b></td><td id="c2"><b></b></td></tr></table></div>"#
+        ),
+        &[
+            ("c", [0.0, 0.0, 14.0, 18.0]),
+            ("c1", [12.0, 2.0, 0.0, 14.0]),
+            ("c2", [2.0, 2.0, 10.0, 14.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_wide_spanning_cell_grows_a_table_past_its_width() {
+    check_table_boxes(
+        &format!(
+            r#"{SPAN_STYLE}<div><table id="d" style="width:100px"><tr><td id="d1" colspan="2"><b style="width:150px"></b></td></tr><tr><td id="d2" style="width:20px"><b></b></td><td id="d3" style="width:40px"><b></b></td></tr></table></div>"#
+        ),
+        &[
+            ("d", [0.0, 0.0, 158.0, 34.0]),
+            ("d1", [2.0, 2.0, 154.0, 14.0]),
+            ("d2", [2.0, 18.0, 53.640625, 14.0]),
+            ("d3", [57.640625, 18.0, 98.359375, 14.0]),
+        ],
+    );
+}
+
+#[test]
+fn a_wide_spanning_cell_shares_its_width_by_column_width() {
+    check_table_boxes(
+        &format!(
+            r#"{SPAN_STYLE}<div><table id="e"><tr><td id="e1" colspan="2"><b style="width:150px"></b></td></tr><tr><td id="e2" style="width:20px"><b></b></td><td id="e3" style="width:40px"><b></b></td></tr></table></div>"#
+        ),
+        &[
+            ("e", [0.0, 0.0, 158.0, 34.0]),
+            ("e1", [2.0, 2.0, 154.0, 14.0]),
+            ("e2", [2.0, 18.0, 53.640625, 14.0]),
+            ("e3", [57.640625, 18.0, 98.359375, 14.0]),
+        ],
+    );
+}
+
+#[test]
+fn many_wide_spans_in_one_row_each_get_a_column() {
+    let cells = r#"<td colspan="1000"><b></b></td>"#.repeat(69);
+    check_table_boxes(
+        &format!(
+            r#"{SPAN_STYLE}<table id="a"><tr><td id="a1" colspan="1000"><b></b></td>{cells}</tr><tr><td id="a2"><b></b></td></tr></table>"#
+        ),
+        &[
+            ("a", [0.0, 0.0, 842.0, 34.0]),
+            ("a1", [2.0, 2.0, 10.0, 14.0]),
+            ("a2", [2.0, 18.0, 10.0, 14.0]),
+        ],
+    );
+}
