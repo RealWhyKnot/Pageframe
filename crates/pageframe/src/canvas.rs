@@ -120,8 +120,15 @@ impl Canvas {
 
     pub(crate) fn size_from_attrs(width: Option<&str>, height: Option<&str>) -> (u32, u32) {
         let parse = |attr: Option<&str>, fallback: u32| {
-            attr.and_then(|text| text.trim().parse::<u32>().ok())
-                .unwrap_or(fallback)
+            let Some(text) = attr else {
+                return fallback;
+            };
+            let text = text.trim_start_matches(|c: char| c.is_ascii_whitespace());
+            let text = text.strip_prefix('+').unwrap_or(text);
+            let digits = text
+                .find(|c: char| !c.is_ascii_digit())
+                .map_or(text, |end| &text[..end]);
+            digits.parse::<u32>().unwrap_or(fallback)
         };
         (parse(width, DEFAULT_WIDTH), parse(height, DEFAULT_HEIGHT))
     }
@@ -173,8 +180,8 @@ impl Canvas {
     }
 
     pub fn set_alpha(&mut self, alpha: f32) -> &mut Self {
-        if alpha.is_finite() {
-            self.state.alpha = alpha.clamp(0.0, 1.0);
+        if (0.0..=1.0).contains(&alpha) {
+            self.state.alpha = alpha;
         }
         self
     }
@@ -232,6 +239,9 @@ impl Canvas {
     }
 
     pub fn fill_rect(&mut self, x: f64, y: f64, width: f64, height: f64) -> &mut Self {
+        if !finite(&[x, y, width, height]) {
+            return self;
+        }
         let rect = Rect::new(x, y, x + width, y + height);
         let brush = self.state.fill.brush(self.state.alpha);
         self.scene
@@ -240,6 +250,9 @@ impl Canvas {
     }
 
     pub fn stroke_rect(&mut self, x: f64, y: f64, width: f64, height: f64) -> &mut Self {
+        if !finite(&[x, y, width, height]) {
+            return self;
+        }
         let rect = Rect::new(x, y, x + width, y + height);
         let brush = self.state.stroke.brush(self.state.alpha);
         let style = self.stroke_style();
@@ -254,12 +267,18 @@ impl Canvas {
     }
 
     pub fn move_to(&mut self, x: f64, y: f64) -> &mut Self {
+        if !finite(&[x, y]) {
+            return self;
+        }
         let point = self.place(x, y);
         self.path.move_to(point);
         self
     }
 
     pub fn line_to(&mut self, x: f64, y: f64) -> &mut Self {
+        if !finite(&[x, y]) {
+            return self;
+        }
         let point = self.place(x, y);
         if self.path.elements().is_empty() {
             self.path.move_to(point);
@@ -270,6 +289,9 @@ impl Canvas {
     }
 
     pub fn quad_to(&mut self, cx: f64, cy: f64, x: f64, y: f64) -> &mut Self {
+        if !finite(&[cx, cy, x, y]) {
+            return self;
+        }
         let control = self.place(cx, cy);
         let end = self.place(x, y);
         if self.path.elements().is_empty() {
@@ -280,6 +302,9 @@ impl Canvas {
     }
 
     pub fn curve_to(&mut self, c1: (f64, f64), c2: (f64, f64), end: (f64, f64)) -> &mut Self {
+        if !finite(&[c1.0, c1.1, c2.0, c2.1, end.0, end.1]) {
+            return self;
+        }
         let first = self.place(c1.0, c1.1);
         let second = self.place(c2.0, c2.1);
         let end = self.place(end.0, end.1);
@@ -291,7 +316,7 @@ impl Canvas {
     }
 
     pub fn arc(&mut self, center: (f64, f64), radius: f64, start: f64, end: f64) -> &mut Self {
-        if !(radius.is_finite() && radius >= 0.0 && start.is_finite() && end.is_finite()) {
+        if !finite(&[center.0, center.1, radius, start, end]) || radius < 0.0 {
             return self;
         }
         let turn = std::f64::consts::TAU;
@@ -314,6 +339,9 @@ impl Canvas {
     }
 
     pub fn rect(&mut self, x: f64, y: f64, width: f64, height: f64) -> &mut Self {
+        if !finite(&[x, y, width, height]) {
+            return self;
+        }
         self.move_to(x, y)
             .line_to(x + width, y)
             .line_to(x + width, y + height)
@@ -374,6 +402,10 @@ impl Canvas {
             .with_join(join)
             .with_miter_limit(MITER_LIMIT)
     }
+}
+
+fn finite(values: &[f64]) -> bool {
+    values.iter().all(|value| value.is_finite())
 }
 
 struct CanvasWidget {

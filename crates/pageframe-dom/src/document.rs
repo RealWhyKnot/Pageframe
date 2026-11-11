@@ -989,6 +989,17 @@ impl BaseDocument {
     /// it so that stale NodeIds are never dereferenced after the slot is freed.
     pub(crate) fn remove_node_from_tree(&mut self, node_id: NodeId) -> Option<Node> {
         self.clear_interaction_state_for_removed_node(node_id);
+        #[cfg(feature = "custom-widget")]
+        if self.custom_widget_nodes.remove(&node_id) {
+            let resources = self
+                .get_node_mut(node_id)
+                .and_then(|node| node.element_data_mut())
+                .map(|element| element.remove_custom_widget());
+            if let Some(resources) = resources {
+                self.pending_resource_deallocations
+                    .extend_from_slice(&resources);
+            }
+        }
         self.nodes.remove(node_id)
     }
 

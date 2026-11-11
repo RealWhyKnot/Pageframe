@@ -24,6 +24,20 @@ canvas{display:block;width:100px;height:40px}
 <canvas id="c" width="50" height="20"></canvas>
 </body></html>"#;
 
+const PADDED: &str = r#"<html><head><style>
+body{margin:0;background:white}
+canvas{display:block;padding:10px;border:5px solid blue}
+</style></head><body>
+<canvas id="c" width="50" height="20"></canvas>
+</body></html>"#;
+
+const UNITS: &str = r#"<html><head><style>
+body{margin:0;background:white}
+canvas{display:block;width:100px;height:40px}
+</style></head><body>
+<canvas id="c" width=" +50px" height="20.9"></canvas>
+</body></html>"#;
+
 fn page(html: &str) -> Harness<Page<()>> {
     open(App::new((), html))
 }
@@ -250,16 +264,109 @@ fn draw_skips_elements_that_are_not_canvases() {
 fn hostile_numbers_do_not_break_the_canvas() {
     let buffer = drawn(PAGE, |canvas| {
         canvas
-            .set_line_width(f64::NAN)
-            .set_line_width(-4.0)
-            .set_alpha(f32::INFINITY)
             .scale(f64::INFINITY, 1.0)
-            .arc((f64::NAN, 0.0), -1.0, 0.0, 1.0)
+            .arc((0.0, 0.0), -1.0, 0.0, 1.0)
             .restore()
             .set_fill(Color::rgb(255, 0, 0))
             .fill_rect(0.0, 0.0, 1.0e12, 1.0e12);
     });
     assert_eq!(pixel(&buffer, 50, 30), RED);
+}
+
+#[test]
+fn alpha_outside_zero_to_one_is_ignored() {
+    let buffer = drawn(PAGE, |canvas| {
+        canvas
+            .set_alpha(-0.5)
+            .set_alpha(1.5)
+            .set_alpha(f32::INFINITY)
+            .set_alpha(f32::NAN)
+            .set_fill(Color::rgb(255, 0, 0))
+            .fill_rect(0.0, 0.0, 100.0, 60.0);
+    });
+    assert_eq!(pixel(&buffer, 50, 30), RED);
+}
+
+#[test]
+fn a_bad_line_width_keeps_the_last_good_one() {
+    let buffer = drawn(PAGE, |canvas| {
+        canvas
+            .set_stroke(Color::rgb(255, 0, 0))
+            .set_line_width(20.0)
+            .set_line_width(f64::NAN)
+            .set_line_width(-4.0)
+            .set_line_width(0.0)
+            .begin_path()
+            .move_to(0.0, 30.0)
+            .line_to(100.0, 30.0)
+            .stroke();
+    });
+    assert_eq!(pixel(&buffer, 50, 22), RED);
+    assert_eq!(pixel(&buffer, 50, 38), RED);
+    assert_eq!(pixel(&buffer, 50, 15), WHITE);
+}
+
+#[test]
+fn path_calls_with_bad_numbers_are_skipped() {
+    let buffer = drawn(PAGE, |canvas| {
+        canvas
+            .set_fill(Color::rgb(255, 0, 0))
+            .begin_path()
+            .arc((f64::NAN, 0.0), 10.0, 0.0, 1.0)
+            .move_to(f64::INFINITY, 0.0)
+            .line_to(0.0, f64::NAN)
+            .quad_to(f64::NAN, 0.0, 10.0, 10.0)
+            .curve_to((0.0, 0.0), (f64::NAN, 5.0), (10.0, 10.0))
+            .rect(f64::NAN, 0.0, 10.0, 10.0)
+            .rect(0.0, 0.0, 50.0, 60.0)
+            .fill()
+            .fill_rect(f64::NAN, 0.0, 100.0, 60.0)
+            .stroke_rect(0.0, 0.0, f64::INFINITY, 60.0);
+    });
+    assert_eq!(pixel(&buffer, 25, 30), RED);
+    assert_eq!(pixel(&buffer, 75, 30), WHITE);
+}
+
+#[test]
+fn padding_and_border_stay_outside_the_picture() {
+    let buffer = drawn(PADDED, |canvas| {
+        canvas
+            .set_fill(Color::rgb(255, 0, 0))
+            .fill_rect(0.0, 0.0, 50.0, 20.0);
+    });
+    assert_eq!(pixel(&buffer, 2, 2), BLUE);
+    assert_eq!(pixel(&buffer, 10, 10), WHITE);
+    assert_eq!(pixel(&buffer, 16, 16), RED);
+    assert_eq!(pixel(&buffer, 63, 33), RED);
+    assert_eq!(pixel(&buffer, 70, 25), WHITE);
+    assert_eq!(pixel(&buffer, 25, 40), WHITE);
+    assert_eq!(pixel(&buffer, 77, 25), BLUE);
+}
+
+#[test]
+fn size_attributes_take_their_leading_digits() {
+    let buffer = drawn(UNITS, |canvas| {
+        canvas
+            .set_fill(Color::rgb(255, 0, 0))
+            .fill_rect(0.0, 0.0, 25.0, 20.0);
+    });
+    assert_eq!(pixel(&buffer, 45, 20), RED);
+    assert_eq!(pixel(&buffer, 55, 20), WHITE);
+}
+
+#[test]
+fn a_removed_canvas_is_forgotten() {
+    let mut harness = page(PAGE);
+    harness.doc.ui().select("#c").draw(|canvas| {
+        canvas
+            .set_fill(Color::rgb(255, 0, 0))
+            .fill_rect(0.0, 0.0, 100.0, 60.0);
+    });
+    harness.pump();
+    harness.doc.ui().select("#c").remove();
+    harness.pump();
+    let buffer = render(&mut harness);
+    assert_eq!(pixel(&buffer, 50, 30), WHITE);
 }
 
 #[test]
