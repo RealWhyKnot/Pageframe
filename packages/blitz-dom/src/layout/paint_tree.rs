@@ -36,6 +36,11 @@ pub fn hoisted_child_position(tree: &NodeTree, sc_root_id: NodeId, child_id: Nod
     hoisted_child_geometry(tree, sc_root_id, child_id).position
 }
 
+enum AncestorGroup {
+    Kept,
+    Left(f32),
+}
+
 #[derive(Default)]
 struct HoistedGeometry {
     position: Point<f32>,
@@ -359,7 +364,7 @@ impl BaseDocument {
                     .oof_containing_block
                     .get()
                     .is_none_or(|cb| cb == node_id)
-                    || doc.nodes[child_id].has_clipping_paint_ancestor()
+                    || doc.nodes[child_id].stays_in_ancestor_group()
             };
             // Boxes hoisted to this node from further down the tree, keyed by
             // the index of the layout child they descend from: they are visited
@@ -373,7 +378,7 @@ impl BaseDocument {
                 .copied()
                 .filter(|&id| {
                     self.nodes.get(id).is_some_and(|n| {
-                        n.layout_parent.get() != Some(node_id) && !n.has_clipping_paint_ancestor()
+                        n.layout_parent.get() != Some(node_id) && !n.stays_in_ancestor_group()
                     })
                 })
                 .map(|id| {
@@ -617,31 +622,39 @@ impl Node {
             })
     }
 
-    fn has_clipping_paint_ancestor(&self) -> bool {
+    fn ancestor_group(&self) -> AncestorGroup {
         use style::values::computed::basic_shape::ClipPath;
 
         let Some(containing_block) = self.oof_containing_block.get() else {
-            return false;
+            return AncestorGroup::Left(1.0);
         };
         let mut is_in_context = false;
         let mut is_clipped = false;
+        let mut opacity = 1.0;
         let mut current = self.layout_parent.get();
-        while let Some(id) = current {
-            if id == containing_block {
-                break;
-            }
+        while let Some(id) = current.filter(|&id| id != containing_block) {
             let ancestor = self.with(id);
-            if ancestor.primary_styles().is_some_and(|style| {
+            let style = ancestor.primary_styles();
+            if style.as_ref().is_some_and(|style| {
                 !matches!(style.get_clip_path(), ClipPath::None | ClipPath::Url(_))
             }) {
-                return true;
+                return AncestorGroup::Kept;
             }
-            is_in_context |= ancestor.is_stacking_context_root(ancestor.is_flex_or_grid_item())
-                && !ancestor.is_removed_column_cell();
+            if !ancestor.is_removed_column_cell() {
+                is_in_context |= ancestor.is_stacking_context_root(ancestor.is_flex_or_grid_item());
+                opacity *= style.map_or(1.0, |style| style.clone_opacity());
+            }
             is_clipped |= ancestor.overflow_clip_bounds().is_some();
             current = ancestor.layout_parent.get();
         }
-        is_in_context && !is_clipped
+        match is_in_context && !is_clipped {
+            true => AncestorGroup::Kept,
+            false => AncestorGroup::Left(opacity),
+        }
+    }
+
+    fn stays_in_ancestor_group(&self) -> bool {
+        matches!(self.ancestor_group(), AncestorGroup::Kept)
     }
 
     fn is_flex_or_grid_item(&self) -> bool {
@@ -654,24 +667,10 @@ impl Node {
     }
 
     pub fn skipped_ancestor_opacity(&self) -> f32 {
-        let Some(containing_block) = self.oof_containing_block.get() else {
-            return 1.0;
-        };
-        if self.has_clipping_paint_ancestor() {
-            return 1.0;
+        match self.ancestor_group() {
+            AncestorGroup::Kept => 1.0,
+            AncestorGroup::Left(opacity) => opacity,
         }
-        let mut opacity = 1.0;
-        let mut current = self.layout_parent.get();
-        while let Some(id) = current.filter(|&id| id != containing_block) {
-            let ancestor = self.with(id);
-            if !ancestor.is_removed_column_cell() {
-                opacity *= ancestor
-                    .primary_styles()
-                    .map_or(1.0, |style| style.clone_opacity());
-            }
-            current = ancestor.layout_parent.get();
-        }
-        opacity
     }
 
     /// Whether this node paints its positioned descendants itself (CSS 2.1
@@ -749,7 +748,7 @@ impl Node {
             return 1.0;
         }
         let passes_layers = is_context && self.z_index() != 0;
-        let mut outer_block = match self.has_clipping_paint_ancestor() {
+        let mut outer_block = match self.stays_in_ancestor_group() {
             true => None,
             false => self.oof_containing_block.get(),
         };

@@ -384,3 +384,25 @@ fn a_raised_child_is_clipped_to_the_rounded_corners_of_an_offset_box() {
     assert_eq!(pixel(&buffer, 41, 31), WHITE);
     assert_eq!(pixel(&buffer, 58, 48), WHITE);
 }
+
+#[test]
+fn an_isolated_static_box_keeps_its_lowered_absolute_child_above_the_box_behind() {
+    let buffer = draw(
+        "<div style=\"width:30px;height:30px;background:#0f0\"><div style=\"isolation:isolate\">\
+         <b style=\"width:20px;height:20px;background:red;position:absolute;z-index:-1;\
+         left:0;top:0\"></b></div></div>",
+    );
+    assert_eq!(pixel(&buffer, 5, 5), RED);
+    assert_eq!(pixel(&buffer, 25, 25), LIME);
+}
+
+#[test]
+fn a_fixed_child_of_a_positioned_box_in_a_clipped_faded_box_fades_unclipped() {
+    let buffer = draw(
+        "<div style=\"width:30px;height:30px;overflow:hidden\"><div style=\"opacity:.5\">\
+         <div style=\"position:relative\">\
+         <b style=\"width:20px;height:20px;background:red;position:fixed;left:50px;top:50px\">\
+         </b></div></div></div>",
+    );
+    assert_eq!(pixel(&buffer, 55, 55), HALF_RED);
+}
