@@ -501,3 +501,24 @@ fn containment_on_an_inline_box_lets_a_raised_child_cover_a_later_layer() {
     );
     assert_eq!(pixel(&buffer, 15, 15), RED);
 }
+
+#[test]
+fn a_span_background_has_whole_pixel_edges_at_a_fractional_offset() {
+    let buffer = draw(
+        "<div style=\"padding:0.5px 0 0 0.5px;line-height:40px\">\
+         <span style=\"background:#0f0;color:transparent\">aa</span></div>",
+    );
+    let column: Vec<[u8; 4]> = (0..40).map(|y| pixel(&buffer, 4, y)).collect();
+    let row: Vec<[u8; 4]> = (0..30).map(|x| pixel(&buffer, x, 20)).collect();
+    assert!(column.contains(&LIME) && row.contains(&LIME));
+    assert!(column.iter().chain(&row).all(|colour| *colour == LIME || *colour == WHITE));
+}
+
+#[test]
+fn a_span_background_stays_on_the_line_around_lowered_text() {
+    let lowered = span("<b style=\"font-weight:400;vertical-align:-12px\">a</b>");
+    let level = span("<b style=\"font-weight:400\">a</b>");
+    let top = |buffer: &[u8]| (0..40).find(|y| pixel(buffer, 2, *y) == LIME);
+    assert!(top(&level).is_some());
+    assert_eq!(top(&lowered), top(&level));
+}

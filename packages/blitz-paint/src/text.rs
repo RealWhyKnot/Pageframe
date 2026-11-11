@@ -79,6 +79,9 @@ pub(crate) fn draw_inline_backgrounds<'a>(
     inline_root_id: NodeId,
     scale: f64,
 ) {
+    let origin = transform.translation();
+    let snap_x = |value: f64| (value + origin.x).round() - origin.x;
+    let snap_y = |value: f64| (value + origin.y).round() - origin.y;
     let mut font_ratios: Option<(f64, f64)> = None;
     for line in lines {
         let line_baseline = f64::from(line.metrics().baseline);
@@ -140,7 +143,7 @@ pub(crate) fn draw_inline_backgrounds<'a>(
                             font_size: font_size * scale,
                             left: span_item.left,
                             right: span_item.right,
-                            baseline: span_item.baseline,
+                            baseline: line_baseline,
                             extent: None,
                             is_own_font: false,
                         });
@@ -161,7 +164,6 @@ pub(crate) fn draw_inline_backgrounds<'a>(
                     span_box.extent = Some((ascent, descent));
                 } else if span_box.extent.is_none() && run_font_size > 0.0 {
                     let ratio = span_box.font_size / run_font_size;
-                    span_box.baseline = span_item.baseline;
                     span_box.extent = Some((ascent * ratio, descent * ratio));
                 }
             }
@@ -177,12 +179,11 @@ pub(crate) fn draw_inline_backgrounds<'a>(
             let Some((ascent, descent)) = extent else {
                 continue;
             };
-            let baseline = span_box.baseline.round();
             let rect = Rect::new(
-                span_box.left.round(),
-                baseline - ascent.round(),
-                span_box.right.round(),
-                baseline + descent.round(),
+                snap_x(span_box.left),
+                snap_y(span_box.baseline - ascent.round()),
+                snap_x(span_box.right),
+                snap_y(span_box.baseline + descent.round()),
             );
             scene.fill(Fill::NonZero, transform, span_box.color, None, &rect);
         }
