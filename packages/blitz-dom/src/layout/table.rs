@@ -2389,8 +2389,13 @@ impl TableTreeWrapper<'_, '_> {
             };
             let mut layout =
                 taffy::Layout::with_order(u32::try_from(first_order + index).unwrap_or(u32::MAX));
-            layout.location.x = placed.x;
-            layout.location.y = *edge + placed.margin.top;
+            let basis = taffy::Size {
+                width,
+                height: output.size.height,
+            };
+            let offset = self.doc.nodes[caption.node_id].relative_offset(basis, false);
+            layout.location.x = placed.x + offset.x;
+            layout.location.y = *edge + placed.margin.top + offset.y;
             layout.size = placed.size;
             layout.margin = placed.margin;
             *edge += placed.margin.top + placed.size.height + placed.margin.bottom;

@@ -302,3 +302,28 @@ fn a_positioned_cell_keeps_its_colour_inside_a_see_through_border() {
         "{red} {green} {blue}"
     );
 }
+
+#[test]
+fn a_shifted_cell_moves_without_its_borders() {
+    let buffer = grid("position:relative;left:3px;top:3px", "");
+    assert_eq!(pixel(&buffer, 1, 10), BLACK);
+    assert_eq!(pixel(&buffer, 3, 3), WHITE);
+    assert_eq!(pixel(&buffer, 5, 5), YELLOW);
+    assert_eq!(pixel(&buffer, 23, 10), YELLOW);
+    assert_eq!(pixel(&buffer, 10, 17), YELLOW);
+    assert_eq!(pixel(&buffer, 30, 17), BLACK);
+}
+
+#[test]
+fn a_shifted_caption_moves_over_the_table() {
+    let buffer = draw(
+        "width:20px;height:14px",
+        "<table><caption style=\"position:relative;top:8px;height:4px;background:red\">\
+         </caption><tr><td><b></b></td></tr></table>",
+    );
+    assert_eq!(pixel(&buffer, 10, 1), WHITE);
+    assert_eq!(pixel(&buffer, 10, 5), BLACK);
+    assert_eq!(pixel(&buffer, 10, 7), YELLOW);
+    assert_eq!(pixel(&buffer, 10, 9), RED);
+    assert_eq!(pixel(&buffer, 10, 13), YELLOW);
+}

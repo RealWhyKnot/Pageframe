@@ -1335,6 +1335,34 @@ impl Node {
             .unwrap_or(0)
     }
 
+    pub fn relative_offset(&self, basis: taffy::Size<f32>, is_rtl: bool) -> taffy::Point<f32> {
+        use taffy::MaybeResolve as _;
+        let is_relative = self
+            .primary_styles()
+            .is_some_and(|style| style.clone_position() == Position::Relative);
+        if !is_relative {
+            return taffy::Point::ZERO;
+        }
+        let style = self.layout_style();
+        let inset = taffy::CoreStyle::inset(&style);
+        let resolve = |value: taffy::LengthPercentageAuto, basis: f32| {
+            value.maybe_resolve(Some(basis), crate::layout::resolve_calc_value)
+        };
+        let left = resolve(inset.left, basis.width);
+        let right = resolve(inset.right, basis.width).map(|right| -right);
+        let top = resolve(inset.top, basis.height);
+        let bottom = resolve(inset.bottom, basis.height).map(|bottom| -bottom);
+        taffy::Point {
+            x: if is_rtl {
+                right.or(left)
+            } else {
+                left.or(right)
+            }
+            .unwrap_or(0.0),
+            y: top.or(bottom).unwrap_or(0.0),
+        }
+    }
+
     pub fn z_index(&self) -> i32 {
         self.primary_styles()
             .map(|s| s.clone_z_index().integer_or(0))

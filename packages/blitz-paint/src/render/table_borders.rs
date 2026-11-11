@@ -659,9 +659,10 @@ impl Edges {
                 continue;
             };
             let layout = cell_node.unrounded_layout();
-            let left = f64::from(layout.location.x);
+            let offset = cell_node.relative_offset(layout.size, is_rtl);
+            let left = f64::from(layout.location.x - offset.x);
             let right = left + f64::from(layout.size.width);
-            let top = f64::from(layout.location.y);
+            let top = f64::from(layout.location.y - offset.y);
             let height = table
                 .collapsed_cell_span_height(cell.node_id)
                 .unwrap_or(layout.size.height);
