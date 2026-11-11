@@ -6,7 +6,7 @@ use url::Url;
 use crate::dom::dom_ctx;
 use crate::fetch::{FetchError, document_may_load};
 
-/// `__blitz_fetch_sync(url)`: resolve `url` against the document base URL and
+/// `__pageframe_fetch_sync(url)`: resolve `url` against the document base URL and
 /// fetch it via the document's [`ScriptFetcher`](crate::fetch::ScriptFetcher) if the
 /// document may load it ([`document_may_load`]). Returns `[status, url, text]`:
 /// a missing resource yields a 404 (like an HTTP server would), any other

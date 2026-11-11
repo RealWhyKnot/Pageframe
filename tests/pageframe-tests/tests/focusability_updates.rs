@@ -58,7 +58,7 @@ fn removing_it_takes_the_focusability_away_again() {
 
 /// Disabling an element takes it out of both.
 ///
-/// Note the value: blitz reads `disabled` as a parsed boolean rather than
+/// Note the value: pageframe reads `disabled` as a parsed boolean rather than
 /// treating the bare attribute as disabling, so `""` would not count.
 #[test]
 fn disabling_it_takes_it_out_of_both() {

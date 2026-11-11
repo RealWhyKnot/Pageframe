@@ -1,16 +1,16 @@
-use crate::BlitzShellProvider;
+use crate::PageframeShellProvider;
 use crate::convert_events::{
-    button_source_to_blitz, color_scheme_to_theme, pointer_kind_to_blitz, pointer_source_to_blitz,
-    pointer_source_to_blitz_details, theme_to_color_scheme, winit_ime_to_blitz,
-    winit_key_event_to_blitz, winit_modifiers_to_kbt_modifiers,
+    button_source_to_pageframe, color_scheme_to_theme, pointer_kind_to_pageframe,
+    pointer_source_to_pageframe, pointer_source_to_pageframe_details, theme_to_color_scheme,
+    winit_ime_to_pageframe, winit_key_event_to_pageframe, winit_modifiers_to_kbt_modifiers,
 };
-use crate::event::{BlitzShellEvent, BlitzShellProxy, create_waker};
+use crate::event::{PageframeShellEvent, PageframeShellProxy, create_waker};
 use anyrender::WindowRenderer;
 use pageframe_dom::Document;
 use pageframe_paint::paint_scene;
 use pageframe_traits::events::{
-    BlitzPointerEvent, BlitzPointerId, BlitzWheelDelta, BlitzWheelEvent, MouseEventButton,
-    MouseEventButtons, PointerCoords, PointerDetails, UiEvent,
+    MouseEventButton, MouseEventButtons, PageframePointerEvent, PageframePointerId,
+    PageframeWheelDelta, PageframeWheelEvent, PointerCoords, PointerDetails, UiEvent,
 };
 use pageframe_traits::shell::Viewport;
 use winit::dpi::{LogicalPosition, PhysicalInsets, PhysicalPosition};
@@ -70,7 +70,7 @@ pub struct View<Rend: WindowRenderer> {
     pub renderer: Rend,
     pub waker: Option<Waker>,
 
-    pub proxy: BlitzShellProxy,
+    pub proxy: PageframeShellProxy,
     pub window: Arc<dyn Window>,
 
     /// The state of the keyboard modifiers (ctrl, shift, etc). Winit/Tao don't track these for us so we
@@ -84,7 +84,7 @@ pub struct View<Rend: WindowRenderer> {
     ///
     /// This serves two purposes:
     /// - Multi-touch: it is cloned (cheaply, via [`Arc`]) into every dispatched
-    ///   [`BlitzPointerEvent`] so that touch events can report all concurrent
+    ///   [`PageframePointerEvent`] so that touch events can report all concurrent
     ///   touches via their `touches` list.
     /// - Cancellation detection: winit signals a cancelled touch with a
     ///   [`WindowEvent::PointerLeft`] that is *not* preceded by a
@@ -93,7 +93,7 @@ pub struct View<Rend: WindowRenderer> {
     ///
     /// The events stored here always have an empty `active_pointers` list to
     /// avoid a reference cycle.
-    pub active_events: Arc<AtomicRefCell<Vec<BlitzPointerEvent>>>,
+    pub active_events: Arc<AtomicRefCell<Vec<PageframePointerEvent>>>,
     pub animation_timer: Option<Instant>,
     pub is_visible: bool,
     pub safe_area_insets: PhysicalInsets<u32>,
@@ -135,7 +135,7 @@ impl<Rend: WindowRenderer> View<Rend> {
     pub fn init(
         config: WindowConfig<Rend>,
         event_loop: &dyn ActiveEventLoop,
-        proxy: &BlitzShellProxy,
+        proxy: &PageframeShellProxy,
     ) -> Self {
         // We create window as invisble and then later make window visible
         // after AccessKit has initialised to avoid AccessKit panics
@@ -191,7 +191,7 @@ impl<Rend: WindowRenderer> View<Rend> {
 
         // Create shell provider
         let shell_provider =
-            BlitzShellProvider::new(winit_window.clone(), proxy.clone(), config.doc.id());
+            PageframeShellProvider::new(winit_window.clone(), proxy.clone(), config.doc.id());
 
         let mut doc = config.doc;
         let mut inner = doc.inner_mut();
@@ -290,7 +290,7 @@ impl<Rend: WindowRenderer> View<Rend> {
 }
 
 impl<Rend: WindowRenderer> View<Rend> {
-    /// Start resuming the renderer. Dispatches [`BlitzShellEvent::ResumeReady`]
+    /// Start resuming the renderer. Dispatches [`PageframeShellEvent::ResumeReady`]
     /// when initialization completes — synchronously on native, asynchronously
     /// on wasm32. The embedder must call [`complete_resume`](Self::complete_resume)
     /// in response.
@@ -312,12 +312,12 @@ impl<Rend: WindowRenderer> View<Rend> {
         let proxy = self.proxy.clone();
         self.renderer
             .resume(Arc::new(self.window.clone()), width, height, move || {
-                proxy.send_event(BlitzShellEvent::ResumeReady { window_id });
+                proxy.send_event(PageframeShellEvent::ResumeReady { window_id });
             });
     }
 
     /// Finalize a previously-started resume. Should be called in response to a
-    /// [`BlitzShellEvent::ResumeReady`] event. Paints the first frame and
+    /// [`PageframeShellEvent::ResumeReady`] event. Paints the first frame and
     /// installs the doc poll waker. Returns `true` if the renderer is now active.
     pub fn complete_resume(&mut self) -> bool {
         if !self.renderer.complete_resume() {
@@ -470,7 +470,7 @@ impl<Rend: WindowRenderer> View<Rend> {
     /// Store `event` as an active pointer, replacing any existing entry with the
     /// same id. The stored event has an empty `active_pointers` list to avoid a
     /// reference cycle.
-    fn set_active_pointer(&self, event: &BlitzPointerEvent) {
+    fn set_active_pointer(&self, event: &PageframePointerEvent) {
         let mut stored = event.clone();
         stored.active_pointers = Default::default();
 
@@ -484,7 +484,7 @@ impl<Rend: WindowRenderer> View<Rend> {
 
     /// Update the stored position/state of an already-active pointer. Does
     /// nothing if the pointer is not currently active (e.g. a hovering pen).
-    fn update_active_pointer(&self, event: &BlitzPointerEvent) {
+    fn update_active_pointer(&self, event: &PageframePointerEvent) {
         let mut active = self.active_events.borrow_mut();
         if let Some(existing) = active.iter_mut().find(|e| e.id == event.id) {
             let mut stored = event.clone();
@@ -494,7 +494,7 @@ impl<Rend: WindowRenderer> View<Rend> {
     }
 
     /// Remove an active pointer by id. Returns `true` if it was present.
-    fn remove_active_pointer(&self, id: BlitzPointerId) -> bool {
+    fn remove_active_pointer(&self, id: PageframePointerId) -> bool {
         let mut active = self.active_events.borrow_mut();
         let len_before = active.len();
         active.retain(|e| e.id != id);
@@ -536,7 +536,7 @@ impl<Rend: WindowRenderer> View<Rend> {
         let proxy = self.proxy.clone();
         let window_id = self.window_id();
         let cb = Closure::once_into_js(move || {
-            proxy.send_event(BlitzShellEvent::ResizeSettleCheck { window_id });
+            proxy.send_event(PageframeShellEvent::ResizeSettleCheck { window_id });
         });
         if let Some(win) = web_sys::window() {
             let _ = win.set_timeout_with_callback_and_timeout_and_arguments_0(
@@ -637,7 +637,7 @@ impl<Rend: WindowRenderer> View<Rend> {
                 inner.viewport_mut().color_scheme = color_scheme;
             }
             WindowEvent::Ime(ime_event) => {
-                self.doc.handle_ui_event(UiEvent::Ime(winit_ime_to_blitz(ime_event)));
+                self.doc.handle_ui_event(UiEvent::Ime(winit_ime_to_pageframe(ime_event)));
                 self.request_redraw();
             },
             WindowEvent::ModifiersChanged(new_state) => {
@@ -689,7 +689,7 @@ impl<Rend: WindowRenderer> View<Rend> {
                 }
 
                 // Unmodified keypresses
-                let key_event_data = winit_key_event_to_blitz(&event, self.keyboard_modifiers.state());
+                let key_event_data = winit_key_event_to_pageframe(&event, self.keyboard_modifiers.state());
                 let event = if event.state.is_pressed() {
                     UiEvent::KeyDown(key_event_data)
                 } else {
@@ -700,7 +700,7 @@ impl<Rend: WindowRenderer> View<Rend> {
             }
             WindowEvent::PointerEntered { /*device_id*/.. } => {}
             WindowEvent::PointerLeft { position, primary, kind, .. } => {
-                let id = pointer_kind_to_blitz(&kind);
+                let id = pointer_kind_to_pageframe(&kind);
 
                 // A `PointerLeft` for a non-mouse pointer that is still pressed
                 // (i.e. we never saw a `PointerButton` with `Released` for it)
@@ -710,14 +710,14 @@ impl<Rend: WindowRenderer> View<Rend> {
                 // Remove from the active list first so the cancelled pointer is
                 // excluded from this event's `touches`. `remove_active_pointer`
                 // reports whether the pointer was actually active.
-                if id != BlitzPointerId::Mouse && self.remove_active_pointer(id) {
+                if id != PageframePointerId::Mouse && self.remove_active_pointer(id) {
                     let position = position.unwrap_or(self.pointer_pos);
                     self.pointer_pos = position;
 
                     // The pointer is no longer pressed.
                     self.buttons ^= MouseEventButton::Main.into();
 
-                    let event = BlitzPointerEvent {
+                    let event = PageframePointerEvent {
                         id,
                         is_primary: primary,
                         coords: self.pointer_coords(position),
@@ -734,7 +734,7 @@ impl<Rend: WindowRenderer> View<Rend> {
 
                 // The pointer left the window: end hover
                 let position = position.unwrap_or(self.pointer_pos);
-                let event = BlitzPointerEvent {
+                let event = PageframePointerEvent {
                     id,
                     is_primary: primary,
                     coords: self.pointer_coords(position),
@@ -751,26 +751,26 @@ impl<Rend: WindowRenderer> View<Rend> {
             }
             WindowEvent::PointerMoved { position, source, primary, .. } => {
                 self.pointer_pos = position;
-                let id = pointer_source_to_blitz(&source);
-                let event = BlitzPointerEvent {
+                let id = pointer_source_to_pageframe(&source);
+                let event = PageframePointerEvent {
                     id,
                     is_primary: primary,
                     coords: self.pointer_coords(position),
                     button: Default::default(),
                     buttons: self.buttons,
                     mods: winit_modifiers_to_kbt_modifiers(self.keyboard_modifiers.state()),
-                    details: pointer_source_to_blitz_details(&source),
+                    details: pointer_source_to_pageframe_details(&source),
                     element: Default::default(),
                     active_pointers: Arc::clone(&self.active_events),
                 };
                 // Keep multi-touch positions current (no-op for non-active pointers).
-                if id != BlitzPointerId::Mouse {
+                if id != PageframePointerId::Mouse {
                     self.update_active_pointer(&event);
                 }
                 self.doc.handle_ui_event(UiEvent::PointerMove(event));
             }
             WindowEvent::PointerButton { button, state, primary, position, .. } => {
-                let id = button_source_to_blitz(&button);
+                let id = button_source_to_pageframe(&button);
                 let coords = self.pointer_coords(position);
                 self.pointer_pos = position;
                 let button = match &button {
@@ -789,7 +789,7 @@ impl<Rend: WindowRenderer> View<Rend> {
                     ElementState::Released => self.buttons ^= button.into(),
                 }
 
-                let pointer_event = BlitzPointerEvent {
+                let pointer_event = PageframePointerEvent {
                     id,
                     is_primary: primary,
                     coords,
@@ -808,15 +808,15 @@ impl<Rend: WindowRenderer> View<Rend> {
                 // `touches` includes it). A release is handled after the
                 // synthetic move below so the move still sees it, but before the
                 // pointerup so touchend's `touches` excludes it.
-                if id != BlitzPointerId::Mouse && state == ElementState::Pressed {
+                if id != PageframePointerId::Mouse && state == ElementState::Pressed {
                     self.set_active_pointer(&pointer_event);
                 }
 
                 // Touch input doesn't emit a `PointerMoved` before the button
                 // event the way a mouse does, so synthesise a move to update the
                 // hover/hit position to the touch location.
-                if id != BlitzPointerId::Mouse {
-                    let event = BlitzPointerEvent {
+                if id != PageframePointerId::Mouse {
+                    let event = PageframePointerEvent {
                         id,
                         is_primary: primary,
                         coords,
@@ -830,7 +830,7 @@ impl<Rend: WindowRenderer> View<Rend> {
                     self.doc.handle_ui_event(UiEvent::PointerMove(event));
                 }
 
-                if id != BlitzPointerId::Mouse && state == ElementState::Released {
+                if id != PageframePointerId::Mouse && state == ElementState::Released {
                     self.remove_active_pointer(id);
                 }
 
@@ -845,18 +845,18 @@ impl<Rend: WindowRenderer> View<Rend> {
                 self.request_redraw();
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                let blitz_delta = match delta {
-                    winit::event::MouseScrollDelta::LineDelta(x, y) => BlitzWheelDelta::Lines(x as f64, y as f64),
-                    winit::event::MouseScrollDelta::PixelDelta(pos) => BlitzWheelDelta::Pixels(pos.x, pos.y),
+                let pageframe_delta = match delta {
+                    winit::event::MouseScrollDelta::LineDelta(x, y) => PageframeWheelDelta::Lines(x as f64, y as f64),
+                    winit::event::MouseScrollDelta::PixelDelta(pos) => PageframeWheelDelta::Pixels(pos.x, pos.y),
                     _ =>  {
                         #[cfg(feature = "tracing")]
                         tracing::error!("unsupported MouseScrollDelta variant: {delta:?}");
-                        BlitzWheelDelta::Pixels(0., 0.)
+                        PageframeWheelDelta::Pixels(0., 0.)
                     }
                 };
 
-                let event = BlitzWheelEvent {
-                    delta: blitz_delta,
+                let event = PageframeWheelEvent {
+                    delta: pageframe_delta,
                     coords: self.pointer_coords(self.pointer_pos),
                     buttons: self.buttons,
                     mods: winit_modifiers_to_kbt_modifiers(self.keyboard_modifiers.state()),

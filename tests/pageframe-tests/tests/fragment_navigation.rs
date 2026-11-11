@@ -5,8 +5,8 @@ use pageframe_dom::{Document, DocumentConfig, FontContext, ScrollBehavior, Scrol
 use pageframe_html::{HtmlDocument, HtmlProvider};
 use pageframe_traits::{
     events::{
-        BlitzPointerEvent, BlitzPointerId, BlitzWheelDelta, BlitzWheelEvent, MouseEventButton,
-        MouseEventButtons, Point, PointerCoords, PointerDetails, UiEvent,
+        MouseEventButton, MouseEventButtons, PageframePointerEvent, PageframePointerId,
+        PageframeWheelDelta, PageframeWheelEvent, Point, PointerCoords, PointerDetails, UiEvent,
     },
     shell::{ColorScheme, Viewport},
 };
@@ -42,9 +42,9 @@ fn drive_until_settled(doc: &mut HtmlDocument) {
     }
 }
 
-fn pointer_event(x: f32, y: f32) -> BlitzPointerEvent {
-    BlitzPointerEvent {
-        id: BlitzPointerId::Mouse,
+fn pointer_event(x: f32, y: f32) -> PageframePointerEvent {
+    PageframePointerEvent {
+        id: PageframePointerId::Mouse,
         is_primary: true,
         coords: PointerCoords {
             page_x: x,
@@ -74,8 +74,8 @@ fn click(doc: &mut HtmlDocument, x: f32, y: f32) {
 fn wheel_at(doc: &mut HtmlDocument, x: f32, y: f32, delta_x: f64, delta_y: f64) {
     let event = pointer_event(x, y);
     doc.handle_ui_event(UiEvent::PointerMove(event.clone()));
-    doc.handle_ui_event(UiEvent::Wheel(BlitzWheelEvent {
-        delta: BlitzWheelDelta::Pixels(delta_x, delta_y),
+    doc.handle_ui_event(UiEvent::Wheel(PageframeWheelEvent {
+        delta: PageframeWheelDelta::Pixels(delta_x, delta_y),
         coords: event.coords,
         buttons: MouseEventButtons::empty(),
         mods: Default::default(),

@@ -6,8 +6,8 @@ use pageframe_dom::{LocalName, NodeData, QualName, ns};
 use serde_json::json;
 
 use super::{
-    CdpError, Session, any_node_id_param, attr_name, blitz_node_id, cdp_node_id, check_removable,
-    no_document, no_node, node_id_param, str_param, with_doc,
+    CdpError, Session, any_node_id_param, attr_name, cdp_node_id, check_removable, no_document,
+    no_node, node_id_param, pageframe_node_id, str_param, with_doc,
 };
 use crate::{CdpCommand, DocumentProvider, JsonValue, MessageWriter};
 
@@ -282,7 +282,7 @@ pub(super) fn dispatch(
                 backend_ids
                     .iter()
                     .map(|id| {
-                        let node_id = id.as_u64().and_then(blitz_node_id);
+                        let node_id = id.as_u64().and_then(pageframe_node_id);
                         match node_id.and_then(|id| doc.get_node(id).map(|_| id)) {
                             Some(node_id) => {
                                 Session::emit_node_path(writer, doc, node_id, children_sent);

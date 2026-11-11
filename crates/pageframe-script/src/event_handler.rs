@@ -6,7 +6,7 @@ use pageframe_traits::events::{DomEvent, EventState};
 use crate::runtime::ScriptRuntime;
 
 /// An [`EventHandler`] which dispatches DOM events to JavaScript event listeners
-/// before Blitz's default actions run.
+/// before Pageframe's default actions run.
 pub(crate) struct ScriptEventHandler<'rt> {
     pub runtime: &'rt mut ScriptRuntime,
 }

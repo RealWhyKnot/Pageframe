@@ -5,7 +5,9 @@ use std::sync::Arc;
 use anyrender_vello::VelloWindowRenderer;
 use pageframe_dom::{DocumentConfig, LocalName, QualName, UserAgentStylesheet, ns};
 use pageframe_html::{HtmlDocument, HtmlProvider};
-use pageframe_shell::{BlitzApplication, BlitzShellProxy, WindowConfig, create_default_event_loop};
+use pageframe_shell::{
+    PageframeApplication, PageframeShellProxy, WindowConfig, create_default_event_loop,
+};
 use pageframe_traits::shell::{ColorScheme, Viewport};
 use url::Url;
 use winit::dpi::LogicalSize;
@@ -128,8 +130,8 @@ impl<S: 'static> App<S> {
             .with_surface_size(LogicalSize::new(self.width, self.height));
         let page = self.build(None)?;
         let event_loop = create_default_event_loop();
-        let (proxy, receiver) = BlitzShellProxy::new(event_loop.create_proxy());
-        let mut application = BlitzApplication::new(proxy, receiver);
+        let (proxy, receiver) = PageframeShellProxy::new(event_loop.create_proxy());
+        let mut application = PageframeApplication::new(proxy, receiver);
         application.add_window(WindowConfig::with_attributes(
             Box::new(page),
             VelloWindowRenderer::new(),

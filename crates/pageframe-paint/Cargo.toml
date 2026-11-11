@@ -1,11 +1,8 @@
 [package]
 name = "pageframe-paint"
-description = "Paint a Blitz Document using anyrender"
-documentation = "https://docs.rs/pageframe-paint"
+description = "Paint a Pageframe Document using anyrender"
 version.workspace = true
 license.workspace = true
-homepage.workspace = true
-repository.workspace = true
 categories.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -23,7 +20,7 @@ apple-font-embolden = []
 scrollbars = ["pageframe-dom/scrollbars"]
 
 [dependencies]
-# Blitz dependencies
+# Pageframe dependencies
 anyrender = { workspace = true }
 anyrender_vello_cpu = { workspace = true }
 anyrender_svg = { workspace = true, optional = true }

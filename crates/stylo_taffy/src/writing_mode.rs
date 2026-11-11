@@ -1,7 +1,7 @@
 //! Mapping of physical styles into the inline/block axes of a writing mode (`writing-mode` feature).
 //!
 //! Taffy is a horizontal-tb engine: `width`/x is the inline axis and `height`/+y the block axis.
-//! When a box has a vertical `writing-mode`, Blitz runs Taffy in that box's axes: Taffy's x axis
+//! When a box has a vertical `writing-mode`, Pageframe runs Taffy in that box's axes: Taffy's x axis
 //! is the physical y axis (top to bottom) and Taffy's y axis is the writing mode's block axis
 //! (right-to-left for `vertical-rl`/`sideways-rl`, left-to-right for `vertical-lr`/`sideways-lr`).
 //! [`WritingModeExt`] maps physical values into those axes. Without the `writing-mode` feature

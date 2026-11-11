@@ -16,7 +16,7 @@ use crate::fetch::{FetchError, ScriptFetcher, document_may_load};
 /// A [`ModuleLoader`] which fetches ES module imports synchronously via the
 /// document's [`ScriptFetcher`], resolving specifiers as URLs (relative to the
 /// importing module, or to the document base URL).
-pub(super) struct BlitzModuleLoader {
+pub(super) struct PageframeModuleLoader {
     fetcher: Rc<RefCell<Box<dyn ScriptFetcher>>>,
     base_url: Option<Url>,
     /// Modules already fetched and parsed, keyed by resolved URL. Serving
@@ -25,7 +25,7 @@ pub(super) struct BlitzModuleLoader {
     modules: RefCell<HashMap<Url, Module>>,
 }
 
-impl BlitzModuleLoader {
+impl PageframeModuleLoader {
     pub(super) fn new(fetcher: Rc<RefCell<Box<dyn ScriptFetcher>>>, base_url: Option<Url>) -> Self {
         Self {
             fetcher,
@@ -55,7 +55,7 @@ impl BlitzModuleLoader {
     }
 }
 
-impl ModuleLoader for BlitzModuleLoader {
+impl ModuleLoader for PageframeModuleLoader {
     async fn load_imported_module(
         self: Rc<Self>,
         referrer: Referrer,

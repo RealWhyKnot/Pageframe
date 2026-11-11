@@ -1,6 +1,6 @@
 use keyboard_types::{Code, Key, Modifiers, NamedKey};
 use pageframe_traits::events::{
-    BlitzImeEvent, BlitzKeyEvent, BlitzPointerId, KeyState, PointerDetails,
+    KeyState, PageframeImeEvent, PageframeKeyEvent, PageframePointerId, PointerDetails,
 };
 use pageframe_traits::shell::ColorScheme;
 use winit::event::KeyEvent as WinitKeyEvent;
@@ -25,27 +25,27 @@ pub(crate) fn color_scheme_to_theme(scheme: ColorScheme) -> Theme {
     }
 }
 
-pub(crate) fn winit_ime_to_blitz(event: Ime) -> BlitzImeEvent {
+pub(crate) fn winit_ime_to_pageframe(event: Ime) -> PageframeImeEvent {
     match event {
-        Ime::Enabled => BlitzImeEvent::Enabled,
-        Ime::Disabled => BlitzImeEvent::Disabled,
-        Ime::Preedit(text, cursor) => BlitzImeEvent::Preedit(text, cursor),
-        Ime::Commit(text) => BlitzImeEvent::Commit(text),
+        Ime::Enabled => PageframeImeEvent::Enabled,
+        Ime::Disabled => PageframeImeEvent::Disabled,
+        Ime::Preedit(text, cursor) => PageframeImeEvent::Preedit(text, cursor),
+        Ime::Commit(text) => PageframeImeEvent::Commit(text),
         Ime::DeleteSurrounding {
             before_bytes,
             after_bytes,
-        } => BlitzImeEvent::DeleteSurrounding {
+        } => PageframeImeEvent::DeleteSurrounding {
             before_bytes,
             after_bytes,
         },
     }
 }
 
-pub(crate) fn winit_key_event_to_blitz(
+pub(crate) fn winit_key_event_to_pageframe(
     event: &WinitKeyEvent,
     mods: WinitModifiers,
-) -> BlitzKeyEvent {
-    BlitzKeyEvent {
+) -> PageframeKeyEvent {
+    PageframeKeyEvent {
         key: winit_key_to_kbt_key(&event.logical_key),
         code: winit_physical_key_to_kbt_code(&event.physical_key),
         modifiers: winit_modifiers_to_kbt_modifiers(mods),
@@ -60,59 +60,59 @@ pub(crate) fn winit_key_event_to_blitz(
     }
 }
 
-pub(crate) fn pointer_source_to_blitz(source: &PointerSource) -> BlitzPointerId {
+pub(crate) fn pointer_source_to_pageframe(source: &PointerSource) -> PageframePointerId {
     match source {
-        PointerSource::Mouse => BlitzPointerId::Mouse,
+        PointerSource::Mouse => PageframePointerId::Mouse,
         PointerSource::Touch { finger_id, .. } => {
-            BlitzPointerId::Finger(finger_id.into_raw() as u64)
+            PageframePointerId::Finger(finger_id.into_raw() as u64)
         }
 
         // TODO: TabletTool and Unknown events
-        PointerSource::TabletTool { .. } => BlitzPointerId::Pen,
-        PointerSource::Unknown => BlitzPointerId::Mouse,
+        PointerSource::TabletTool { .. } => PageframePointerId::Pen,
+        PointerSource::Unknown => PageframePointerId::Mouse,
         _ => {
             #[cfg(feature = "tracing")]
             tracing::error!("unsupported PointerSource variant: {source:?}");
-            BlitzPointerId::Mouse
+            PageframePointerId::Mouse
         }
     }
 }
 
-pub(crate) fn pointer_kind_to_blitz(kind: &PointerKind) -> BlitzPointerId {
+pub(crate) fn pointer_kind_to_pageframe(kind: &PointerKind) -> PageframePointerId {
     match kind {
-        PointerKind::Mouse => BlitzPointerId::Mouse,
-        PointerKind::Touch(finger_id) => BlitzPointerId::Finger(finger_id.into_raw() as u64),
+        PointerKind::Mouse => PageframePointerId::Mouse,
+        PointerKind::Touch(finger_id) => PageframePointerId::Finger(finger_id.into_raw() as u64),
 
         // TODO: TabletTool and Unknown events
-        PointerKind::TabletTool(_) => BlitzPointerId::Pen,
-        PointerKind::Unknown => BlitzPointerId::Mouse,
+        PointerKind::TabletTool(_) => PageframePointerId::Pen,
+        PointerKind::Unknown => PageframePointerId::Mouse,
         _ => {
             #[cfg(feature = "tracing")]
             tracing::error!("unsupported PointerKind variant: {kind:?}");
-            BlitzPointerId::Mouse
+            PageframePointerId::Mouse
         }
     }
 }
 
-pub(crate) fn button_source_to_blitz(source: &ButtonSource) -> BlitzPointerId {
+pub(crate) fn button_source_to_pageframe(source: &ButtonSource) -> PageframePointerId {
     match source {
-        ButtonSource::Mouse(_) => BlitzPointerId::Mouse,
-        ButtonSource::TabletTool { .. } => BlitzPointerId::Pen,
+        ButtonSource::Mouse(_) => PageframePointerId::Mouse,
+        ButtonSource::TabletTool { .. } => PageframePointerId::Pen,
         ButtonSource::Touch { finger_id, .. } => {
-            BlitzPointerId::Finger(finger_id.into_raw() as u64)
+            PageframePointerId::Finger(finger_id.into_raw() as u64)
         }
 
         // TODO: Unknown events
-        ButtonSource::Unknown(_) => BlitzPointerId::Mouse,
+        ButtonSource::Unknown(_) => PageframePointerId::Mouse,
         _ => {
             #[cfg(feature = "tracing")]
             tracing::error!("unsupported ButtonSource variant: {source:?}");
-            BlitzPointerId::Mouse
+            PageframePointerId::Mouse
         }
     }
 }
 
-pub(crate) fn pointer_source_to_blitz_details(source: &PointerSource) -> PointerDetails {
+pub(crate) fn pointer_source_to_pageframe_details(source: &PointerSource) -> PointerDetails {
     match source {
         PointerSource::Mouse => PointerDetails::default(),
         PointerSource::Unknown => PointerDetails::default(),

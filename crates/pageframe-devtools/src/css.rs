@@ -468,7 +468,7 @@ pub(crate) fn inline_style_sheet_id(node_id: NodeId) -> String {
 pub(crate) fn parse_inline_style_sheet_id(id: &str) -> Option<NodeId> {
     id.strip_prefix("inline-")
         .and_then(|id| id.parse::<u64>().ok())
-        .and_then(crate::session::blitz_node_id)
+        .and_then(crate::session::pageframe_node_id)
 }
 
 /// Build the `CSS.getMatchedStylesForNode` response for a node

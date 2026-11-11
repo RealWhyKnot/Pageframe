@@ -40,7 +40,7 @@ pub(super) const BOOTSTRAP_JS: &str = concat!(
 pub(super) fn register_globals(ctx: &DomCtx, base_url: Option<&Url>, context: &mut Context) {
     register_global_fn(
         context,
-        "__blitz_parse_search_params",
+        "__pageframe_parse_search_params",
         1,
         parse_search_params,
     );
@@ -67,7 +67,7 @@ pub(super) fn register_globals(ctx: &DomCtx, base_url: Option<&Url>, context: &m
     let navigator = ObjectInitializer::new(context)
         .property(
             js_string!("userAgent"),
-            js_string!("Mozilla/5.0 (compatible; Blitz)"),
+            js_string!("Mozilla/5.0 (compatible; Pageframe)"),
             Attribute::all(),
         )
         .build();
@@ -99,21 +99,21 @@ pub(super) fn register_globals(ctx: &DomCtx, base_url: Option<&Url>, context: &m
     );
 
     // Embedder message channel (see `ScriptDocument::take_messages`)
-    register_global_fn(context, "__blitz_send_message", 1, window::send_message);
+    register_global_fn(context, "__pageframe_send_message", 1, window::send_message);
 
     // Synchronous resource fetch backing the bootstrap's `fetch()`
-    register_global_fn(context, "__blitz_fetch_sync", 1, fetch::fetch_sync);
+    register_global_fn(context, "__pageframe_fetch_sync", 1, fetch::fetch_sync);
 
     // CSS property support check, used by the style Proxy's `has` trap
     register_global_fn(
         context,
-        "__blitz_css_property_names",
+        "__pageframe_css_property_names",
         0,
         css::css_property_names,
     );
     register_global_fn(
         context,
-        "__blitz_css_property_supported",
+        "__pageframe_css_property_supported",
         1,
         css::css_property_supported,
     );
@@ -126,9 +126,14 @@ pub(super) fn register_globals(ctx: &DomCtx, base_url: Option<&Url>, context: &m
         0,
         crate::dom::selection::get_selection,
     );
-    register_global_fn(context, "__blitz_parse_transform", 1, css::parse_transform);
+    register_global_fn(
+        context,
+        "__pageframe_parse_transform",
+        1,
+        css::parse_transform,
+    );
 
-    // CSSOM stylesheet natives (`__blitz_sheet_*`), used by the bootstrap's
+    // CSSOM stylesheet natives (`__pageframe_sheet_*`), used by the bootstrap's
     // `CSSStyleSheet` / `CSSRule` implementation
     crate::dom::stylesheet::register(context);
 

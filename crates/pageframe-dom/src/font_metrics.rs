@@ -155,17 +155,17 @@ fn dwrite_vertical_metrics(
 }
 
 #[derive(Clone)]
-pub(crate) struct BlitzFontMetricsProvider {
+pub(crate) struct PageframeFontMetricsProvider {
     pub(crate) font_ctx: Arc<Mutex<FontContext>>,
 }
 
-impl core::fmt::Debug for BlitzFontMetricsProvider {
+impl core::fmt::Debug for PageframeFontMetricsProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "BlitzFontMetricsProvider")
+        write!(f, "PageframeFontMetricsProvider")
     }
 }
 
-impl FontMetricsProvider for BlitzFontMetricsProvider {
+impl FontMetricsProvider for PageframeFontMetricsProvider {
     fn query_font_metrics(
         &self,
         _vertical: bool,

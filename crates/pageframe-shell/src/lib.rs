@@ -19,8 +19,8 @@ mod accessibility;
 #[cfg(feature = "devtools")]
 mod devtools;
 
-pub use crate::application::BlitzApplication;
-pub use crate::event::{BlitzShellEvent, BlitzShellProxy};
+pub use crate::application::PageframeApplication;
+pub use crate::event::{PageframeShellEvent, PageframeShellProxy};
 pub use crate::window::{View, WindowConfig};
 
 #[cfg(feature = "data-uri")]
@@ -86,13 +86,13 @@ pub fn current_android_app() -> android_activity::AndroidApp {
     ANDROID_APP.get().unwrap().clone()
 }
 
-pub struct BlitzShellProvider {
+pub struct PageframeShellProvider {
     window: Arc<dyn Window>,
-    proxy: BlitzShellProxy,
+    proxy: PageframeShellProxy,
     doc_id: usize,
 }
-impl BlitzShellProvider {
-    pub fn new(window: Arc<dyn Window>, proxy: BlitzShellProxy, doc_id: usize) -> Self {
+impl PageframeShellProvider {
+    pub fn new(window: Arc<dyn Window>, proxy: PageframeShellProxy, doc_id: usize) -> Self {
         Self {
             window,
             proxy,
@@ -101,9 +101,9 @@ impl BlitzShellProvider {
     }
 }
 
-impl ShellProvider for BlitzShellProvider {
+impl ShellProvider for PageframeShellProvider {
     fn request_redraw(&self) {
-        self.proxy.send_event(BlitzShellEvent::RequestRedraw {
+        self.proxy.send_event(PageframeShellEvent::RequestRedraw {
             doc_id: self.doc_id,
         });
     }
@@ -141,7 +141,7 @@ impl ShellProvider for BlitzShellProvider {
     }
 
     fn request_window_close(&self) {
-        self.proxy.send_event(BlitzShellEvent::CloseWindow {
+        self.proxy.send_event(PageframeShellEvent::CloseWindow {
             window_id: self.window.id(),
         });
     }
@@ -164,12 +164,12 @@ impl ShellProvider for BlitzShellProvider {
     #[cfg(feature = "devtools")]
     fn open_devtools(&self, doc_id: usize) {
         self.proxy
-            .send_event(BlitzShellEvent::OpenDevtools { doc_id });
+            .send_event(PageframeShellEvent::OpenDevtools { doc_id });
     }
 
     fn request_clipboard_text(&self) -> Result<(), pageframe_traits::shell::ClipboardError> {
         self.proxy
-            .send_event(BlitzShellEvent::RequestClipboardText {
+            .send_event(PageframeShellEvent::RequestClipboardText {
                 window_id: self.window.id(),
             });
         Ok(())
@@ -180,7 +180,7 @@ impl ShellProvider for BlitzShellProvider {
         text: String,
     ) -> Result<(), pageframe_traits::shell::ClipboardError> {
         self.proxy
-            .send_event(BlitzShellEvent::SetClipboardText { text });
+            .send_event(PageframeShellEvent::SetClipboardText { text });
         Ok(())
     }
 

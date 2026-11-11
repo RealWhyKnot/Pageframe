@@ -497,7 +497,7 @@ fn client_session(addr: std::net::SocketAddr, doc_id: usize, picker_sender: Send
     http.read_to_string(&mut response).unwrap();
     let body = response.split("\r\n\r\n").nth(1).expect("http body");
     let version: serde_json::Value = serde_json::from_str(body).expect("valid /json/version body");
-    assert_eq!(version["Browser"], "Blitz");
+    assert_eq!(version["Browser"], "Pageframe");
 
     // WebSocket CDP session
     let (mut ws, _response) = tungstenite::connect(ws_url).expect("websocket connect");

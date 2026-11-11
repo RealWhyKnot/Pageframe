@@ -2,7 +2,7 @@
 //! `CSSStyleSheet`, `CSSRuleList`, `CSSRule`, ...).
 //!
 //! The JS-facing objects are built in the runtime bootstrap script on top of
-//! these `__blitz_sheet_*` functions. Stylesheets are identified by their
+//! these `__pageframe_sheet_*` functions. Stylesheets are identified by their
 //! owner node (`<style>` / `<link>`) and rules by a path of indices through
 //! nested rule lists (see `pageframe_dom`'s CSSOM support).
 
@@ -17,26 +17,34 @@ use super::{dom_ctx, dom_exception, js_str, node_id_of_value, node_wrapper, to_r
 
 pub(crate) fn register(context: &mut Context) {
     let fns: &[(&str, usize, super::NativeFnPtr)] = &[
-        ("__blitz_stylesheet_owner_nodes", 0, owner_nodes),
-        ("__blitz_node_has_stylesheet", 1, node_has_stylesheet),
-        ("__blitz_stylesheet_generation", 0, stylesheet_generation),
-        ("__blitz_sheet_disabled", 1, sheet_disabled),
-        ("__blitz_sheet_set_disabled", 2, sheet_set_disabled),
-        ("__blitz_sheet_rule_count", 2, rule_count),
-        ("__blitz_sheet_rule_info", 2, rule_info),
-        ("__blitz_sheet_insert_rule", 4, insert_rule),
-        ("__blitz_sheet_delete_rule", 3, delete_rule),
-        ("__blitz_sheet_set_selector_text", 3, set_selector_text),
-        ("__blitz_sheet_style_css_text", 2, style_css_text),
-        ("__blitz_sheet_style_set_css_text", 3, style_set_css_text),
+        ("__pageframe_stylesheet_owner_nodes", 0, owner_nodes),
+        ("__pageframe_node_has_stylesheet", 1, node_has_stylesheet),
         (
-            "__blitz_sheet_style_property_names",
+            "__pageframe_stylesheet_generation",
+            0,
+            stylesheet_generation,
+        ),
+        ("__pageframe_sheet_disabled", 1, sheet_disabled),
+        ("__pageframe_sheet_set_disabled", 2, sheet_set_disabled),
+        ("__pageframe_sheet_rule_count", 2, rule_count),
+        ("__pageframe_sheet_rule_info", 2, rule_info),
+        ("__pageframe_sheet_insert_rule", 4, insert_rule),
+        ("__pageframe_sheet_delete_rule", 3, delete_rule),
+        ("__pageframe_sheet_set_selector_text", 3, set_selector_text),
+        ("__pageframe_sheet_style_css_text", 2, style_css_text),
+        (
+            "__pageframe_sheet_style_set_css_text",
+            3,
+            style_set_css_text,
+        ),
+        (
+            "__pageframe_sheet_style_property_names",
             2,
             style_property_names,
         ),
-        ("__blitz_sheet_style_get", 3, style_get_property),
-        ("__blitz_sheet_style_set", 5, style_set_property),
-        ("__blitz_sheet_style_remove", 3, style_remove_property),
+        ("__pageframe_sheet_style_get", 3, style_get_property),
+        ("__pageframe_sheet_style_set", 5, style_set_property),
+        ("__pageframe_sheet_style_remove", 3, style_remove_property),
     ];
     for (name, length, body) in fns {
         context

@@ -36,7 +36,7 @@ pub(super) fn get_style(this: &JsValue, _: &[JsValue], context: &mut Context) ->
 pub(super) fn get_sheet(this: &JsValue, _: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
     this_node_id(this)?;
     let sheet = crate::dom::call_js_helper(
-        "__blitz_sheet_for_node",
+        "__pageframe_sheet_for_node",
         std::slice::from_ref(this),
         context,
     )?;

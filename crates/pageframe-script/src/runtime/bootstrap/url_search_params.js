@@ -1,7 +1,7 @@
     const paramState = new WeakMap();
     const urlParams = new WeakMap();
-    const parseParams = globalThis.__blitz_parse_search_params;
-    delete globalThis.__blitz_parse_search_params;
+    const parseParams = globalThis.__pageframe_parse_search_params;
+    delete globalThis.__pageframe_parse_search_params;
 
     function usv(value) {
         if (typeof value === 'symbol') throw new TypeError('Cannot convert a Symbol to a string');

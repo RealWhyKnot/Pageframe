@@ -2,7 +2,7 @@ use keyboard_types::{Key, Modifiers, NamedKey};
 use pageframe_dom::node::TextInputData;
 use pageframe_dom::{QualName, local_name, ns};
 use pageframe_test_harness::Harness;
-use pageframe_traits::events::{BlitzImeEvent, UiEvent};
+use pageframe_traits::events::{PageframeImeEvent, UiEvent};
 
 const BULLET: char = '\u{2022}';
 
@@ -142,9 +142,9 @@ fn word_selection_extends_an_existing_selection() {
 fn ime_composition_is_not_shown_in_password_input() {
     let mut harness =
         Harness::from_html(r#"<html><body><input type="password" autofocus></body></html>"#);
-    harness.ime(BlitzImeEvent::Preedit("ka".into(), Some((2, 2))));
+    harness.ime(PageframeImeEvent::Preedit("ka".into(), Some((2, 2))));
     assert_eq!(shown(&harness), "");
-    harness.ime(BlitzImeEvent::Commit("か".into()));
+    harness.ime(PageframeImeEvent::Commit("か".into()));
     assert_eq!(value(&harness), "か");
     assert_eq!(shown(&harness), bullets(1));
 }

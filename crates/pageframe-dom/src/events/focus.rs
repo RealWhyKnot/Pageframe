@@ -1,4 +1,4 @@
-use pageframe_traits::events::{BlitzFocusEvent, DomEvent, DomEventData};
+use pageframe_traits::events::{DomEvent, DomEventData, PageframeFocusEvent};
 
 use crate::BaseDocument;
 
@@ -19,22 +19,22 @@ pub(crate) fn generate_focus_events(
     if let Some(old_focus) = old_focus {
         dispatch_event(DomEvent::new(
             old_focus,
-            DomEventData::Blur(BlitzFocusEvent),
+            DomEventData::Blur(PageframeFocusEvent),
         ));
         dispatch_event(DomEvent::new(
             old_focus,
-            DomEventData::FocusOut(BlitzFocusEvent),
+            DomEventData::FocusOut(PageframeFocusEvent),
         ));
     }
 
     if let Some(new_focus) = new_focus {
         dispatch_event(DomEvent::new(
             new_focus,
-            DomEventData::Focus(BlitzFocusEvent),
+            DomEventData::Focus(PageframeFocusEvent),
         ));
         dispatch_event(DomEvent::new(
             new_focus,
-            DomEventData::FocusIn(BlitzFocusEvent),
+            DomEventData::FocusIn(PageframeFocusEvent),
         ));
     }
 }

@@ -38,7 +38,7 @@ pub(crate) struct StyleSheets {
 struct SheetEntry {
     id: String,
     owner: NodeId,
-    /// Identity of the document's sheet object: a sheet replaced by Blitz
+    /// Identity of the document's sheet object: a sheet replaced by Pageframe
     /// (e.g. after its `<style>` text changed) is reported as a new sheet
     sheet_ptr: usize,
     text: String,

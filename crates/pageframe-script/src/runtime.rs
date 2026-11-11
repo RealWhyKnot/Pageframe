@@ -16,7 +16,7 @@ use crate::fetch::ScriptFetcher;
 use crate::state::{DomCtx, ReadyState};
 use bootstrap::{BOOTSTRAP_JS, GEOMETRY_JS};
 use events::report_js_error;
-use modules::BlitzModuleLoader;
+use modules::PageframeModuleLoader;
 
 mod bootstrap;
 mod css;
@@ -53,7 +53,7 @@ impl Logger for LogCrateLogger {
 pub(crate) struct ScriptRuntime {
     pub context: Context,
     pub ctx: DomCtx,
-    module_loader: Rc<BlitzModuleLoader>,
+    module_loader: Rc<PageframeModuleLoader>,
 }
 
 impl ScriptRuntime {
@@ -62,7 +62,7 @@ impl ScriptRuntime {
         base_url: Option<&Url>,
         fetcher: Rc<RefCell<Box<dyn ScriptFetcher>>>,
     ) -> Self {
-        let module_loader = Rc::new(BlitzModuleLoader::new(
+        let module_loader = Rc::new(PageframeModuleLoader::new(
             Rc::clone(&fetcher),
             base_url.cloned(),
         ));
@@ -118,8 +118,8 @@ impl ScriptRuntime {
         };
 
         // Install JavaScript APIs after the native bindings.
-        runtime.eval_internal(BOOTSTRAP_JS, "<blitz-bootstrap>");
-        runtime.eval_internal(GEOMETRY_JS, "<blitz-geometry>");
+        runtime.eval_internal(BOOTSTRAP_JS, "<pageframe-bootstrap>");
+        runtime.eval_internal(GEOMETRY_JS, "<pageframe-geometry>");
 
         runtime
     }

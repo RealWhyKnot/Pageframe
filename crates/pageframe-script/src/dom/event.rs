@@ -6,7 +6,9 @@ use boa_engine::object::JsObject;
 use boa_engine::value::JsValue;
 use boa_engine::{Context, Finalize, JsData, JsResult, Trace};
 use keyboard_types::Modifiers;
-use pageframe_traits::events::{BlitzKeyEvent, BlitzPointerEvent, BlitzWheelDelta, DomEventData};
+use pageframe_traits::events::{
+    DomEventData, PageframeKeyEvent, PageframePointerEvent, PageframeWheelDelta,
+};
 
 use super::{define_accessor, define_method, define_value, js_str, to_rust_string};
 use crate::state::DomCtx;
@@ -152,7 +154,7 @@ fn add_modifiers(event: &JsObject, mods: Modifiers, context: &mut Context) {
     );
 }
 
-fn add_pointer_fields(event: &JsObject, data: &BlitzPointerEvent, context: &mut Context) {
+fn add_pointer_fields(event: &JsObject, data: &PageframePointerEvent, context: &mut Context) {
     define_value(
         event,
         "clientX",
@@ -204,7 +206,7 @@ fn add_pointer_fields(event: &JsObject, data: &BlitzPointerEvent, context: &mut 
     add_modifiers(event, data.mods, context);
 }
 
-fn add_key_fields(event: &JsObject, data: &BlitzKeyEvent, context: &mut Context) {
+fn add_key_fields(event: &JsObject, data: &PageframeKeyEvent, context: &mut Context) {
     define_value(event, "key", js_str(&data.key.to_string()), context);
     define_value(event, "code", js_str(&data.code.to_string()), context);
     define_value(
@@ -228,7 +230,7 @@ fn add_key_fields(event: &JsObject, data: &BlitzKeyEvent, context: &mut Context)
     add_modifiers(event, data.modifiers, context);
 }
 
-/// Create a JS event object for a Blitz [`DomEventData`], populating
+/// Create a JS event object for a Pageframe [`DomEventData`], populating
 /// type-specific fields (mouse coordinates, key names, etc)
 pub(crate) fn create_event_for_dom_event(
     ctx: &DomCtx,
@@ -272,8 +274,8 @@ pub(crate) fn create_event_for_dom_event(
 
         DomEventData::Wheel(wheel) => {
             let (delta_x, delta_y, delta_mode) = match wheel.delta {
-                BlitzWheelDelta::Lines(x, y) => (x, y, 1),
-                BlitzWheelDelta::Pixels(x, y) => (x, y, 0),
+                PageframeWheelDelta::Lines(x, y) => (x, y, 1),
+                PageframeWheelDelta::Pixels(x, y) => (x, y, 0),
             };
             define_value(&event, "deltaX", JsValue::from(delta_x), context);
             define_value(&event, "deltaY", JsValue::from(delta_y), context);

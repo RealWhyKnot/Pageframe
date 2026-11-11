@@ -131,7 +131,7 @@ fn handle_connection(
             }
             "/json/version" => Some(
                 serde_json::to_string_pretty(&json!({
-                    "Browser": "Blitz",
+                    "Browser": "Pageframe",
                     "Protocol-Version": "1.3",
                 }))
                 .unwrap(),
@@ -148,7 +148,7 @@ fn handle_connection(
         };
         match response {
             Some((content_type, body)) => {
-                // The frontend's files can change between Blitz versions on the
+                // The frontend's files can change between Pageframe versions on the
                 // same port: don't let the browser use stale cached copies
                 write!(
                     stream,

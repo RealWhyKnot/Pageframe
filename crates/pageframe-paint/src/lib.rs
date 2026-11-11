@@ -18,7 +18,7 @@ use std::collections::HashMap;
 
 use anyrender::{PaintScene, Scene};
 use pageframe_dom::{BaseDocument, NodeId, util::Color};
-use render::BlitzDomPainter;
+use render::PageframeDomPainter;
 
 const FONT_EMBOLDEN_ENABLED: bool = cfg!(any(
     feature = "font-embolden",
@@ -59,7 +59,7 @@ pub fn paint_scene(
     #[cfg(feature = "custom-widget")]
     build_custom_widget_scenes(&mut custom_widget_scenes, doc, scene, scale);
 
-    let generator = BlitzDomPainter::new(
+    let generator = PageframeDomPainter::new(
         doc,
         scale,
         width,

@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use keyboard_types::{Code, Key, Location, Modifiers, NamedKey};
 use pageframe_dom::{Document, DocumentConfig, NodeId};
 use pageframe_script::ScriptDocument;
-use pageframe_traits::events::{BlitzKeyEvent, DomEvent, KeyState, UiEvent};
+use pageframe_traits::events::{DomEvent, KeyState, PageframeKeyEvent, UiEvent};
 use url::Url;
 
 fn preact_example_dir() -> PathBuf {
@@ -52,8 +52,8 @@ fn text_of(doc: &ScriptDocument, node_id: NodeId) -> String {
     doc.inner().get_node(node_id).unwrap().text_content()
 }
 
-fn enter_key() -> BlitzKeyEvent {
-    BlitzKeyEvent {
+fn enter_key() -> PageframeKeyEvent {
+    PageframeKeyEvent {
         key: Key::Named(NamedKey::Enter),
         code: Code::Enter,
         modifiers: Modifiers::empty(),

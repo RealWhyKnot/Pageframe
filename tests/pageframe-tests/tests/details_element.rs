@@ -7,7 +7,7 @@ use pageframe_dom::{Document, DocumentConfig, NodeId};
 use pageframe_html::{HtmlDocument, HtmlProvider};
 use pageframe_traits::{
     events::{
-        BlitzPointerEvent, BlitzPointerId, MouseEventButton, MouseEventButtons, Point,
+        MouseEventButton, MouseEventButtons, PageframePointerEvent, PageframePointerId, Point,
         PointerCoords, PointerDetails, UiEvent,
     },
     shell::{ColorScheme, Viewport},
@@ -40,9 +40,9 @@ fn node_id(doc: &HtmlDocument, selector: &str) -> NodeId {
     doc.query_selector(selector).unwrap().expect(selector)
 }
 
-fn pointer_event(x: f32, y: f32) -> BlitzPointerEvent {
-    BlitzPointerEvent {
-        id: BlitzPointerId::Mouse,
+fn pointer_event(x: f32, y: f32) -> PageframePointerEvent {
+    PageframePointerEvent {
+        id: PageframePointerId::Mouse,
         is_primary: true,
         coords: PointerCoords {
             page_x: x,

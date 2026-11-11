@@ -4,7 +4,7 @@
 //! Regression test for unreliable hover invalidation on bbc.co.uk/news:
 //! during the style traversal, stylo's `note_children` sets the
 //! `dirty_descendants` bit on already-visited elements (for Gecko's
-//! post-traversal, which Blitz does not run). Blitz's `TElement`
+//! post-traversal, which Pageframe does not run). Pageframe's `TElement`
 //! implementation additionally re-marked all ancestors dirty, re-flagging
 //! nodes whose bits had already been cleared earlier in the preorder
 //! traversal. `clear_damage_and_dirty_flags` only descends into damaged

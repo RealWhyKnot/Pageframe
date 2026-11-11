@@ -1,4 +1,4 @@
-//! JavaScript execution on top of Blitz
+//! JavaScript execution on top of Pageframe
 //!
 //! This crate implements a [`ScriptDocument`]: a wrapper around a [`BaseDocument`](pageframe_dom::BaseDocument)
 //! which can execute the JavaScript contained in (or referenced by) the document's `<script>` tags

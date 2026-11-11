@@ -1,11 +1,8 @@
 [package]
 name = "pageframe-traits"
-description = "Shared traits and types for Blitz"
-documentation = "https://docs.rs/pageframe-traits"
+description = "Shared traits and types for Pageframe"
 version.workspace = true
 license.workspace = true
-homepage.workspace = true
-repository.workspace = true
 categories.workspace = true
 edition.workspace = true
 rust-version.workspace = true

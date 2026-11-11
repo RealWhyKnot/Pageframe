@@ -1,6 +1,6 @@
     // CSSOM stylesheet API (`document.styleSheets`, `element.sheet`,
     // `CSSStyleSheet`, `CSSRuleList`, `CSSRule` subclasses), backed by the
-    // `__blitz_sheet_*` natives. Stylesheets are keyed by their owner node and
+    // `__pageframe_sheet_*` natives. Stylesheets are keyed by their owner node and
     // rules by a path of indices through nested rule lists.
     {
         const illegal = () => {
@@ -118,10 +118,10 @@
                 return null;
             }
             get disabled() {
-                return __blitz_sheet_disabled(data(this).owner);
+                return __pageframe_sheet_disabled(data(this).owner);
             }
             set disabled(value) {
-                __blitz_sheet_set_disabled(data(this).owner, !!value);
+                __pageframe_sheet_set_disabled(data(this).owner, !!value);
             }
         }
 
@@ -132,39 +132,39 @@
             }
             get cssText() {
                 const d = data(this);
-                return __blitz_sheet_style_css_text(d.owner, d.path);
+                return __pageframe_sheet_style_css_text(d.owner, d.path);
             }
             set cssText(value) {
                 const d = data(this);
-                __blitz_sheet_style_set_css_text(d.owner, d.path, String(value));
+                __pageframe_sheet_style_set_css_text(d.owner, d.path, String(value));
                 touchSheet(data(d.rule).sheet);
             }
             get length() {
                 const d = data(this);
-                return __blitz_sheet_style_property_names(d.owner, d.path).length;
+                return __pageframe_sheet_style_property_names(d.owner, d.path).length;
             }
             item(index) {
                 const d = data(this);
-                return __blitz_sheet_style_property_names(d.owner, d.path)[index] ?? "";
+                return __pageframe_sheet_style_property_names(d.owner, d.path)[index] ?? "";
             }
             getPropertyValue(name) {
                 const d = data(this);
-                return __blitz_sheet_style_get(d.owner, d.path, String(name))[0];
+                return __pageframe_sheet_style_get(d.owner, d.path, String(name))[0];
             }
             getPropertyPriority(name) {
                 const d = data(this);
-                return __blitz_sheet_style_get(d.owner, d.path, String(name))[1] ? "important" : "";
+                return __pageframe_sheet_style_get(d.owner, d.path, String(name))[1] ? "important" : "";
             }
             setProperty(name, value, priority) {
                 const d = data(this);
                 value = value === null || value === undefined ? "" : String(value);
                 const important = String(priority ?? "").toLowerCase() === "important";
-                __blitz_sheet_style_set(d.owner, d.path, String(name), value, important);
+                __pageframe_sheet_style_set(d.owner, d.path, String(name), value, important);
                 touchSheet(data(d.rule).sheet);
             }
             removeProperty(name) {
                 const d = data(this);
-                const removed = __blitz_sheet_style_remove(d.owner, d.path, String(name));
+                const removed = __pageframe_sheet_style_remove(d.owner, d.path, String(name));
                 touchSheet(data(d.rule).sheet);
                 return removed;
             }
@@ -174,7 +174,7 @@
         }
         defineIterable(RuleStyleDeclaration.prototype);
         const makeRuleStyle = (owner, path, rule) =>
-            __blitz_wrap_style(
+            __pageframe_wrap_style(
                 indexedProxy(
                     construct(RuleStyleDeclaration, (s) => internals.set(s, { owner, path, rule }))
                 )
@@ -186,7 +186,7 @@
             }
             get length() {
                 const d = data(this);
-                return Math.max(0, __blitz_sheet_rule_count(d.owner, d.path));
+                return Math.max(0, __pageframe_sheet_rule_count(d.owner, d.path));
             }
             item(index) {
                 const d = data(this);
@@ -268,13 +268,13 @@
             insertRule(rule, index) {
                 const d = data(this);
                 index = index === undefined ? 0 : Number(index) >>> 0;
-                const result = __blitz_sheet_insert_rule(d.owner, d.path, String(rule), index);
+                const result = __pageframe_sheet_insert_rule(d.owner, d.path, String(rule), index);
                 d.sheet && invalidateRules(d.sheet);
                 return result;
             },
             deleteRule(index) {
                 const d = data(this);
-                __blitz_sheet_delete_rule(d.owner, d.path, Number(index) >>> 0);
+                __pageframe_sheet_delete_rule(d.owner, d.path, Number(index) >>> 0);
                 d.sheet && invalidateRules(d.sheet);
             },
         };
@@ -311,7 +311,7 @@
             get: attrGetter("selectorText", str),
             set(value) {
                 const d = data(this);
-                __blitz_sheet_set_selector_text(d.owner, d.path, String(value));
+                __pageframe_sheet_set_selector_text(d.owner, d.path, String(value));
                 touchSheet(d.sheet);
             },
             configurable: true,
@@ -380,14 +380,14 @@
                     },
                     appendRule(rule) {
                         const d = data(this);
-                        __blitz_sheet_insert_rule(d.owner, d.path, String(rule), 0);
+                        __pageframe_sheet_insert_rule(d.owner, d.path, String(rule), 0);
                         d.sheet && invalidateRules(d.sheet);
                     },
                     deleteRule(select) {
                         const index = findKeyframeIndex(this, select);
                         if (index === -1) return;
                         const d = data(this);
-                        __blitz_sheet_delete_rule(d.owner, d.path, index);
+                        __pageframe_sheet_delete_rule(d.owner, d.path, index);
                         d.sheet && invalidateRules(d.sheet);
                     },
                     findRule(select) {
@@ -426,7 +426,7 @@
         const generations = new WeakMap();
         const sheetGeneration = (sheet) => (sheet && generations.get(sheet)) || 0;
         const generation = (sheet) =>
-            __blitz_stylesheet_generation() + ":" + sheetGeneration(sheet);
+            __pageframe_stylesheet_generation() + ":" + sheetGeneration(sheet);
         const touchSheet = (sheet) => {
             if (sheet) generations.set(sheet, sheetGeneration(sheet) + 1);
         };
@@ -442,7 +442,7 @@
                 cache = undefined;
             }
             if (cache && cache.has(key)) return cache.get(key);
-            let info = __blitz_sheet_rule_info(owner, path);
+            let info = __pageframe_sheet_rule_info(owner, path);
             if (info === null) return null;
             let infoGeneration = generation(sheet);
             const cls = ruleClasses[info.interface] || CSSRule;
@@ -455,7 +455,7 @@
                     info: () => {
                         const current = generation(sheet);
                         if (current !== infoGeneration) {
-                            info = __blitz_sheet_rule_info(owner, path) || info;
+                            info = __pageframe_sheet_rule_info(owner, path) || info;
                             infoGeneration = current;
                         }
                         return info;
@@ -487,13 +487,13 @@
             insertRule(rule, index) {
                 const d = data(this);
                 index = index === undefined ? 0 : Number(index) >>> 0;
-                const result = __blitz_sheet_insert_rule(d.owner, [], String(rule), index);
+                const result = __pageframe_sheet_insert_rule(d.owner, [], String(rule), index);
                 invalidateRules(this);
                 return result;
             }
             deleteRule(index) {
                 const d = data(this);
-                __blitz_sheet_delete_rule(d.owner, [], Number(index) >>> 0);
+                __pageframe_sheet_delete_rule(d.owner, [], Number(index) >>> 0);
                 invalidateRules(this);
             }
             addRule(selector, block, index) {
@@ -522,8 +522,8 @@
         // One `CSSStyleSheet` object per owner node (node wrappers are cached,
         // so identity is stable)
         const sheets = new WeakMap();
-        globalThis.__blitz_sheet_for_node = (node) => {
-            if (!__blitz_node_has_stylesheet(node)) return null;
+        globalThis.__pageframe_sheet_for_node = (node) => {
+            if (!__pageframe_node_has_stylesheet(node)) return null;
             let sheet = sheets.get(node);
             if (!sheet) {
                 sheet = construct(CSSStyleSheet, (s) => internals.set(s, { owner: node }));
@@ -531,8 +531,8 @@
             }
             return sheet;
         };
-        globalThis.__blitz_style_sheets = () => {
-            const list = __blitz_stylesheet_owner_nodes().map(__blitz_sheet_for_node);
+        globalThis.__pageframe_style_sheets = () => {
+            const list = __pageframe_stylesheet_owner_nodes().map(__pageframe_sheet_for_node);
             return indexedProxy(construct(StyleSheetList, (l) => internals.set(l, { sheets: list })));
         };
 

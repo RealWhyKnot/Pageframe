@@ -532,7 +532,7 @@ impl ElementData {
     }
 
     /// Sync the visitedness bits of `element_state` with the element's link-ness.
-    /// Blitz does not track browsing history, so all links are unvisited.
+    /// Pageframe does not track browsing history, so all links are unvisited.
     ///
     /// Stylo's snapshot invalidation (`ElementWrapper::is_link`) determines link-ness
     /// from these state bits, so they must be kept accurate for `:link`/`:any-link`

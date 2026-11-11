@@ -1,11 +1,8 @@
 [package]
 name = "pageframe-script"
-description = "JavaScript execution for Blitz using the Boa engine"
-documentation = "https://docs.rs/pageframe-script"
+description = "JavaScript execution for Pageframe using the Boa engine"
 version.workspace = true
 license.workspace = true
-homepage.workspace = true
-repository.workspace = true
 categories.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -16,7 +13,7 @@ default = []
 tracing = ["dep:tracing", "pageframe-dom/tracing"]
 
 [dependencies]
-# Blitz dependencies
+# Pageframe dependencies
 pageframe-dom = { workspace = true, features = ["autofocus"] }
 pageframe-html = { workspace = true }
 pageframe-traits = { workspace = true }

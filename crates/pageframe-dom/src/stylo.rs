@@ -279,12 +279,12 @@ impl crate::document::BaseDocument {
 
 /// A handle to a node that Servo's style traits are implemented against
 ///
-/// Since BlitzNodes are not persistent (IE we don't keep the pointers around between frames), we choose to just implement
+/// Since PageframeNodes are not persistent (IE we don't keep the pointers around between frames), we choose to just implement
 /// the tree structure in the nodes themselves, and temporarily give out pointers during the layout phase.
-pub(crate) type BlitzNode<'a> = &'a Node;
+pub(crate) type PageframeNode<'a> = &'a Node;
 
-impl<'a> TDocument for BlitzNode<'a> {
-    type ConcreteNode = BlitzNode<'a>;
+impl<'a> TDocument for PageframeNode<'a> {
+    type ConcreteNode = PageframeNode<'a>;
 
     fn as_node(&self) -> Self::ConcreteNode {
         self
@@ -303,7 +303,7 @@ impl<'a> TDocument for BlitzNode<'a> {
     }
 }
 
-impl NodeInfo for BlitzNode<'_> {
+impl NodeInfo for PageframeNode<'_> {
     fn is_element(&self) -> bool {
         Node::is_element(self)
     }
@@ -313,8 +313,8 @@ impl NodeInfo for BlitzNode<'_> {
     }
 }
 
-impl<'a> TShadowRoot for BlitzNode<'a> {
-    type ConcreteNode = BlitzNode<'a>;
+impl<'a> TShadowRoot for PageframeNode<'a> {
+    type ConcreteNode = PageframeNode<'a>;
 
     fn as_node(&self) -> Self::ConcreteNode {
         self
@@ -333,10 +333,10 @@ impl<'a> TShadowRoot for BlitzNode<'a> {
 }
 
 // components/styleaapper.rs:
-impl<'a> TNode for BlitzNode<'a> {
-    type ConcreteElement = BlitzNode<'a>;
-    type ConcreteDocument = BlitzNode<'a>;
-    type ConcreteShadowRoot = BlitzNode<'a>;
+impl<'a> TNode for PageframeNode<'a> {
+    type ConcreteElement = PageframeNode<'a>;
+    type ConcreteDocument = PageframeNode<'a>;
+    type ConcreteShadowRoot = PageframeNode<'a>;
 
     fn parent_node(&self) -> Option<Self> {
         self.parent.map(|id| self.with(id))
@@ -407,7 +407,7 @@ impl<'a> TNode for BlitzNode<'a> {
     }
 }
 
-impl selectors::Element for BlitzNode<'_> {
+impl selectors::Element for PageframeNode<'_> {
     type Impl = SelectorImpl;
 
     fn opaque(&self) -> selectors::OpaqueElement {
@@ -661,8 +661,8 @@ impl selectors::Element for BlitzNode<'_> {
     }
 }
 
-impl<'a> TElement for BlitzNode<'a> {
-    type ConcreteNode = BlitzNode<'a>;
+impl<'a> TElement for PageframeNode<'a> {
+    type ConcreteNode = PageframeNode<'a>;
 
     type TraversalChildrenIterator = Traverser<'a>;
 
@@ -1433,12 +1433,12 @@ impl<'a> TElement for BlitzNode<'a> {
 
 pub struct Traverser<'a> {
     // dom: &'a Slab<Node>,
-    parent: BlitzNode<'a>,
+    parent: PageframeNode<'a>,
     child_index: usize,
 }
 
 impl<'a> Iterator for Traverser<'a> {
-    type Item = BlitzNode<'a>;
+    type Item = PageframeNode<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let node_id = self.parent.children.get(self.child_index)?;
@@ -1450,7 +1450,7 @@ impl<'a> Iterator for Traverser<'a> {
     }
 }
 
-impl std::hash::Hash for BlitzNode<'_> {
+impl std::hash::Hash for PageframeNode<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         state.write_u64(self.id.as_u64())
     }
@@ -1486,11 +1486,11 @@ impl<'a> RecalcStyle<'a> {
 }
 
 #[allow(unsafe_code)]
-impl<'dom> DomTraversal<BlitzNode<'dom>> for RecalcStyle<'_> {
-    fn process_preorder<F: FnMut(BlitzNode<'dom>)>(
+impl<'dom> DomTraversal<PageframeNode<'dom>> for RecalcStyle<'_> {
+    fn process_preorder<F: FnMut(PageframeNode<'dom>)>(
         &self,
-        context: &mut StyleContext<BlitzNode<'dom>>,
-        node: BlitzNode<'dom>,
+        context: &mut StyleContext<PageframeNode<'dom>>,
+        node: PageframeNode<'dom>,
         note_child: F,
     ) {
         if let Some(el) = node.as_element() {
@@ -1532,8 +1532,8 @@ impl<'dom> DomTraversal<BlitzNode<'dom>> for RecalcStyle<'_> {
 
     fn process_postorder(
         &self,
-        _style_context: &mut StyleContext<BlitzNode<'dom>>,
-        _node: BlitzNode<'dom>,
+        _style_context: &mut StyleContext<PageframeNode<'dom>>,
+        _node: PageframeNode<'dom>,
     ) {
         panic!("this should never be called")
     }
@@ -1672,7 +1672,7 @@ fn assert_size_of_equals() {
     //     );
     // }
 
-    // let size = mem::size_of::<StyleSharingCandidate<BlitzNode>>();
+    // let size = mem::size_of::<StyleSharingCandidate<PageframeNode>>();
     // dbg!(size);
 }
 

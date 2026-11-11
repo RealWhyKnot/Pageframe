@@ -23,14 +23,12 @@ resolver = "2"
 [workspace.package]
 version = "0.3.0-beta.4"
 license = "MIT OR Apache-2.0"
-homepage = "https://github.com/dioxuslabs/blitz"
-repository = "https://github.com/dioxuslabs/blitz"
 categories = ["gui"]
 edition = "2024"
 rust-version = "1.91.0"
 
 [workspace.dependencies]
-# Blitz dependencies(in-repo)
+# In-repo crates
 pageframe-dom = { version = "=0.3.0-beta.4", path = "./crates/pageframe-dom", default-features = false }
 pageframe-html = { version = "=0.3.0-beta.4", path = "./crates/pageframe-html", default-features = false }
 pageframe-paint = { version = "=0.3.0-beta.4", path = "./crates/pageframe-paint", default-features = false }

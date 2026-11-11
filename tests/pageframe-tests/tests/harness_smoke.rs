@@ -1,4 +1,4 @@
-//! End-to-end smoke tests for the `blitz-testing` harness itself, covering
+//! End-to-end smoke tests for the `pageframe-testing` harness itself, covering
 //! document construction, inspection, and input synthesis for both
 //! `HtmlDocument` and `DioxusDocument` backed harnesses.
 

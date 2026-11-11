@@ -10,13 +10,13 @@ use pageframe_dom::{
 };
 use pageframe_html::HtmlDocument;
 use pageframe_test_harness::{Harness, HarnessOptions, pointer_event};
-use pageframe_traits::events::{BlitzPointerId, MouseEventButton, MouseEventButtons, UiEvent};
+use pageframe_traits::events::{MouseEventButton, MouseEventButtons, PageframePointerId, UiEvent};
 use pageframe_traits::shell::ShellProvider;
 use std::sync::{Arc, Mutex};
 
-fn mouse_event(x: f32, y: f32) -> pageframe_traits::events::BlitzPointerEvent {
+fn mouse_event(x: f32, y: f32) -> pageframe_traits::events::PageframePointerEvent {
     pointer_event(
-        BlitzPointerId::Mouse,
+        PageframePointerId::Mouse,
         x,
         y,
         MouseEventButton::Main,
@@ -163,9 +163,9 @@ fn leaving_window_clears_sub_document_hover() {
     assert_eq!(child_hover(&parent, host), None);
 }
 
-fn finger_event(x: f32, y: f32) -> pageframe_traits::events::BlitzPointerEvent {
+fn finger_event(x: f32, y: f32) -> pageframe_traits::events::PageframePointerEvent {
     pointer_event(
-        BlitzPointerId::Finger(0),
+        PageframePointerId::Finger(0),
         x,
         y,
         MouseEventButton::Main,

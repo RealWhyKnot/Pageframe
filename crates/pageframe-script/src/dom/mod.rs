@@ -470,7 +470,7 @@ pub(crate) fn call_js_helper(
 pub(crate) fn wrap_style_object(obj: JsObject, context: &mut Context) -> JsValue {
     let wrapper = context
         .global_object()
-        .get(boa_engine::js_string!("__blitz_wrap_style"), context)
+        .get(boa_engine::js_string!("__pageframe_wrap_style"), context)
         .ok()
         .and_then(|value| value.as_object())
         .filter(|obj| obj.is_callable());

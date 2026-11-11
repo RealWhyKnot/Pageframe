@@ -1,5 +1,5 @@
 use crate::document::BaseDocument;
-use crate::stylo::BlitzNode;
+use crate::stylo::PageframeNode;
 use markup5ever::local_name;
 use pageframe_traits::node_id::NodeId;
 use selectors::matching::ElementSelectorFlags;
@@ -16,7 +16,7 @@ use style::values::{AtomIdent, GenericAtomIdent};
 use style::{Atom, LocalName};
 use style_dom::ElementState;
 
-fn mark_invalidated(element: BlitzNode<'_>, _result: &InvalidationResult) {
+fn mark_invalidated(element: PageframeNode<'_>, _result: &InvalidationResult) {
     element.mark_ancestors_dirty();
 }
 
@@ -27,7 +27,7 @@ struct ChangedNames {
 }
 
 impl ChangedNames {
-    fn between(element: BlitzNode<'_>, snapshot: &Snapshot) -> Self {
+    fn between(element: PageframeNode<'_>, snapshot: &Snapshot) -> Self {
         let mut ids = Vec::new();
         if snapshot.id_changed() {
             if let Some(id) = snapshot.id_attr() {
@@ -70,7 +70,7 @@ impl BaseDocument {
             if !node.is_element() || !node.flags.is_in_document() {
                 continue;
             }
-            let element: BlitzNode<'_> = node;
+            let element: PageframeNode<'_> = node;
             let wrapper = ElementWrapper::new(element, &snapshots);
             let Some(snapshot) = wrapper.snapshot() else {
                 continue;
@@ -146,7 +146,7 @@ impl BaseDocument {
             }
             return;
         }
-        let element: BlitzNode<'_> = node;
+        let element: PageframeNode<'_> = node;
         let invalidator = RelativeSelectorInvalidator {
             element,
             quirks_mode: self.stylist.quirks_mode(),
@@ -169,7 +169,7 @@ impl BaseDocument {
         if !parent.is_element() || !parent.flags.is_in_document() {
             return;
         }
-        let element: BlitzNode<'_> = parent;
+        let element: PageframeNode<'_> = parent;
         let invalidator = RelativeSelectorInvalidator {
             element,
             quirks_mode: self.stylist.quirks_mode(),

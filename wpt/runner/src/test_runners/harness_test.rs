@@ -17,12 +17,12 @@ const HARNESS_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Custom `testharnessreport.js` served in place of WPT's stock one (which is
 /// designed to be replaced by test runners). It disables the DOM output section
-/// and reports results to the runner via the `__blitz_send_message` native
+/// and reports results to the runner via the `__pageframe_send_message` native
 /// function provided by pageframe-script.
 ///
 /// The `timeout_multiplier` scales down testharness's internal timeout (10s by
 /// default) so that tests which will never complete (e.g. ones waiting for
-/// events that Blitz never fires, or for testdriver.js automation) report a
+/// events that Pageframe never fires, or for testdriver.js automation) report a
 /// TIMEOUT harness status quickly instead of hitting the runner's
 /// [`HARNESS_TIMEOUT`] backstop. It also proportionally shortens
 /// `step_timeout()` delays, speeding up legitimately-passing async tests.
@@ -35,7 +35,7 @@ const HARNESS_TIMEOUT: Duration = Duration::from_secs(10);
 const TESTHARNESSREPORT_JS: &str = r#"
 setup({ output: false, debug: false, timeout_multiplier: 0.5 });
 add_completion_callback(function (tests, harness_status) {
-    __blitz_send_message(JSON.stringify({
+    __pageframe_send_message(JSON.stringify({
         type: "wpt_results",
         harness_status: {
             status: harness_status.status,
@@ -51,7 +51,7 @@ add_completion_callback(function (tests, harness_status) {
 /// Custom `testdriver-vendor.js` served in place of WPT's stock one (an empty
 /// file which automation environments are expected to replace).
 ///
-/// Blitz has no testdriver automation backend. Without a vendor file,
+/// Pageframe has no testdriver automation backend. Without a vendor file,
 /// testdriver.js commands like `test_driver.click()` fall back to waiting for
 /// a *real user* to perform the action, so such tests hang until the harness
 /// timeout. Setting `in_automation` makes every command reject immediately
@@ -66,7 +66,7 @@ window.test_driver_internal.in_automation = true;
         const command = prefix ? prefix + "." + key : key;
         if (typeof child === "function") {
             value[key] = function () {
-                __blitz_send_message(JSON.stringify({
+                __pageframe_send_message(JSON.stringify({
                     type: "unsupported_feature",
                     feature: "testdriver",
                     command: command,

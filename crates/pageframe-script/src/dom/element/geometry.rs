@@ -76,7 +76,7 @@ pub(super) fn offset_top(
 }
 
 /// `clientWidth`/`clientHeight`. For the root element (in no-quirks mode, which
-/// is all Blitz supports) these are the viewport dimensions minus scrollbars.
+/// is all Pageframe supports) these are the viewport dimensions minus scrollbars.
 fn client_size(
     this: &JsValue,
     context: &mut Context,

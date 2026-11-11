@@ -1,4 +1,4 @@
-//! Integration between Dioxus and Blitz
+//! Integration between Dioxus and Pageframe
 use crate::{
     NodeId, mutation_buffer::MutationBuffer, qual_name, trace, write_once_attr::WriteOnceAttr,
 };
@@ -268,7 +268,7 @@ impl DioxusState {
         self.stack.element_to_node(element_id)
     }
 
-    /// Apply the buffered dioxus mutations to `doc`, driving the blitz backend
+    /// Apply the buffered dioxus mutations to `doc`, driving the pageframe backend
     /// from the local stack machine.
     pub(crate) fn apply_buffered_mutations(&mut self, doc: &mut BaseDocument) {
         let Self {
@@ -279,7 +279,7 @@ impl DioxusState {
         } = self;
         let mut writer: MutationWriter<'_> = StackWriter::new(
             stack,
-            BlitzBackend {
+            PageframeBackend {
                 docm: doc.mutate(),
                 event_handler_counts,
                 queued_mounted_events,
@@ -292,11 +292,11 @@ impl DioxusState {
 /// A writer for mutations that can be used with the RealDom.
 ///
 /// The stack-machine bookkeeping lives in [`StackWriter`]; this renderer only
-/// supplies the real tree semantics via [`BlitzBackend`].
-pub(crate) type MutationWriter<'a> = StackWriter<'a, BlitzBackend<'a>>;
+/// supplies the real tree semantics via [`PageframeBackend`].
+pub(crate) type MutationWriter<'a> = StackWriter<'a, PageframeBackend<'a>>;
 
-/// The blitz-backed "real semantics" for the dioxus stack machine.
-pub(crate) struct BlitzBackend<'a> {
+/// The pageframe-backed "real semantics" for the dioxus stack machine.
+pub(crate) struct PageframeBackend<'a> {
     /// The realdom mutation handle associated with this writer
     docm: DocumentMutator<'a>,
     /// Count of each handler type, kept so event dispatch can skip unused kinds
@@ -305,7 +305,7 @@ pub(crate) struct BlitzBackend<'a> {
     queued_mounted_events: &'a mut Vec<ElementId>,
 }
 
-impl RealDom for BlitzBackend<'_> {
+impl RealDom for PageframeBackend<'_> {
     type NodeId = NodeId;
 
     fn create_element(&mut self, tag: &str, ns: Option<&str>) -> NodeId {
@@ -400,7 +400,7 @@ impl RealDom for BlitzBackend<'_> {
     }
 }
 
-impl BlitzBackend<'_> {
+impl PageframeBackend<'_> {
     fn set_attribute_impl(
         &mut self,
         node_id: NodeId,

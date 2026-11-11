@@ -16,9 +16,9 @@ pub(super) fn dispatch(
     match method {
         "Browser.getVersion" => Ok(json!({
             "protocolVersion": "1.3",
-            "product": "Blitz",
+            "product": "Pageframe",
             "revision": "",
-            "userAgent": "Blitz",
+            "userAgent": "Pageframe",
             "jsVersion": "",
         })),
 
@@ -56,7 +56,7 @@ pub(super) fn dispatch(
         // Note that while the screencast is toggled on, the frontend
         // routes element picking and node highlighting to the screencast
         // view instead of the Overlay domain; toggling it off restores
-        // protocol-based picking on the Blitz window itself.
+        // protocol-based picking on the Pageframe window itself.
         "Page.startScreencast" => {
             writer.event(
                 "Page.screencastVisibilityChanged",

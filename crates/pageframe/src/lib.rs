@@ -9,11 +9,12 @@ pub mod events {
     pub use keyboard_types::{Code, Key, Location, Modifiers, NamedKey};
     pub use pageframe_traits::SmolStr;
     pub use pageframe_traits::events::{
-        BlitzFocusEvent as FocusEvent, BlitzImeEvent as ImeEvent, BlitzInputEvent as InputEvent,
-        BlitzKeyEvent as KeyEvent, BlitzPointerEvent as PointerEvent, BlitzPointerId as PointerId,
-        BlitzScrollEvent as ScrollEvent, BlitzWheelDelta as WheelDelta,
-        BlitzWheelEvent as WheelEvent, DomEventData as EventData, DomEventKind as EventKind,
-        KeyState, MouseEventButton, MouseEventButtons, Point, PointerCoords, PointerDetails,
+        DomEventData as EventData, DomEventKind as EventKind, KeyState, MouseEventButton,
+        MouseEventButtons, PageframeFocusEvent as FocusEvent, PageframeImeEvent as ImeEvent,
+        PageframeInputEvent as InputEvent, PageframeKeyEvent as KeyEvent,
+        PageframePointerEvent as PointerEvent, PageframePointerId as PointerId,
+        PageframeScrollEvent as ScrollEvent, PageframeWheelDelta as WheelDelta,
+        PageframeWheelEvent as WheelEvent, Point, PointerCoords, PointerDetails,
     };
 }
 

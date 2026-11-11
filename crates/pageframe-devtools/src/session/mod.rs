@@ -47,14 +47,14 @@ impl CdpError {
     }
 }
 
-/// Convert a Blitz `NodeId` to a CDP node id (CDP node ids must be non-zero,
-/// and Blitz node ids start at 0)
+/// Convert a Pageframe `NodeId` to a CDP node id (CDP node ids must be non-zero,
+/// and Pageframe node ids start at 0)
 pub(crate) fn cdp_node_id(node_id: NodeId) -> u64 {
     node_id.as_u64() + 1
 }
 
-/// Convert a CDP node id back to a Blitz `NodeId`
-pub(crate) fn blitz_node_id(cdp_id: u64) -> Option<NodeId> {
+/// Convert a CDP node id back to a Pageframe `NodeId`
+pub(crate) fn pageframe_node_id(cdp_id: u64) -> Option<NodeId> {
     cdp_id.checked_sub(1).map(NodeId::from_u64)
 }
 
@@ -135,7 +135,7 @@ const STUB_METHODS: &[&str] = &[
     "Overlay.highlightFrame",
 ];
 
-/// A single CDP client session, attached to one Blitz target
+/// A single CDP client session, attached to one Pageframe target
 pub(crate) struct Session {
     /// The target requested via the WebSocket path
     target: Option<TargetId>,
@@ -399,16 +399,16 @@ fn attr_name(name: &str) -> QualName {
     }
 }
 
-/// Extract a Blitz `NodeId` from a CDP node id parameter
+/// Extract a Pageframe `NodeId` from a CDP node id parameter
 fn node_id_param(params: &JsonValue, key: &str) -> Result<NodeId, CdpError> {
     params
         .get(key)
         .and_then(|id| id.as_u64())
-        .and_then(blitz_node_id)
+        .and_then(pageframe_node_id)
         .ok_or_else(|| CdpError::invalid_params(&format!("Missing {key}")))
 }
 
-/// Extract a Blitz `NodeId` from either a `nodeId` or a `backendNodeId`
+/// Extract a Pageframe `NodeId` from either a `nodeId` or a `backendNodeId`
 /// parameter (they use the same id space in this implementation)
 fn any_node_id_param(params: &JsonValue) -> Result<NodeId, CdpError> {
     node_id_param(params, "nodeId").or_else(|_| node_id_param(params, "backendNodeId"))

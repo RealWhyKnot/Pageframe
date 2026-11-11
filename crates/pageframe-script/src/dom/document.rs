@@ -15,7 +15,7 @@ use super::{
 /// of the document's author stylesheets
 fn style_sheets(this: &JsValue, _: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
     this_node_id(this)?;
-    super::call_js_helper("__blitz_style_sheets", &[], context)
+    super::call_js_helper("__pageframe_style_sheets", &[], context)
 }
 
 pub(crate) fn init_document_proto(proto: &JsObject, context: &mut Context) {
@@ -126,7 +126,7 @@ fn document_element(this: &JsValue, _: &[JsValue], context: &mut Context) -> JsR
     Ok(node_or_null(&ctx, root_id, context))
 }
 
-/// `document.scrollingElement`: blitz documents are always in no-quirks mode,
+/// `document.scrollingElement`: pageframe documents are always in no-quirks mode,
 /// where the scrolling element is the document element.
 fn scrolling_element(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
     document_element(this, args, context)

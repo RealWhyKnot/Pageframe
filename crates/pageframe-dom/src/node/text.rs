@@ -1,6 +1,6 @@
 use keyboard_types::{Key, Modifiers, NamedKey};
 use pageframe_traits::{
-    events::{BlitzImeEvent, BlitzKeyEvent},
+    events::{PageframeImeEvent, PageframeKeyEvent},
     node_id::NodeId,
     shell::ShellProvider,
 };
@@ -12,7 +12,7 @@ use crate::util::ACTION_MOD;
 const PASSWORD_MASK: char = '\u{2022}';
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
-/// Parley Brush type for Blitz which contains the Blitz node id
+/// Parley Brush type for Pageframe which contains the Pageframe node id
 pub struct TextBrush {
     /// The node id for the span
     pub id: NodeId,
@@ -275,7 +275,7 @@ impl TextInputData {
         font_ctx: &mut FontContext,
         layout_ctx: &mut LayoutContext<TextBrush>,
         shell_provider: &dyn ShellProvider,
-        event: BlitzKeyEvent,
+        event: PageframeKeyEvent,
     ) -> Option<GeneratedTextInputEvent> {
         // Do nothing if it is a keyup event
         if !event.state.is_pressed() {
@@ -909,27 +909,27 @@ impl TextInputData {
         &mut self,
         font_ctx: &mut FontContext,
         layout_ctx: &mut LayoutContext<TextBrush>,
-        event: BlitzImeEvent,
+        event: PageframeImeEvent,
     ) -> Option<GeneratedTextInputEvent> {
         let editor = &mut self.editor;
         let password = &mut self.password;
         let mut driver = editor.driver(font_ctx, layout_ctx);
 
         match event {
-            BlitzImeEvent::Enabled => {
+            PageframeImeEvent::Enabled => {
                 // Do nothing
                 None
             }
-            BlitzImeEvent::Disabled => {
+            PageframeImeEvent::Disabled => {
                 driver.clear_compose();
                 Some(GeneratedTextInputEvent::PreEditChange)
             }
-            BlitzImeEvent::Commit(text) => {
+            PageframeImeEvent::Commit(text) => {
                 driver.clear_compose();
                 insert_text(&mut driver, password, &text);
                 Some(GeneratedTextInputEvent::Input)
             }
-            BlitzImeEvent::Preedit(text, cursor) => {
+            PageframeImeEvent::Preedit(text, cursor) => {
                 if text.is_empty() || password.is_some() {
                     driver.clear_compose();
                 } else {
@@ -937,7 +937,7 @@ impl TextInputData {
                 }
                 Some(GeneratedTextInputEvent::PreEditChange)
             }
-            BlitzImeEvent::DeleteSurrounding {
+            PageframeImeEvent::DeleteSurrounding {
                 before_bytes,
                 after_bytes,
             } => {
@@ -996,15 +996,15 @@ mod tests {
                 input.apply_ime_event(
                     &mut font_ctx,
                     &mut layout_ctx,
-                    BlitzImeEvent::Preedit("仮".into(), cursor),
+                    PageframeImeEvent::Preedit("仮".into(), cursor),
                 );
                 input.apply_ime_event(
                     &mut font_ctx,
                     &mut layout_ctx,
-                    BlitzImeEvent::Commit(committed.into()),
+                    PageframeImeEvent::Commit(committed.into()),
                 );
                 assert_eq!(input.editor.text(), committed);
-                input.apply_ime_event(&mut font_ctx, &mut layout_ctx, BlitzImeEvent::Disabled);
+                input.apply_ime_event(&mut font_ctx, &mut layout_ctx, PageframeImeEvent::Disabled);
                 assert_eq!(input.editor.text(), committed);
             }
         }
@@ -1016,7 +1016,7 @@ mod tests {
         input.apply_ime_event(
             &mut FontContext::new(),
             &mut LayoutContext::new(),
-            BlitzImeEvent::Commit("text".into()),
+            PageframeImeEvent::Commit("text".into()),
         );
         assert_eq!(input.editor.text(), "text");
     }

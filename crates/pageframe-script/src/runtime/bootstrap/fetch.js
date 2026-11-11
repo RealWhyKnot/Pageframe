@@ -1,4 +1,4 @@
-    // `fetch()`: a minimal Fetch API on top of the synchronous `__blitz_fetch_sync`
+    // `fetch()`: a minimal Fetch API on top of the synchronous `__pageframe_fetch_sync`
     // native (which goes through the document's ScriptFetcher). Bodies are
     // text-only; `Headers` is a simple case-insensitive map.
     if (typeof globalThis.fetch !== "function") {
@@ -84,7 +84,7 @@
                     return;
                 }
                 try {
-                    const [status, resolvedUrl, text] = __blitz_fetch_sync(url);
+                    const [status, resolvedUrl, text] = __pageframe_fetch_sync(url);
                     resolve(new Response(method === "HEAD" ? "" : text, {
                         status,
                         statusText: status === 200 ? "OK" : status === 404 ? "Not Found" : "",

@@ -30,7 +30,7 @@ struct PendingScript {
 /// [`execute_scripts`](ScriptDocument::execute_scripts) (this also happens
 /// automatically on the first [`poll`](Document::poll)). UI events pushed via
 /// [`handle_ui_event`](Document::handle_ui_event) are dispatched to JavaScript
-/// event listeners before Blitz's default actions run.
+/// event listeners before Pageframe's default actions run.
 pub struct ScriptDocument {
     inner: Rc<RefCell<BaseDocument>>,
     runtime: ScriptRuntime,
@@ -240,7 +240,7 @@ impl ScriptDocument {
     }
 
     /// Drain messages sent from JavaScript via the global
-    /// `__blitz_send_message(message)` native function.
+    /// `__pageframe_send_message(message)` native function.
     ///
     /// This provides a simple JS -> embedder communication channel (used, for
     /// example, by the WPT runner to collect testharness.js results).
@@ -279,7 +279,7 @@ impl ScriptDocument {
     /// Dispatch a synthetic DOM event (e.g. a click created with
     /// [`Node::synthetic_click_event`](pageframe_dom::Node::synthetic_click_event))
     /// through the document's event driver. The event is exposed to JavaScript
-    /// event listeners, and Blitz's default actions run unless prevented.
+    /// event listeners, and Pageframe's default actions run unless prevented.
     pub fn dispatch_dom_event(&mut self, event: DomEvent) {
         let handler = ScriptEventHandler {
             runtime: &mut self.runtime,

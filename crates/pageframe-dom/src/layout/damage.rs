@@ -21,7 +21,7 @@ use style::values::specified::box_::DisplayInside;
 use style::values::specified::box_::DisplayOutside;
 use thin_vec::ThinVec;
 
-// Blitz-specific damage bits, in increasing order of severity above Servo's
+// Pageframe-specific damage bits, in increasing order of severity above Servo's
 // `RestyleDamage::RELAYOUT` (0b1111).
 
 pub(crate) const ONLY_RELAYOUT: RestyleDamage =

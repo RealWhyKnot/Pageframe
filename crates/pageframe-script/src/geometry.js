@@ -2,7 +2,7 @@
 // DOMQuad and DOMMatrix (https://drafts.csswg.org/geometry/).
 //
 // Parsing of transform-list strings (`new DOMMatrix("translate(10px)")`,
-// `setMatrixValue()`) is delegated to the `__blitz_parse_transform` native,
+// `setMatrixValue()`) is delegated to the `__pageframe_parse_transform` native,
 // which uses stylo's CSS parser.
 (function () {
     const internals = new WeakMap();
@@ -618,7 +618,7 @@
     // https://drafts.csswg.org/geometry/#parse-a-string-into-an-abstract-matrix
     const matrixFromString = (Cls, string) => {
         if (string === "") string = "matrix(1, 0, 0, 1, 0, 0)";
-        const parsed = __blitz_parse_transform(string);
+        const parsed = __pageframe_parse_transform(string);
         if (parsed === null) {
             throw domException("SyntaxError", `Failed to parse ${JSON.stringify(string)} as a transform list`);
         }
@@ -1117,7 +1117,7 @@
     // plain objects, the only containers geometry objects commonly appear in).
     // The same clone is used by `MessagePort.postMessage()`.
 
-    const GEOMETRY_TAG = "__blitz_geometry__";
+    const GEOMETRY_TAG = "__pageframe_geometry__";
     const GEOMETRY_CLASSES = {
         DOMPointReadOnly,
         DOMPoint,

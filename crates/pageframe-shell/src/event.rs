@@ -9,7 +9,7 @@ use winit::{event_loop::EventLoopProxy, window::WindowId};
 use accesskit_xplat::WindowEvent as AccessKitEvent;
 
 #[derive(Debug, Clone)]
-pub enum BlitzShellEvent {
+pub enum PageframeShellEvent {
     SetClipboardText {
         text: String,
     },
@@ -54,7 +54,7 @@ pub enum BlitzShellEvent {
         doc_id: usize,
     },
 
-    /// An arbitary event from the Blitz embedder
+    /// An arbitary event from the Pageframe embedder
     Embedder(Arc<dyn Any + Send + Sync>),
 
     /// Navigate to another URL (triggered by e.g. clicking a link)
@@ -76,7 +76,7 @@ pub enum BlitzShellEvent {
         window_id: WindowId,
     },
 }
-impl BlitzShellEvent {
+impl PageframeShellEvent {
     pub fn embedder_event<T: Any + Send + Sync>(value: T) -> Self {
         let boxed = Arc::new(value) as Arc<dyn Any + Send + Sync>;
         Self::Embedder(boxed)
@@ -84,16 +84,16 @@ impl BlitzShellEvent {
 }
 
 #[derive(Clone)]
-pub struct BlitzShellProxy(Arc<BlitzShellProxyInner>);
-pub struct BlitzShellProxyInner {
+pub struct PageframeShellProxy(Arc<PageframeShellProxyInner>);
+pub struct PageframeShellProxyInner {
     winit_proxy: EventLoopProxy,
-    sender: Sender<BlitzShellEvent>,
+    sender: Sender<PageframeShellEvent>,
 }
 
-impl BlitzShellProxy {
-    pub fn new(winit_proxy: EventLoopProxy) -> (Self, Receiver<BlitzShellEvent>) {
+impl PageframeShellProxy {
+    pub fn new(winit_proxy: EventLoopProxy) -> (Self, Receiver<PageframeShellEvent>) {
         let (sender, receiver) = channel();
-        let proxy = Self(Arc::new(BlitzShellProxyInner {
+        let proxy = Self(Arc::new(PageframeShellProxyInner {
             winit_proxy,
             sender,
         }));
@@ -103,18 +103,18 @@ impl BlitzShellProxy {
     pub fn wake_up(&self) {
         self.0.winit_proxy.wake_up();
     }
-    pub fn send_event(&self, event: impl Into<BlitzShellEvent>) {
+    pub fn send_event(&self, event: impl Into<PageframeShellEvent>) {
         self.send_event_impl(event.into());
     }
-    fn send_event_impl(&self, event: BlitzShellEvent) {
+    fn send_event_impl(&self, event: PageframeShellEvent) {
         let _ = self.0.sender.send(event);
         self.wake_up();
     }
 }
 
-impl NetWaker for BlitzShellProxy {
+impl NetWaker for PageframeShellProxy {
     fn wake(&self, client_id: usize) {
-        self.send_event_impl(BlitzShellEvent::RequestRedraw { doc_id: client_id })
+        self.send_event_impl(PageframeShellEvent::RequestRedraw { doc_id: client_id })
     }
 }
 
@@ -123,14 +123,14 @@ impl NetWaker for BlitzShellProxy {
 /// This lets the VirtualDom "come up for air" and process events while the main thread is blocked by the WebView.
 ///
 /// All other IO lives in the Tokio runtime,
-pub fn create_waker(proxy: &BlitzShellProxy, id: WindowId) -> std::task::Waker {
+pub fn create_waker(proxy: &PageframeShellProxy, id: WindowId) -> std::task::Waker {
     struct DomHandle {
-        proxy: BlitzShellProxy,
+        proxy: PageframeShellProxy,
         id: WindowId,
     }
     impl ArcWake for DomHandle {
         fn wake_by_ref(arc_self: &Arc<Self>) {
-            let event = BlitzShellEvent::Poll {
+            let event = PageframeShellEvent::Poll {
                 window_id: arc_self.id,
             };
             arc_self.proxy.send_event(event)

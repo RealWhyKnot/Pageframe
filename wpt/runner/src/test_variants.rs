@@ -267,7 +267,7 @@ mod tests {
         )
         .without_timer_thread();
         doc.eval(
-            "__blitz_send_message([location.pathname, location.search, location.hash].join('|'));",
+            "__pageframe_send_message([location.pathname, location.search, location.hash].join('|'));",
         );
         assert!(doc.take_js_errors().is_empty());
         assert_eq!(doc.take_messages(), ["/dom/test.any.html|?a=1&b=2|#part"]);

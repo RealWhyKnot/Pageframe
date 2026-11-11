@@ -1,4 +1,4 @@
-use super::BlitzDomPainter;
+use super::PageframeDomPainter;
 use anyrender::{PaintScene, Scene};
 use euclid::default::{Point2D, Rect as EuclidRect, Size2D, Transform3D};
 use kurbo::{Affine, BezPath, Point, Rect, Shape, Vec2};
@@ -192,7 +192,7 @@ fn triangle_path(triangle: [Point; 3]) -> BezPath {
     path
 }
 
-impl BlitzDomPainter<'_, '_> {
+impl PageframeDomPainter<'_, '_> {
     pub(super) fn projection(&self, node: &Node) -> Option<Projection> {
         node.transform().as_ref()?;
         let styles = node.primary_styles()?;

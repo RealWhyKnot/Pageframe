@@ -1,5 +1,6 @@
 use crate::{
-    BaseDocument, ElementData, Node as BlitzDomNode, NodeData, NodeId as BlitzDomNodeId, local_name,
+    BaseDocument, ElementData, Node as PageframeDomNode, NodeData, NodeId as PageframeDomNodeId,
+    local_name,
 };
 use accesskit::{Node as AccessKitNode, NodeId, Role, TreeId, TreeInfo, TreeUpdate};
 use style::properties::longhands::visibility;
@@ -99,7 +100,7 @@ impl BaseDocument {
     fn referenced_dom_ids_to_node_ids<'a>(
         &'a self,
         nodes_reference: &'a str,
-    ) -> impl Iterator<Item = BlitzDomNodeId> + 'a {
+    ) -> impl Iterator<Item = PageframeDomNodeId> + 'a {
         nodes_reference
             .split_ascii_whitespace()
             .filter_map(|dom_id| self.nodes_to_id.get(dom_id)?.first().copied())
@@ -107,7 +108,7 @@ impl BaseDocument {
 
     fn build_accessibility_node(
         &self,
-        node: &BlitzDomNode,
+        node: &PageframeDomNode,
         parent: &mut AccessKitNode,
     ) -> (NodeId, AccessKitNode) {
         let id = NodeId(node.id.as_u64());
@@ -181,7 +182,7 @@ impl BaseDocument {
     }
 }
 
-impl BlitzDomNode {
+impl PageframeDomNode {
     // https://www.w3.org/TR/wai-aria-1.2/#tree_exclusion
     fn is_hidden_from_accessibility_tree(&self) -> bool {
         self.try_stylo_element_data()

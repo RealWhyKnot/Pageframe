@@ -1,11 +1,8 @@
 [package]
 name = "pageframe-dom"
-description = "Blitz DOM implementation"
-documentation = "https://docs.rs/pageframe-dom"
+description = "Pageframe DOM implementation"
 version.workspace = true
 license.workspace = true
-homepage.workspace = true
-repository.workspace = true
 categories.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -46,7 +43,7 @@ log-phase-times = ["debug_timer/enable"]
 devtools = []
 
 [dependencies]
-# Blitz dependencies
+# Pageframe dependencies
 pageframe-traits = { workspace = true }
 stylo_taffy = { workspace = true, features = ["default"] }
 debug_timer = { workspace = true }
@@ -109,7 +106,7 @@ thread_local = { workspace = true }
 # WASM
 web-time = { workspace = true }
 
-# HACK: Blitz doesn't need to depend on objc2 directly. But this feature flag is necessary
+# HACK: Pageframe doesn't need to depend on objc2 directly. But this feature flag is necessary
 # to prevent debug builds from panicking.
 [target.'cfg(any(target_vendor = "apple"))'.dependencies]
 objc2 = { version = "0.6", features = ["disable-encoding-assertions"] }

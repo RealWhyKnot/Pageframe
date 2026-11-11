@@ -14,9 +14,9 @@ use html5ever::{
 use pageframe_dom::node::Attribute;
 use pageframe_dom::{DocumentMutator, HtmlParserProvider, NodeId};
 
-/// Convert an html5ever Attribute which uses tendril for its value to a blitz Attribute
+/// Convert an html5ever Attribute which uses tendril for its value to a pageframe Attribute
 /// which uses String.
-fn html5ever_to_blitz_attr(attr: html5ever::Attribute) -> Attribute {
+fn html5ever_to_pageframe_attr(attr: html5ever::Attribute) -> Attribute {
     Attribute {
         name: attr.name,
         value: attr.value.to_string(),
@@ -206,7 +206,7 @@ impl<'m, 'doc> TreeSink for DocumentHtmlParser<'m, 'doc> {
         attrs: Vec<html5ever::Attribute>,
         _flags: ElementFlags,
     ) -> Self::Handle {
-        let attrs = attrs.into_iter().map(html5ever_to_blitz_attr).collect();
+        let attrs = attrs.into_iter().map(html5ever_to_pageframe_attr).collect();
         self.mutr().create_element(name, attrs)
     }
 
@@ -299,7 +299,7 @@ impl<'m, 'doc> TreeSink for DocumentHtmlParser<'m, 'doc> {
     }
 
     fn add_attrs_if_missing(&self, target: &Self::Handle, attrs: Vec<html5ever::Attribute>) {
-        let attrs = attrs.into_iter().map(html5ever_to_blitz_attr).collect();
+        let attrs = attrs.into_iter().map(html5ever_to_pageframe_attr).collect();
         self.mutr().add_attrs_if_missing(*target, attrs);
     }
 

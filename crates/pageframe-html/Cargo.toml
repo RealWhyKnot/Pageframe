@@ -1,11 +1,8 @@
 [package]
 name = "pageframe-html"
-description = "Blitz HTML parser"
-documentation = "https://docs.rs/pageframe-html"
+description = "Pageframe HTML parser"
 version.workspace = true
 license.workspace = true
-homepage.workspace = true
-repository.workspace = true
 categories.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,7 +12,7 @@ accessibility = ["pageframe-dom/accessibility"]
 tracing = ["dep:tracing", "pageframe-dom/tracing"]
 
 [dependencies]
-# Blitz dependencies
+# Pageframe dependencies
 pageframe-dom = { workspace = true }
 pageframe-traits = { workspace = true }
 

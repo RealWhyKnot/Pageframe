@@ -1,17 +1,15 @@
 [package]
 name = "pageframe-test-harness"
-description = "Headless test harness for Blitz documents"
+description = "Headless test harness for Pageframe documents"
 publish = false
 version.workspace = true
 license.workspace = true
-homepage.workspace = true
-repository.workspace = true
 categories.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-# Blitz dependencies
+# Pageframe dependencies
 pageframe-dom = { workspace = true, features = ["accessibility", "system-fonts"] }
 pageframe-html = { workspace = true }
 pageframe-traits = { workspace = true }

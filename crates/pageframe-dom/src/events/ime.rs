@@ -1,10 +1,10 @@
-use pageframe_traits::events::{BlitzImeEvent, DomEvent};
+use pageframe_traits::events::{DomEvent, PageframeImeEvent};
 
 use crate::BaseDocument;
 
 pub(crate) fn handle_ime_event<F: FnMut(DomEvent)>(
     doc: &mut BaseDocument,
-    event: BlitzImeEvent,
+    event: PageframeImeEvent,
     dispatch_event: F,
 ) {
     if let Some(node_id) = doc.focus_node_id {

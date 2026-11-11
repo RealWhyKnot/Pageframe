@@ -1,11 +1,8 @@
 [package]
 name = "pageframe-shell"
-description = "Blitz application shell"
-documentation = "https://docs.rs/pageframe-shell"
+description = "Pageframe application shell"
 version.workspace = true
 license.workspace = true
-homepage.workspace = true
-repository.workspace = true
 categories.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -21,7 +18,7 @@ tracing = ["dep:tracing", "pageframe-dom/tracing"]
 file-dialog = ["dep:rfd"]
 # Enables a data-uri-only NetProvider. Only needed if you aren't using the regular NetProvider
 data-uri = ["dep:data-url"]
-# Enables the Chrome DevTools Protocol server (started via the BLITZ_CDP_PORT env var
+# Enables the Chrome DevTools Protocol server (started via the PAGEFRAME_CDP_PORT env var
 # or on demand by `ShellProvider::open_devtools`)
 devtools = ["dep:pageframe-devtools", "dep:webbrowser"]
 # Embeds a DevTools frontend (about 2 MB) in the CDP server, which `open_devtools`
@@ -31,7 +28,7 @@ embedded-devtools-frontend = ["devtools", "pageframe-devtools/embedded-frontend"
 custom-widget = ["pageframe-dom/custom-widget"]
 
 [dependencies]
-# Blitz dependencies
+# Pageframe dependencies
 pageframe-traits = { workspace = true }
 pageframe-dom = { workspace = true }
 pageframe-paint = { workspace = true }

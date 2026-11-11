@@ -1,4 +1,4 @@
-//! Headless test harness for Blitz documents.
+//! Headless test harness for Pageframe documents.
 //!
 //! [`Harness`] wraps any [`pageframe_dom::Document`] (e.g. [`pageframe_html::HtmlDocument`] or
 //! [`dioxus_native_dom::DioxusDocument`]) and provides:

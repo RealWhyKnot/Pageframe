@@ -1,7 +1,7 @@
 //! Scrolling: user-initiated (interactive) and programmatic scrolling of nodes and the
 //! viewport, and the scroll animations (smooth scrolls and flings) which drive them.
 
-use pageframe_traits::events::{BlitzScrollEvent, DomEvent, DomEventData};
+use pageframe_traits::events::{DomEvent, DomEventData, PageframeScrollEvent};
 use pageframe_traits::node_id::NodeId;
 use style::values::computed::Overflow;
 use stylo_taffy::CopyStyleGetters;
@@ -303,7 +303,7 @@ impl BaseDocument {
                     let root_id = root.id;
                     let layout = *root.final_layout();
                     let scale = self.viewport.scale() as f64;
-                    let event = BlitzScrollEvent {
+                    let event = PageframeScrollEvent {
                         scroll_top: offset.y,
                         scroll_left: offset.x,
                         scroll_width: layout.size.width.max(root.scroll_width()) as i32,
@@ -332,7 +332,7 @@ impl BaseDocument {
                 let scroll_height = node.scroll_height();
                 let layout = *node.final_layout();
                 self.nodes.bump_geometry_generation();
-                let event = BlitzScrollEvent {
+                let event = PageframeScrollEvent {
                     scroll_top: offset.y,
                     scroll_left: offset.x,
                     scroll_width: scroll_width as i32,

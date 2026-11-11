@@ -1,7 +1,7 @@
 //! Enable the dom to lay itself out using taffy
 //!
 //! In servo, style and layout happen together during traversal
-//! However, in Blitz, we do a style pass then a layout pass.
+//! However, in Pageframe, we do a style pass then a layout pass.
 //! This is slower, yes, but happens fast enough that it's not a huge issue.
 
 use crate::node::{

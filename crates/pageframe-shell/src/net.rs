@@ -3,29 +3,29 @@
 // use pageframe_traits::net::NetWaker;
 // use winit::event_loop::EventLoopProxy;
 
-// use crate::{BlitzShellEvent, event::BlitzShellProxy};
+// use crate::{PageframeShellEvent, event::PageframeShellProxy};
 
 // /// A NetWaker that wakes up our winit event loop
-// pub struct BlitzShellNetWaker(BlitzShellProxy);
+// pub struct PageframeShellNetWaker(PageframeShellProxy);
 
-// impl BlitzShellNetWaker {
-//     pub fn new(proxy: BlitzShellProxy) -> Self {
+// impl PageframeShellNetWaker {
+//     pub fn new(proxy: PageframeShellProxy) -> Self {
 //         Self(proxy)
 //     }
 
-//     pub fn shared(proxy: BlitzShellProxy) -> Arc<dyn NetWaker> {
+//     pub fn shared(proxy: PageframeShellProxy) -> Arc<dyn NetWaker> {
 //         Arc::new(Self(proxy))
 //     }
 // }
-// impl NetWaker for BlitzShellNetWaker {
+// impl NetWaker for PageframeShellNetWaker {
 //     fn wake(&self, doc_id: usize) {
-//         self.0.send_event(BlitzShellEvent::RequestRedraw { doc_id })
+//         self.0.send_event(PageframeShellEvent::RequestRedraw { doc_id })
 //     }
 // }
 
 #[cfg(feature = "data-uri")]
 mod data_uri_net_provider {
-    //! Data-URI only networking for Blitz
+    //! Data-URI only networking for Pageframe
     //!
     //! Provides an implementation of the [`pageframe_traits::net::NetProvider`] trait.
 

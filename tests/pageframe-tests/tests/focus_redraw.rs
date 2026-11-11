@@ -8,7 +8,7 @@ use keyboard_types::{Code, Key, Location, Modifiers, NamedKey};
 use pageframe_dom::{Document, DocumentConfig, NodeId};
 use pageframe_html::{HtmlDocument, HtmlProvider};
 use pageframe_traits::{
-    events::{BlitzKeyEvent, KeyState, UiEvent},
+    events::{KeyState, PageframeKeyEvent, UiEvent},
     shell::{ColorScheme, ShellProvider, Viewport},
 };
 use std::sync::{
@@ -57,8 +57,8 @@ fn node_id(doc: &HtmlDocument, selector: &str) -> NodeId {
     doc.query_selector(selector).unwrap().expect(selector)
 }
 
-fn tab_key_event() -> BlitzKeyEvent {
-    BlitzKeyEvent {
+fn tab_key_event() -> PageframeKeyEvent {
+    PageframeKeyEvent {
         key: Key::Named(NamedKey::Tab),
         code: Code::Tab,
         modifiers: Modifiers::empty(),

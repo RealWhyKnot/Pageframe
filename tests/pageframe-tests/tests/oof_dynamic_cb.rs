@@ -8,7 +8,7 @@
 //! `css/css-transforms/transform-containing-block-dynamic-1b.html`,
 //! `css/filter-effects/filter-cb-dynamic-1b.html`,
 //! `css/css-will-change/will-change-abspos-cb-dynamic-001.html` and
-//! `css/css-contain/contain-layout-020.html`, which Blitz's WPT runner cannot
+//! `css/css-contain/contain-layout-020.html`, which Pageframe's WPT runner cannot
 //! run (they require script).
 
 use markup5ever::{QualName, local_name, ns};

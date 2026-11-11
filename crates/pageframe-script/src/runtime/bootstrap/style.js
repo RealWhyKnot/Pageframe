@@ -25,7 +25,7 @@
     const stylePrototypes = new WeakSet();
     const installStyleProperties = (proto) => {
         if (stylePrototypes.has(proto)) return;
-        for (const name of __blitz_css_property_names()) {
+        for (const name of __pageframe_css_property_names()) {
             const camel = name.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
             const attributes = [name, camel];
             if (name.startsWith("-webkit-")) {
@@ -46,7 +46,7 @@
         }
         stylePrototypes.add(proto);
     };
-    globalThis.__blitz_wrap_style = function (native) {
+    globalThis.__pageframe_wrap_style = function (native) {
         installStyleProperties(Object.getPrototypeOf(native));
         return new Proxy(native, {
             get(target, prop) {
@@ -83,7 +83,7 @@
                     if (prop === Symbol.iterator) return true;
                 }
                 return (
-                    isCssPropName(prop) && __blitz_css_property_supported(toKebab(prop))
+                    isCssPropName(prop) && __pageframe_css_property_supported(toKebab(prop))
                 );
             },
             ownKeys(target) {

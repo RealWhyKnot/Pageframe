@@ -1,15 +1,15 @@
 //! Programmatic input synthesis.
 //!
-//! Free functions construct raw Blitz input events; methods on [`Harness`] synthesize
+//! Free functions construct raw Pageframe input events; methods on [`Harness`] synthesize
 //! complete interactions (click, tap, drag, typing) and dispatch them through the
 //! document's real event pipeline.
 
 use keyboard_types::{Code, Key, Location, Modifiers};
 use pageframe_dom::Document;
 use pageframe_traits::events::{
-    BlitzImeEvent, BlitzKeyEvent, BlitzPointerEvent, BlitzPointerId, BlitzWheelDelta,
-    BlitzWheelEvent, KeyState, MouseEventButton, MouseEventButtons, Point, PointerCoords,
-    PointerDetails, UiEvent,
+    KeyState, MouseEventButton, MouseEventButtons, PageframeImeEvent, PageframeKeyEvent,
+    PageframePointerEvent, PageframePointerId, PageframeWheelDelta, PageframeWheelEvent, Point,
+    PointerCoords, PointerDetails, UiEvent,
 };
 use smol_str::SmolStr;
 
@@ -26,16 +26,16 @@ fn coords(x: f32, y: f32) -> PointerCoords {
     }
 }
 
-/// Construct a [`BlitzPointerEvent`] at page coordinates `(x, y)`
+/// Construct a [`PageframePointerEvent`] at page coordinates `(x, y)`
 pub fn pointer_event(
-    id: BlitzPointerId,
+    id: PageframePointerId,
     x: f32,
     y: f32,
     button: MouseEventButton,
     buttons: MouseEventButtons,
     mods: Modifiers,
-) -> BlitzPointerEvent {
-    BlitzPointerEvent {
+) -> PageframePointerEvent {
+    PageframePointerEvent {
         id,
         is_primary: true,
         coords: coords(x, y),
@@ -48,10 +48,10 @@ pub fn pointer_event(
     }
 }
 
-/// Construct a main-button mouse [`BlitzPointerEvent`] at page coordinates `(x, y)`
-pub fn mouse_pointer_event(x: f32, y: f32) -> BlitzPointerEvent {
+/// Construct a main-button mouse [`PageframePointerEvent`] at page coordinates `(x, y)`
+pub fn mouse_pointer_event(x: f32, y: f32) -> PageframePointerEvent {
     pointer_event(
-        BlitzPointerId::Mouse,
+        PageframePointerId::Mouse,
         x,
         y,
         MouseEventButton::Main,
@@ -60,10 +60,10 @@ pub fn mouse_pointer_event(x: f32, y: f32) -> BlitzPointerEvent {
     )
 }
 
-/// Construct a finger [`BlitzPointerEvent`] at page coordinates `(x, y)`
-pub fn touch_pointer_event(finger: u64, x: f32, y: f32) -> BlitzPointerEvent {
+/// Construct a finger [`PageframePointerEvent`] at page coordinates `(x, y)`
+pub fn touch_pointer_event(finger: u64, x: f32, y: f32) -> PageframePointerEvent {
     pointer_event(
-        BlitzPointerId::Finger(finger),
+        PageframePointerId::Finger(finger),
         x,
         y,
         MouseEventButton::Main,
@@ -72,15 +72,15 @@ pub fn touch_pointer_event(finger: u64, x: f32, y: f32) -> BlitzPointerEvent {
     )
 }
 
-/// Construct a [`BlitzKeyEvent`] for `key` in the given `state`.
+/// Construct a [`PageframeKeyEvent`] for `key` in the given `state`.
 ///
 /// For [`Key::Character`] keys, `text` is populated with the character(s) on press.
-pub fn key_event(key: Key, state: KeyState, modifiers: Modifiers) -> BlitzKeyEvent {
+pub fn key_event(key: Key, state: KeyState, modifiers: Modifiers) -> PageframeKeyEvent {
     let text = match (&key, state) {
         (Key::Character(text), KeyState::Pressed) => Some(SmolStr::new(text)),
         _ => None,
     };
-    BlitzKeyEvent {
+    PageframeKeyEvent {
         key,
         code: Code::Unidentified,
         modifiers,
@@ -122,7 +122,7 @@ impl<D: Document> Harness<D> {
     /// Move the mouse (no buttons pressed) to page coordinates `(x, y)`
     pub fn move_mouse_to(&mut self, x: f32, y: f32) {
         let event = pointer_event(
-            BlitzPointerId::Mouse,
+            PageframePointerId::Mouse,
             x,
             y,
             MouseEventButton::Main,
@@ -186,8 +186,8 @@ impl<D: Document> Harness<D> {
     /// The mouse is first moved to `(x, y)` so the wheel targets the hovered element.
     pub fn wheel_at(&mut self, x: f32, y: f32, delta_x: f64, delta_y: f64) {
         self.move_mouse_to(x, y);
-        let event = BlitzWheelEvent {
-            delta: BlitzWheelDelta::Pixels(delta_x, delta_y),
+        let event = PageframeWheelEvent {
+            delta: PageframeWheelDelta::Pixels(delta_x, delta_y),
             coords: coords(x, y),
             buttons: MouseEventButtons::empty(),
             mods: Modifiers::default(),
@@ -225,7 +225,7 @@ impl<D: Document> Harness<D> {
     }
 
     /// Dispatch an IME event
-    pub fn ime(&mut self, event: BlitzImeEvent) {
+    pub fn ime(&mut self, event: PageframeImeEvent) {
         self.dispatch(UiEvent::Ime(event));
         self.pump();
     }

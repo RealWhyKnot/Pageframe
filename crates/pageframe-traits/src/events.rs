@@ -60,16 +60,16 @@ impl EventState {
 #[derive(Debug, Clone)]
 #[repr(u8)]
 pub enum UiEvent {
-    PointerMove(BlitzPointerEvent),
-    PointerUp(BlitzPointerEvent),
-    PointerDown(BlitzPointerEvent),
-    PointerCancel(BlitzPointerEvent),
+    PointerMove(PageframePointerEvent),
+    PointerUp(PageframePointerEvent),
+    PointerDown(PageframePointerEvent),
+    PointerCancel(PageframePointerEvent),
     /// The pointer has left the document (e.g. it moved out of the window)
-    PointerLeave(BlitzPointerEvent),
-    Wheel(BlitzWheelEvent),
-    KeyUp(BlitzKeyEvent),
-    KeyDown(BlitzKeyEvent),
-    Ime(BlitzImeEvent),
+    PointerLeave(PageframePointerEvent),
+    Wheel(PageframeWheelEvent),
+    KeyUp(PageframeKeyEvent),
+    KeyDown(PageframeKeyEvent),
+    Ime(PageframeImeEvent),
     AppleStandardKeybinding(SmolStr),
     Paste(String),
 }
@@ -213,45 +213,45 @@ impl FromStr for DomEventKind {
 #[derive(Debug, Clone)]
 #[repr(u8)]
 pub enum DomEventData {
-    PointerMove(BlitzPointerEvent),
-    PointerDown(BlitzPointerEvent),
-    PointerUp(BlitzPointerEvent),
-    PointerCancel(BlitzPointerEvent),
-    PointerEnter(BlitzPointerEvent),
-    PointerLeave(BlitzPointerEvent),
-    PointerOver(BlitzPointerEvent),
-    PointerOut(BlitzPointerEvent),
+    PointerMove(PageframePointerEvent),
+    PointerDown(PageframePointerEvent),
+    PointerUp(PageframePointerEvent),
+    PointerCancel(PageframePointerEvent),
+    PointerEnter(PageframePointerEvent),
+    PointerLeave(PageframePointerEvent),
+    PointerOver(PageframePointerEvent),
+    PointerOut(PageframePointerEvent),
 
-    MouseMove(BlitzPointerEvent),
-    MouseDown(BlitzPointerEvent),
-    MouseUp(BlitzPointerEvent),
-    MouseEnter(BlitzPointerEvent),
-    MouseLeave(BlitzPointerEvent),
-    MouseOver(BlitzPointerEvent),
-    MouseOut(BlitzPointerEvent),
+    MouseMove(PageframePointerEvent),
+    MouseDown(PageframePointerEvent),
+    MouseUp(PageframePointerEvent),
+    MouseEnter(PageframePointerEvent),
+    MouseLeave(PageframePointerEvent),
+    MouseOver(PageframePointerEvent),
+    MouseOut(PageframePointerEvent),
 
-    TouchStart(BlitzPointerEvent),
-    TouchMove(BlitzPointerEvent),
-    TouchEnd(BlitzPointerEvent),
-    TouchCancel(BlitzPointerEvent),
+    TouchStart(PageframePointerEvent),
+    TouchMove(PageframePointerEvent),
+    TouchEnd(PageframePointerEvent),
+    TouchCancel(PageframePointerEvent),
 
-    Scroll(BlitzScrollEvent),
-    Wheel(BlitzWheelEvent),
+    Scroll(PageframeScrollEvent),
+    Wheel(PageframeWheelEvent),
 
-    Click(BlitzPointerEvent),
-    ContextMenu(BlitzPointerEvent),
-    DoubleClick(BlitzPointerEvent),
+    Click(PageframePointerEvent),
+    ContextMenu(PageframePointerEvent),
+    DoubleClick(PageframePointerEvent),
 
-    KeyPress(BlitzKeyEvent),
-    KeyDown(BlitzKeyEvent),
-    KeyUp(BlitzKeyEvent),
-    Input(BlitzInputEvent),
-    Ime(BlitzImeEvent),
+    KeyPress(PageframeKeyEvent),
+    KeyDown(PageframeKeyEvent),
+    KeyUp(PageframeKeyEvent),
+    Input(PageframeInputEvent),
+    Ime(PageframeImeEvent),
 
-    Focus(BlitzFocusEvent),
-    Blur(BlitzFocusEvent),
-    FocusIn(BlitzFocusEvent),
-    FocusOut(BlitzFocusEvent),
+    Focus(PageframeFocusEvent),
+    Blur(PageframeFocusEvent),
+    FocusIn(PageframeFocusEvent),
+    FocusOut(PageframeFocusEvent),
 
     AppleStandardKeybinding(SmolStr),
 }
@@ -464,7 +464,7 @@ pub struct HitResult {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum BlitzPointerId {
+pub enum PageframePointerId {
     Mouse,
     Pen,
     Finger(u64),
@@ -498,8 +498,8 @@ pub struct Point<T> {
 }
 
 #[derive(Clone, Debug)]
-pub struct BlitzPointerEvent {
-    pub id: BlitzPointerId,
+pub struct PageframePointerEvent {
+    pub id: PageframePointerId,
     pub is_primary: bool,
     pub coords: PointerCoords,
     pub button: MouseEventButton,
@@ -517,21 +517,21 @@ pub struct BlitzPointerEvent {
     ///
     /// The events stored in this list always have an empty `active_pointers`
     /// list themselves, to avoid a reference cycle.
-    pub active_pointers: Arc<AtomicRefCell<Vec<BlitzPointerEvent>>>,
+    pub active_pointers: Arc<AtomicRefCell<Vec<PageframePointerEvent>>>,
 }
 
-impl BlitzPointerEvent {
+impl PageframePointerEvent {
     #[inline(always)]
     pub fn is_mouse(&self) -> bool {
-        matches!(self.id, BlitzPointerId::Mouse)
+        matches!(self.id, PageframePointerId::Mouse)
     }
     #[inline(always)]
     pub fn is_pen(&self) -> bool {
-        matches!(self.id, BlitzPointerId::Pen)
+        matches!(self.id, PageframePointerId::Pen)
     }
     #[inline(always)]
     pub fn is_finger(&self) -> bool {
-        matches!(self.id, BlitzPointerId::Finger(_))
+        matches!(self.id, PageframePointerId::Finger(_))
     }
 
     #[inline(always)]
@@ -570,21 +570,21 @@ impl BlitzPointerEvent {
 }
 
 #[derive(Clone, Debug)]
-pub enum BlitzWheelDelta {
+pub enum PageframeWheelDelta {
     Lines(f64, f64),
     Pixels(f64, f64),
 }
 
 #[derive(Clone, Debug)]
-pub struct BlitzWheelEvent {
-    pub delta: BlitzWheelDelta,
+pub struct PageframeWheelEvent {
+    pub delta: PageframeWheelDelta,
     pub coords: PointerCoords,
     pub buttons: MouseEventButtons,
     pub mods: Modifiers,
     pub element: Point<f32>,
 }
 
-impl BlitzWheelEvent {
+impl PageframeWheelEvent {
     #[inline(always)]
     pub fn page_x(&self) -> f32 {
         self.coords.page_x
@@ -620,7 +620,7 @@ impl BlitzWheelEvent {
 }
 
 #[derive(Clone, Debug)]
-pub struct BlitzScrollEvent {
+pub struct PageframeScrollEvent {
     pub scroll_top: f64,
     pub scroll_left: f64,
     pub scroll_width: i32,
@@ -630,7 +630,7 @@ pub struct BlitzScrollEvent {
 }
 
 // struct PointerInputState {
-//     id: BlitzPointerId,
+//     id: PageframePointerId,
 //     pointer_down_x: f32,
 //     pointer_down_y: f32,
 //     pointer_down_time: Option<Instant>,
@@ -715,7 +715,7 @@ impl KeyState {
 }
 
 #[derive(Clone, Debug)]
-pub struct BlitzKeyEvent {
+pub struct PageframeKeyEvent {
     pub key: Key,
     pub code: Code,
     pub modifiers: Modifiers,
@@ -727,16 +727,16 @@ pub struct BlitzKeyEvent {
 }
 
 #[derive(Clone, Debug)]
-pub struct BlitzInputEvent {
+pub struct PageframeInputEvent {
     pub value: String,
 }
 
 #[derive(Clone, Debug)]
-pub struct BlitzFocusEvent;
+pub struct PageframeFocusEvent;
 
-/// Copy of Winit IME event to avoid lower-level Blitz crates depending on winit
+/// Copy of Winit IME event to avoid lower-level Pageframe crates depending on winit
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum BlitzImeEvent {
+pub enum PageframeImeEvent {
     /// Notifies when the IME was enabled.
     ///
     /// After getting this event you could receive [`Preedit`][Self::Preedit] and

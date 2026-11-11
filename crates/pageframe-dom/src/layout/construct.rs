@@ -618,7 +618,7 @@ fn collect_layout_children_with_wrap(
         }
 
         // Flow, FlowRoot and TableCell, plus internal table displays (row,
-        // row group, column, ...) occurring outside of a table. Blitz does
+        // row group, column, ...) occurring outside of a table. Pageframe does
         // not yet generate anonymous table wrapper boxes for the latter, so
         // they are laid out as flow containers, which crucially ensures
         // their text children get wrapped rather than being pushed as bare

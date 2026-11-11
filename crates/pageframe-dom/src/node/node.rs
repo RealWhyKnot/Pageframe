@@ -6,7 +6,7 @@ use keyboard_types::Modifiers;
 use kurbo::{Affine, Rect as KurboRect};
 use markup5ever::{LocalName, local_name};
 use pageframe_traits::events::{
-    BlitzPointerEvent, BlitzPointerId, DomEventData, HitResult, PointerCoords,
+    DomEventData, HitResult, PageframePointerEvent, PageframePointerId, PointerCoords,
 };
 use pageframe_traits::node_id::NodeId;
 use pageframe_traits::shell::ShellProvider;
@@ -2175,13 +2175,13 @@ impl Node {
         DomEventData::Click(self.synthetic_click_event_data(mods))
     }
 
-    pub fn synthetic_click_event_data(&self, mods: Modifiers) -> BlitzPointerEvent {
+    pub fn synthetic_click_event_data(&self, mods: Modifiers) -> PageframePointerEvent {
         let absolute_position = self.absolute_position(0.0, 0.0);
         let x = absolute_position.x + (self.final_layout().size.width / 2.0);
         let y = absolute_position.y + (self.final_layout().size.height / 2.0);
 
-        BlitzPointerEvent {
-            id: BlitzPointerId::Mouse,
+        PageframePointerEvent {
+            id: PageframePointerId::Mouse,
             is_primary: true,
             coords: PointerCoords {
                 page_x: x,

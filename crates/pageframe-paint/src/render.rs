@@ -71,7 +71,7 @@ pub(super) const ALMOST_OPAQUE: f32 = 1.0 - f32::EPSILON;
 
 /// A short-lived struct which holds a bunch of parameters for rendering a scene so
 /// that we don't have to pass them down as parameters
-pub struct BlitzDomPainter<'dom, 'a> {
+pub struct PageframeDomPainter<'dom, 'a> {
     /// Input parameters (read only) for generating the Scene
     pub(crate) dom: &'dom BaseDocument,
     pub(crate) scale: f64,
@@ -98,8 +98,8 @@ pub struct BlitzDomPainter<'dom, 'a> {
     pub(crate) custom_widget_scenes: &'a CustomWidgetSceneMap,
 }
 
-impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
-    /// Create a new BlitzDomPainter for the given document
+impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
+    /// Create a new PageframeDomPainter for the given document
     pub fn new(
         dom: &'dom BaseDocument,
         scale: f64,
@@ -381,7 +381,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
     /// This is because the font_size is calculated from layout resolution and all text is rendered directly here, instead
     /// of a separate text stroking phase.
     ///
-    /// In Blitz, text styling gets its attributes from its container element/resolved styles
+    /// In Pageframe, text styling gets its attributes from its container element/resolved styles
     /// In other libraries, text gets its attributes from a `text` element - this is not how HTML works.
     ///
     /// Text is drawn from its container element, so its styles are already at hand and we
@@ -1166,7 +1166,7 @@ const MARKER_LINE_SEARCH_DEPTH: usize = 8;
 
 /// A context of loaded and hot data to draw the element from
 struct ElementCx<'dom, 'a> {
-    context: &'dom BlitzDomPainter<'dom, 'a>,
+    context: &'dom PageframeDomPainter<'dom, 'a>,
     frame: CssBox,
     style: style::servo_arc::Arc<ComputedValues>,
     scale: f64,
@@ -2258,7 +2258,7 @@ impl ElementCx<'_, '_> {
             let initial_y = translation.y + self.frame.content_box.origin().y;
             // let transform = self.transform.then_translate(Vec2 { x, y });
 
-            let painter = BlitzDomPainter::new(
+            let painter = PageframeDomPainter::new(
                 &sub_doc,
                 scale,
                 width,
@@ -2290,7 +2290,7 @@ impl ElementCx<'_, '_> {
     }
 }
 impl<'dom, 'a> std::ops::Deref for ElementCx<'dom, 'a> {
-    type Target = BlitzDomPainter<'dom, 'a>;
+    type Target = PageframeDomPainter<'dom, 'a>;
     fn deref(&self) -> &Self::Target {
         self.context
     }

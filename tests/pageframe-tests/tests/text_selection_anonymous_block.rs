@@ -11,7 +11,7 @@ use pageframe_dom::{Document, DocumentConfig, NodeId};
 use pageframe_html::{HtmlDocument, HtmlProvider};
 use pageframe_traits::{
     events::{
-        BlitzPointerEvent, BlitzPointerId, MouseEventButton, MouseEventButtons, Point,
+        MouseEventButton, MouseEventButtons, PageframePointerEvent, PageframePointerId, Point,
         PointerCoords, PointerDetails, UiEvent,
     },
     shell::{ColorScheme, Viewport},
@@ -39,9 +39,9 @@ fn make_doc() -> HtmlDocument {
     doc
 }
 
-fn pointer_event(x: f32, y: f32, buttons: MouseEventButtons) -> BlitzPointerEvent {
-    BlitzPointerEvent {
-        id: BlitzPointerId::Mouse,
+fn pointer_event(x: f32, y: f32, buttons: MouseEventButtons) -> PageframePointerEvent {
+    PageframePointerEvent {
+        id: PageframePointerId::Mouse,
         is_primary: true,
         coords: PointerCoords {
             page_x: x,

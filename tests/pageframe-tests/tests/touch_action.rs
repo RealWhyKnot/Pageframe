@@ -6,7 +6,7 @@ use pageframe_dom::{Document, DocumentConfig};
 use pageframe_html::{HtmlDocument, HtmlProvider};
 use pageframe_traits::{
     events::{
-        BlitzPointerEvent, BlitzPointerId, MouseEventButton, MouseEventButtons, Point,
+        MouseEventButton, MouseEventButtons, PageframePointerEvent, PageframePointerId, Point,
         PointerCoords, PointerDetails, UiEvent,
     },
     shell::{ColorScheme, Viewport},
@@ -26,9 +26,9 @@ fn doc(html: &str) -> HtmlDocument {
     doc
 }
 
-fn finger_event(x: f32, y: f32) -> BlitzPointerEvent {
-    BlitzPointerEvent {
-        id: BlitzPointerId::Finger(0),
+fn finger_event(x: f32, y: f32) -> PageframePointerEvent {
+    PageframePointerEvent {
+        id: PageframePointerId::Finger(0),
         is_primary: true,
         coords: PointerCoords {
             page_x: x,

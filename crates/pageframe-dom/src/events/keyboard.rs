@@ -4,11 +4,11 @@ use keyboard_types::{Key, Modifiers, NamedKey};
 use pageframe_traits::node_id::NodeId;
 use pageframe_traits::{
     SmolStr,
-    events::{BlitzInputEvent, BlitzKeyEvent, DomEvent, DomEventData},
+    events::{DomEvent, DomEventData, PageframeInputEvent, PageframeKeyEvent},
 };
 
 pub(super) enum KeyboardOrTextInputEvent {
-    KeyPress(BlitzKeyEvent),
+    KeyPress(PageframeKeyEvent),
     AppleStandardKeyBinding(SmolStr),
 }
 
@@ -72,12 +72,12 @@ pub(crate) fn handle_key_or_input_event<F: FnMut(DomEvent)>(
 
         if let Some(input_data) = element_data.text_input_data_mut() {
             let generated_event = match event {
-                KeyboardOrTextInputEvent::KeyPress(blitz_key_event) => input_data
+                KeyboardOrTextInputEvent::KeyPress(pageframe_key_event) => input_data
                     .apply_keypress_event(
                         &mut doc.font_ctx.lock().unwrap(),
                         &mut doc.layout_ctx,
                         &*doc.shell_provider,
-                        blitz_key_event,
+                        pageframe_key_event,
                     ),
                 KeyboardOrTextInputEvent::AppleStandardKeyBinding(command) => input_data
                     .apply_apple_standard_keybinding(
@@ -117,7 +117,7 @@ impl BaseDocument {
                 let value = input_data.value().to_string();
                 dispatch_event(DomEvent::new(
                     node_id,
-                    DomEventData::Input(BlitzInputEvent { value }),
+                    DomEventData::Input(PageframeInputEvent { value }),
                 ));
                 self.shell_provider.request_redraw();
             }

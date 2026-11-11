@@ -7,7 +7,7 @@ use std::path::Path;
 /// Environment variable naming a directory to serve the frontend from
 /// instead of the embedded copy (e.g. the `dist/` of a local
 /// blitz-chrome-devtools-frontend build)
-const FRONTEND_DIR_VAR: &str = "BLITZ_DEVTOOLS_FRONTEND_DIR";
+const FRONTEND_DIR_VAR: &str = "PAGEFRAME_DEVTOOLS_FRONTEND_DIR";
 
 /// The path of the frontend's page
 const ENTRY_PATH: &str = "devtools_app.html";
@@ -16,7 +16,7 @@ const ENTRY_PATH: &str = "devtools_app.html";
 /// [`target_id`](crate::target_id)) of the server listening on `addr`.
 ///
 /// When the `embedded-frontend` feature is enabled (or
-/// `BLITZ_DEVTOOLS_FRONTEND_DIR` is set), this is the frontend served by the
+/// `PAGEFRAME_DEVTOOLS_FRONTEND_DIR` is set), this is the frontend served by the
 /// server itself, which any Chromium-based browser can open. Otherwise it's the
 /// frontend bundled with Chrome (a `devtools://` URL, as advertised at
 /// `/json/list`), which can only be opened by pasting it into Chrome's address

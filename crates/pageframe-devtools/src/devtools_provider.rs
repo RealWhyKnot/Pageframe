@@ -1,5 +1,5 @@
 //! Live DOM mutation events. A [`DevtoolsProvider`] installed on each
-//! inspected document buffers the batches of mutations reported by Blitz's
+//! inspected document buffers the batches of mutations reported by Pageframe's
 //! `DocumentMutator`; the server later translates the buffered records into
 //! `DOM` domain events against the document's current state. The provider
 //! also reports when an inspected document is dropped, so that sessions

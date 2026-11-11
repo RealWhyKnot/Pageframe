@@ -1,4 +1,4 @@
-use crate::{BlitzShellEvent, event::BlitzShellProxy};
+use crate::{PageframeShellEvent, event::PageframeShellProxy};
 use accesskit::Rect;
 use accesskit_xplat::{Adapter, EventHandler, WindowEvent as AccessKitEvent};
 use pageframe_dom::BaseDocument;
@@ -17,11 +17,11 @@ pub struct AccessibilityState {
 
 struct Handler {
     window_id: WindowId,
-    proxy: BlitzShellProxy,
+    proxy: PageframeShellProxy,
 }
 impl EventHandler for Handler {
     fn handle_accesskit_event(&self, event: AccessKitEvent) {
-        self.proxy.send_event(BlitzShellEvent::Accessibility {
+        self.proxy.send_event(PageframeShellEvent::Accessibility {
             window_id: self.window_id,
             data: Arc::new(event),
         });
@@ -29,7 +29,7 @@ impl EventHandler for Handler {
 }
 
 impl AccessibilityState {
-    pub fn new(window: &dyn Window, proxy: BlitzShellProxy) -> Self {
+    pub fn new(window: &dyn Window, proxy: PageframeShellProxy) -> Self {
         let window_id = window.id();
         Self {
             adapter: Adapter::with_combined_handler(

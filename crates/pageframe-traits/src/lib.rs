@@ -1,4 +1,4 @@
-//! Types and traits to enable interoperability between the other Blitz crates without
+//! Types and traits to enable interoperability between the other Pageframe crates without
 //! circular or unnecessary dependencies.
 
 pub mod devtools;

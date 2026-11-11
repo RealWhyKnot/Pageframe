@@ -15,10 +15,10 @@ fn selection_identity_and_empty_state() {
             "<div>x</div>",
             r#"
         const s = window.getSelection();
-        __blitz_send_message(String(s === getSelection() && s === document.getSelection()));
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s === getSelection() && s === document.getSelection()));
+        __pageframe_send_message(String(s));
         s.removeAllRanges();
-        __blitz_send_message(s.toString());
+        __pageframe_send_message(s.toString());
     "#
         ),
         ["true", "", ""]
@@ -33,8 +33,8 @@ fn selects_math_auto_transformed_character() {
             r#"
         const text = test.firstChild;
         getSelection().setBaseAndExtent(text, 0, text, 1);
-        __blitz_send_message(String(getSelection()));
-        __blitz_send_message(text.data);
+        __pageframe_send_message(String(getSelection()));
+        __pageframe_send_message(text.data);
     "#
         ),
         ["ℎ", "h"]
@@ -49,11 +49,11 @@ fn selection_uses_utf16_offsets_in_both_directions() {
             r#"
         const text = test.firstChild, s = getSelection();
         s.setBaseAndExtent(text, 1, text, 4);
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
         s.setBaseAndExtent(text, 4, text, 1);
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
         s.setBaseAndExtent(text, 2, text, 2);
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
     "#
         ),
         ["😀é", "😀é", ""]
@@ -68,11 +68,11 @@ fn maps_multiple_text_nodes_and_element_child_offsets() {
             r#"
         const s = getSelection();
         s.setBaseAndExtent(test.firstChild, 3, bold.firstChild, 3);
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
         s.setBaseAndExtent(test, 1, test, 2);
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
         s.setBaseAndExtent(test, 0, test, 3);
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
     "#
         ),
         ["lo wor", "world", "hello world!"]
@@ -87,9 +87,9 @@ fn maps_collapsed_whitespace_and_case_expansions() {
             r#"
         const s = getSelection(), text = test.firstChild;
         s.setBaseAndExtent(text, 5, text, 6);
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
         s.setBaseAndExtent(text, 0, text, text.data.length);
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
     "#
         ),
         ["SS", "A SS B"]
@@ -104,11 +104,11 @@ fn selection_is_recomputed_after_style_changes() {
             r#"
         const s = getSelection(), text = test.firstChild;
         s.setBaseAndExtent(text, 0, text, 1);
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
         test.style.textTransform = 'math-auto';
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
         test.remove();
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
     "#
         ),
         ["h", "ℎ", ""]
@@ -124,12 +124,12 @@ fn invalid_offsets_throw_without_changing_selection() {
         const s = getSelection(), text = test.firstChild;
         s.setBaseAndExtent(text, 0, text, 1);
         try { s.setBaseAndExtent(text, 0, text, 4); }
-        catch (error) { __blitz_send_message(error.name); }
+        catch (error) { __pageframe_send_message(error.name); }
         const detached = document.createTextNode('x');
         s.setBaseAndExtent(detached, 0, detached, 1);
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
         s.empty();
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
     "#
         ),
         ["IndexSizeError", "a", ""]
@@ -144,9 +144,9 @@ fn selects_across_inline_roots_and_anonymous_blocks() {
             r#"
         const s = getSelection();
         s.setBaseAndExtent(test.firstChild, 2, test.lastChild, 3);
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
         s.setBaseAndExtent(test.lastChild, 3, test.firstChild, 2);
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
     "#
         ),
         ["fore middle aft", "fore middle aft"]
@@ -161,9 +161,9 @@ fn hidden_content_and_comments_do_not_shift_offsets() {
             r#"
         const s = getSelection();
         s.setBaseAndExtent(test.lastChild, 0, test.lastChild, 1);
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
         s.setBaseAndExtent(test.childNodes[2], 3, test.lastChild, 1);
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
     "#
         ),
         ["b", "b"]
@@ -178,7 +178,7 @@ fn preserves_whitespace_and_forced_line_breaks() {
             r#"
         const s = getSelection();
         s.setBaseAndExtent(test, 0, test, 3);
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
     "#
         ),
         ["a  b\nc"]
@@ -193,9 +193,9 @@ fn element_boundaries_map_across_block_children() {
             r#"
         const s = getSelection();
         s.setBaseAndExtent(test, 0, test, 2);
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
         s.setBaseAndExtent(test, 1, test, 2);
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
     "#
         ),
         ["abc def", "def"]
@@ -210,9 +210,9 @@ fn preserves_pre_line_segment_breaks() {
             r#"
         const s = getSelection(), text = test.firstChild;
         s.setBaseAndExtent(text, 0, text, text.data.length);
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
         s.setBaseAndExtent(text, 6, text, 7);
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
     "#
         ),
         ["a\nb", "b"]
@@ -230,9 +230,9 @@ fn native_selection_changes_replace_script_selection() {
         let root = inner.query_selector("#test").unwrap().unwrap();
         inner.set_text_selection(root, 0, root, 1);
     }
-    doc.eval("__blitz_send_message(String(s));");
+    doc.eval("__pageframe_send_message(String(s));");
     doc.inner_mut().clear_text_selection();
-    doc.eval("__blitz_send_message(String(s));");
+    doc.eval("__pageframe_send_message(String(s));");
     assert_eq!(doc.take_js_errors(), Vec::<String>::new());
     assert_eq!(doc.take_messages(), ["a", ""]);
 }
@@ -245,9 +245,9 @@ fn removed_combining_marks_do_not_consume_the_next_character() {
             r#"
         const s = getSelection(), text = test.firstChild;
         s.setBaseAndExtent(text, 0, text, 3);
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
         s.setBaseAndExtent(text, 3, text, 4);
-        __blitz_send_message(String(s));
+        __pageframe_send_message(String(s));
     "#
         ),
         ["Ϊ", "Ρ"]
@@ -260,7 +260,7 @@ fn retains_dom_endpoints_when_anonymous_inline_roots_are_rebuilt() {
         ScriptDocument::from_html("<div id='test'>h<p>x</p>y</div>", DocumentConfig::default());
     doc.eval("const s = getSelection(); s.setBaseAndExtent(test.firstChild, 0, test.firstChild, 1); test.style.textTransform = 'math-auto';");
     doc.inner_mut().resolve(0.0);
-    doc.eval("__blitz_send_message(String(s));");
+    doc.eval("__pageframe_send_message(String(s));");
     assert_eq!(doc.take_js_errors(), Vec::<String>::new());
     assert_eq!(doc.take_messages(), ["ℎ"]);
 }
@@ -273,10 +273,10 @@ fn span_padding_does_not_shift_offsets_or_leak_into_text() {
             r#"
         const text = tail.firstChild;
         getSelection().setBaseAndExtent(text, 1, text, 2);
-        __blitz_send_message(String(getSelection()));
+        __pageframe_send_message(String(getSelection()));
         getSelection().setBaseAndExtent(box.firstChild, 1, text, 1);
-        __blitz_send_message(String(getSelection()));
-        __blitz_send_message(box.innerText);
+        __pageframe_send_message(String(getSelection()));
+        __pageframe_send_message(box.innerText);
     "#
         ),
         ["f", "bcde", "abcdef"]

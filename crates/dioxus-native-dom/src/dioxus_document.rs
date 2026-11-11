@@ -1,8 +1,8 @@
-//! Integration between Dioxus and Blitz
+//! Integration between Dioxus and Pageframe
 use crate::NodeId;
 use crate::events::{
-    BlitzKeyboardData, NativeConverter, NativeFocusData, NativeFormData, NativePointerData,
-    NativeScrollData, NativeTouchData, NativeWheelData, NodeHandle,
+    NativeConverter, NativeFocusData, NativeFormData, NativePointerData, NativeScrollData,
+    NativeTouchData, NativeWheelData, NodeHandle, PageframeKeyboardData,
 };
 use crate::mutation_writer::DioxusState;
 use crate::qual_name;
@@ -322,7 +322,7 @@ impl EventHandler for DioxusEventHandler<'_> {
             DomEventData::KeyDown(kevent)
             | DomEventData::KeyUp(kevent)
             | DomEventData::KeyPress(kevent) => {
-                Some(wrap_event_data(BlitzKeyboardData(kevent.clone())))
+                Some(wrap_event_data(PageframeKeyboardData(kevent.clone())))
             }
 
             DomEventData::Input(data) => Some(wrap_event_data(NativeFormData {

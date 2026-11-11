@@ -140,7 +140,7 @@ impl ScriptRuntime {
         self.eval_internal(&script, "<body onload attribute>");
     }
 
-    /// Dispatch a Blitz DOM event to JavaScript event listeners registered on
+    /// Dispatch a Pageframe DOM event to JavaScript event listeners registered on
     /// the nodes in `chain` (which is ordered target-first).
     ///
     /// Returns `true` if any listener was invoked.
@@ -169,7 +169,7 @@ impl ScriptRuntime {
         );
 
         // Browsers fire a `change` event after `input` events on checkbox/radio
-        // inputs. Blitz only generates `input` events, so synthesise the `change`
+        // inputs. Pageframe only generates `input` events, so synthesise the `change`
         // event here.
         if matches!(event.data, DomEventData::Input(_))
             && self.target_is_checkbox_or_radio(event.target)
@@ -359,7 +359,7 @@ impl ScriptRuntime {
         crate::dom::define_value(&event_obj, "currentTarget", JsValue::null(), context);
         restore_event(context);
 
-        // Feed `preventDefault` / `stopPropagation` back into Blitz
+        // Feed `preventDefault` / `stopPropagation` back into Pageframe
         if event_ref(&event_obj, &|event| event.prevented.get()) {
             event_state.prevent_default();
         }

@@ -13,7 +13,7 @@ use winit::event::{ElementState, WindowEvent};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::WindowId;
 
-use crate::{BlitzApplication, BlitzShellEvent, BlitzShellProxy, View};
+use crate::{PageframeApplication, PageframeShellEvent, PageframeShellProxy, View};
 
 #[derive(Default)]
 pub(crate) struct DevtoolsState {
@@ -25,9 +25,9 @@ pub(crate) struct DevtoolsState {
     picker_pressed_windows: HashSet<WindowId>,
 }
 
-impl DevtoolsWaker for BlitzShellProxy {
+impl DevtoolsWaker for PageframeShellProxy {
     fn wake(&self) {
-        self.send_event(BlitzShellEvent::DevtoolsPoll)
+        self.send_event(PageframeShellEvent::DevtoolsPoll)
     }
 }
 
@@ -54,15 +54,15 @@ impl<Rend: WindowRenderer> DocumentProvider for WindowsDocumentProvider<'_, Rend
     }
 }
 
-impl<Rend: WindowRenderer> BlitzApplication<Rend> {
+impl<Rend: WindowRenderer> PageframeApplication<Rend> {
     /// Opt-in Chrome DevTools Protocol server: enabled by setting the
-    /// BLITZ_CDP_PORT environment variable to the port to listen on
+    /// PAGEFRAME_CDP_PORT environment variable to the port to listen on
     pub(crate) fn start_cdp_server_from_env(&mut self) {
-        if let Ok(port) = std::env::var("BLITZ_CDP_PORT") {
+        if let Ok(port) = std::env::var("PAGEFRAME_CDP_PORT") {
             if let Ok(port) = port.parse::<u16>() {
                 self.start_cdp_server(port);
             } else {
-                eprintln!("CDP: invalid BLITZ_CDP_PORT: {port}");
+                eprintln!("CDP: invalid PAGEFRAME_CDP_PORT: {port}");
             }
         }
     }
@@ -74,7 +74,7 @@ impl<Rend: WindowRenderer> BlitzApplication<Rend> {
     /// in Chrome, or via chrome://inspect (note: chrome://inspect opens the
     /// "screencast" devtools app, which routes element picking and node
     /// highlighting to its screencast pane — toggle the screencast off to
-    /// use them on the Blitz window directly).
+    /// use them on the Pageframe window directly).
     ///
     /// Note: the address must be `127.0.0.1`, not `localhost` — the devtools
     /// frontend's Content Security Policy only allows `ws://127.0.0.1:*`
@@ -130,7 +130,7 @@ impl<Rend: WindowRenderer> BlitzApplication<Rend> {
         }
     }
 
-    /// Process pending CDP messages (on [`BlitzShellEvent::DevtoolsPoll`])
+    /// Process pending CDP messages (on [`PageframeShellEvent::DevtoolsPoll`])
     pub(crate) fn process_devtools_messages(&mut self) {
         self.with_cdp(|cdp, provider| cdp.process_messages(provider));
     }

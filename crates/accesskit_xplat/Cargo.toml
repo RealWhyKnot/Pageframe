@@ -4,7 +4,6 @@ version = "0.2.1"
 license = "Apache-2.0"
 description = "AccessKit UI accessibility infrastructure: cross-platform adapter"
 keywords = ["gui", "ui", "accessibility"]
-repository.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 

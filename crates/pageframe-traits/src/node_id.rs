@@ -1,6 +1,6 @@
-//! Versioned node identifier shared between the Blitz crates.
+//! Versioned node identifier shared between the Pageframe crates.
 
-/// A versioned identifier for a node in a Blitz DOM tree.
+/// A versioned identifier for a node in a Pageframe DOM tree.
 ///
 /// A `NodeId` packs a 32-bit slot index (low bits) and a 32-bit version
 /// (high bits). Node storage bumps a slot's version when the slot is

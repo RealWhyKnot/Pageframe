@@ -2,7 +2,7 @@
 //!
 //! Implements the server side of the [Chrome DevTools Protocol] (the DOM,
 //! CSS and Overlay domains) allowing Chrome DevTools' Elements panel to
-//! connect to and inspect Blitz documents.
+//! connect to and inspect Pageframe documents.
 //!
 //! Targets are advertised over HTTP at `/json/list` (and `/json/version`),
 //! and each target is debuggable over a WebSocket at
@@ -40,7 +40,7 @@ use session::Session;
 pub(crate) type JsonValue = serde_json::Value;
 
 /// Provides the CDP session with synchronous access to the current set of
-/// Blitz documents. Implemented by the embedder (e.g. `BlitzApplication`),
+/// Pageframe documents. Implemented by the embedder (e.g. `PageframeApplication`),
 /// which owns the documents.
 pub trait DocumentProvider {
     /// The ids of the currently open documents (in tab order)

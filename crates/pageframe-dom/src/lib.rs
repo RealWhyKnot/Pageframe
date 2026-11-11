@@ -1,16 +1,16 @@
-//! The core DOM abstraction in Blitz
+//! The core DOM abstraction in Pageframe
 //!
 //! This crate implements a flexible headless DOM ([`BaseDocument`]), which is designed to emebedded in and "driven" by external code. Most users will want
 //! to use a wrapper:
 //!
 //!  - [`HtmlDocument`](https://docs.rs/pageframe-html/latest/pageframe_html/struct.HtmlDocument.html) from the [pageframe-html](https://docs.rs/pageframe-html) crate.
-//!    Allows you to parse HTML (or XHTML) into a Blitz [`BaseDocument`], and can be combined with a markdown-to-html converter like [comrak](https://docs.rs/comrak)
+//!    Allows you to parse HTML (or XHTML) into a Pageframe [`BaseDocument`], and can be combined with a markdown-to-html converter like [comrak](https://docs.rs/comrak)
 //!    or [pulldown-cmark](https://docs.rs/pulldown-cmark) to render/process markdown.
 //!  - [`DioxusDocument`](https://docs.rs/dioxus-native/latest/dioxus_native/struct.DioxusDocument.html) from the [dioxus-native](https://docs.rs/dioxus-native) crate.
 //!    Combines a [`BaseDocument`] with a Dioxus `VirtualDom` to enable dynamic rendering and event handling.
 //!
 //! It includes: A DOM tree respresentation, CSS parsing and resolution, layout and event handling. Additional functionality is available in
-//! separate crates, including html parsing ([pageframe-html](https://docs.rs/pageframe-html)), networking ([blitz-net](https://docs.rs/pageframe-html)),
+//! separate crates, including html parsing ([pageframe-html](https://docs.rs/pageframe-html)),
 //! rendering ([pageframe-paint](https://docs.rs/pageframe-paint)) and windowing ([pageframe-shell](https://docs.rs/pageframe-shell)).
 //!
 //! Most of the functionality in this crates is provided through the  struct.
@@ -111,13 +111,13 @@ pub use parley::FontContext;
 pub use scrolling::{ScrollBehavior, ScrollLogicalPosition};
 pub use tree::NodeTree;
 
-/// Convert a Blitz [`NodeId`] into a [`taffy::NodeId`] (which wraps a `u64`).
+/// Convert a Pageframe [`NodeId`] into a [`taffy::NodeId`] (which wraps a `u64`).
 #[inline]
 pub fn taffy_node_id(id: NodeId) -> taffy::NodeId {
     taffy::NodeId::from(id.as_u64())
 }
 
-/// Convert a [`taffy::NodeId`] produced by [`taffy_node_id`] back into a Blitz [`NodeId`].
+/// Convert a [`taffy::NodeId`] produced by [`taffy_node_id`] back into a Pageframe [`NodeId`].
 #[inline]
 pub fn dom_node_id(id: taffy::NodeId) -> NodeId {
     NodeId::from_u64(u64::from(id))

@@ -18,7 +18,7 @@ use style::properties::style_structs::Font;
 use style::queries::values::PrefersColorScheme;
 use style::servo::media_features::PointerCapabilities;
 
-use crate::font_metrics::BlitzFontMetricsProvider;
+use crate::font_metrics::PageframeFontMetricsProvider;
 
 bitflags! {
     /// The set of changes to the [`Device`] that have accumulated since the
@@ -72,7 +72,7 @@ pub(crate) fn make_device(
 
     Device::new(
         ComputedValues::initial_values_with_font_override(Font::initial_values()),
-        Box::new(BlitzFontMetricsProvider { font_ctx }),
+        Box::new(PageframeFontMetricsProvider { font_ctx }),
         MediaData {
             media_type,
             viewport_size,

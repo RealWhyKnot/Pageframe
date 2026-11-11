@@ -28,7 +28,7 @@ pub(super) fn css_property_supported(
     )))
 }
 
-/// `__blitz_parse_transform(string)`: parse a CSS `<transform-list>` into a
+/// `__pageframe_parse_transform(string)`: parse a CSS `<transform-list>` into a
 /// 4x4 matrix. Returns `[elements, is2D]` (16 column-major elements), or
 /// `null` if the string is not a valid transform list.
 pub(super) fn parse_transform(

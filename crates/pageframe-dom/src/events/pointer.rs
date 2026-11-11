@@ -8,8 +8,8 @@ use keyboard_types::Modifiers;
 use markup5ever::local_name;
 use pageframe_traits::{
     events::{
-        BlitzInputEvent, BlitzPointerEvent, BlitzPointerId, BlitzWheelDelta, BlitzWheelEvent,
-        DomEvent, DomEventData, MouseEventButton, MouseEventButtons,
+        DomEvent, DomEventData, MouseEventButton, MouseEventButtons, PageframeInputEvent,
+        PageframePointerEvent, PageframePointerId, PageframeWheelDelta, PageframeWheelEvent,
     },
     navigation::NavigationOptions,
 };
@@ -215,7 +215,7 @@ fn touch_action_pan_axes(doc: &BaseDocument, node_id: NodeId) -> (bool, bool) {
 pub(crate) fn handle_pointermove<F: FnMut(DomEvent)>(
     doc: &mut BaseDocument,
     target: NodeId,
-    event: &BlitzPointerEvent,
+    event: &PageframePointerEvent,
     mut dispatch_event: F,
 ) -> bool {
     let x = event.page_x();
@@ -230,7 +230,7 @@ pub(crate) fn handle_pointermove<F: FnMut(DomEvent)>(
         let dy = y - doc.mousedown_position.y;
         if dx.abs() > 2.0 || dy.abs() > 2.0 {
             match event.id {
-                BlitzPointerId::Mouse | BlitzPointerId::Pen => {
+                PageframePointerId::Mouse | PageframePointerId::Pen => {
                     if let Some(mousedown_node_id) = doc.mousedown_node_id {
                         let node = &doc.nodes[mousedown_node_id];
                         if let Some(style) = node.primary_styles() {
@@ -253,7 +253,7 @@ pub(crate) fn handle_pointermove<F: FnMut(DomEvent)>(
                         }
                     }
                 }
-                BlitzPointerId::Finger(_) => {
+                PageframePointerId::Finger(_) => {
                     let (allow_x, allow_y) = touch_action_pan_axes(doc, target);
                     // If `touch-action` forbids panning on both axes (e.g. `touch-action: none`)
                     // there is nothing to scroll, so don't enter the panning drag mode.
@@ -573,7 +573,7 @@ pub(crate) fn handle_pointerdown(
 pub(crate) fn handle_pointerup<F: FnMut(DomEvent)>(
     doc: &mut BaseDocument,
     target: NodeId,
-    event: &BlitzPointerEvent,
+    event: &PageframePointerEvent,
     mut dispatch_event: F,
 ) {
     if doc.devtools().highlight_hover {
@@ -632,7 +632,7 @@ pub(crate) fn handle_pointerup<F: FnMut(DomEvent)>(
 pub(crate) fn handle_click(
     doc: &mut BaseDocument,
     target: NodeId,
-    event: &BlitzPointerEvent,
+    event: &PageframePointerEvent,
     dispatch_event: &mut dyn FnMut(DomEvent),
 ) {
     let double_click_event = event.clone();
@@ -671,7 +671,7 @@ pub(crate) fn handle_click(
                     let value = is_checked.to_string();
                     dispatch_event(DomEvent::new(
                         node_id,
-                        DomEventData::Input(BlitzInputEvent { value }),
+                        DomEventData::Input(PageframeInputEvent { value }),
                     ));
                     generate_focus_events(
                         doc,
@@ -698,7 +698,7 @@ pub(crate) fn handle_click(
                     let value = String::from("true");
                     dispatch_event(DomEvent::new(
                         node_id,
-                        DomEventData::Input(BlitzInputEvent { value }),
+                        DomEventData::Input(PageframeInputEvent { value }),
                     ));
 
                     generate_focus_events(
@@ -847,12 +847,12 @@ pub(crate) fn handle_click(
 pub(crate) fn handle_wheel<F: FnMut(DomEvent)>(
     doc: &mut BaseDocument,
     _: NodeId,
-    event: BlitzWheelEvent,
+    event: PageframeWheelEvent,
     mut dispatch_event: F,
 ) {
     let (scroll_x, scroll_y) = match event.delta {
-        BlitzWheelDelta::Lines(x, y) => (x * 20.0, y * 20.0),
-        BlitzWheelDelta::Pixels(x, y) => (x, y),
+        PageframeWheelDelta::Lines(x, y) => (x * 20.0, y * 20.0),
+        PageframeWheelDelta::Pixels(x, y) => (x, y),
     };
 
     let has_changed = doc.scroll_chain_by(

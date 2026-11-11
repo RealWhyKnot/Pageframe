@@ -81,7 +81,7 @@ pub(crate) struct RuntimeState {
     /// The clock driving timer deadlines and `Date`
     pub clock: ScriptClock,
     /// Messages sent from JavaScript to the embedder via the
-    /// `__blitz_send_message` native function. Drained with
+    /// `__pageframe_send_message` native function. Drained with
     /// [`ScriptDocument::take_messages`](crate::ScriptDocument::take_messages).
     pub outbound_messages: Vec<String>,
     /// The value exposed as `document.readyState`

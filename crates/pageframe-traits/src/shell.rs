@@ -6,7 +6,7 @@ use cursor_icon::CursorIcon;
 // TODO: fill out with meaningful errors
 pub struct ClipboardError;
 
-/// Abstraction over windowing / operating system ("shell") functionality that allows a Blitz document
+/// Abstraction over windowing / operating system ("shell") functionality that allows a Pageframe document
 /// to access that functionality without depending on a specific shell environment.
 pub trait ShellProvider: Send + Sync + 'static {
     fn request_redraw(&self) {}

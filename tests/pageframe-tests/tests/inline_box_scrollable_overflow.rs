@@ -215,7 +215,7 @@ fn rtl_negative_margin_scroll_width_comes_from_taffy() {
     assert_eq!(
         node.client_width() + layout.scroll_width(),
         204.0,
-        "Taffy output: {:?}; Blitz scrollWidth: {}",
+        "Taffy output: {:?}; Pageframe scrollWidth: {}",
         layout,
         node.scroll_width(),
     );

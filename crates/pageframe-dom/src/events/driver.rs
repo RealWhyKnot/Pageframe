@@ -1,7 +1,7 @@
 use crate::Document;
 use pageframe_traits::events::{
-    BlitzPointerEvent, BlitzPointerId, DomEvent, DomEventData, EventState, Point, PointerCoords,
-    UiEvent,
+    DomEvent, DomEventData, EventState, PageframePointerEvent, PageframePointerId, Point,
+    PointerCoords, UiEvent,
 };
 use pageframe_traits::node_id::NodeId;
 use std::collections::VecDeque;
@@ -44,7 +44,7 @@ impl<'doc, Handler: EventHandler> EventDriver<'doc, Handler> {
         }
     }
 
-    pub fn handle_pointer_move(&mut self, event: &BlitzPointerEvent) -> Option<NodeId> {
+    pub fn handle_pointer_move(&mut self, event: &PageframePointerEvent) -> Option<NodeId> {
         let mut doc = self.doc.inner_mut();
 
         let prev_hover_node_id = doc.hover_node_id;
@@ -64,7 +64,7 @@ impl<'doc, Handler: EventHandler> EventDriver<'doc, Handler> {
 
     /// End hover when the pointer leaves the document, dispatching out/leave
     /// events to the previously hovered chain
-    pub fn handle_pointer_leave(&mut self, event: &BlitzPointerEvent) {
+    pub fn handle_pointer_leave(&mut self, event: &PageframePointerEvent) {
         let mut doc = self.doc.inner_mut();
         let prev_hover_node_id = doc.hover_node_id;
         doc.clear_hover();
@@ -77,7 +77,7 @@ impl<'doc, Handler: EventHandler> EventDriver<'doc, Handler> {
         &mut self,
         prev_hover_node_id: Option<NodeId>,
         hover_node_id: Option<NodeId>,
-        event: &BlitzPointerEvent,
+        event: &PageframePointerEvent,
     ) {
         let doc = self.doc.inner();
         let mut old_chain = prev_hover_node_id
@@ -194,7 +194,7 @@ impl<'doc, Handler: EventHandler> EventDriver<'doc, Handler> {
                 let mut doc = self.doc.inner_mut();
                 doc.unactive_node();
 
-                if event.is_primary && matches!(event.id, BlitzPointerId::Finger(_)) {
+                if event.is_primary && matches!(event.id, PageframePointerId::Finger(_)) {
                     hover_end_event = Some(event.clone());
                 }
             }
@@ -203,7 +203,7 @@ impl<'doc, Handler: EventHandler> EventDriver<'doc, Handler> {
                 let mut doc = self.doc.inner_mut();
                 doc.unactive_node();
 
-                if event.is_primary && matches!(event.id, BlitzPointerId::Finger(_)) {
+                if event.is_primary && matches!(event.id, PageframePointerId::Finger(_)) {
                     hover_end_event = Some(event.clone());
                 }
             }
@@ -269,7 +269,7 @@ impl<'doc, Handler: EventHandler> EventDriver<'doc, Handler> {
                     target,
                     data,
                     DomEventData::PointerCancel,
-                    None::<fn(BlitzPointerEvent) -> DomEventData>,
+                    None::<fn(PageframePointerEvent) -> DomEventData>,
                     DomEventData::TouchCancel,
                 );
             }
@@ -290,7 +290,7 @@ impl<'doc, Handler: EventHandler> EventDriver<'doc, Handler> {
             UiEvent::Paste(text) => {
                 super::ime::handle_ime_event(
                     &mut self.doc.inner_mut(),
-                    pageframe_traits::events::BlitzImeEvent::Commit(text),
+                    pageframe_traits::events::PageframeImeEvent::Commit(text),
                     |event| self.queue.push_back(event),
                 );
                 self.process_queue();
@@ -324,10 +324,10 @@ impl<'doc, Handler: EventHandler> EventDriver<'doc, Handler> {
     fn handle_pointer_event(
         &mut self,
         target: NodeId,
-        data: BlitzPointerEvent,
-        make_ptr_data: impl FnOnce(BlitzPointerEvent) -> DomEventData,
-        make_mouse_data: Option<impl FnOnce(BlitzPointerEvent) -> DomEventData>,
-        make_touch_data: impl FnOnce(BlitzPointerEvent) -> DomEventData,
+        data: PageframePointerEvent,
+        make_ptr_data: impl FnOnce(PageframePointerEvent) -> DomEventData,
+        make_mouse_data: Option<impl FnOnce(PageframePointerEvent) -> DomEventData>,
+        make_touch_data: impl FnOnce(PageframePointerEvent) -> DomEventData,
     ) {
         let mut ptr_event = DomEvent::new(target, make_ptr_data(data.clone()));
         let mut event_state = EventState::default();
