@@ -103,7 +103,6 @@ pub(crate) fn inline_fragments<'a>(
     text: &str,
     scale: f64,
 ) -> Vec<InlineFragment> {
-    let spacer = blitz_dom::util::INLINE_EDGE_SPACER;
     let mut fragments = Vec::new();
     let mut font_ratios: Option<(f64, f64)> = None;
     for line in lines {
@@ -131,8 +130,8 @@ pub(crate) fn inline_fragments<'a>(
                             right: left + f64::from(glyph_run.advance()),
                             baseline: f64::from(glyph_run.baseline()),
                             font: Some((owner, ascent, descent, font_size)),
-                            opens: run_text.starts_with(spacer),
-                            closes: run_text.ends_with(spacer),
+                            opens: run_text.starts_with(blitz_dom::util::INLINE_EDGE_START),
+                            closes: run_text.ends_with(blitz_dom::util::INLINE_EDGE_END),
                         },
                     )
                 }
@@ -180,7 +179,7 @@ pub(crate) fn inline_fragments<'a>(
                             baseline: line_baseline,
                             extent: None,
                             is_own_font: false,
-                            is_start: is_own && span_item.opens,
+                            is_start: false,
                             is_end: false,
                         });
                         boxes.len() - 1
@@ -188,7 +187,8 @@ pub(crate) fn inline_fragments<'a>(
                 let span_box = &mut boxes[position];
                 span_box.left = span_box.left.min(span_item.left);
                 span_box.right = span_box.right.max(span_item.right);
-                span_box.is_end = is_own && span_item.closes;
+                span_box.is_start |= is_own && span_item.opens;
+                span_box.is_end |= is_own && span_item.closes;
                 let Some((_, ascent, descent, run_font_size)) = span_item.font else {
                     continue;
                 };

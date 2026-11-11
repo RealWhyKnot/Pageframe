@@ -98,3 +98,42 @@ fn a_span_holding_only_an_inline_block_paints_its_background() {
     );
     assert_eq!(painted(&buffer, 20).len(), 20);
 }
+
+fn narrow(inner: &str) -> Vec<u8> {
+    draw(&format!(
+        "<div style=\"line-height:40px;width:30px;color:transparent\">{inner}</div>"
+    ))
+}
+
+#[test]
+fn a_line_wraps_at_the_space_before_a_padded_span() {
+    let buffer = narrow("aaa <span style=\"background:#0f0;padding:0 3px\">aaa</span>");
+    let plain = painted(&boxed_span("", "aaa"), 20).len();
+    assert_eq!(painted(&buffer, 20).len(), 0);
+    assert_eq!(painted(&buffer, 60).len(), plain + 6);
+}
+
+#[test]
+fn a_span_closes_on_the_line_its_text_ends_on() {
+    let buffer =
+        narrow("<span style=\"background:#0f0;border-right:3px solid blue\">aaa </span>aaa");
+    assert_eq!(
+        painted(&buffer, 20).last().map(|(_, colour)| *colour),
+        Some(BLUE)
+    );
+    assert_eq!(painted(&buffer, 60).len(), 0);
+}
+
+#[test]
+fn a_span_in_right_to_left_text_keeps_both_side_borders() {
+    let buffer = draw(
+        "<div dir=\"rtl\" style=\"line-height:40px;width:60px\"><span style=\"background:#0f0;\
+         color:transparent;border-left:3px solid blue;border-right:2px solid blue\">aa</span></div>",
+    );
+    let colours: Vec<[u8; 4]> = painted(&buffer, 20)
+        .iter()
+        .map(|(_, colour)| *colour)
+        .collect();
+    assert_eq!(colours[..4], [BLUE, BLUE, BLUE, LIME]);
+    assert_eq!(colours[colours.len() - 3..], [LIME, BLUE, BLUE]);
+}

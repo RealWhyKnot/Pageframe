@@ -88,15 +88,20 @@ fn push_spacer(builder: &mut TreeBuilder<TextBrush>, spacer: &str, width: f32) {
     builder.pop_style_span();
 }
 
-fn push_margin_spacer(builder: &mut TreeBuilder<TextBrush>, width: f32) {
+fn push_margin_spacer(builder: &mut TreeBuilder<TextBrush>, spacer: &str, width: f32) {
     if width.abs() >= f32::EPSILON {
-        push_spacer(builder, crate::util::INLINE_MARGIN_SPACER, width);
+        push_spacer(builder, spacer, width);
     }
 }
 
-fn push_edge_spacer(builder: &mut TreeBuilder<TextBrush>, edges: &InlineEdges, width: f32) {
+fn push_edge_spacer(
+    builder: &mut TreeBuilder<TextBrush>,
+    edges: &InlineEdges,
+    spacer: &str,
+    width: f32,
+) {
     if edges.has_edge_marks {
-        push_spacer(builder, crate::util::INLINE_EDGE_SPACER, width);
+        push_spacer(builder, spacer, width);
     }
 }
 
@@ -319,7 +324,11 @@ pub(crate) fn build_inline_layout_into(
                         } else {
                             let edges = node.primary_styles().map(|s| inline_edges(&s));
                             if let Some(edges) = &edges {
-                                push_margin_spacer(builder, edges.margin_start);
+                                push_margin_spacer(
+                                    builder,
+                                    crate::util::INLINE_MARGIN_START,
+                                    edges.margin_start,
+                                );
                             }
                             let style = node
                                 .primary_styles()
@@ -331,7 +340,12 @@ pub(crate) fn build_inline_layout_into(
 
                             builder.push_style_span(style);
                             if let Some(edges) = &edges {
-                                push_edge_spacer(builder, edges, edges.inset_start);
+                                push_edge_spacer(
+                                    builder,
+                                    edges,
+                                    crate::util::INLINE_EDGE_START,
+                                    edges.inset_start,
+                                );
                             }
 
                             if let Some(before_id) = node.before() {
@@ -364,11 +378,20 @@ pub(crate) fn build_inline_layout_into(
                             }
 
                             if let Some(edges) = &edges {
-                                push_edge_spacer(builder, edges, edges.inset_end);
+                                push_edge_spacer(
+                                    builder,
+                                    edges,
+                                    crate::util::INLINE_EDGE_END,
+                                    edges.inset_end,
+                                );
                             }
                             builder.pop_style_span();
                             if let Some(edges) = &edges {
-                                push_margin_spacer(builder, edges.margin_end);
+                                push_margin_spacer(
+                                    builder,
+                                    crate::util::INLINE_MARGIN_END,
+                                    edges.margin_end,
+                                );
                             }
                         }
                     }

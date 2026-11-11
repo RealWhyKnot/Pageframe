@@ -297,8 +297,21 @@ pub fn inherited_clamp_line(node: &crate::Node) -> Option<usize> {
     None
 }
 
-pub const INLINE_EDGE_SPACER: &str = "\u{2060}";
-pub const INLINE_MARGIN_SPACER: &str = "\u{feff}";
+pub const INLINE_EDGE_START: &str = "\u{2063}";
+pub const INLINE_EDGE_END: &str = "\u{2060}";
+pub const INLINE_MARGIN_START: &str = "\u{2064}";
+pub const INLINE_MARGIN_END: &str = "\u{feff}";
+
+pub fn is_inline_spacer(ch: char) -> bool {
+    [
+        INLINE_EDGE_START,
+        INLINE_EDGE_END,
+        INLINE_MARGIN_START,
+        INLINE_MARGIN_END,
+    ]
+    .iter()
+    .any(|spacer| spacer.contains(ch))
+}
 
 pub fn inline_box_is_decorated(style: &style::properties::ComputedValues) -> bool {
     let border = style.get_border();

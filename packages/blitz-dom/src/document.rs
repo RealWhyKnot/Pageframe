@@ -2923,7 +2923,11 @@ impl BaseDocument {
             if !result.is_empty() {
                 result.push(' ');
             }
-            result.push_str(&inline_layout.text[*start..*end]);
+            result.extend(
+                inline_layout.text[*start..*end]
+                    .chars()
+                    .filter(|ch| !crate::util::is_inline_spacer(*ch)),
+            );
         }
 
         if result.is_empty() {
