@@ -220,7 +220,10 @@ impl InnerTextCollector {
                         self.visit_inline_box(root, ibox.id, filter);
                     }
                     if range.start >= marker_len && include(&cluster.style().brush) {
-                        self.push_str(&text[range]);
+                        let cluster_text = &text[range];
+                        if !cluster_text.chars().all(blitz_dom::util::is_inline_spacer) {
+                            self.push_str(cluster_text);
+                        }
                     }
                 }
             }

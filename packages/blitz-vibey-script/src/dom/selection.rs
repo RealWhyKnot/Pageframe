@@ -342,6 +342,13 @@ impl OffsetMapper<'_> {
     }
 
     fn advance(&mut self, c: char, transform: TextTransform, whitespace: WhiteSpaceCollapse) {
+        if !blitz_dom::util::is_inline_spacer(c) {
+            self.cursor += self.text[self.cursor..]
+                .chars()
+                .take_while(|rendered| blitz_dom::util::is_inline_spacer(*rendered))
+                .map(char::len_utf8)
+                .sum::<usize>();
+        }
         let remaining = &self.text[self.cursor..];
         let collapsible = match whitespace {
             WhiteSpaceCollapse::Collapse => c.is_ascii_whitespace(),

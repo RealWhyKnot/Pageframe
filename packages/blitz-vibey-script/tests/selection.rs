@@ -264,3 +264,21 @@ fn retains_dom_endpoints_when_anonymous_inline_roots_are_rebuilt() {
     assert_eq!(doc.take_js_errors(), Vec::<String>::new());
     assert_eq!(doc.take_messages(), ["ℎ"]);
 }
+
+#[test]
+fn span_padding_does_not_shift_offsets_or_leak_into_text() {
+    assert_eq!(
+        select(
+            "<div id='box'>ab<span style='padding:0 4px;margin:0 2px'>cd</span><i id='tail'>ef</i></div>",
+            r#"
+        const text = tail.firstChild;
+        getSelection().setBaseAndExtent(text, 1, text, 2);
+        __blitz_send_message(String(getSelection()));
+        getSelection().setBaseAndExtent(box.firstChild, 1, text, 1);
+        __blitz_send_message(String(getSelection()));
+        __blitz_send_message(box.innerText);
+    "#
+        ),
+        ["f", "bcde", "abcdef"]
+    );
+}
