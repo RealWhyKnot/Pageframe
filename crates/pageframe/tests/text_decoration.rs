@@ -43,25 +43,52 @@ fn decoration_lines_fill_whole_pixel_rows() {
 }
 
 #[test]
-fn an_underline_starts_one_row_below_the_baseline() {
-    let buffer = draw(
-        "<div style=\"text-decoration:underline red\">aaa\
-         <span style=\"display:inline-block;width:6px;height:5px;background:blue\"></span></div>",
+fn an_underline_starts_half_its_thickness_below_the_baseline() {
+    for (size, gap) in [(10, 1), (20, 1), (32, 2)] {
+        let buffer = draw(&format!(
+            "<div style=\"font-size:{size}px;line-height:50px;text-decoration:underline red\">aaa             <span style=\"display:inline-block;width:6px;height:5px;background:blue\"></span></div>"
+        ));
+        let block: Vec<usize> = (0..120)
+            .filter(|x| column(&buffer, *x).iter().any(|(_, c)| *c == BLUE))
+            .collect();
+        let x = *block.get(2).expect("the inline-block is painted");
+        let last_blue = column(&buffer, x)
+            .iter()
+            .filter(|(_, c)| *c == BLUE)
+            .map(|(y, _)| *y)
+            .max();
+        let first_red = column(&buffer, 4)
+            .iter()
+            .find(|(_, c)| *c == RED)
+            .map(|(y, _)| *y);
+        assert_eq!(first_red, last_blue.map(|y| y + 1 + gap), "{size}px");
+    }
+}
+
+fn line_gaps(style: &str) -> usize {
+    let columns = red_columns(&draw(&format!(
+        "<div style=\"font-size:32px;line-height:50px;{style}\">aga</div>"
+    )));
+    assert!(columns.len() > 20, "{style} paints a line");
+    columns.windows(2).filter(|pair| pair[1] != pair[0] + 1).count()
+}
+
+#[test]
+fn an_underline_breaks_around_a_descender() {
+    assert_eq!(line_gaps("text-decoration:underline red"), 1);
+}
+
+#[test]
+fn an_underline_with_skip_ink_none_is_unbroken() {
+    assert_eq!(
+        line_gaps("text-decoration:underline red;text-decoration-skip-ink:none"),
+        0
     );
-    let block: Vec<usize> = (0..80)
-        .filter(|x| column(&buffer, *x).iter().any(|(_, c)| *c == BLUE))
-        .collect();
-    let x = *block.get(2).expect("the inline-block is painted");
-    let last_blue = column(&buffer, x)
-        .iter()
-        .filter(|(_, c)| *c == BLUE)
-        .map(|(y, _)| *y)
-        .max();
-    let first_red = column(&buffer, 4)
-        .iter()
-        .find(|(_, c)| *c == RED)
-        .map(|(y, _)| *y);
-    assert_eq!(first_red, last_blue.map(|y| y + 2));
+}
+
+#[test]
+fn a_line_through_is_never_broken() {
+    assert_eq!(line_gaps("text-decoration:line-through red"), 0);
 }
 
 #[test]

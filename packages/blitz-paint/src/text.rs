@@ -1,10 +1,11 @@
 use anyrender::PaintScene;
 use blitz_dom::CopyStyleGetters;
 use blitz_dom::{BaseDocument, NodeId, node::TextBrush, util::ToColorColor};
-use kurbo::{Affine, BezPath, Cap, Circle, Rect, Stroke};
+use kurbo::{Affine, BezPath, Cap, Circle, Rect, Shape as _, Stroke};
 use num_traits::ToPrimitive;
 use parley::{Affinity, Cursor, Layout, Line, PositionedLayoutItem, Selection};
 use peniko::Fill;
+use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
@@ -17,6 +18,8 @@ use style::values::generics::text::{GenericTextDecorationInset, GenericTextDecor
 
 use crate::color::{Color, ToColorColor as _};
 use crate::{FONT_EMBOLDEN_ENABLED, SELECTION_COLOR};
+
+mod ink;
 
 pub(crate) struct InlineFragment {
     pub(crate) node_id: NodeId,
@@ -309,6 +312,7 @@ struct ResolvedDecoration {
     underline_from_font: bool,
     /// `text-decoration-inset`. Resolved per run.
     inset: GenericTextDecorationInset<LengthPercentage>,
+    skips_ink: bool,
 }
 
 /// An element on the current ancestor path (inline root -> run node), caching the
@@ -379,6 +383,10 @@ fn resolve_decoration_entry(doc: &BaseDocument, node_id: NodeId) -> DecorationSt
                 .text_underline_position
                 .contains(TextUnderlinePosition::FROM_FONT),
             inset: text.text_decoration_inset.clone(),
+            skips_ink: !matches!(
+                itext.text_decoration_skip_ink,
+                style::values::computed::TextDecorationSkipInk::None
+            ),
         }
     });
 
@@ -438,6 +446,7 @@ struct LineDecoration {
     /// Geometry from the first run the box covers (fallback when it has no own text on
     /// this line, e.g. it only wraps differently-sized descendants).
     first: Option<DecorationRunGeometry>,
+    runs: SmallVec<[usize; 4]>,
 }
 
 /// Reusable scratch storage for drawing text across all inline formatting contexts in a
@@ -448,6 +457,7 @@ pub(crate) struct DrawTextContext {
     path_scratch: Vec<NodeId>,
     deco_boxes: Vec<LineDecoration>,
     win_ascent_ratios: WinAscentCache,
+    ink: ink::InkCache,
 }
 
 /// Resolve the CSS `text-decoration-thickness` to a device-pixel size.
@@ -507,6 +517,7 @@ fn draw_decoration_line(
     deco_style: TextDecorationStyle,
     inset_start: f64,
     inset_end: f64,
+    skips: &[(f64, f64)],
 ) {
     // Inset the line from the box's start/end edges (assumes LTR: start is the left edge).
     // Negative insets extend the line past the text.
@@ -515,11 +526,24 @@ fn draw_decoration_line(
     if w <= 0.0 {
         return;
     }
-    let origin_y = transform.translation().y;
-    let top = (f64::from(baseline - offset) + origin_y).round() - origin_y;
+    let top = decoration_top(transform, baseline, offset);
     let size = f64::from(size);
     let y = top + size / 2.0;
     let butt_stroke = Stroke::new(size).with_caps(Cap::Butt);
+    let spans = visible_spans(x, x + w, skips);
+    let is_clipped = !skips.is_empty()
+        && matches!(
+            deco_style,
+            TextDecorationStyle::Dotted | TextDecorationStyle::Dashed | TextDecorationStyle::Wavy
+        );
+    if is_clipped {
+        let reach = 4.0 * size + scale;
+        let mut clip = BezPath::new();
+        for &(start, end) in &spans {
+            clip.extend(Rect::new(start, y - reach, end, y + reach).path_elements(0.1));
+        }
+        scene.push_clip_layer(Fill::NonZero, transform, &clip);
+    }
 
     match deco_style {
         TextDecorationStyle::None => {
@@ -527,8 +551,10 @@ fn draw_decoration_line(
         }
         // `solid`
         TextDecorationStyle::Solid => {
-            let line = kurbo::Line::new((x, y), (x + w, y));
-            scene.stroke(&butt_stroke, transform, brush, None, &line);
+            for &(start, end) in &spans {
+                let line = kurbo::Line::new((start, y), (end, y));
+                scene.stroke(&butt_stroke, transform, brush, None, &line);
+            }
         }
         // Two lines, each `size` thick, separated by a 1px (CSS) gap. This
         // matches Chrome, where the second line is offset by `thickness + 1px`
@@ -537,8 +563,10 @@ fn draw_decoration_line(
         TextDecorationStyle::Double => {
             let one_css_px = scale;
             for cy in [y, y + double_dir * (size + one_css_px)] {
-                let line = kurbo::Line::new((x, cy), (x + w, cy));
-                scene.stroke(&butt_stroke, transform, brush, None, &line);
+                for &(start, end) in &spans {
+                    let line = kurbo::Line::new((start, cy), (end, cy));
+                    scene.stroke(&butt_stroke, transform, brush, None, &line);
+                }
             }
         }
         // Round dots (diameter = line thickness) spaced one dot apart.
@@ -598,13 +626,40 @@ fn draw_decoration_line(
             scene.stroke(&stroke, transform, brush, None, &path);
         }
     }
+    if is_clipped {
+        scene.pop_layer();
+    }
+}
+
+fn decoration_top(transform: Affine, baseline: f32, offset: f32) -> f64 {
+    let origin_y = transform.translation().y;
+    (f64::from(baseline - offset) + origin_y).round() - origin_y
+}
+
+fn visible_spans(start: f64, end: f64, skips: &[(f64, f64)]) -> SmallVec<[(f64, f64); 4]> {
+    let mut spans = SmallVec::new();
+    let mut from = start;
+    for &(skip_start, skip_end) in skips {
+        if from >= end {
+            break;
+        }
+        if skip_start > from {
+            spans.push((from, skip_start.min(end)));
+        }
+        from = from.max(skip_end);
+    }
+    if from < end {
+        spans.push((from, end));
+    }
+    spans
 }
 
 #[derive(Clone, Copy)]
-pub(crate) struct TextPaintOptions {
+pub(crate) struct TextPaintOptions<'a> {
     pub scale: f64,
     pub brush_override: Option<Color>,
     pub ellipsis: Option<LineEllipsis>,
+    pub text: Option<&'a str>,
 }
 
 /// Where `text-overflow: ellipsis` and `line-clamp` cut lines short with an ellipsis.
@@ -753,15 +808,76 @@ fn ellipsis_glyph(run: &parley::Run<'_, TextBrush>) -> Option<(u32, f32, usize)>
     Some((id.to_u32(), advance, count))
 }
 
+const MAX_INK_OUTSET: f64 = 13.0;
+
+struct LineInk<'a, 'l> {
+    line: &'a Line<'l, TextBrush>,
+    cut: Option<LineCut>,
+    cache: &'a mut ink::InkCache,
+}
+
+impl LineInk<'_, '_> {
+    fn skips(
+        &mut self,
+        decoration: &LineDecoration,
+        transform: Affine,
+        top: f64,
+        thickness: f64,
+    ) -> Vec<(f64, f64)> {
+        let mut skips = Vec::new();
+        if !decoration.deco.skips_ink {
+            return skips;
+        }
+        let origin_x = transform.translation().x;
+        let thickness = thickness.max(1.0);
+        let band_top = top + 0.5;
+        let band_bottom = (top + thickness - 0.5).max(band_top);
+        let outset = thickness.min(MAX_INK_OUTSET);
+        for (index, item) in self.line.items().enumerate() {
+            let PositionedLayoutItem::GlyphRun(glyph_run) = item else {
+                continue;
+            };
+            if !decoration.runs.contains(&index) {
+                continue;
+            }
+            let run = glyph_run.run();
+            let ink_run = ink::InkRun::new(
+                run.font(),
+                run.font_size(),
+                bytemuck::cast_slice(run.normalized_coords()),
+            );
+            for glyph in glyph_run.positioned_glyphs() {
+                if self.cut.is_some_and(|cut| !cut.keeps(&glyph)) {
+                    continue;
+                }
+                let y = f64::from(glyph.y);
+                let (Some(low), Some(high)) = ((y - band_bottom).to_f32(), (y - band_top).to_f32())
+                else {
+                    continue;
+                };
+                if let Some((left, right)) = self.cache.extent(&ink_run, glyph.id, low, high) {
+                    let x = f64::from(glyph.x) + origin_x;
+                    skips.push((
+                        (x + f64::from(left) - outset).round() - origin_x,
+                        (x + f64::from(right) + outset).round() - origin_x,
+                    ));
+                }
+            }
+        }
+        skips.sort_by(|a, b| a.0.total_cmp(&b.0));
+        skips
+    }
+}
+
 /// Paint the decorations accumulated for one line, one line per decorating box.
 fn flush_line_decorations(
     scene: &mut impl PaintScene,
     transform: Affine,
-    options: TextPaintOptions,
+    options: TextPaintOptions<'_>,
     deco_boxes: &[LineDecoration],
     win_ascent_ratios: &mut WinAscentCache,
     inline_root_id: NodeId,
-    line_baseline: f32,
+    ink: &mut LineInk<'_, '_>,
 ) {
     let TextPaintOptions {
         scale,
@@ -781,13 +897,21 @@ fn flush_line_decorations(
                 // decoration is positioned from the decorating box's own baseline. For the
                 // inline root that is the line's baseline.
                 if acc.node_id == inline_root_id {
-                    geom.baseline = line_baseline;
+                    geom.baseline = ink.line.metrics().baseline;
                 }
                 geom
             }
             (None, None) => continue,
         };
         let geom = &geom;
+        let ascent_shift = win_ascent(win_ascent_ratios, &geom.font, geom.font_size)
+            .map_or(0.0, |ascent| f64::from(ascent - ascent.round()));
+        let ink_thickness = decoration_thickness(
+            &deco.thickness,
+            geom.underline_size,
+            geom.css_font_size,
+            scale,
+        );
         let width = acc.max_x - acc.min_x;
         if width <= 0.0 {
             continue;
@@ -849,6 +973,8 @@ fn flush_line_decorations(
                 -(thickness / 2.0).ceil().max(1.0).to_f32().unwrap_or(1.0)
             };
             let offset = base_offset - extra_underline_offset as f32;
+            let top = decoration_top(transform, geom.baseline, offset);
+            let skips = ink.skips(acc, transform, top + ascent_shift, ink_thickness);
 
             // A `double` underline extends downward, away from the text.
             draw_decoration_line(
@@ -865,6 +991,7 @@ fn flush_line_decorations(
                 deco.style,
                 inset_start,
                 inset_end,
+                &skips,
             );
         }
         if deco.line.contains(TextDecorationLine::OVERLINE) {
@@ -885,6 +1012,8 @@ fn flush_line_decorations(
             let ascent =
                 win_ascent(win_ascent_ratios, &geom.font, geom.font_size).unwrap_or(geom.ascent);
             let offset = ascent + size;
+            let top = decoration_top(transform, geom.baseline, offset);
+            let skips = ink.skips(acc, transform, top + ascent_shift, ink_thickness);
 
             // A `double` overline extends upward, away from the text.
             draw_decoration_line(
@@ -901,6 +1030,7 @@ fn flush_line_decorations(
                 deco.style,
                 inset_start,
                 inset_end,
+                &skips,
             );
         }
         if deco.line.contains(TextDecorationLine::LINE_THROUGH) {
@@ -944,6 +1074,7 @@ fn flush_line_decorations(
                 deco.style,
                 inset_start,
                 inset_end,
+                &[],
             );
         }
     }
@@ -954,7 +1085,7 @@ pub(crate) fn stroke_text<'a>(
     lines: impl Iterator<Item = Line<'a, TextBrush>>,
     doc: &BaseDocument,
     transform: Affine,
-    options: TextPaintOptions,
+    options: TextPaintOptions<'_>,
     inline_root_id: NodeId,
     context: &mut DrawTextContext,
 ) {
@@ -962,21 +1093,18 @@ pub(crate) fn stroke_text<'a>(
         scale,
         brush_override,
         ellipsis,
+        text: layout_text,
     } = options;
     let DrawTextContext {
         stack,
         path_scratch,
         deco_boxes,
         win_ascent_ratios,
+        ink,
     } = context;
     stack.clear();
     path_scratch.clear();
     deco_boxes.clear();
-    let layout_text = doc
-        .get_node(inline_root_id)
-        .and_then(|node| node.element_data())
-        .and_then(|element| element.inline_layout_data.as_ref())
-        .map(|layout| layout.text.as_str());
 
     // Persistent stack mirroring the ancestor path (inline root -> current run's
     // node) as we walk the runs. The `text-decoration-*` properties are *not*
@@ -1203,8 +1331,7 @@ pub(crate) fn stroke_text<'a>(
                 }
 
                 for entry in stack.iter() {
-                    if entry.decoration.is_none() || (is_edge_run && entry.node_id == run_node_id)
-                    {
+                    if entry.decoration.is_none() || (is_edge_run && entry.node_id == run_node_id) {
                         continue;
                     }
                     let idx = match deco_boxes.iter().position(|d| d.node_id == entry.node_id) {
@@ -1217,6 +1344,7 @@ pub(crate) fn stroke_text<'a>(
                                 max_x: f64::NEG_INFINITY,
                                 own: None,
                                 first: None,
+                                runs: SmallVec::new(),
                             });
                             deco_boxes.len() - 1
                         }
@@ -1224,6 +1352,7 @@ pub(crate) fn stroke_text<'a>(
                     let acc = &mut deco_boxes[idx];
                     acc.min_x = acc.min_x.min(run_x0);
                     acc.max_x = acc.max_x.max(run_x1);
+                    acc.runs.push(item_index);
                     if acc.first.is_none() {
                         acc.first = Some(geometry.clone());
                     }
@@ -1243,7 +1372,11 @@ pub(crate) fn stroke_text<'a>(
             deco_boxes,
             win_ascent_ratios,
             inline_root_id,
-            line.metrics().baseline,
+            &mut LineInk {
+                line: &line,
+                cut,
+                cache: ink,
+            },
         );
     }
 }
