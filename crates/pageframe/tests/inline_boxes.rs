@@ -343,3 +343,30 @@ fn a_cloned_span_closes_around_a_cloned_child_on_every_line() {
         assert_eq!(row.last().map(|(_, colour)| *colour), Some(LIME));
     }
 }
+
+#[test]
+fn a_span_break_follows_the_wrap_mode_of_its_last_text() {
+    let hung = wrap_case("", "aa ", "aaa");
+    let kept = wrap_case("white-space:nowrap", "aa ", "aaa");
+    assert!(kept > hung);
+    assert_eq!(
+        wrap_case("", "<i style=\"white-space:nowrap\">aa </i>", "aaa"),
+        kept
+    );
+    assert_eq!(
+        wrap_case("", "<i style=\"white-space:pre\">aa </i>", "aaa"),
+        kept
+    );
+    assert_eq!(
+        wrap_case(
+            "white-space:nowrap",
+            "<i style=\"white-space:normal\">aa </i>",
+            "aaa"
+        ),
+        hung
+    );
+    assert_eq!(
+        wrap_case("", "aa<i style=\"display:contents\"> </i>", "aaa"),
+        hung
+    );
+}

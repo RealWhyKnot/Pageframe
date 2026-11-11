@@ -46,18 +46,25 @@ impl InlineEdges {
 fn trailing_space(nodes: &crate::NodeTree, node_id: NodeId) -> Option<bool> {
     let node = &nodes[node_id];
     match &node.data {
-        NodeData::Text(data) => data
-            .content
-            .chars()
-            .next_back()
-            .map(|last| matches!(last, ' ' | '\t' | '\n' | '\r' | '\u{c}')),
+        NodeData::Text(data) => {
+            let last = data.content.chars().next_back()?;
+            let wraps = node
+                .parent
+                .and_then(|parent| nodes[parent].primary_styles())
+                .is_none_or(|style| {
+                    style.clone_text_wrap_mode() == stylo_to_parley::stylo::TextWrapMode::Wrap
+                });
+            Some(wraps && matches!(last, ' ' | '\t' | '\n' | '\r' | '\u{c}'))
+        }
         NodeData::Element(element_data) | NodeData::AnonymousBlock(element_data) => {
             let display = node.display_style()?;
             if display.is_none() {
                 return None;
             }
-            let is_span = display.outside() == DisplayOutside::Inline
-                && display.inside() == DisplayInside::Flow
+            let is_flow = display.is_contents()
+                || (display.outside() == DisplayOutside::Inline
+                    && display.inside() == DisplayInside::Flow);
+            let is_span = is_flow
                 && !is_inline_box_element(&element_data.name.local)
                 && element_data.name.local != local_name!("br");
             if !is_span {
@@ -472,12 +479,7 @@ pub(crate) fn build_inline_layout_into(
                                     crate::util::INLINE_MARGIN_END,
                                     edges.margin_end,
                                 );
-                                let wraps = node.primary_styles().is_some_and(|style| {
-                                    style.clone_text_wrap_mode()
-                                        == stylo_to_parley::stylo::TextWrapMode::Wrap
-                                });
-                                if wraps
-                                    && edges.has_end_mark()
+                                if edges.has_end_mark()
                                     && trailing_space(nodes, node_id) == Some(true)
                                 {
                                     builder.push_style_modification_span(&[
