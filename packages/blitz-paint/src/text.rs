@@ -464,15 +464,24 @@ fn decoration_size(
     css_font_size: f64,
     scale: f64,
 ) -> f32 {
-    (match thickness {
+    decoration_thickness(thickness, metric_size, css_font_size, scale)
+        .floor()
+        .max(1.0) as f32
+}
+
+fn decoration_thickness(
+    thickness: &TextDecorationLength,
+    metric_size: f32,
+    css_font_size: f64,
+    scale: f64,
+) -> f64 {
+    match thickness {
         GenericTextDecorationLength::LengthPercentage(lp) => {
             lp.resolve(Length::new(css_font_size as f32)).px() as f64 * scale
         }
-        GenericTextDecorationLength::FromFont => metric_size as f64,
+        GenericTextDecorationLength::FromFont => f64::from(metric_size),
         GenericTextDecorationLength::Auto => (css_font_size / 10.0).max(1.0) * scale,
-    })
-    .floor()
-    .max(1.0) as f32
+    }
 }
 
 /// Draws a single decoration line of the given `text-decoration-style` spanning
@@ -506,8 +515,10 @@ fn draw_decoration_line(
     if w <= 0.0 {
         return;
     }
-    let y = (baseline - offset + size / 2.0) as f64;
-    let size = size as f64;
+    let origin_y = transform.translation().y;
+    let top = (f64::from(baseline - offset) + origin_y).round() - origin_y;
+    let size = f64::from(size);
+    let y = top + size / 2.0;
     let butt_stroke = Stroke::new(size).with_caps(Cap::Butt);
 
     match deco_style {
@@ -826,8 +837,16 @@ fn flush_line_decorations(
                 -geom.descent
             } else if deco.underline_offset.is_some() && !deco.underline_from_font {
                 0.0
-            } else {
+            } else if deco.underline_from_font {
                 geom.underline_offset
+            } else {
+                let thickness = decoration_thickness(
+                    &deco.thickness,
+                    geom.underline_size,
+                    geom.css_font_size,
+                    scale,
+                );
+                -(thickness / 2.0).ceil().max(1.0).to_f32().unwrap_or(1.0)
             };
             let offset = base_offset - extra_underline_offset as f32;
 
@@ -898,7 +917,18 @@ fn flush_line_decorations(
             // draw the line too close to the baseline.
             let ascent =
                 win_ascent(win_ascent_ratios, &geom.font, geom.font_size).unwrap_or(geom.ascent);
-            let offset = ascent / 3.0 + size / 2.0;
+            let half_thickness = decoration_thickness(
+                &deco.thickness,
+                geom.strikethrough_size,
+                geom.css_font_size,
+                scale,
+            ) / 2.0;
+            let ascent = ascent.round();
+            let offset = ascent
+                - (f64::from(ascent) * 2.0 / 3.0 - half_thickness)
+                    .round()
+                    .to_f32()
+                    .unwrap_or(0.0);
 
             draw_decoration_line(
                 scene,
@@ -942,6 +972,11 @@ pub(crate) fn stroke_text<'a>(
     stack.clear();
     path_scratch.clear();
     deco_boxes.clear();
+    let layout_text = doc
+        .get_node(inline_root_id)
+        .and_then(|node| node.element_data())
+        .and_then(|element| element.inline_layout_data.as_ref())
+        .map(|layout| layout.text.as_str());
 
     // Persistent stack mirroring the ancestor path (inline root -> current run's
     // node) as we walk the runs. The `text-decoration-*` properties are *not*
@@ -1151,6 +1186,15 @@ pub(crate) fn stroke_text<'a>(
                     css_font_size,
                 };
                 let run_node_id = style.brush.id;
+                let is_edge_run = layout_text
+                    .and_then(|text| text.get(glyph_run.run().text_range()))
+                    .is_some_and(|text| {
+                        !text.is_empty()
+                            && text.chars().all(|ch| {
+                                blitz_dom::util::INLINE_EDGE_START.contains(ch)
+                                    || blitz_dom::util::INLINE_EDGE_END.contains(ch)
+                            })
+                    });
                 let mut run_x0 = glyph_run.offset() as f64;
                 let mut run_x1 = run_x0 + glyph_run.advance() as f64;
                 if let Some(cut) = cut {
@@ -1159,7 +1203,8 @@ pub(crate) fn stroke_text<'a>(
                 }
 
                 for entry in stack.iter() {
-                    if entry.decoration.is_none() {
+                    if entry.decoration.is_none() || (is_edge_run && entry.node_id == run_node_id)
+                    {
                         continue;
                     }
                     let idx = match deco_boxes.iter().position(|d| d.node_id == entry.node_id) {
