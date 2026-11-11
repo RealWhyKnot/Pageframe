@@ -34,6 +34,7 @@ struct InlineEdges {
     inset_start: f32,
     inset_end: f32,
     margin_end: f32,
+    has_percent_margin: bool,
 }
 
 struct EdgeBasis {
@@ -42,17 +43,20 @@ struct EdgeBasis {
 }
 
 fn inline_edges(style: &ComputedValues, basis: &mut EdgeBasis) -> InlineEdges {
-    let zero = Length::new(basis.width);
+    let basis_width = Length::new(basis.width);
     let margin = style.get_margin();
     let padding = style.get_padding();
     let border = style.get_border();
     let margin_px = |value: &GenericMargin<LengthPercentage>| match value {
-        GenericMargin::LengthPercentage(value) => value.resolve(zero).px(),
+        GenericMargin::LengthPercentage(value) => value.resolve(basis_width).px(),
         _ => 0.0,
     };
-    let margin_has_percent = |value: &GenericMargin<LengthPercentage>| matches!(value, GenericMargin::LengthPercentage(value) if value.has_percentage());
-    basis.has_percent |= margin_has_percent(&margin.margin_left)
-        || margin_has_percent(&margin.margin_right)
+    let is_percent = |value: &GenericMargin<LengthPercentage>| match value {
+        GenericMargin::LengthPercentage(value) => value.has_percentage(),
+        _ => false,
+    };
+    let has_percent_margin = is_percent(&margin.margin_left) || is_percent(&margin.margin_right);
+    basis.has_percent |= has_percent_margin
         || padding.padding_left.0.has_percentage()
         || padding.padding_right.0.has_percentage();
     let border_px = |width: &BorderSideWidth, line: BorderStyle| {
@@ -65,12 +69,12 @@ fn inline_edges(style: &ComputedValues, basis: &mut EdgeBasis) -> InlineEdges {
     let left = (
         margin_px(&margin.margin_left),
         border_px(&border.border_left_width, border.border_left_style)
-            + padding.padding_left.0.resolve(zero).px(),
+            + padding.padding_left.0.resolve(basis_width).px(),
     );
     let right = (
         margin_px(&margin.margin_right),
         border_px(&border.border_right_width, border.border_right_style)
-            + padding.padding_right.0.resolve(zero).px(),
+            + padding.padding_right.0.resolve(basis_width).px(),
     );
     let (start, end) = if style.clone_direction() == Direction::Rtl {
         (right, left)
@@ -89,6 +93,7 @@ fn inline_edges(style: &ComputedValues, basis: &mut EdgeBasis) -> InlineEdges {
         inset_start: start.1,
         inset_end: end.1,
         margin_end: end.0,
+        has_percent_margin,
     }
 }
 
@@ -98,8 +103,13 @@ fn push_spacer(builder: &mut TreeBuilder<TextBrush>, spacer: &str, width: f32) {
     builder.pop_style_span();
 }
 
-fn push_margin_spacer(builder: &mut TreeBuilder<TextBrush>, spacer: &str, width: f32) {
-    if width.abs() >= f32::EPSILON {
+fn push_margin_spacer(
+    builder: &mut TreeBuilder<TextBrush>,
+    edges: &InlineEdges,
+    spacer: &str,
+    width: f32,
+) {
+    if edges.has_percent_margin || width.abs() >= f32::EPSILON {
         push_spacer(builder, spacer, width);
     }
 }
@@ -346,6 +356,7 @@ pub(crate) fn build_inline_layout_into(
                             if let Some(edges) = &edges {
                                 push_margin_spacer(
                                     builder,
+                                    edges,
                                     crate::util::INLINE_MARGIN_START,
                                     edges.margin_start,
                                 );
@@ -412,6 +423,7 @@ pub(crate) fn build_inline_layout_into(
                             if let Some(edges) = &edges {
                                 push_margin_spacer(
                                     builder,
+                                    edges,
                                     crate::util::INLINE_MARGIN_END,
                                     edges.margin_end,
                                 );

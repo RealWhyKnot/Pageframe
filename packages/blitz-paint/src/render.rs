@@ -1343,7 +1343,7 @@ impl ElementCx<'_, '_> {
             .inline_layout_data
             .as_ref()
             .map_or(0.0, |layout| layout.percent_basis);
-        let zero = CSSPixelLength::new(basis);
+        let basis = CSSPixelLength::new(basis);
         let s_border = style.get_border();
         let s_padding = style.get_padding();
         let width = |width: &style::values::computed::BorderSideWidth, line: BorderStyle| {
@@ -1354,7 +1354,7 @@ impl ElementCx<'_, '_> {
             }
         };
         let inset = |value: &style::values::computed::NonNegativeLengthPercentage| {
-            f64::from(value.0.resolve(zero).px()) * self.scale
+            f64::from(value.0.resolve(basis).px()) * self.scale
         };
         let is_rtl = style.clone_direction() == Direction::Rtl;
         let (has_left, has_right) = if is_rtl {

@@ -246,7 +246,7 @@ fn percent_span_padding_resolves_against_the_block_width() {
         painted(&buffer, 20).len()
     };
     assert_eq!(row("padding:0 10%"), row("padding:0 5px"));
-    assert_eq!(row("margin-left:10%"), row(""));
+    assert_eq!(row("padding-right:10%"), row("padding-right:5px"));
     let left = |style: &str| {
         let buffer = draw(&format!(
             "<div style=\"line-height:40px;width:50px\">\
