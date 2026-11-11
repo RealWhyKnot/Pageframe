@@ -17,7 +17,9 @@ pageframe-shell = { workspace = true, features = ["accessibility"] }
 pageframe-traits = { workspace = true }
 data-url = { workspace = true }
 keyboard-types = { workspace = true }
+bytemuck = { workspace = true }
 kurbo = { workspace = true }
+parley = { workspace = true, features = ["bytemuck"] }
 peniko = { workspace = true }
 selectors = { workspace = true }
 style = { workspace = true }

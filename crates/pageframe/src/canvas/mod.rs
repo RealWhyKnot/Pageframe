@@ -1,8 +1,15 @@
+mod text;
+
+use std::sync::{Arc as Shared, Mutex};
+
 use anyrender::{PaintScene, RenderContext, Scene};
 use kurbo::{Affine, Arc, BezPath, Cap, Join, PathEl, Point, Rect, Stroke, Vec2};
 use pageframe_dom::Widget;
+use parley::{FontContext, LayoutContext};
 use peniko::Fill;
 use style::properties::ComputedValues;
+
+pub use text::{TextAlign, TextBaseline};
 
 const DEFAULT_WIDTH: u32 = 300;
 const DEFAULT_HEIGHT: u32 = 150;
@@ -80,6 +87,12 @@ struct State {
     line_join: LineJoin,
     alpha: f32,
     clips: usize,
+    font_family: String,
+    font_size: f32,
+    font_weight: f32,
+    font_italic: bool,
+    text_align: TextAlign,
+    text_baseline: TextBaseline,
 }
 
 impl Default for State {
@@ -93,6 +106,12 @@ impl Default for State {
             line_join: LineJoin::default(),
             alpha: 1.0,
             clips: 0,
+            font_family: String::from("sans-serif"),
+            font_size: 10.0,
+            font_weight: 400.0,
+            font_italic: false,
+            text_align: TextAlign::default(),
+            text_baseline: TextBaseline::default(),
         }
     }
 }
@@ -104,10 +123,12 @@ pub struct Canvas {
     state: State,
     saved: Vec<State>,
     path: BezPath,
+    fonts: Shared<Mutex<FontContext>>,
+    layouts: LayoutContext<()>,
 }
 
 impl Canvas {
-    pub(crate) fn new(width: u32, height: u32) -> Self {
+    pub(crate) fn new(width: u32, height: u32, fonts: Shared<Mutex<FontContext>>) -> Self {
         Self {
             scene: Scene::new(),
             width,
@@ -115,6 +136,8 @@ impl Canvas {
             state: State::default(),
             saved: Vec::new(),
             path: BezPath::new(),
+            fonts,
+            layouts: LayoutContext::new(),
         }
     }
 

@@ -237,7 +237,7 @@ impl Selection<'_> {
             let Some((width, height)) = self.canvas_size(node) else {
                 continue;
             };
-            let mut canvas = Canvas::new(width, height);
+            let mut canvas = Canvas::new(width, height, self.doc.font_context());
             paint(&mut canvas);
             self.doc
                 .mutate()

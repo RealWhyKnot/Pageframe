@@ -921,6 +921,10 @@ impl BaseDocument {
         has_changes
     }
 
+    pub fn font_context(&self) -> Arc<Mutex<FontContext>> {
+        Arc::clone(&self.font_ctx)
+    }
+
     #[cfg(feature = "custom-widget")]
     pub fn custom_widget_node_ids(&self) -> Vec<NodeId> {
         self.custom_widget_nodes.iter().copied().collect()
