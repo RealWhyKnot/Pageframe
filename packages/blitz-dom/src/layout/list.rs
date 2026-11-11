@@ -350,6 +350,7 @@ fn list_item_layout(
         let mut builder =
             doc.layout_ctx
                 .tree_builder(&mut font_ctx, doc.viewport.scale(), true, &parley_style);
+        builder.set_line_break_override(Some(crate::util::LINE_BREAK_OVERRIDE));
         builder.set_base_direction(stylo_to_parley::base_direction(
             styles.clone_direction(),
             styles.clone_unicode_bidi(),

@@ -166,6 +166,7 @@ pub(crate) fn prepare(doc: &mut crate::BaseDocument, node_id: crate::NodeId) {
     let mut builder = doc
         .layout_ctx
         .tree_builder(&mut fonts, scale, true, &root_style);
+    builder.set_line_break_override(Some(crate::util::LINE_BREAK_OVERRIDE));
     if icon {
         builder.push_inline_box(parley::InlineBox {
             id: node_id.as_u64(),

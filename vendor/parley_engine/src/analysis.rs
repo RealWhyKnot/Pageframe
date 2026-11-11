@@ -737,7 +737,9 @@ pub(crate) fn analyze_text(
             };
             // Consumers can override soft wrap opportunities, except around a mandatory
             // break.
-            if let (Some(prev), Some(lb_override)) = (prev_char, options.line_break_override) {
+            if !is_break_anywhere
+                && let (Some(prev), Some(lb_override)) = (prev_char, options.line_break_override)
+            {
                 let forced = lb_override(LineBreakContext {
                     before_before: prev_prev_char,
                     before: prev,

@@ -204,6 +204,7 @@ pub(crate) fn build_inline_layout_into(
 
     // Create a parley tree builder
     let mut builder = layout_ctx.tree_builder(font_ctx, scale, true, &parley_style);
+    builder.set_line_break_override(Some(crate::util::LINE_BREAK_OVERRIDE));
     if let Some(style) = root_node_style.as_deref() {
         builder.set_base_direction(stylo_to_parley::base_direction(
             style.clone_direction(),
@@ -486,6 +487,7 @@ pub(crate) fn build_inline_layout_into(
                                         parley::StyleProperty::TextWrapMode(
                                             parley::TextWrapMode::Wrap,
                                         ),
+                                        parley::StyleProperty::LetterSpacing(0.0),
                                     ]);
                                     builder.push_text(crate::util::INLINE_BREAK);
                                     builder.pop_style_span();

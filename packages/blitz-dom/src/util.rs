@@ -315,6 +315,19 @@ pub fn is_inline_spacer(ch: char) -> bool {
     .any(|spacer| spacer.contains(ch))
 }
 
+pub(crate) static LINE_BREAK_OVERRIDE: &parley::LineBreakOverrideFn =
+    &(line_break_override as fn(parley::LineBreakContext) -> Option<bool>);
+
+fn line_break_override(context: parley::LineBreakContext) -> Option<bool> {
+    if INLINE_BREAK.contains(context.before) {
+        return Some(context.after != ' ' && !INLINE_BREAK.contains(context.after));
+    }
+    if is_inline_spacer(context.before) || is_inline_spacer(context.after) {
+        return None;
+    }
+    parley::CHROMIUM_LINE_BREAK_OVERRIDE(context)
+}
+
 pub fn inline_relative_offset(style: &style::properties::ComputedValues) -> (f32, f32) {
     use style::values::generics::position::GenericInset;
     use stylo_taffy::CopyStyleGetters as _;

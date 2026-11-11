@@ -304,6 +304,9 @@ fn a_span_break_follows_the_span_text_and_wrap_mode() {
         wrap_case("", "aa ", "<span style=\"white-space:nowrap\">aaa</span>"),
         hung
     );
+    for after in ["!aa", "/aa", "}aa", ",aa"] {
+        assert_eq!(wrap_case("", "aa ", after), hung, "{after}");
+    }
 }
 
 #[test]
@@ -441,4 +444,14 @@ fn an_underline_skips_span_padding_and_inline_blocks() {
     let boxed = underline_row("a<i style=\"display:inline-block;width:10px;height:5px\"></i>a");
     assert!(boxed.contains(&2) && boxed.contains(&18));
     assert!(!boxed.contains(&10));
+}
+
+#[test]
+fn a_line_breaks_after_a_space_before_punctuation() {
+    let word = painted(&boxed_span("", "aaa"), 20).len();
+    for after in [",aa", "!aa", "/aa", ")aa", "}aa", ".aa"] {
+        let buffer = boxed_span("", &format!("aaa {after}"));
+        assert_eq!(painted(&buffer, 20).len(), word, "{after}");
+        assert_eq!(painted(&buffer, 60).len(), word, "{after}");
+    }
 }
