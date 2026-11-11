@@ -1,4 +1,4 @@
-//! End-to-end test: run the vendored Preact TodoMVC example (examples/preact)
+//! End-to-end test: run the vendored Preact TodoMVC example (tests/preact_app)
 //! headlessly and interact with it.
 
 use std::path::PathBuf;
@@ -10,7 +10,7 @@ use keyboard_types::{Code, Key, Location, Modifiers, NamedKey};
 use url::Url;
 
 fn preact_example_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/preact")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/preact_app")
 }
 
 fn load_todomvc() -> ScriptDocument {

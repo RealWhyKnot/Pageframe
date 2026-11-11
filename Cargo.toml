@@ -5,29 +5,18 @@ members = [
     "packages/blitz-traits",
     "packages/blitz-dom",
     "packages/blitz-html",
-    "packages/blitz-net",
     "packages/blitz-paint",
     "packages/blitz-vibey-script",
     "packages/blitz-shell",
     "packages/blitz-vibey-cdp-server",
-    "packages/blitz",
     "packages/stylo_taffy",
-    "packages/dioxus-native",
     "packages/dioxus-native-dom",
     "packages/blitz-test-harness",
-    "packages/parley_code_editor",
     "crates/pageframe",
-    "examples",
     "wpt/runner",
     "tests/blitz-tests",
-    "examples/counter",
-    "examples/transparent",
-    "examples/seven_guis",
-    "examples/todomvc",
-    "examples/wgpu_texture",
-    "examples/wasm_hello",
 ]
-default-members = ["examples"]
+default-members = ["crates/pageframe"]
 exclude = ["sites", "vendor"]
 resolver = "2"
 
@@ -42,17 +31,14 @@ rust-version = "1.91.0"
 
 [workspace.dependencies]
 # Blitz dependencies(in-repo)
-blitz = { version = "=0.3.0-beta.4", path = "./packages/blitz" }
 blitz-dom = { version = "=0.3.0-beta.4", path = "./packages/blitz-dom", default-features = false }
 blitz-html = { version = "=0.3.0-beta.4", path = "./packages/blitz-html", default-features = false }
-blitz-net = { version = "=0.3.0-beta.4", path = "./packages/blitz-net", default-features = false }
 blitz-paint = { version = "=0.3.0-beta.4", path = "./packages/blitz-paint", default-features = false }
 blitz-vibey-script = { version = "=0.3.0-beta.4", path = "./packages/blitz-vibey-script", default-features = false }
 blitz-shell = { version = "=0.3.0-beta.4", path = "./packages/blitz-shell", default-features = false }
 blitz-vibey-cdp-server = { version = "=0.3.0-beta.4", path = "./packages/blitz-vibey-cdp-server", default-features = false }
 blitz-traits = { version = "=0.3.0-beta.4", path = "./packages/blitz-traits", default-features = false }
 stylo_taffy = { version = "=0.3.0-beta.4", path = "./packages/stylo_taffy", default-features = false }
-dioxus-native = { version = "0.7.0", path = "./packages/dioxus-native", default-features = false }
 dioxus-native-dom = { version = "0.7.0", path = "./packages/dioxus-native-dom", default-features = false }
 debug_timer = { version = "0.1.2", path = "./packages/debug_timer" }
 accesskit_xplat = { version = "0.2", path = "./packages/accesskit_xplat", default-features = false }

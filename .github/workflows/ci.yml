@@ -98,26 +98,6 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
       - run: cargo build --workspace
 
-  # wasm_hello is a standalone workspace; seven_guis and todomvc are workspace
-  # members with a [lib] crate-type = ["cdylib"] target for wasm.
-  build-wasm-examples:
-    name: "Build wasm examples"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: RealWhyKnot/workflows/setup-rust@v1
-        with:
-          toolchain: stable
-          targets: wasm32-unknown-unknown
-          cache-key: cargo-wasm
-      - name: Build wasm_hello
-        run: cargo build --target wasm32-unknown-unknown
-        working-directory: examples/wasm_hello
-      - name: Build seven_guis (wasm)
-        run: cargo build -p seven_guis --lib --target wasm32-unknown-unknown --no-default-features --features hybrid
-      - name: Build todomvc (wasm)
-        run: cargo build -p todomvc --lib --target wasm32-unknown-unknown --no-default-features --features hybrid
-
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
