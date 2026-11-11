@@ -369,6 +369,7 @@ fn a_span_break_follows_the_wrap_mode_of_its_last_text() {
         wrap_case("", "aa<i style=\"display:contents\"> </i>", "aaa"),
         hung
     );
+    assert!(wrap_case("", "<i style=\"white-space:pre-wrap\">aa </i>", "aaa") < kept);
 }
 
 #[test]
@@ -385,4 +386,23 @@ fn a_cloned_span_end_keeps_the_breaks_of_an_indented_line() {
         lines("padding-right:8px;box-decoration-break:clone"),
         (first + 8, second + 8)
     );
+}
+
+#[test]
+fn a_cloned_span_in_right_to_left_text_starts_each_line_on_the_right() {
+    let row = |style: &str, y: usize| {
+        let buffer = draw(&format!(
+            "<div dir=\"rtl\" style=\"line-height:40px;width:30px\">\
+             <span style=\"background:#0f0;color:transparent;{style}\">aaa<br>aaa</span></div>"
+        ));
+        let row = painted(&buffer, y);
+        (row.first().map(|(x, _)| *x), row.len())
+    };
+    let (_, word) = row("", 20);
+    for y in [20, 60] {
+        let start = "padding-right:10px;box-decoration-break:clone";
+        assert_eq!(row(start, y), (Some(30 - word - 10), word + 10));
+        let end = "padding-left:4px;box-decoration-break:clone";
+        assert_eq!(row(end, y), (Some(30 - word - 4), word + 4));
+    }
 }

@@ -395,6 +395,35 @@ pub struct CloneInsets {
     pub right: f32,
     pub margin_left: f32,
     pub margin_right: f32,
+    pub is_rtl: bool,
+}
+
+impl CloneInsets {
+    pub fn start(&self) -> f32 {
+        if self.is_rtl { self.right } else { self.left }
+    }
+
+    pub fn end(&self) -> f32 {
+        if self.is_rtl { self.left } else { self.right }
+    }
+
+    pub fn outer_start(&self) -> f32 {
+        self.start()
+            + if self.is_rtl {
+                self.margin_right
+            } else {
+                self.margin_left
+            }
+    }
+
+    pub fn outer_end(&self) -> f32 {
+        self.end()
+            + if self.is_rtl {
+                self.margin_left
+            } else {
+                self.margin_right
+            }
+    }
 }
 
 pub fn inline_clone_insets(node: &Node, basis: f32) -> Option<CloneInsets> {
@@ -439,5 +468,6 @@ pub fn inline_clone_insets(node: &Node, basis: f32) -> Option<CloneInsets> {
         right,
         margin_left,
         margin_right,
+        is_rtl: style.clone_direction() == style::computed_values::direction::T::Rtl,
     })
 }

@@ -235,14 +235,16 @@ struct CloneEdge {
 }
 
 #[cfg(feature = "floats")]
-fn reserve_clone_edges(state: &mut BreakerState, edges: &[CloneEdge], line: usize) {
+fn reserve_clone_edges(state: &mut BreakerState, edges: &[CloneEdge], line: usize, is_rtl: bool) {
     let Some(edge) = edges.get(line) else {
         return;
     };
     let room = state.line_max_advance() - edge.start;
     let kept = (edge.width + CLONE_FIT_SLACK).min(room);
-    state.set_line_x(state.line_x() + edge.start);
-    state.set_line_max_advance((room - edge.end).max(kept).max(0.0));
+    let advance = (room - edge.end).max(kept).max(0.0);
+    let shift = if is_rtl { room - advance } else { edge.start };
+    state.set_line_x(state.line_x() + shift);
+    state.set_line_max_advance(advance);
 }
 
 #[cfg(feature = "floats")]
@@ -338,8 +340,8 @@ fn continued_clone_edges(
             let mut inner = Some(after);
             while let Some(inner_id) = inner.filter(|inner_id| *inner_id != root) {
                 if inner_id == id {
-                    edges[line - 1].end += (insets.right + insets.margin_right) * scale;
-                    edges[line].start += (insets.left + insets.margin_left) * scale;
+                    edges[line - 1].end += insets.outer_end() * scale;
+                    edges[line].start += insets.outer_start() * scale;
                     break;
                 }
                 inner = nodes[inner_id].parent;
@@ -1261,7 +1263,7 @@ impl LayoutPassState<'_> {
                 state.set_line_x(x);
                 state.set_line_max_advance(advance);
             }
-            reserve_clone_edges(state, &clone_edges, 0);
+            reserve_clone_edges(state, &clone_edges, 0, is_rtl);
 
             // The state at the start of the current line, which is reverted to when the line
             // needs to be retried lower down (or narrower) to avoid floats.
@@ -1291,6 +1293,7 @@ impl LayoutPassState<'_> {
                                 breaker.state_mut(),
                                 &clone_edges,
                                 line_count_so_far,
+                                is_rtl,
                             );
                             line_start_state = has_active_floats.then(|| breaker.state().clone());
                             continue;
@@ -1331,7 +1334,7 @@ impl LayoutPassState<'_> {
                             state.set_line_x(x);
                             state.set_line_max_advance(advance);
                         }
-                        reserve_clone_edges(state, &clone_edges, line_count_so_far);
+                        reserve_clone_edges(state, &clone_edges, line_count_so_far, is_rtl);
 
                         line_start_state = has_active_floats.then(|| breaker.state().clone());
                         continue;

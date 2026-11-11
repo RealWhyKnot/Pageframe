@@ -311,16 +311,26 @@ pub(crate) fn inline_fragments<'a>(
                 if !span_box.is_start {
                     let nested: f32 = inner()
                         .filter(|(_, is_start, _)| !is_start)
-                        .map(|(inner, _, _)| inner.left + inner.margin_left)
+                        .map(|(inner, _, _)| inner.outer_start())
                         .sum();
-                    span_box.left -= f64::from(insets.left + nested) * scale;
+                    let grown = f64::from(insets.start() + nested) * scale;
+                    if insets.is_rtl {
+                        span_box.right += grown;
+                    } else {
+                        span_box.left -= grown;
+                    }
                 }
                 if !span_box.is_end {
                     let nested: f32 = inner()
                         .filter(|(_, _, is_end)| !is_end)
-                        .map(|(inner, _, _)| inner.right + inner.margin_right)
+                        .map(|(inner, _, _)| inner.outer_end())
                         .sum();
-                    span_box.right += f64::from(insets.right + nested) * scale;
+                    let grown = f64::from(insets.end() + nested) * scale;
+                    if insets.is_rtl {
+                        span_box.left -= grown;
+                    } else {
+                        span_box.right += grown;
+                    }
                 }
                 span_box.is_start = true;
                 span_box.is_end = true;
