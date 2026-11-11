@@ -2415,3 +2415,46 @@ fn many_wide_spans_in_one_row_each_get_a_column() {
         ],
     );
 }
+
+fn seam_table(above: &str, hidden: &str, below: &str) -> Vec<u8> {
+    draw(&format!(
+        r#"<table class="bare"><col><col style="visibility:collapse"><tr><td style="{above}"><i style="width:6px"></i></td><td><i style="width:6px"></i></td></tr><tr style="visibility:collapse"><td style="border-color:red;{hidden}"><i style="width:6px"></i></td><td style="border-color:blue"><i style="width:6px"></i></td></tr><tr><td style="{below}"><i style="width:6px"></i></td><td><i style="width:6px"></i></td></tr></table>"#
+    ))
+}
+
+#[test]
+fn a_collapsed_row_colours_the_seam_between_its_neighbours() {
+    let buffer = seam_table("", "", "");
+    assert_eq!(
+        column(&buffer, 5, &[11, 12, 13, 14]),
+        [GREEN, RED, RED, GREEN]
+    );
+    assert_eq!(row(&buffer, &[0, 9], 13), [RED, RED]);
+}
+
+#[test]
+fn a_wide_border_above_a_collapsed_row_stops_at_the_row_below() {
+    let buffer = seam_table("border-bottom:6px solid black", "", "");
+    assert_eq!(
+        column(&buffer, 5, &[11, 12, 13, 14, 15, 16]),
+        [GREEN, BLACK, BLACK, RED, RED, GREEN]
+    );
+}
+
+#[test]
+fn a_wide_border_below_a_collapsed_row_stops_at_the_row_above() {
+    let buffer = seam_table("", "", "border-top:6px solid black");
+    assert_eq!(
+        column(&buffer, 5, &[11, 12, 15, 16]),
+        [GREEN, BLACK, BLACK, GREEN]
+    );
+}
+
+#[test]
+fn a_wide_border_on_a_collapsed_row_fills_the_seam() {
+    let buffer = seam_table("", "border-width:6px", "");
+    assert_eq!(
+        column(&buffer, 5, &[11, 12, 17, 18]),
+        [GREEN, RED, RED, GREEN]
+    );
+}

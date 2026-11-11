@@ -1355,6 +1355,20 @@ impl TableContext {
         self.collapsed_cells.contains(&node_id)
     }
 
+    pub fn has_collapsed_rows(&self) -> bool {
+        self.rows.iter().any(|row| row.is_collapsed)
+    }
+
+    pub fn seam_edges(&self, cell: &TableCell) -> [Option<usize>; 2] {
+        let start = usize::from(cell.row);
+        let end = start + usize::from(cell.row_span);
+        let collapsed = |row: usize| self.rows.get(row).is_some_and(|row| row.is_collapsed);
+        let inside = (start..end).all(collapsed);
+        let top = inside || start.checked_sub(1).is_some_and(collapsed);
+        let bottom = inside || collapsed(end);
+        [top.then_some(start), bottom.then_some(end)]
+    }
+
     pub fn collapsed_cell_span_height(&self, node_id: NodeId) -> Option<f32> {
         if !self.cell_is_collapsed(node_id) {
             return None;

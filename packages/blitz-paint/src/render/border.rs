@@ -156,6 +156,65 @@ struct CollapsedLine {
     rect: Rect,
     color: Color,
     width: f64,
+    edge: Edge,
+}
+
+struct SeamLine {
+    line: CollapsedLine,
+    boundary: usize,
+    y: f64,
+    span: std::ops::Range<f64>,
+}
+
+impl SeamLine {
+    fn key(&self) -> f64 {
+        (self.y * 64.0).round()
+    }
+
+    fn crosses(&self, other: &Self) -> bool {
+        self.span.start < other.span.end && other.span.start < self.span.end
+    }
+}
+
+fn seam_rects(seams: &mut [SeamLine]) -> Vec<(Rect, Color)> {
+    seams.sort_by(|first, second| {
+        first
+            .key()
+            .total_cmp(&second.key())
+            .then(first.boundary.cmp(&second.boundary))
+            .then(first.line.width.total_cmp(&second.line.width))
+    });
+    let mut rects = Vec::with_capacity(seams.len());
+    for run in seams.chunk_by(|first, second| first.key() == second.key()) {
+        let (Some(first), Some(last)) = (run.first(), run.last()) else {
+            continue;
+        };
+        let above: Vec<&SeamLine> = run
+            .iter()
+            .filter(|seam| seam.boundary == first.boundary)
+            .collect();
+        let below: Vec<&SeamLine> = run
+            .iter()
+            .filter(|seam| seam.boundary == last.boundary)
+            .collect();
+        let widest = |group: &[&SeamLine], seam: &SeamLine| {
+            group
+                .iter()
+                .filter(|other| other.crosses(seam))
+                .map(|other| other.line.width)
+                .fold(0.0, f64::max)
+        };
+        for seam in run {
+            let half = seam.line.width / 2.0;
+            let top = seam.y - half.min(widest(&above, seam) / 2.0);
+            let bottom = seam.y + half.min(widest(&below, seam) / 2.0);
+            if bottom > top {
+                let rect = Rect::new(seam.line.rect.x0, top, seam.line.rect.x1, bottom);
+                rects.push((rect, seam.line.color));
+            }
+        }
+    }
+    rects
 }
 
 fn inset(rect: Rect, by: Insets) -> Rect {
@@ -212,27 +271,36 @@ fn push_collapsed_lines(
             widths.x0,
             &border.border_left_color,
             Rect::new(outer.x0, outer.y0, inner.x0, outer.y1),
+            Edge::Left,
         ),
         (
             widths.y0,
             &border.border_top_color,
             Rect::new(outer.x0, outer.y0, outer.x1, inner.y0),
+            Edge::Top,
         ),
         (
             widths.x1,
             &border.border_right_color,
             Rect::new(inner.x1, outer.y0, outer.x1, outer.y1),
+            Edge::Right,
         ),
         (
             widths.y1,
             &border.border_bottom_color,
             Rect::new(outer.x0, inner.y1, outer.x1, outer.y1),
+            Edge::Bottom,
         ),
     ];
-    for (width, color, rect) in sides {
+    for (width, color, rect, edge) in sides {
         let color = color.resolve_to_absolute(&current_color).as_srgb_color();
         if width > 0.0 && color != Color::TRANSPARENT {
-            lines.push(CollapsedLine { rect, color, width });
+            lines.push(CollapsedLine {
+                rect,
+                color,
+                width,
+                edge,
+            });
         }
     }
 }
@@ -636,6 +704,8 @@ impl ElementCx<'_, '_> {
         let hidden = |style: BorderStyle| style == BorderStyle::Hidden;
 
         let mut lines = Vec::new();
+        let mut seams = Vec::new();
+        let has_seams = table.has_collapsed_rows();
         let own_widths = collapsed_widths(&self.style);
         push_collapsed_lines(
             &mut lines,
@@ -676,12 +746,33 @@ impl ElementCx<'_, '_> {
             if hidden(own.border_bottom_style) && cell_box.y1 >= cells_box.y1 - EDGE_SLACK {
                 widths.y1 = 0.0;
             }
+            let first = lines.len();
             push_collapsed_lines(
                 &mut lines,
                 inset(cell_box, layout_border(layout)),
                 widths,
                 &style,
             );
+            if has_seams {
+                let [top, bottom] = table.seam_edges(cell);
+                let mut index = first;
+                while index < lines.len() {
+                    let seam = match lines[index].edge {
+                        Edge::Top => top.map(|boundary| (boundary, cell_box.y0)),
+                        Edge::Bottom => bottom.map(|boundary| (boundary, cell_box.y1)),
+                        Edge::Left | Edge::Right => None,
+                    };
+                    match seam {
+                        Some((boundary, y)) => seams.push(SeamLine {
+                            line: lines.remove(index),
+                            boundary,
+                            y,
+                            span: cell_box.x0..cell_box.x1,
+                        }),
+                        None => index += 1,
+                    }
+                }
+            }
         }
 
         lines.sort_by(|first, second| first.width.total_cmp(&second.width));
@@ -694,6 +785,10 @@ impl ElementCx<'_, '_> {
                 shape.extend(line.rect.scale_from_origin(self.scale).path_elements(0.1));
             }
             scene.fill(Fill::NonZero, self.transform, line.color, None, &shape);
+        }
+        for (rect, color) in seam_rects(&mut seams) {
+            let rect = rect.scale_from_origin(self.scale);
+            scene.fill(Fill::NonZero, self.transform, color, None, &rect);
         }
     }
 
