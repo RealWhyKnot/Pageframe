@@ -5,7 +5,7 @@ use anyrender::PaintScene;
 use blitz_dom::CopyStyleGetters;
 use blitz_dom::NodeId;
 use blitz_dom::node::{ImageData, ImageResourceData, SpecialElementData};
-use kurbo::{self, Affine, BezPath, Point, Rect, Shape, Size, Vec2};
+use kurbo::{self, Affine, BezPath, Point, Rect, Size, Vec2};
 use peniko::{self, BlendMode, Compose, Fill, Mix};
 use style::{
     properties::{
@@ -691,16 +691,10 @@ impl ElementCx<'_, '_> {
         }
 
         let tile_rect = Rect::new(0.0, 0.0, x.rect_len, y.rect_len);
-        let bounding_box = self.frame.border_box.bounding_box();
         let current_color = self.style.clone_color();
 
-        let (gradient, gradient_transform) = to_peniko_gradient(
-            gradient,
-            tile_rect,
-            bounding_box,
-            self.scale,
-            &current_color,
-        );
+        let (gradient, gradient_transform) =
+            to_peniko_gradient(gradient, tile_rect, self.scale, &current_color);
         let brush = anyrender::Paint::Gradient(&gradient);
 
         let transform = base_transform.then_translate(Vec2 {

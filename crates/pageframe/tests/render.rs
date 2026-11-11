@@ -401,6 +401,18 @@ fn background_image_from_a_data_url_is_painted() {
 }
 
 #[test]
+fn an_angled_gradient_is_centred_on_the_padding_box() {
+    let html = r#"<html><body style="margin:0;background:white">
+<div style="width:20px;height:10px;border:6px solid transparent;border-right-width:0;
+background:linear-gradient(90deg,rgb(255,0,0) 50%,rgb(0,0,255) 50%)"></div>
+</body></html>"#;
+    let mut harness = open(App::new((), html));
+    let buffer = render(&mut harness);
+    assert_eq!(pixel(&buffer, 14, 10), [255, 0, 0, 255]);
+    assert_eq!(pixel(&buffer, 17, 10), [0, 0, 255, 255]);
+}
+
+#[test]
 fn floated_box_sits_at_the_right_edge() {
     let page = r#"<html><body style="margin:0;background:white">
 <div style="float:right;width:20px;height:20px;background:rgb(200,0,0)"></div>
