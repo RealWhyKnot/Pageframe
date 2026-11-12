@@ -38,6 +38,7 @@ pub struct TableTreeWrapper<'a, 'doc> {
     pub(crate) doc: &'a mut LayoutPassState<'doc>,
     pub(crate) ctx: Arc<TableContext>,
     pub(crate) style: Option<taffy::Style<Atom>>,
+    pub(crate) cell_baselines: Vec<Option<f32>>,
 }
 
 #[derive(Debug)]
@@ -2180,26 +2181,42 @@ impl TableTreeWrapper<'_, '_> {
             return;
         };
         let mut edge: Option<f32> = None;
-        let cells = self.ctx.cells.iter();
-        for cell in cells.filter(|cell| cell.row == first) {
+        let mut text_line: Option<f32> = None;
+        let is_collapsed = self
+            .ctx
+            .rows
+            .get(usize::from(first))
+            .is_some_and(|row| row.is_collapsed);
+        let cells = self.ctx.cells.iter().enumerate();
+        for (index, cell) in cells.filter(|(_, cell)| cell.row == first) {
             let node = &self.doc.nodes[cell.node_id];
             let on_baseline = node.primary_styles().is_none_or(|style| {
                 stylo_taffy::convert::table_cell_vertical_align(&style).is_none()
             });
+            let layout = node.unrounded_layout();
+            if is_collapsed {
+                let top = layout.location.y;
+                edge = Some(edge.map_or(top, |edge| edge.min(top)));
+                continue;
+            }
             if on_baseline {
-                return;
+                let Some(baseline) = self.cell_baselines.get(index).copied().flatten() else {
+                    return;
+                };
+                let line = layout.location.y + baseline;
+                text_line = Some(text_line.map_or(line, |other| other.max(line)));
+                continue;
             }
             if cell.row_span != 1 {
                 continue;
             }
-            let layout = node.unrounded_layout();
             let bottom = layout.location.y + layout.size.height
                 - layout.padding.bottom
                 - layout.border.bottom;
             edge = Some(edge.map_or(bottom, |edge| edge.max(bottom)));
         }
-        if let Some(edge) = edge {
-            output.baselines.first = Some(edge);
+        if let Some(baseline) = text_line.or(edge) {
+            output.baselines.first = Some(baseline);
         }
     }
 
@@ -2595,9 +2612,17 @@ impl taffy::LayoutPartialTree for TableTreeWrapper<'_, '_> {
         node_id: taffy::NodeId,
         inputs: taffy::tree::LayoutInput,
     ) -> taffy::LayoutOutput {
-        let cell = &self.ctx.cells[usize::from(node_id)];
+        let index = usize::from(node_id);
+        let cell = &self.ctx.cells[index];
         let node_id = crate::taffy_node_id(cell.node_id);
-        self.doc.compute_child_layout(node_id, inputs)
+        let output = self.doc.compute_child_layout(node_id, inputs);
+        if inputs.run_mode == taffy::RunMode::PerformLayout {
+            if self.cell_baselines.len() <= index {
+                self.cell_baselines.resize(index + 1, None);
+            }
+            self.cell_baselines[index] = output.baselines.first;
+        }
+        output
     }
 }
 

@@ -368,3 +368,17 @@ fn a_spanning_baseline_cell_still_sets_the_inline_table_baseline() {
 <td style='padding:6px'>Cd</td></tr><tr><td>Ef</td></tr>";
     assert_eq!(marker_top("<!doctype html>", "", &inline_table(rows)), 22.0);
 }
+
+#[test]
+fn only_baseline_cells_set_a_mixed_row_baseline() {
+    let rows = "<tr><td style='padding:6px'>Ab</td>\
+<td style='vertical-align:baseline;font-size:10px'>Cd</td></tr>";
+    assert_eq!(marker_top("<!doctype html>", "", &inline_table(rows)), 14.0);
+}
+
+#[test]
+fn a_collapsed_first_row_leaves_the_baseline_at_its_top() {
+    let rows = "<tr style='visibility:collapse'><td style='padding:6px'>Ab</td></tr>\
+<tr><td style='padding:6px'>Cd</td></tr>";
+    assert_eq!(marker_top("<!doctype html>", "", &inline_table(rows)), 14.0);
+}

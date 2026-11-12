@@ -766,6 +766,7 @@ impl LayoutPassState<'_> {
                         doc: self,
                         ctx: context,
                         style: None,
+                        cell_baselines: Vec::new(),
                     };
                     table_wrapper.size_auto_columns(&inputs);
                     let inputs = table_wrapper.widen_for_captions(inputs);
