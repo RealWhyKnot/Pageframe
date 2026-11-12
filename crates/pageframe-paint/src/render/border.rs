@@ -122,6 +122,18 @@ fn dash_stroke(thickness: f64, dash: f64, gap: f64) -> Stroke {
     }
 }
 
+fn open_dash_gap(length: f64, dash: f64, gap: f64) -> f64 {
+    let fewer = ((length + gap) / (dash + gap)).floor();
+    let more = fewer + 1.0;
+    let fewer_gap = (length - fewer * dash) / (fewer - 1.0);
+    let more_gap = (length - more * dash) / (more - 1.0);
+    if more_gap <= 0.0 || (fewer_gap - gap).abs() < (more_gap - gap).abs() {
+        fewer_gap
+    } else {
+        more_gap
+    }
+}
+
 fn closed_dash_gap(length: f64, dash: f64, gap: f64) -> f64 {
     if length <= 2.0 * dash {
         return 0.0;
@@ -472,17 +484,21 @@ impl ElementCx<'_, '_> {
             if length <= 0.0 {
                 return;
             }
-            let dash0 = dash_ratio * thickness;
-            let gap0 = gap_ratio * thickness;
-            // `count` dashes with `count - 1` gaps between them.
-            let count = ((length + gap0) / (dash0 + gap0)).round().max(1.0);
-            let r = dash_ratio / gap_ratio;
-            let gap = length / (count * r + count - 1.0);
-
+            let dash = dash_ratio * thickness;
+            let gap = gap_ratio * thickness;
+            let whole = length.round();
+            let (dash, gap) = if whole <= 2.0 * dash {
+                (dash, 0.0)
+            } else if whole <= 2.0 * dash + gap {
+                let stretch = whole / (2.0 * dash + gap);
+                (dash * stretch, gap * stretch)
+            } else {
+                (dash, open_dash_gap(whole, dash, gap))
+            };
             let mut line = BezPath::new();
             line.move_to(start);
             line.line_to(end);
-            (line, r * gap, gap)
+            (line, dash, gap)
         };
 
         scene.push_clip_layer(Fill::NonZero, self.transform, clip);

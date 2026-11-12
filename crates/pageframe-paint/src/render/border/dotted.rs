@@ -2,21 +2,10 @@ use anyrender::PaintScene;
 use kurbo::{BezPath, Circle, PathEl, Point, Rect, Shape as _};
 use peniko::{Color, Fill};
 
+use super::open_dash_gap;
 use crate::{kurbo_css::Edge, render::ElementCx};
 
 const DOT_EPSILON: f64 = 0.01;
-
-fn open_dash_gap(length: f64, dash: f64, gap: f64) -> f64 {
-    let fewer = ((length + gap) / (dash + gap)).floor();
-    let more = fewer + 1.0;
-    let fewer_gap = (length - fewer * dash) / (fewer - 1.0);
-    let more_gap = (length - more * dash) / (more - 1.0);
-    if more_gap <= 0.0 || (fewer_gap - gap).abs() < (more_gap - gap).abs() {
-        fewer_gap
-    } else {
-        more_gap
-    }
-}
 
 fn square_dot_spans(start: f64, length: f64, width: f64) -> Vec<(f64, f64)> {
     if length <= 2.0 * width {
