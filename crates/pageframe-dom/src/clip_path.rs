@@ -1,5 +1,6 @@
 use crate::Node;
 use kurbo::{BezPath, Circle, Ellipse, Point, Rect, Shape, SvgArc, Vec2};
+use pageframe_traits::node_id::NodeId;
 use style::properties::ComputedValues;
 use style::values::computed::basic_shape::{BasicShape, ClipPath};
 use style::values::computed::{Angle, CSSPixelLength, LengthPercentage};
@@ -29,9 +30,18 @@ impl ResolvedClipPath {
 
 impl Node {
     pub fn clip_path(&self) -> Option<ResolvedClipPath> {
+        self.clip_path_with(|id| self.node_with_id(id))
+    }
+
+    pub(crate) fn clip_path_with(
+        &self,
+        lookup: impl Fn(&str) -> Option<NodeId>,
+    ) -> Option<ResolvedClipPath> {
         let style = self.primary_styles()?;
-        if matches!(style.get_clip_path(), ClipPath::None | ClipPath::Url(_)) {
-            return None;
+        match style.get_clip_path() {
+            ClipPath::None => return None,
+            ClipPath::Url(url) => return self.svg_clip(url, lookup),
+            _ => {}
         }
         ClipResolver {
             style: &style,
@@ -496,7 +506,7 @@ fn scale_radii(w: f64, h: f64, r: &mut [Vec2; 4]) {
     }
 }
 
-fn rounded_rect(rect: Rect, mut r: [Vec2; 4]) -> BezPath {
+pub(crate) fn rounded_rect(rect: Rect, mut r: [Vec2; 4]) -> BezPath {
     if rect.width() <= 0.0 || rect.height() <= 0.0 {
         return BezPath::new();
     }

@@ -578,7 +578,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
         };
 
         // Compute clip-path (if any) and wrap all rendering in a clip layer
-        let clip_path_shape = node.clip_path();
+        let clip_path_shape = self.dom.clip_path_of(node);
         let has_clip_path = clip_path_shape.is_some();
         let clip_fill = if clip_path_shape.as_ref().is_some_and(|clip| clip.evenodd) {
             Fill::EvenOdd

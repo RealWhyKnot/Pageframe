@@ -68,6 +68,7 @@ mod stylo_device;
 mod stylo_to_cursor_icon;
 mod stylo_to_kurbo;
 mod stylo_to_parley;
+mod svg_clip;
 pub mod traversal;
 /// Versioned storage for the nodes of the DOM tree.
 mod tree;

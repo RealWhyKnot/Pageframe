@@ -640,9 +640,10 @@ impl Node {
         while let Some(id) = current.filter(|&id| id != containing_block) {
             let ancestor = self.with(id);
             let style = ancestor.primary_styles();
-            if style.as_ref().is_some_and(|style| {
-                !matches!(style.get_clip_path(), ClipPath::None | ClipPath::Url(_))
-            }) {
+            if style
+                .as_ref()
+                .is_some_and(|style| !matches!(style.get_clip_path(), ClipPath::None))
+            {
                 return AncestorGroup::Kept;
             }
             if !ancestor.is_removed_column_cell() {
