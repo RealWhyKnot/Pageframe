@@ -303,8 +303,11 @@ impl Canvas {
             return self;
         };
         let style = self.stroke_style(2.0 * (width.abs() + height.abs()));
-        self.scene
-            .stroke(&style, self.state.transform, &brush, None, &rect);
+        let sides = BezPath::from_iter(rect.path_elements(STROKE_TOLERANCE));
+        if let Some(outline) = self.outline(&sides, &style) {
+            self.scene
+                .fill(Fill::NonZero, self.state.transform, &brush, None, &outline);
+        }
         self
     }
 
@@ -411,18 +414,21 @@ impl Canvas {
             .map(|segment| segment.arclen(LENGTH_ACCURACY))
             .sum();
         let style = self.stroke_style(length);
-        let [across, down, lean, drop, ..] = transform.as_coeffs();
+        if let Some(outline) = self.outline(&local, &style) {
+            self.scene
+                .fill(Fill::NonZero, transform, &brush, None, &outline);
+        }
+        self
+    }
+
+    fn outline(&self, local: &BezPath, style: &Stroke) -> Option<BezPath> {
+        let [across, down, lean, drop, ..] = self.state.transform.as_coeffs();
         let scale = across.hypot(down).max(lean.hypot(drop));
         let bounds = local.bounding_box();
         let reach = bounds.width().max(bounds.height()) + self.state.line_width;
         let tolerance = (STROKE_TOLERANCE / scale).max(reach * COARSEST_STROKE);
-        if !(tolerance.is_finite() && tolerance > 0.0) {
-            return self;
-        }
-        let outline = kurbo::stroke(&local, &style, &StrokeOpts::default(), tolerance);
-        self.scene
-            .fill(Fill::NonZero, transform, &brush, None, &outline);
-        self
+        (tolerance.is_finite() && tolerance > 0.0)
+            .then(|| kurbo::stroke(local, style, &StrokeOpts::default(), tolerance))
     }
 
     pub fn clip(&mut self) -> &mut Self {
