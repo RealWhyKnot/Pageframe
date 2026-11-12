@@ -60,6 +60,18 @@ impl Canvas {
         )
     }
 
+    pub fn ellipse_counterclockwise(
+        &mut self,
+        center: (f64, f64),
+        radii: (f64, f64),
+        rotation: f64,
+        start: f64,
+        end: f64,
+    ) -> &mut Self {
+        let span = sweep_from(start, end, Turn::Counterclockwise);
+        self.add_arc(center, radii, rotation, span)
+    }
+
     fn add_arc(
         &mut self,
         center: (f64, f64),

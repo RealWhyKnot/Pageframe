@@ -64,6 +64,40 @@ fn a_counterclockwise_arc_takes_the_other_way_round() {
 }
 
 #[test]
+fn a_counterclockwise_ellipse_takes_the_other_way_round() {
+    let half = |canvas: &mut Canvas| {
+        canvas
+            .set_stroke(Color::rgb(255, 0, 0))
+            .set_line_width(6.0)
+            .begin_path();
+    };
+    let buffer = drawn(|canvas| {
+        half(canvas);
+        canvas
+            .ellipse_counterclockwise((50.0, 30.0), (40.0, 20.0), 0.0, 0.0, PI)
+            .stroke();
+    });
+    assert_eq!(pixel(&buffer, 50, 10), RED);
+    assert_eq!(pixel(&buffer, 50, 50), WHITE);
+    let buffer = drawn(|canvas| {
+        half(canvas);
+        canvas
+            .ellipse((50.0, 30.0), (40.0, 20.0), 0.0, 0.0, PI)
+            .stroke();
+    });
+    assert_eq!(pixel(&buffer, 50, 10), WHITE);
+    assert_eq!(pixel(&buffer, 50, 50), RED);
+    let buffer = drawn(|canvas| {
+        half(canvas);
+        canvas
+            .ellipse_counterclockwise((50.0, 30.0), (20.0, 10.0), PI / 2.0, 0.0, PI)
+            .stroke();
+    });
+    assert_eq!(pixel(&buffer, 60, 30), RED);
+    assert_eq!(pixel(&buffer, 40, 30), WHITE);
+}
+
+#[test]
 fn a_counterclockwise_arc_past_a_full_turn_closes_the_circle() {
     let buffer = drawn(|canvas| {
         canvas
