@@ -41,6 +41,13 @@ fn a_dropped_node_id_does_not_resolve_to_the_node_that_took_its_slot() {
     doc.resolve(0.0);
 
     assert!(doc.get_node(dropped).is_none());
+    let slot = |id: pageframe_dom::NodeId| id.as_u64() & u64::from(u32::MAX);
+    assert!(
+        replacements
+            .iter()
+            .any(|replacement| slot(*replacement) == slot(dropped)),
+        "no replacement reused the dropped slot"
+    );
     for replacement in replacements {
         assert_ne!(replacement, dropped);
         let name = doc
