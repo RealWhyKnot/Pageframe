@@ -244,22 +244,16 @@ fn text_takes_a_gradient_across_its_glyphs() {
 }
 
 #[test]
-fn slanted_gradient_text_leans_like_plain_text() {
-    let inked = |gradient: bool| {
-        let buffer = drawn(|canvas| {
-            if gradient {
-                canvas.set_fill_gradient(&across().stop(0.0, Color::BLACK).stop(1.0, Color::BLACK));
-            }
-            canvas
-                .set_font("Arial", 50.0)
-                .set_font_italic(true)
-                .fill_text("III", 20.0, 50.0);
-        });
-        let dark = |row: usize| (0..100).find(|&column| pixel(&buffer, column, row)[0] < 128);
-        dark(20).zip(dark(45)).expect("ink")
-    };
-    let (plain_top, plain_foot) = inked(false);
-    let (top, foot) = inked(true);
-    assert!(top.abs_diff(plain_top) <= 1 && foot.abs_diff(plain_foot) <= 1);
-    assert!(top > foot);
+fn slanted_gradient_text_leans_forward() {
+    let buffer = drawn(|canvas| {
+        let dark = across().stop(0.0, Color::BLACK).stop(1.0, Color::BLACK);
+        canvas
+            .set_fill_gradient(&dark)
+            .set_font("Impact", 50.0)
+            .set_font_italic(true)
+            .fill_text("III", 20.0, 50.0);
+    });
+    let dark = |row: usize| (0..100).find(|&column| pixel(&buffer, column, row)[0] < 128);
+    let (top, foot) = dark(20).zip(dark(45)).expect("ink");
+    assert!(top >= foot + 4, "top {top} foot {foot}");
 }

@@ -136,8 +136,8 @@ impl Canvas {
                     if let Some(outline) = outline {
                         self.scene
                             .fill(Fill::NonZero, place, &paint, None, &outline);
+                        continue;
                     }
-                    continue;
                 }
                 let Some(paint) = self.state.fill.paint(self.state.alpha, origin) else {
                     continue;

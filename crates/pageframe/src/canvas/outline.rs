@@ -5,7 +5,7 @@ use skrifa::outline::{
     DrawSettings, Engine, HintingInstance, HintingOptions, OutlinePen, SmoothMode, Target,
 };
 use skrifa::raw::types::F2Dot14;
-use skrifa::{FontRef, GlyphId, MetadataProvider as _};
+use skrifa::{FontRef, GlyphId, MetadataProvider as _, Tag};
 
 const HINTING: HintingOptions = HintingOptions {
     engine: Engine::AutoFallback,
@@ -21,6 +21,8 @@ pub(super) enum Fit {
     Smooth { skew: f64 },
     Grid,
 }
+
+const COLOUR_TABLES: [&[u8; 4]; 4] = [b"COLR", b"CBDT", b"sbix", b"SVG "];
 
 pub(super) struct Placed {
     pub(super) id: u32,
@@ -72,11 +74,19 @@ pub(super) fn glyph_path(
     glyphs: impl Iterator<Item = Placed>,
 ) -> Option<BezPath> {
     let font_ref = FontRef::from_index(font.data.as_ref(), font.index).ok()?;
+    let coloured = COLOUR_TABLES
+        .iter()
+        .any(|name| font_ref.table_data(Tag::new(name)).is_some());
+    if coloured {
+        return None;
+    }
     let coords: Vec<F2Dot14> = coords.iter().copied().map(F2Dot14::from_bits).collect();
     let location = LocationRef::new(&coords);
     let outlines = font_ref.outline_glyphs();
     let hinting = match fit {
-        Fit::Grid => HintingInstance::new(&outlines, Size::new(size), location, HINTING).ok(),
+        Fit::Grid => HintingInstance::new(&outlines, Size::new(size), location, HINTING)
+            .inspect_err(|error| tracing::debug!(%error, "canvas text hinting unavailable"))
+            .ok(),
         Fit::Smooth { .. } => None,
     };
     let skew = match fit {
