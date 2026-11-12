@@ -2,16 +2,10 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use anyrender_vello::VelloWindowRenderer;
 use pageframe_dom::{DocumentConfig, LocalName, QualName, UserAgentStylesheet, ns};
 use pageframe_html::{HtmlDocument, HtmlProvider};
-use pageframe_shell::{
-    PageframeApplication, PageframeShellProxy, WindowConfig, create_default_event_loop,
-};
 use pageframe_traits::shell::{ColorScheme, Viewport};
 use url::Url;
-use winit::dpi::LogicalSize;
-use winit::window::WindowAttributes;
 
 use crate::error::Error;
 use crate::event::Event;
@@ -19,6 +13,9 @@ use crate::events::EventKind;
 use crate::net::{EMBEDDED_BASE, LocalNet};
 use crate::page::{Callback, Handler, Page};
 use crate::ui::Ui;
+
+#[cfg(any(feature = "gpu", feature = "software"))]
+mod window;
 
 type Start<S> = Box<dyn FnOnce(&mut S, &mut Ui<'_>)>;
 
@@ -122,23 +119,6 @@ impl<S: 'static> App<S> {
     pub fn page(self, width: u32, height: u32) -> Result<Page<S>, Error> {
         let viewport = Viewport::new(width, height, 1.0, ColorScheme::Light);
         self.build(Some(viewport))
-    }
-
-    pub fn run(self) -> Result<(), Error> {
-        let attributes = WindowAttributes::default()
-            .with_title(self.title.clone())
-            .with_surface_size(LogicalSize::new(self.width, self.height));
-        let page = self.build(None)?;
-        let event_loop = create_default_event_loop();
-        let (proxy, receiver) = PageframeShellProxy::new(event_loop.create_proxy());
-        let mut application = PageframeApplication::new(proxy, receiver);
-        application.add_window(WindowConfig::with_attributes(
-            Box::new(page),
-            VelloWindowRenderer::new(),
-            attributes,
-        ));
-        event_loop.run_app(application)?;
-        Ok(())
     }
 
     fn build(self, viewport: Option<Viewport>) -> Result<Page<S>, Error> {

@@ -7,13 +7,28 @@ edition = "2024"
 rust-version = "1.99"
 publish = false
 
+[features]
+default = ["gpu", "svg", "accessibility"]
+gpu = ["dep:anyrender_vello"]
+software = ["dep:anyrender_vello_cpu"]
+svg = ["pageframe-dom/svg", "pageframe-paint/svg"]
+accessibility = ["pageframe-dom/accessibility", "pageframe-shell/accessibility"]
+
 [dependencies]
 anyrender = { workspace = true }
-anyrender_vello = { workspace = true }
-pageframe-dom = { workspace = true, features = ["default", "floats"] }
+anyrender_vello = { workspace = true, optional = true }
+anyrender_vello_cpu = { workspace = true, optional = true, features = ["softbuffer_window_renderer"] }
+pageframe-dom = { workspace = true, features = [
+    "woff",
+    "system-fonts",
+    "file-input",
+    "custom-widget",
+    "text-transform-icu",
+    "floats",
+] }
 pageframe-html = { workspace = true }
-pageframe-paint = { workspace = true, features = ["svg", "custom-widget"] }
-pageframe-shell = { workspace = true, features = ["accessibility"] }
+pageframe-paint = { workspace = true, features = ["custom-widget"] }
+pageframe-shell = { workspace = true }
 pageframe-traits = { workspace = true }
 data-url = { workspace = true }
 keyboard-types = { workspace = true }
