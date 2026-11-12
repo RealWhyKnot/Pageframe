@@ -271,11 +271,18 @@ impl CssBox {
     }
 
     pub(crate) fn groove_halves(&self) -> [CssBox; 2] {
+        let split = |width: f64, round: fn(f64) -> f64| {
+            if width.fract() == 0.0 {
+                round(width / 2.0)
+            } else {
+                width / 2.0
+            }
+        };
         let half = Insets {
-            x0: (self.border_width.x0 / 2.0).ceil(),
-            y0: (self.border_width.y0 / 2.0).ceil(),
-            x1: (self.border_width.x1 / 2.0).floor(),
-            y1: (self.border_width.y1 / 2.0).floor(),
+            x0: split(self.border_width.x0, f64::ceil),
+            y0: split(self.border_width.y0, f64::ceil),
+            x1: split(self.border_width.x1, f64::floor),
+            y1: split(self.border_width.y1, f64::floor),
         };
         [
             self.border_slice_between(Insets::ZERO, half),

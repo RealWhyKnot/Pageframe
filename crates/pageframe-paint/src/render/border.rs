@@ -1,7 +1,6 @@
 use anyrender::PaintScene;
 use kurbo::{
-    BezPath, Cap, Circle, Insets, Join, ParamCurve as _, PathEl, PathSeg, Point, Shape as _,
-    Stroke, Vec2,
+    BezPath, Cap, Insets, Join, ParamCurve as _, PathSeg, Point, Shape as _, Stroke, Vec2,
 };
 use pageframe_dom::CopyStyleGetters;
 use pageframe_dom::node::SpecialElementData;
@@ -12,6 +11,8 @@ use style::{
     values::computed::BorderStyle,
     values::specified::box_::{Display, DisplayInside},
 };
+
+mod dotted;
 
 use crate::{
     color::ToColorColor as _,
@@ -157,46 +158,6 @@ fn starting_at(path: &BezPath, start: Point) -> BezPath {
     }
     rotated.close_path();
     rotated
-}
-
-/// Return `count` points spaced `spacing` apart (by arc length) along `path`,
-/// starting at its beginning. Used to place dots along a rounded border.
-fn sample_points_along_path(path: &BezPath, spacing: f64, count: usize) -> Vec<Point> {
-    // Flatten to a polyline so we can walk it by arc length.
-    let mut poly: Vec<Point> = Vec::new();
-    kurbo::flatten(path.iter(), 0.1, |el| match el {
-        PathEl::MoveTo(p) | PathEl::LineTo(p) => poly.push(p),
-        PathEl::ClosePath => {
-            if let Some(&first) = poly.first() {
-                poly.push(first);
-            }
-        }
-        _ => {}
-    });
-
-    let mut points = Vec::with_capacity(count);
-    if poly.len() < 2 {
-        return points;
-    }
-
-    let mut seg = 0;
-    let mut seg_start = 0.0;
-    let mut seg_len = (poly[1] - poly[0]).hypot();
-    for i in 0..count {
-        let target = i as f64 * spacing;
-        while seg + 2 < poly.len() && target > seg_start + seg_len {
-            seg_start += seg_len;
-            seg += 1;
-            seg_len = (poly[seg + 1] - poly[seg]).hypot();
-        }
-        let t = if seg_len > 0.0 {
-            ((target - seg_start) / seg_len).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        points.push(poly[seg].lerp(poly[seg + 1], t));
-    }
-    points
 }
 
 impl ElementCx<'_, '_> {
@@ -385,7 +346,9 @@ impl ElementCx<'_, '_> {
 
             match edge_style {
                 BorderStyle::None | BorderStyle::Hidden => {}
-                BorderStyle::Dotted => self.draw_dotted_border_edge(scene, edge, color),
+                BorderStyle::Dotted => {
+                    self.draw_dotted_border_edge(scene, edge, color, &shape(&self.frame));
+                }
                 BorderStyle::Dashed => {
                     self.draw_dashed_border_edge(scene, edge, color, &shape(&self.frame));
                 }
@@ -579,72 +542,6 @@ impl ElementCx<'_, '_> {
     /// (so a round-capped dash pattern would render nothing); drawing them
     /// explicitly also lets us anchor a dot in each square corner. Everything is
     /// clipped to the edge's region, as for the other styles.
-    fn draw_dotted_border_edge(&self, scene: &mut impl PaintScene, edge: Edge, color: Color) {
-        let thickness = self.edge_width(edge);
-        if thickness <= 0.0 {
-            return;
-        }
-        let radius = thickness / 2.0;
-
-        let mut path = BezPath::new();
-        if self.frame.has_border_radius() {
-            // Rounded corners: dots spaced evenly around the rounded centre line so
-            // the ring wraps seamlessly around the corners.
-            let mut centerline = self.frame.border_slice(0.0, 0.5).padding_box_path();
-            centerline.close_path();
-            let perimeter = centerline.perimeter(0.1);
-            if perimeter <= 0.0 {
-                return;
-            }
-            let count = (perimeter / (2.0 * thickness)).round().max(1.0);
-            let spacing = perimeter / count;
-            for center in sample_points_along_path(&centerline, spacing, count as usize) {
-                path.extend(Circle::new(center, radius).path_elements(0.1));
-            }
-        } else {
-            // Square corners: a dot is anchored in each corner (both ends of the
-            // edge, inset by the radius so it sits snugly in the corner) and the
-            // rest are spread evenly between them.
-            let bb = self.frame.border_box;
-            let length = match edge {
-                Edge::Top | Edge::Bottom => bb.width(),
-                Edge::Left | Edge::Right => bb.height(),
-            };
-            if length <= 0.0 {
-                return;
-            }
-            let dot_center = |along: f64| -> Point {
-                match edge {
-                    Edge::Top => Point::new(bb.x0 + along, bb.y0 + radius),
-                    Edge::Bottom => Point::new(bb.x0 + along, bb.y1 - radius),
-                    Edge::Left => Point::new(bb.x0 + radius, bb.y0 + along),
-                    Edge::Right => Point::new(bb.x1 - radius, bb.y0 + along),
-                }
-            };
-
-            let span = length - thickness;
-            if span <= 0.0 {
-                // Edge too short to fit two dots; place a single centred dot.
-                let center = dot_center(length / 2.0);
-                path.extend(Circle::new(center, radius).path_elements(0.1));
-            } else {
-                // Aim for a centre-to-centre spacing of about two dot diameters,
-                // then adjust it so the first and last dots land in the corners.
-                let gaps = (span / (2.0 * thickness)).round().max(1.0) as usize;
-                let spacing = span / gaps as f64;
-                for i in 0..=gaps {
-                    let center = dot_center(radius + i as f64 * spacing);
-                    path.extend(Circle::new(center, radius).path_elements(0.1));
-                }
-            }
-        }
-
-        let clip = self.frame.border_edge_shape(edge);
-        scene.push_clip_layer(Fill::NonZero, self.transform, &clip);
-        scene.fill(Fill::NonZero, self.transform, color, None, &path);
-        scene.pop_layer();
-    }
-
     pub(crate) fn caption_space(&self) -> (f32, f32) {
         let SpecialElementData::TableRoot(table) = &self.element.special_data else {
             return (0.0, 0.0);
