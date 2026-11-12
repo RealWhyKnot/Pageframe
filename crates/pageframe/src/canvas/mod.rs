@@ -7,7 +7,10 @@ mod text;
 use std::sync::{Arc as Shared, Mutex};
 
 use anyrender::{PaintScene, RenderContext, Scene};
-use kurbo::{Affine, BezPath, Cap, Join, ParamCurveArclen, PathEl, Point, Rect, Stroke, Vec2};
+use kurbo::{
+    Affine, BezPath, Cap, Join, ParamCurveArclen, PathEl, Point, Rect, Shape as _, Stroke,
+    StrokeOpts, Vec2,
+};
 use pageframe_dom::Widget;
 use parley::{FontContext, LayoutContext};
 use peniko::Fill;
@@ -26,6 +29,8 @@ const ARC_TOLERANCE: f64 = 0.05;
 const MAX_DASHES: usize = 1024;
 const MAX_DASH_RUNS: f64 = 1_000_000.0;
 const LENGTH_ACCURACY: f64 = 1.0;
+const STROKE_TOLERANCE: f64 = 0.01;
+const COARSEST_STROKE: f64 = 1e-7;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Color {
@@ -406,7 +411,17 @@ impl Canvas {
             .map(|segment| segment.arclen(LENGTH_ACCURACY))
             .sum();
         let style = self.stroke_style(length);
-        self.scene.stroke(&style, transform, &brush, None, &local);
+        let [across, down, lean, drop, ..] = transform.as_coeffs();
+        let scale = across.hypot(down).max(lean.hypot(drop));
+        let bounds = local.bounding_box();
+        let reach = bounds.width().max(bounds.height()) + self.state.line_width;
+        let tolerance = (STROKE_TOLERANCE / scale).max(reach * COARSEST_STROKE);
+        if !(tolerance.is_finite() && tolerance > 0.0) {
+            return self;
+        }
+        let outline = kurbo::stroke(&local, &style, &StrokeOpts::default(), tolerance);
+        self.scene
+            .fill(Fill::NonZero, transform, &brush, None, &outline);
         self
     }
 

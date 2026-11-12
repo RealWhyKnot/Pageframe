@@ -98,6 +98,23 @@ fn a_counterclockwise_ellipse_takes_the_other_way_round() {
 }
 
 #[test]
+fn a_stroked_curve_keeps_its_outer_edge() {
+    let buffer = drawn(|canvas| {
+        canvas
+            .translate(-450.0, 0.0)
+            .set_stroke(Color::rgb(255, 0, 0))
+            .set_line_width(8.0)
+            .begin_path()
+            .ellipse_counterclockwise((500.0, 100.0), (40.0, 80.0), 0.3, 5.0, 0.5)
+            .stroke();
+    });
+    for (column, row) in [(45, 27), (37, 34), (35, 36)] {
+        let [red, green, blue, _] = pixel(&buffer, column, row);
+        assert!(red == 255 && green < 128 && blue < 128, "{column},{row}");
+    }
+}
+
+#[test]
 fn a_counterclockwise_arc_past_a_full_turn_closes_the_circle() {
     let buffer = drawn(|canvas| {
         canvas
