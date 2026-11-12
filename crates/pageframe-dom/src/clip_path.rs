@@ -1,5 +1,5 @@
 use crate::Node;
-use kurbo::{BezPath, Circle, Ellipse, Point, Rect, Shape, SvgArc, Vec2};
+use kurbo::{BezPath, Point, Rect, Shape, SvgArc, Vec2};
 use pageframe_traits::node_id::NodeId;
 use style::properties::ComputedValues;
 use style::values::computed::basic_shape::{BasicShape, ClipPath};
@@ -139,13 +139,13 @@ impl ClipResolver<'_> {
             GenericBasicShape::Circle(circle) => {
                 let (cx, cy) = resolve_position(&circle.position, w, h, ox, oy);
                 let r = resolve_circle_radius(&circle.radius, w, h, cx - ox, cy - oy);
-                Some(Circle::new(Point::new(cx, cy), r).into_path(0.1))
+                Some(oval(Point::new(cx, cy), Vec2::new(r, r)))
             }
             GenericBasicShape::Ellipse(ellipse) => {
                 let (cx, cy) = resolve_position(&ellipse.position, w, h, ox, oy);
                 let rx = resolve_axis_radius(&ellipse.semiaxis_x, w, cx - ox);
                 let ry = resolve_axis_radius(&ellipse.semiaxis_y, h, cy - oy);
-                Some(Ellipse::new(Point::new(cx, cy), (rx, ry), 0.0).into_path(0.1))
+                Some(oval(Point::new(cx, cy), Vec2::new(rx, ry)))
             }
             GenericBasicShape::Polygon(polygon) => {
                 let mut path = BezPath::new();
@@ -504,6 +504,11 @@ fn scale_radii(w: f64, h: f64, r: &mut [Vec2; 4]) {
             *radius *= factor;
         }
     }
+}
+
+fn oval(center: Point, radii: Vec2) -> BezPath {
+    let rect = Rect::from_center_size(center, (radii * 2.0).to_size());
+    rounded_rect(rect, [radii; 4])
 }
 
 pub(crate) fn rounded_rect(rect: Rect, mut r: [Vec2; 4]) -> BezPath {

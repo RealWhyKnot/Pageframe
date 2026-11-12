@@ -12,6 +12,7 @@ mod corner;
 mod css_box;
 mod non_uniform_radii;
 
+pub(crate) use corner::flatten_quarter_arcs;
 pub use css_box::CssBox;
 pub use non_uniform_radii::NonUniformRoundedRectRadii;
 

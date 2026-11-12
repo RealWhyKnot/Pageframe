@@ -24,7 +24,7 @@ use crate::blend::convert_blend_mode;
 use crate::color::{Color, ToColorColor};
 use crate::debug_overlay::render_debug_overlay;
 use crate::filters::{FilterOutput, filter_reach, filtered_image, pixel_filters};
-use crate::kurbo_css::NonUniformRoundedRectRadii;
+use crate::kurbo_css::{NonUniformRoundedRectRadii, flatten_quarter_arcs};
 use crate::layers::LayerManager;
 use crate::sizing::compute_object_fit;
 use crate::text::{DrawTextContext, LineEllipsis, TextPaintOptions};
@@ -587,6 +587,9 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
         };
         let mut clip_path_for_layer = clip_path_shape.map(|clip| clip.path).unwrap_or_default();
         clip_path_for_layer.apply_affine(Affine::scale(self.scale));
+        if let Some(phase) = pixel_phase(cx.transform) {
+            clip_path_for_layer = flatten_quarter_arcs(&clip_path_for_layer, phase);
+        }
 
         // CSS 2 `clip` property (absolutely positioned elements only). Applies to the whole of
         // the element's rendering (including outlines and shadows), so it is the outermost layer.

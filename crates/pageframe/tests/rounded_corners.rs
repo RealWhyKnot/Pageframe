@@ -79,3 +79,14 @@ fn a_block_keeps_its_fill_inside_an_opaque_round_border() {
     let [red, green, ..] = pixel(&sheer, 22, 0);
     assert!(green > red, "the fill shows through the border");
 }
+
+#[test]
+fn a_clip_path_circle_has_chromes_edge_pixels() {
+    let buffer =
+        page("<div style='background:#0a0;width:60px;height:60px;clip-path:circle(30px)'></div>");
+    let chrome = [176, 121, 97, 75, 53, 31, 9];
+    for (x, red) in (23..).zip(chrome) {
+        let found = pixel(&buffer, x, 0)[0];
+        assert!(near(found, red), "({x},0) is {found}, Chrome has {red}");
+    }
+}

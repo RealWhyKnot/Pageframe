@@ -1,7 +1,82 @@
-use kurbo::{Arc, Point, Vec2};
+use kurbo::{Arc, BezPath, PathEl, Point, Vec2};
 use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2};
 
 const TOLERANCE: f64 = 0.25;
+const QUARTER_HANDLE: f64 = 0.552_284_749_830_793_6;
+const HANDLE_SLACK: f64 = 0.01;
+
+pub(crate) fn flatten_quarter_arcs(path: &BezPath, phase: f64) -> BezPath {
+    let mut flat = BezPath::new();
+    let mut start = Point::ZERO;
+    let mut current = Point::ZERO;
+    for element in path.elements() {
+        match *element {
+            PathEl::MoveTo(point) => {
+                flat.move_to(point);
+                start = point;
+                current = point;
+            }
+            PathEl::LineTo(point) => {
+                flat.line_to(point);
+                current = point;
+            }
+            PathEl::QuadTo(control, point) => {
+                flat.quad_to(control, point);
+                current = point;
+            }
+            PathEl::CurveTo(first, second, point) => {
+                match quarter_arc([current, first, second, point]) {
+                    Some(arc) => {
+                        for along in arc_points(&arc, phase) {
+                            flat.line_to(along);
+                        }
+                        flat.line_to(point);
+                    }
+                    None => flat.curve_to(first, second, point),
+                }
+                current = point;
+            }
+            PathEl::ClosePath => {
+                flat.close_path();
+                current = start;
+            }
+        }
+    }
+    flat
+}
+
+fn quarter_arc([from, first, second, to]: [Point; 4]) -> Option<Arc> {
+    let center = if first.y == from.y && second.x == to.x {
+        Point::new(from.x, to.y)
+    } else if first.x == from.x && second.y == to.y {
+        Point::new(to.x, from.y)
+    } else {
+        return None;
+    };
+    let radii = Vec2::new((to.x - from.x).abs(), (to.y - from.y).abs());
+    if radii.x <= 0.0 || radii.y <= 0.0 {
+        return None;
+    }
+    let handle = |near: Point, end: Point| {
+        let reach = near - end;
+        let span = reach.x.abs() / radii.x + reach.y.abs() / radii.y;
+        (span - QUARTER_HANDLE).abs() <= HANDLE_SLACK
+    };
+    if !handle(first, from) || !handle(second, to) {
+        return None;
+    }
+    let unit = |point: Point| {
+        let offset = point - center;
+        Vec2::new(offset.x / radii.x, offset.y / radii.y)
+    };
+    let (start, end) = (unit(from), unit(to));
+    let sweep = if start.cross(end) > 0.0 {
+        FRAC_PI_2
+    } else {
+        -FRAC_PI_2
+    };
+    Some(Arc::new(center, radii, start.y.atan2(start.x), sweep, 0.0))
+}
 const MAX_SPLITS: u32 = 5;
 const MAX_SHIFT: u32 = 6;
 const FIXED_SCALE: f64 = 256.0;
@@ -315,5 +390,44 @@ mod tests {
         assert_eq!(points.first(), Some(&Point::new(0.0, 30.0)));
         let last = points.last().expect("an arc has points");
         assert!(last.distance(Point::new(60.0, 0.0)) < 1e-9);
+    }
+
+    fn quarter_curve(radii: Vec2) -> BezPath {
+        let handle = radii * QUARTER_HANDLE;
+        let mut path = BezPath::new();
+        path.move_to((radii.x, 0.0));
+        path.curve_to((radii.x, handle.y), (handle.x, radii.y), (0.0, radii.y));
+        path
+    }
+
+    fn has_curves(path: &BezPath) -> bool {
+        path.elements()
+            .iter()
+            .any(|element| matches!(element, PathEl::CurveTo(..)))
+    }
+
+    #[test]
+    fn an_elliptical_quarter_curve_becomes_lines_on_the_ellipse() {
+        let radii = Vec2::new(40.0, 25.0);
+        let flat = flatten_quarter_arcs(&quarter_curve(radii), 0.0);
+        assert!(!has_curves(&flat));
+        assert!(flat.elements().len() > 4);
+        for element in flat.elements() {
+            if let PathEl::LineTo(point) = element {
+                let unit = Vec2::new(point.x / radii.x, point.y / radii.y);
+                assert!(
+                    (unit.hypot() - 1.0).abs() < 0.02,
+                    "{point:?} is off the ellipse"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn other_curves_stay_curves() {
+        let mut path = BezPath::new();
+        path.move_to((0.0, 0.0));
+        path.curve_to((10.0, 0.0), (20.0, 5.0), (30.0, 30.0));
+        assert!(has_curves(&flatten_quarter_arcs(&path, 0.0)));
     }
 }
