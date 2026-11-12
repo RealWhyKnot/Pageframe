@@ -383,7 +383,9 @@ impl ElementCx<'_, '_> {
             match edge_style {
                 BorderStyle::None | BorderStyle::Hidden => {}
                 BorderStyle::Dotted => self.draw_dotted_border_edge(scene, edge, color),
-                BorderStyle::Dashed => self.draw_dashed_border_edge(scene, edge, color),
+                BorderStyle::Dashed => {
+                    self.draw_dashed_border_edge(scene, edge, color, &shape(&self.frame));
+                }
                 BorderStyle::Double => {
                     let path = if self.edge_width(edge) < 3.0 * self.scale {
                         shape(&self.frame)
@@ -440,7 +442,13 @@ impl ElementCx<'_, '_> {
     /// to the edge's region (the same trapezoid used by the solid path) so corners
     /// are mitred, adjacent edges of different colors don't overlap, and any
     /// border-radius is respected.
-    fn draw_dashed_border_edge(&self, scene: &mut impl PaintScene, edge: Edge, color: Color) {
+    fn draw_dashed_border_edge(
+        &self,
+        scene: &mut impl PaintScene,
+        edge: Edge,
+        color: Color,
+        clip: &BezPath,
+    ) {
         let thickness = self.edge_width(edge);
         if thickness <= 0.0 {
             return;
@@ -501,8 +509,7 @@ impl ElementCx<'_, '_> {
             (line, r * gap, gap)
         };
 
-        let clip = self.frame.border_edge_shape(edge);
-        scene.push_clip_layer(Fill::NonZero, self.transform, &clip);
+        scene.push_clip_layer(Fill::NonZero, self.transform, clip);
         scene.stroke(
             &dash_stroke(thickness, dash, gap),
             self.transform,

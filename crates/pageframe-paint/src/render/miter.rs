@@ -72,6 +72,17 @@ impl SideShape {
                             Miter::Full
                         }
                     }
+                    _ if sides[index + 1..]
+                        .iter()
+                        .any(|&(other, other_style, other_color)| {
+                            other == neighbour
+                                && other_color == color
+                                && !unmatched_at_corner(other_style, other, edge)
+                                && styles_require_miter(other_style, style)
+                        }) =>
+                    {
+                        Miter::Hard
+                    }
                     _ => Miter::Soft,
                 }
             };
