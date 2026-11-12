@@ -900,6 +900,7 @@ pub(crate) struct TextPaintOptions<'a> {
     pub ellipsis: Option<LineEllipsis>,
     pub text: Option<&'a str>,
     pub group: Option<NodeId>,
+    pub flat_ancestors: bool,
 }
 
 /// Where `text-overflow: ellipsis` and `line-clamp` cut lines short with an ellipsis.
@@ -1337,6 +1338,7 @@ pub(crate) fn stroke_text<'a>(
         ellipsis,
         text: layout_text,
         group,
+        flat_ancestors,
     } = options;
     let DrawTextContext {
         stack,
@@ -1438,7 +1440,7 @@ pub(crate) fn stroke_text<'a>(
                 stack.truncate(shared);
                 for &node_id in &path_scratch[shared..] {
                     let mut entry = resolve_decoration_entry(doc, node_id);
-                    if node_id == inline_root_id {
+                    if node_id == inline_root_id || flat_ancestors {
                         entry.shift = Vec2::ZERO;
                         entry.group = None;
                     } else if let Some(outer) = stack.last() {

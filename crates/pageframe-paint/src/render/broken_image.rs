@@ -2,8 +2,10 @@ use crate::color::Color;
 use anyrender::PaintScene;
 use kurbo::{Affine, BezPath, Stroke};
 use pageframe_dom::node::TextBrush;
+use pageframe_dom::{BaseDocument, Node, NodeId};
 use parley::{Layout, PositionedLayoutItem};
 use peniko::Fill;
+use style::values::computed::Display;
 
 const ICON_SIZE: f64 = 16.0;
 const PAPER: Color = Color::from_rgba8(236, 241, 250, 255);
@@ -57,4 +59,30 @@ pub(super) fn draw_broken_image_icon(
     scene.fill(Fill::NonZero, transform, FOLD, None, &fold);
     scene.stroke(&outline, transform, OUTLINE, None, &page);
     scene.stroke(&outline, transform, OUTLINE, None, &fold);
+}
+
+pub(super) fn decoration_root(doc: &BaseDocument, node: &Node, framed: bool) -> NodeId {
+    let flows = node.primary_styles().is_some_and(|styles| {
+        let style = styles.get_box();
+        style.display == Display::Inline
+            || (style.display == Display::Block
+                && !style.position.is_absolutely_positioned()
+                && !style.float.is_floating())
+    });
+    if framed || !flows {
+        return node.id;
+    }
+    let mut root = node.id;
+    let mut parent = node.parent;
+    while let Some(ancestor) = parent.and_then(|id| doc.get_node(id)) {
+        root = ancestor.id;
+        let inline = ancestor
+            .primary_styles()
+            .is_some_and(|styles| styles.get_box().display == Display::Inline);
+        if !inline {
+            break;
+        }
+        parent = ancestor.parent;
+    }
+    root
 }

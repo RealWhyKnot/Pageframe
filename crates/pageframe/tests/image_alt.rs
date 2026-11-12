@@ -476,3 +476,31 @@ fn standards_images_without_alt_text_need_both_dimensions_for_an_icon() {
     let attributes = "src='' width='80' height='30'";
     assert_eq!(icon_outline("<!doctype html>", attributes, 2, 12), outline);
 }
+
+fn link_pixel(attributes: &str, x: usize, y: usize) -> [u8; 4] {
+    let mut harness = open(App::new(
+        (),
+        &format!(
+            "<style>html,body{{margin:0;background:white;font:16px/20px Arial}}</style><a href='#x'><img src='data:,bad' alt='Hello link' {attributes}></a>"
+        ),
+    ));
+    pixel(&render(&mut harness), x, y)
+}
+
+#[test]
+fn alt_text_inside_a_link_is_underlined_past_the_icon() {
+    let link = [0, 0, 238, 255];
+    let white = [255, 255, 255, 255];
+    assert_eq!(link_pixel("", 20, 16), link);
+    assert_eq!(link_pixel("", 60, 16), link);
+    assert_eq!(link_pixel("", 8, 16), white);
+    assert_eq!(link_pixel("style='display:block'", 20, 16), link);
+}
+
+#[test]
+fn an_atomic_alt_box_keeps_the_link_underline_out() {
+    let white = [255, 255, 255, 255];
+    assert_eq!(link_pixel("style='display:inline-block'", 20, 16), white);
+    assert_eq!(link_pixel("width='120' height='40'", 22, 18), white);
+    assert_eq!(link_pixel("style='float:left'", 20, 16), white);
+}
