@@ -16,6 +16,7 @@ enum Miter {
     Full,
     Soft,
     Hard,
+    Yield,
 }
 
 pub(super) fn paint_order(&(edge, style, color): &Side) -> f32 {
@@ -72,23 +73,25 @@ impl SideShape {
                             Miter::Full
                         }
                     }
-                    _ if sides[index + 1..]
-                        .iter()
-                        .any(|&(other, other_style, other_color)| {
+                    _ => match sides[index + 1..].iter().find(
+                        |&&(other, other_style, other_color)| {
                             other == neighbour
                                 && other_color == color
                                 && !unmatched_at_corner(other_style, other, edge)
-                                && styles_require_miter(other_style, style)
-                        }) =>
-                    {
-                        Miter::Hard
-                    }
-                    _ => Miter::Soft,
+                        },
+                    ) {
+                        Some(&(_, other_style, _)) if styles_require_miter(other_style, style) => {
+                            Miter::Hard
+                        }
+                        Some(_) => Miter::Yield,
+                        None => Miter::Soft,
+                    },
                 }
             };
             let pixel_exact = offset.is_some() && is_sharp(frame, corners[end]);
             ends[end] = match miter {
                 Miter::Full => EdgeEnd::Full,
+                Miter::Yield => EdgeEnd::Butt,
                 Miter::Hard if pixel_exact => {
                     hard[end] = true;
                     EdgeEnd::Butt

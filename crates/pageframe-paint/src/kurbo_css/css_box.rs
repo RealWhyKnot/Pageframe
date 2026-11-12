@@ -240,17 +240,37 @@ impl CssBox {
     /// [`CssBox::border_edge_shape`] can then be used to render it. This is used
     /// to draw the two lines of a `double` border.
     pub fn border_slice(&self, start_frac: f64, end_frac: f64) -> CssBox {
-        use Corner::*;
-
         let scale_insets = |frac: f64| Insets {
             x0: self.border_width.x0 * frac,
             y0: self.border_width.y0 * frac,
             x1: self.border_width.x1 * frac,
             y1: self.border_width.y1 * frac,
         };
+        self.border_slice_between(scale_insets(start_frac), scale_insets(end_frac))
+    }
 
-        let start_insets = scale_insets(start_frac);
-        let slice_border = scale_insets(end_frac - start_frac);
+    pub(crate) fn double_stripes(&self) -> [CssBox; 2] {
+        let rounded = |part: f64| Insets {
+            x0: (self.border_width.x0 * part).round(),
+            y0: (self.border_width.y0 * part).round(),
+            x1: (self.border_width.x1 * part).round(),
+            y1: (self.border_width.y1 * part).round(),
+        };
+        [
+            self.border_slice_between(Insets::ZERO, rounded(1.0 / 3.0)),
+            self.border_slice_between(rounded(2.0 / 3.0), self.border_width),
+        ]
+    }
+
+    fn border_slice_between(&self, start_insets: Insets, end_insets: Insets) -> CssBox {
+        use Corner::*;
+
+        let slice_border = Insets {
+            x0: end_insets.x0 - start_insets.x0,
+            y0: end_insets.y0 - start_insets.y0,
+            x1: end_insets.x1 - start_insets.x1,
+            y1: end_insets.y1 - start_insets.y1,
+        };
 
         // Move the outer edge of the box inwards to the start of the slice.
         let slice_border_box = self.border_box - start_insets;

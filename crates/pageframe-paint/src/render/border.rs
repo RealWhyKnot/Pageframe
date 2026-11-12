@@ -391,10 +391,9 @@ impl ElementCx<'_, '_> {
                     let path = if width < 3.0 {
                         shape(&self.frame)
                     } else {
-                        let outer = (width / 3.0).round() / width;
-                        let inner = (width * 2.0 / 3.0).round() / width;
-                        let mut path = shape(&self.frame.border_slice(0.0, outer));
-                        path.extend(&shape(&self.frame.border_slice(inner, 1.0)));
+                        let [outer, inner] = self.frame.double_stripes();
+                        let mut path = shape(&outer);
+                        path.extend(&shape(&inner));
                         path
                     };
                     borders.push((color, path));
