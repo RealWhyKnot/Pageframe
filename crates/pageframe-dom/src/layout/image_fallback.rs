@@ -117,7 +117,7 @@ pub(crate) fn layout(node: &mut Node, mut inputs: LayoutInput) -> LayoutOutput {
             .layout
             .layout
             .lines()
-            .next()
+            .last()
             .map(|line| line.metrics().baseline / scale);
         output.baselines.last = output.baselines.first;
     }

@@ -357,9 +357,9 @@ fn changing_and_removing_the_source_swaps_image_and_fallback() {
     assert_eq!(sizes, [(16.0, 16.0), (10.0, 30.0), (0.0, 0.0)]);
 }
 
-fn collapsed_image_line(doctype: &str) -> (f32, f32) {
+fn line_and_box(doctype: &str, content: &str) -> (f32, f32) {
     let html = format!(
-        "{doctype}<style>html,body{{margin:0;background:white;font:16px/20px Arial}}</style><div id='line'><img id='image' src=''></div>"
+        "{doctype}<style>html,body{{margin:0;background:white;font:16px/20px Arial}}</style><div id='line'>{content}</div>"
     );
     let harness = open(App::new((), &html));
     let base = harness.base();
@@ -370,15 +370,45 @@ fn collapsed_image_line(doctype: &str) -> (f32, f32) {
         let layout = base.get_node(id).expect("the node exists").final_layout();
         (layout.size.height, layout.location.y)
     };
-    (layout("#line").0, layout("#image").1)
+    (layout("#line").0, layout("#box").1)
 }
 
 #[test]
 fn a_collapsed_image_still_takes_a_line_in_standards_mode() {
-    assert_eq!(collapsed_image_line("<!doctype html>"), (20.0, 15.0));
+    assert_eq!(
+        line_and_box("<!doctype html>", "<img id='box' src=''>"),
+        (20.0, 15.0)
+    );
 }
 
 #[test]
 fn a_collapsed_image_takes_no_line_in_quirks_mode() {
-    assert_eq!(collapsed_image_line(""), (0.0, 0.0));
+    assert_eq!(line_and_box("", "<img id='box' src=''>"), (0.0, 0.0));
+}
+
+#[test]
+fn an_empty_inline_block_takes_a_line() {
+    assert_eq!(
+        line_and_box(
+            "<!doctype html>",
+            "<span id='box' style='display:inline-block'></span>"
+        ),
+        (20.0, 15.0)
+    );
+    let input = "<input id='box' style='width:0;height:0;border:0;padding:0;margin:0'>";
+    assert_eq!(line_and_box("<!doctype html>", input).0, 20.0);
+}
+
+#[test]
+fn a_float_or_positioned_box_alone_takes_no_line() {
+    for style in ["float:left", "position:absolute"] {
+        let content = format!("<span id='box' style='{style}'></span>");
+        assert_eq!(line_and_box("<!doctype html>", &content), (0.0, 0.0));
+    }
+}
+
+#[test]
+fn wrapped_alt_text_sits_on_its_last_line() {
+    let content = "<img id='box' src='data:,bad' alt='Hello' style='max-width:30px'>";
+    assert_eq!(line_and_box("<!doctype html>", content), (36.0, 0.0));
 }
