@@ -782,6 +782,7 @@ impl LayoutPassState<'_> {
                     if table_wrapper.spread_spare_height(&grid_inputs, &output) {
                         output = compute_grid_layout(&mut table_wrapper, node_id, grid_inputs);
                     }
+                    table_wrapper.seat_on_first_row(&grid_inputs, &mut output);
                     let width = output.size.width;
                     table_wrapper.collapse_columns(&grid_inputs, &mut output);
                     if inputs.run_mode != RunMode::PerformLayout {

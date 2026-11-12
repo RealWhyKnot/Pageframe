@@ -297,3 +297,55 @@ fn a_faded_box_in_a_faded_collapsed_cell_fades_its_absolute_child_once() {
     assert_eq!(red, 255);
     assert!(green.abs_diff(191) <= 1 && blue.abs_diff(191) <= 1);
 }
+
+fn marker_top(doctype: &str, line_style: &str, content: &str) -> f32 {
+    let html = format!(
+        "{doctype}<style>html,body{{margin:0;font:16px/20px Arial}}td{{padding:0}}</style>\
+<div style='{line_style}'>x{content}<i id='m' style='display:inline-block;width:5px;height:1px'></i></div>"
+    );
+    let harness = open(App::new((), &html));
+    let base = harness.base();
+    let top = |selector: &str| {
+        let id = base
+            .query_selector_all(selector)
+            .expect("the selector parses")[0];
+        let layout = base.get_node(id).expect("the node exists").final_layout();
+        layout.location.y
+    };
+    top("#m")
+}
+
+fn inline_table(rows: &str) -> String {
+    format!("<table style='display:inline-table'>{rows}</table>")
+}
+
+#[test]
+fn an_inline_table_sits_on_the_content_edge_of_its_first_row() {
+    let doctype = "<!doctype html>";
+    let padded = "<tr><td style='padding:6px'>Ab</td></tr><tr><td>Cd</td></tr>";
+    assert_eq!(marker_top(doctype, "", &inline_table(padded)), 27.0);
+    let uneven = "<tr><td style='padding:6px 6px 10px;border:3px solid'>Ab</td>\
+<td>Cd<br>Ef<br>Gh</td></tr>";
+    assert_eq!(marker_top(doctype, "", &inline_table(uneven)), 61.0);
+    let block = "<tr><td style='padding:6px'><div style='height:30px;width:20px'></div></td></tr>";
+    assert_eq!(marker_top(doctype, "", &inline_table(block)), 37.0);
+}
+
+#[test]
+fn a_baseline_cell_keeps_the_inline_table_on_its_text() {
+    let rows = "<tr><td style='padding:6px;vertical-align:baseline'>Ab</td></tr>";
+    assert_eq!(marker_top("<!doctype html>", "", &inline_table(rows)), 22.0);
+}
+
+#[test]
+fn a_quirks_table_starts_from_the_default_font() {
+    let table =
+        "<table cellspacing='0' style='display:inline-table'><tr><td>Ab cd</td></tr></table>";
+    assert_eq!(marker_top("", "font-size:24px", table), 17.0);
+    assert_eq!(marker_top("<!doctype html>", "font-size:24px", table), 19.0);
+    assert_eq!(marker_top("", "line-height:40px", table), 24.0);
+    assert_eq!(
+        marker_top("<!doctype html>", "line-height:40px", table),
+        39.0
+    );
+}

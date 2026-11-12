@@ -2168,6 +2168,38 @@ impl TableTreeWrapper<'_, '_> {
         }
     }
 
+    pub(crate) fn seat_on_first_row(
+        &self,
+        inputs: &taffy::tree::LayoutInput,
+        output: &mut taffy::tree::LayoutOutput,
+    ) {
+        if inputs.run_mode != taffy::RunMode::PerformLayout {
+            return;
+        }
+        let Some(first) = self.ctx.cells.iter().map(|cell| cell.row).min() else {
+            return;
+        };
+        let mut edge: Option<f32> = None;
+        let cells = self.ctx.cells.iter();
+        for cell in cells.filter(|cell| cell.row == first && cell.row_span == 1) {
+            let node = &self.doc.nodes[cell.node_id];
+            let on_baseline = node.primary_styles().is_none_or(|style| {
+                stylo_taffy::convert::table_cell_vertical_align(&style).is_none()
+            });
+            if on_baseline {
+                return;
+            }
+            let layout = node.unrounded_layout();
+            let bottom = layout.location.y + layout.size.height
+                - layout.padding.bottom
+                - layout.border.bottom;
+            edge = Some(edge.map_or(bottom, |edge| edge.max(bottom)));
+        }
+        if let Some(edge) = edge {
+            output.baselines.first = Some(edge);
+        }
+    }
+
     pub(crate) fn collapse_rows(
         &mut self,
         inputs: &taffy::tree::LayoutInput,
