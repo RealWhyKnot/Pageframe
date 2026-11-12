@@ -1,10 +1,9 @@
 //! Headless test harness for Pageframe documents.
 //!
-//! [`Harness`] wraps any [`pageframe_dom::Document`] (e.g. [`pageframe_html::HtmlDocument`] or
-//! [`dioxus_native_dom::DioxusDocument`]) and provides:
+//! [`Harness`] wraps any [`pageframe_dom::Document`] (e.g. [`pageframe_html::HtmlDocument`]) and provides:
 //!
 //! - Document construction helpers with sensible, deterministic defaults
-//!   ([`Harness::from_html`], [`Harness::from_component`])
+//!   ([`Harness::from_html`])
 //! - A [`pump`](Harness::pump)/[`tick`](Harness::tick) loop that polls pending async work and
 //!   resolves style/layout with a controlled animation clock
 //! - DOM inspection helpers (selectors, layout rects, hit-testing, tree dumps)

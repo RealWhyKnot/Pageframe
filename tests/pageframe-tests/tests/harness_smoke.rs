@@ -1,8 +1,6 @@
 //! End-to-end smoke tests for the `pageframe-testing` harness itself, covering
-//! document construction, inspection, and input synthesis for both
-//! `HtmlDocument` and `DioxusDocument` backed harnesses.
+//! document construction, inspection, and input synthesis.
 
-use dioxus::prelude::*;
 use pageframe_test_harness::Harness;
 
 #[test]
@@ -84,30 +82,4 @@ fn html_wheel_scrolls_overflow_container() {
     let node_id = harness.node("#scroller");
     let scroll_y = harness.base().get_node(node_id).unwrap().scroll_offset().y;
     assert!(scroll_y > 0.0, "expected scroll offset > 0, got {scroll_y}");
-}
-
-fn counter_app() -> Element {
-    let mut count = use_signal(|| 0);
-    rsx! {
-        button {
-            id: "increment",
-            style: "width: 100px; height: 30px; display: block;",
-            onclick: move |_| count += 1,
-            "Increment"
-        }
-        div { id: "count", "Count: {count}" }
-    }
-}
-
-#[test]
-fn dioxus_click_updates_component_state() {
-    let mut harness = Harness::from_component(counter_app);
-
-    assert_eq!(harness.text_content("#count"), "Count: 0");
-
-    harness.click("#increment");
-    assert_eq!(harness.text_content("#count"), "Count: 1");
-
-    harness.click("#increment");
-    assert_eq!(harness.text_content("#count"), "Count: 2");
 }

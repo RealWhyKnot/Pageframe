@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use dioxus_core::{Element, VirtualDom};
-use dioxus_native_dom::DioxusDocument;
 use pageframe_dom::{DocGuard, DocGuardMut, Document, DocumentConfig};
 use pageframe_html::{HtmlDocument, HtmlProvider};
 use pageframe_traits::events::UiEvent;
@@ -70,21 +68,6 @@ impl Harness<HtmlDocument> {
     }
 }
 
-impl Harness<DioxusDocument> {
-    /// Build a document from a Dioxus root component with default options
-    pub fn from_component(app: fn() -> Element) -> Self {
-        Self::from_vdom(VirtualDom::new(app), HarnessOptions::default())
-    }
-
-    pub fn from_vdom(vdom: VirtualDom, options: HarnessOptions) -> Self {
-        let mut doc = DioxusDocument::new(vdom, options.into_config());
-        doc.initial_build();
-        let mut harness = Self::wrap(doc);
-        harness.pump();
-        harness
-    }
-}
-
 impl<D: Document> Harness<D> {
     /// Wrap an already-constructed document. Does not [`pump`](Self::pump).
     pub fn wrap(doc: D) -> Self {
@@ -110,7 +93,7 @@ impl<D: Document> Harness<D> {
         self.time
     }
 
-    /// Poll pending async work (e.g. the Dioxus VirtualDom) and resolve style/layout
+    /// Poll pending async work and resolve style/layout
     pub fn pump(&mut self) {
         self.doc.poll(None);
         self.doc.inner_mut().resolve(self.time);
@@ -133,7 +116,7 @@ impl<D: Document> Harness<D> {
     /// to application code.
     ///
     /// The events are driven directly against the underlying [`pageframe_dom::BaseDocument`],
-    /// so document-specific event handling (e.g. forwarding to a Dioxus VirtualDom) is
+    /// so document-specific event handling is
     /// bypassed. Does not [`pump`](Self::pump).
     pub fn dispatch_recorded(&mut self, events: impl IntoIterator<Item = UiEvent>) -> Vec<String> {
         use pageframe_dom::{EventDriver, EventHandler};

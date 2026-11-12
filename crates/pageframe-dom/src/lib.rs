@@ -6,8 +6,6 @@
 //!  - `HtmlDocument` from the pageframe-html crate.
 //!    Allows you to parse HTML (or XHTML) into a Pageframe [`BaseDocument`], and can be combined with a markdown-to-html converter like [comrak](https://docs.rs/comrak)
 //!    or [pulldown-cmark](https://docs.rs/pulldown-cmark) to render/process markdown.
-//!  - [`DioxusDocument`](https://docs.rs/dioxus-native/latest/dioxus_native/struct.DioxusDocument.html) from the [dioxus-native](https://docs.rs/dioxus-native) crate.
-//!    Combines a [`BaseDocument`] with a Dioxus `VirtualDom` to enable dynamic rendering and event handling.
 //!
 //! It includes: A DOM tree respresentation, CSS parsing and resolution, layout and event handling. Additional functionality is available in
 //! separate crates, including html parsing (pageframe-html),
