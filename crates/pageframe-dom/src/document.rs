@@ -1079,6 +1079,7 @@ impl BaseDocument {
                 }
             }
             self.focus_node_id = None;
+            self.select_popup = None;
         }
         if self.mousedown_node_id == Some(node_id) {
             self.mousedown_node_id = None;
@@ -1750,7 +1751,8 @@ impl BaseDocument {
 
     // Takes (x, y) co-ordinates (relative to the )
     pub fn hit(&self, x: f32, y: f32) -> Option<HitResult> {
-        self.hit_with_control(x, y).0
+        self.select_popup_hit(x, y)
+            .or_else(|| self.hit_with_control(x, y).0)
     }
 
     /// The topmost element at viewport coordinates (x, y), or `None` if the point
@@ -1771,7 +1773,7 @@ impl BaseDocument {
             return None;
         }
 
-        let Some(hit) = self.hit(x, y) else {
+        let Some(hit) = self.hit_with_control(x, y).0 else {
             // The point is within the viewport but over no box: the root element
             // (which covers the viewport in an HTML document) is the hit target
             return self.try_root_element().map(|root| root.id);
@@ -1868,6 +1870,7 @@ impl BaseDocument {
                 });
             }
             self.focus_node_id = None;
+            self.select_popup = None;
             self.shell_provider.request_redraw();
         }
     }
@@ -1926,6 +1929,9 @@ impl BaseDocument {
         }
 
         self.focus_node_id = Some(focus_node_id);
+        self.select_popup = self
+            .select_popup
+            .filter(|popup| popup.is_for(focus_node_id));
 
         // The focus is styled (:focus, :focus-visible, :focus-within), so
         // moving it changes what is on screen. Nothing else asks for the
@@ -2040,9 +2046,6 @@ impl BaseDocument {
             tracing::warn!("No DOM - not resolving hit test");
             return (None, None);
         }
-        if let Some(hit) = self.select_popup_hit(x, y) {
-            return (Some(hit), None);
-        }
         let mut control = None;
         let hit = self
             .root_element()
@@ -2059,7 +2062,10 @@ impl BaseDocument {
             y: y - self.viewport_scroll().y as f32,
         });
 
-        let (hit, control) = self.hit_with_control(x, y);
+        let (hit, control) = match self.select_popup_hit(x, y) {
+            Some(hit) => (Some(hit), None),
+            None => self.hit_with_control(x, y),
+        };
         self.hovered_resizer = control.and_then(crate::node::OverflowControl::resizer);
         let hovered_scrollbar = control.and_then(crate::node::OverflowControl::scrollbar);
         // A faded-out thumb is not interactive: pointer moves never fade

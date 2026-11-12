@@ -248,3 +248,49 @@ fn oversized_lists_stay_inside_the_window_and_scroll() {
     assert_eq!(value(&mut harness, "#fruit").as_deref(), Some("Row 1999"));
     assert_eq!(harness.layout_rect("#fruit").width, rect.width);
 }
+
+#[test]
+fn removing_the_highlighted_option_cancels_the_pick() {
+    let mut harness = page();
+    harness.click("#plain");
+    harness.press(named(NamedKey::ArrowDown));
+    harness
+        .doc
+        .ui()
+        .select("#plain")
+        .set_html("<option>Left</option>");
+    harness.pump();
+    harness.press(named(NamedKey::Enter));
+    assert!(!is_open(&harness));
+    assert_eq!(value(&mut harness, "#plain").as_deref(), Some("Left"));
+    assert_eq!(harness.doc.state().len(), 0);
+}
+
+#[test]
+fn a_popup_does_not_come_back_after_focus_moved_away() {
+    let mut harness = page();
+    harness.click("#fruit");
+    let (fruit, plain) = (harness.node("#fruit"), harness.node("#plain"));
+    harness.base_mut().set_focus_to(plain);
+    harness.base_mut().set_focus_to(fruit);
+    assert!(!is_open(&harness));
+}
+
+#[test]
+fn page_keys_move_three_options() {
+    let mut harness = page();
+    let rows: String = (0..8)
+        .map(|index| format!("<option>Row {index}</option>"))
+        .collect();
+    harness.doc.ui().select("#plain").set_html(&rows);
+    harness.pump();
+    harness.click("#plain");
+    harness.press(named(NamedKey::Escape));
+    harness.press(named(NamedKey::PageDown));
+    assert_eq!(value(&mut harness, "#plain").as_deref(), Some("Row 3"));
+    harness.press(named(NamedKey::PageDown));
+    harness.press(named(NamedKey::PageDown));
+    assert_eq!(value(&mut harness, "#plain").as_deref(), Some("Row 7"));
+    harness.press(named(NamedKey::PageUp));
+    assert_eq!(value(&mut harness, "#plain").as_deref(), Some("Row 4"));
+}

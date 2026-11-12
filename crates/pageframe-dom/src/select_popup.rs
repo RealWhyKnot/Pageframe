@@ -18,6 +18,19 @@ pub(crate) struct SelectPopup {
     first_row: usize,
 }
 
+impl SelectPopup {
+    pub(crate) fn is_for(&self, select: NodeId) -> bool {
+        self.select == select
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Entry {
+    node: NodeId,
+    heading: bool,
+    indented: bool,
+}
+
 #[derive(Clone, Debug)]
 pub struct PopupRow {
     pub node: NodeId,
@@ -66,7 +79,11 @@ enum Step {
     Previous,
     First,
     Last,
+    PageDown,
+    PageUp,
 }
+
+const PAGE_STEP: usize = 3;
 
 fn count(rows: usize) -> f64 {
     f64::from(u32::try_from(rows).unwrap_or(u32::MAX))
@@ -85,13 +102,19 @@ fn generic_name(generic: stylo::GenericFontFamily) -> &'static str {
 
 impl BaseDocument {
     fn open_popup(&self) -> Option<SelectPopup> {
-        let popup = self.select_popup?;
+        let mut popup = self.select_popup?;
         let node = self.get_node(popup.select)?;
         let usable = self.focus_node_id == Some(popup.select)
             && node.flags.is_in_document()
             && self.is_select(popup.select)
             && node.attr(local_name!("disabled")).is_none();
-        usable.then_some(popup)
+        if !usable {
+            return None;
+        }
+        popup.highlighted = popup
+            .highlighted
+            .filter(|&option| self.option_select(option) == Some(popup.select));
+        Some(popup)
     }
 
     fn option_label(&self, option: NodeId) -> String {
@@ -105,42 +128,48 @@ impl BaseDocument {
         }
     }
 
-    fn popup_rows(&self, popup: SelectPopup) -> Vec<PopupRow> {
-        let mut rows = Vec::new();
+    fn popup_entries(&self, select: NodeId) -> Vec<Entry> {
+        let mut entries = Vec::new();
         let is = |id: NodeId, name: &markup5ever::LocalName| {
             self.nodes[id].data.is_element_with_tag_name(name)
         };
-        let option_row = |id: NodeId, indented: bool| PopupRow {
-            node: id,
-            label: self.option_label(id),
-            heading: false,
-            disabled: self.option_is_disabled(id),
+        let entry = |node: NodeId, heading: bool, indented: bool| Entry {
+            node,
+            heading,
             indented,
-            highlighted: popup.highlighted == Some(id),
         };
-        for &child in &self.nodes[popup.select].children {
+        for &child in &self.nodes[select].children {
             if is(child, &local_name!("option")) {
-                rows.push(option_row(child, false));
+                entries.push(entry(child, false, false));
             } else if is(child, &local_name!("optgroup")) {
-                rows.push(PopupRow {
-                    node: child,
-                    label: self.nodes[child]
-                        .attr(local_name!("label"))
-                        .unwrap_or_default()
-                        .to_owned(),
-                    heading: true,
-                    disabled: true,
-                    indented: false,
-                    highlighted: false,
-                });
+                entries.push(entry(child, true, false));
                 for &grouped in &self.nodes[child].children {
                     if is(grouped, &local_name!("option")) {
-                        rows.push(option_row(grouped, true));
+                        entries.push(entry(grouped, false, true));
                     }
                 }
             }
         }
-        rows
+        entries
+    }
+
+    fn popup_row(&self, popup: SelectPopup, entry: Entry) -> PopupRow {
+        let label = if entry.heading {
+            self.nodes[entry.node]
+                .attr(local_name!("label"))
+                .unwrap_or_default()
+                .to_owned()
+        } else {
+            self.option_label(entry.node)
+        };
+        PopupRow {
+            node: entry.node,
+            label,
+            heading: entry.heading,
+            disabled: entry.heading || self.option_is_disabled(entry.node),
+            indented: entry.indented,
+            highlighted: !entry.heading && popup.highlighted == Some(entry.node),
+        }
     }
 
     pub fn select_popup_layout(&self) -> Option<PopupLayout> {
@@ -167,8 +196,8 @@ impl BaseDocument {
         let room_below = viewport_bottom - bottom;
         let room_above = top - scroll_y;
 
-        let mut rows = self.popup_rows(popup);
-        let wanted = rows.len().min(MAX_ROWS);
+        let entries = self.popup_entries(popup.select);
+        let wanted = entries.len().min(MAX_ROWS);
         let fits = |room: f64| {
             (0..=wanted)
                 .rev()
@@ -180,10 +209,12 @@ impl BaseDocument {
         let goes_below = below >= wanted || below >= above;
         let visible = if goes_below { below } else { above }
             .max(1)
-            .min(rows.len());
-        let first = popup.first_row.min(rows.len() - visible.min(rows.len()));
-        rows.drain(..first);
-        rows.truncate(visible);
+            .min(entries.len());
+        let first = popup.first_row.min(entries.len() - visible);
+        let rows: Vec<PopupRow> = entries[first..first + visible]
+            .iter()
+            .map(|&entry| self.popup_row(popup, entry))
+            .collect();
         let height = count(rows.len()) * row_height + BORDER * 2.0;
         Some(PopupLayout {
             x,
@@ -238,8 +269,9 @@ impl BaseDocument {
     }
 
     fn first_row_showing(&self, popup: SelectPopup) -> usize {
-        let rows = self.popup_rows(popup);
-        let Some(index) = rows.iter().position(|row| row.highlighted) else {
+        let rows = self.popup_entries(popup.select);
+        let highlighted = |entry: &Entry| !entry.heading && popup.highlighted == Some(entry.node);
+        let Some(index) = rows.iter().position(highlighted) else {
             return popup.first_row;
         };
         let visible = self
@@ -310,7 +342,7 @@ impl BaseDocument {
         if !over {
             return false;
         }
-        let total = self.popup_rows(popup).len();
+        let total = self.popup_entries(popup.select).len();
         popup.first_row = popup
             .first_row
             .saturating_add_signed(rows)
@@ -344,7 +376,7 @@ impl BaseDocument {
         y: f32,
         dispatch_event: &mut dyn FnMut(DomEvent),
     ) {
-        if self.nodes[select].attr(local_name!("multiple")).is_some() {
+        if self.select_is_list(select) {
             return;
         }
         let open = self.open_popup().filter(|popup| popup.select == select);
@@ -376,6 +408,10 @@ impl BaseDocument {
             (Step::Last, _) | (Step::Previous, None) => options.len().checked_sub(1)?,
             (Step::Next, Some(index)) => (index + 1).min(options.len() - 1),
             (Step::Previous, Some(index)) => index.saturating_sub(1),
+            (Step::PageDown, index) => {
+                (index.unwrap_or(0) + PAGE_STEP).min(options.len().checked_sub(1)?)
+            }
+            (Step::PageUp, index) => index.unwrap_or(0).saturating_sub(PAGE_STEP),
         };
         options.get(target).copied()
     }
@@ -407,9 +443,9 @@ impl BaseDocument {
         select: NodeId,
         key: &Key,
         dispatch_event: &mut dyn FnMut(DomEvent),
-    ) {
-        if self.nodes[select].attr(local_name!("multiple")).is_some() {
-            return;
+    ) -> bool {
+        if self.select_is_list(select) {
+            return false;
         }
         let open = self.open_popup().filter(|popup| popup.select == select);
         let current = match open {
@@ -419,8 +455,10 @@ impl BaseDocument {
         let step = match key {
             Key::Named(NamedKey::ArrowDown | NamedKey::ArrowRight) => Some(Step::Next),
             Key::Named(NamedKey::ArrowUp | NamedKey::ArrowLeft) => Some(Step::Previous),
-            Key::Named(NamedKey::Home | NamedKey::PageUp) => Some(Step::First),
-            Key::Named(NamedKey::End | NamedKey::PageDown) => Some(Step::Last),
+            Key::Named(NamedKey::Home) => Some(Step::First),
+            Key::Named(NamedKey::End) => Some(Step::Last),
+            Key::Named(NamedKey::PageDown) => Some(Step::PageDown),
+            Key::Named(NamedKey::PageUp) => Some(Step::PageUp),
             _ => None,
         };
         let target = match (step, key) {
@@ -450,7 +488,8 @@ impl BaseDocument {
                 self.open_select_popup(select);
             }
             (None, None, Key::Named(NamedKey::F4)) => self.open_select_popup(select),
-            _ => {}
+            _ => return step.is_some(),
         }
+        true
     }
 }

@@ -81,7 +81,7 @@ impl BaseDocument {
             .map(|option| self.option_value(option))
     }
 
-    fn select_is_list(&self, select: NodeId) -> bool {
+    pub(crate) fn select_is_list(&self, select: NodeId) -> bool {
         self.nodes[select].attr(local_name!("multiple")).is_some()
     }
 
