@@ -1,9 +1,10 @@
+mod shapes;
 mod text;
 
 use std::sync::{Arc as Shared, Mutex};
 
 use anyrender::{PaintScene, RenderContext, Scene};
-use kurbo::{Affine, Arc, BezPath, Cap, Join, PathEl, Point, Rect, Stroke, Vec2};
+use kurbo::{Affine, BezPath, Cap, Join, ParamCurveArclen, PathEl, Point, Rect, Stroke, Vec2};
 use pageframe_dom::Widget;
 use parley::{FontContext, LayoutContext};
 use peniko::Fill;
@@ -15,6 +16,9 @@ const DEFAULT_WIDTH: u32 = 300;
 const DEFAULT_HEIGHT: u32 = 150;
 const MITER_LIMIT: f64 = 10.0;
 const ARC_TOLERANCE: f64 = 0.05;
+const MAX_DASHES: usize = 1024;
+const MAX_DASH_RUNS: f64 = 100_000.0;
+const LENGTH_ACCURACY: f64 = 1.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Color {
@@ -85,6 +89,8 @@ struct State {
     line_width: f64,
     line_cap: LineCap,
     line_join: LineJoin,
+    dashes: Vec<f64>,
+    dash_offset: f64,
     alpha: f32,
     clips: usize,
     font_family: String,
@@ -104,6 +110,8 @@ impl Default for State {
             line_width: 1.0,
             line_cap: LineCap::default(),
             line_join: LineJoin::default(),
+            dashes: Vec::new(),
+            dash_offset: 0.0,
             alpha: 1.0,
             clips: 0,
             font_family: String::from("sans-serif"),
@@ -278,7 +286,7 @@ impl Canvas {
         }
         let rect = Rect::new(x, y, x + width, y + height);
         let brush = self.state.stroke.brush(self.state.alpha);
-        let style = self.stroke_style();
+        let style = self.stroke_style(2.0 * (width.abs() + height.abs()));
         self.scene
             .stroke(&style, self.state.transform, brush, None, &rect);
         self
@@ -338,29 +346,6 @@ impl Canvas {
         self
     }
 
-    pub fn arc(&mut self, center: (f64, f64), radius: f64, start: f64, end: f64) -> &mut Self {
-        if !finite(&[center.0, center.1, radius, start, end]) || radius < 0.0 {
-            return self;
-        }
-        let turn = std::f64::consts::TAU;
-        let sweep = if end - start >= turn {
-            turn
-        } else {
-            (end - start).rem_euclid(turn)
-        };
-        let arc = Arc::new(center, (radius, radius), start, sweep, 0.0);
-        let from = Point::new(
-            center.0 + radius * start.cos(),
-            center.1 + radius * start.sin(),
-        );
-        self.line_to(from.x, from.y);
-        let transform = self.state.transform;
-        for element in arc.append_iter(ARC_TOLERANCE) {
-            self.path.push(transform * element);
-        }
-        self
-    }
-
     pub fn rect(&mut self, x: f64, y: f64, width: f64, height: f64) -> &mut Self {
         if !finite(&[x, y, width, height]) {
             return self;
@@ -380,9 +365,13 @@ impl Canvas {
     }
 
     pub fn fill(&mut self) -> &mut Self {
+        self.fill_path(Fill::NonZero)
+    }
+
+    fn fill_path(&mut self, rule: Fill) -> &mut Self {
         let brush = self.state.fill.brush(self.state.alpha);
         self.scene
-            .fill(Fill::NonZero, Affine::IDENTITY, brush, None, &self.path);
+            .fill(rule, Affine::IDENTITY, brush, None, &self.path);
         self
     }
 
@@ -393,7 +382,11 @@ impl Canvas {
         }
         let local = transform.inverse() * self.path.clone();
         let brush = self.state.stroke.brush(self.state.alpha);
-        let style = self.stroke_style();
+        let length = local
+            .segments()
+            .map(|segment| segment.arclen(LENGTH_ACCURACY))
+            .sum();
+        let style = self.stroke_style(length);
         self.scene.stroke(&style, transform, brush, None, &local);
         self
     }
@@ -409,7 +402,7 @@ impl Canvas {
         self.state.transform * Point::new(x, y)
     }
 
-    fn stroke_style(&self) -> Stroke {
+    fn stroke_style(&self, length: f64) -> Stroke {
         let cap = match self.state.line_cap {
             LineCap::Butt => Cap::Butt,
             LineCap::Round => Cap::Round,
@@ -420,10 +413,18 @@ impl Canvas {
             LineJoin::Round => Join::Round,
             LineJoin::Bevel => Join::Bevel,
         };
-        Stroke::new(self.state.line_width)
+        let style = Stroke::new(self.state.line_width)
             .with_caps(cap)
             .with_join(join)
-            .with_miter_limit(MITER_LIMIT)
+            .with_miter_limit(MITER_LIMIT);
+        let period = self.state.dashes.iter().sum::<f64>();
+        let entries = u32::try_from(self.state.dashes.len()).map_or(f64::MAX, f64::from);
+        if period > 0.0 && length / period * entries <= MAX_DASH_RUNS {
+            let offset = self.state.dash_offset.rem_euclid(period);
+            style.with_dashes(offset, &self.state.dashes)
+        } else {
+            style
+        }
     }
 }
 
