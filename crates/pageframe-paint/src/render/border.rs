@@ -9,7 +9,7 @@ use peniko::{Color, Fill};
 use smallvec::SmallVec;
 use style::{
     computed_values::border_collapse::T as BorderCollapse,
-    values::computed::{BorderStyle, OutlineStyle},
+    values::computed::BorderStyle,
     values::specified::box_::{Display, DisplayInside},
 };
 
@@ -342,6 +342,15 @@ impl ElementCx<'_, '_> {
             &border.border_left_color,
         ]
         .map(|color| color.resolve_to_absolute(&current_color).as_srgb_color());
+        self.draw_sides(scene, styles, colors);
+    }
+
+    pub(super) fn draw_sides(
+        &self,
+        scene: &mut impl PaintScene,
+        styles: [BorderStyle; 4],
+        colors: [Color; 4],
+    ) {
         let widths = self.frame.border_width;
         let all_dashed = styles.iter().all(|style| *style == BorderStyle::Dashed);
         let one_color = colors.iter().all(|color| *color == colors[0]);
@@ -360,14 +369,8 @@ impl ElementCx<'_, '_> {
         }
 
         let mut sides: SmallVec<[Side; 4]> = SmallVec::new();
-        for edge in [Edge::Top, Edge::Right, Edge::Bottom, Edge::Left] {
-            let (color, edge_style) = match edge {
-                Edge::Top => (&border.border_top_color, border.border_top_style),
-                Edge::Right => (&border.border_right_color, border.border_right_style),
-                Edge::Bottom => (&border.border_bottom_color, border.border_bottom_style),
-                Edge::Left => (&border.border_left_color, border.border_left_style),
-            };
-            let color = color.resolve_to_absolute(&current_color).as_srgb_color();
+        let edges = [Edge::Top, Edge::Right, Edge::Bottom, Edge::Left];
+        for ((edge, edge_style), color) in edges.into_iter().zip(styles).zip(colors) {
             let hidden = matches!(edge_style, BorderStyle::None | BorderStyle::Hidden);
             if color.components[3] > 0.0 && !hidden && self.edge_width(edge) > 0.0 {
                 sides.push((edge, edge_style, color));
@@ -406,8 +409,16 @@ impl ElementCx<'_, '_> {
                 BorderStyle::Groove | BorderStyle::Ridge => {
                     let ridge = edge_style == BorderStyle::Ridge;
                     let (outer, inner) = grooved_edge_colors(color, edge, ridge);
-                    borders.push((outer, shape(&self.frame.border_slice(0.0, 0.5))));
-                    borders.push((inner, shape(&self.frame.border_slice(0.5, 1.0))));
+                    let [outer_half, inner_half] = if self.edge_width(edge) <= 1.0 {
+                        [
+                            self.frame.border_slice(0.0, 0.5),
+                            self.frame.border_slice(0.5, 1.0),
+                        ]
+                    } else {
+                        self.frame.groove_halves()
+                    };
+                    borders.push((outer, shape(&outer_half)));
+                    borders.push((inner, shape(&inner_half)));
                 }
                 BorderStyle::Solid => borders.push((color, shape(&self.frame))),
             }
@@ -678,40 +689,5 @@ impl ElementCx<'_, '_> {
             }
             _ => false,
         }
-    }
-
-    /// ❌ dotted - Defines a dotted border
-    /// ❌ dashed - Defines a dashed border
-    /// ✅ solid - Defines a solid border
-    /// ❌ double - Defines a double border
-    /// ❌ groove - Defines a 3D grooved border. The effect depends on the border-color value
-    /// ❌ ridge - Defines a 3D ridged border. The effect depends on the border-color value
-    /// ❌ inset - Defines a 3D inset border. The effect depends on the border-color value
-    /// ❌ outset - Defines a 3D outset border. The effect depends on the border-color value
-    /// ✅ none - Defines no border
-    /// ✅ hidden - Defines a hidden border
-    pub(crate) fn draw_outline(&self, scene: &mut impl PaintScene) {
-        let outline = self.style.get_outline();
-
-        let current_color = self.style.clone_color();
-        let color = outline
-            .outline_color
-            .resolve_to_absolute(&current_color)
-            .as_srgb_color();
-
-        let style = match outline.outline_style {
-            OutlineStyle::Auto => return,
-            OutlineStyle::BorderStyle(style) => style,
-        };
-
-        if matches!(style, BorderStyle::None | BorderStyle::Hidden)
-            || self.frame.outline_width <= 0.0
-        {
-            return;
-        }
-        let offset = (outline.outline_offset.to_f64_px() * self.scale).trunc();
-        let path = self.frame.outline(offset);
-
-        scene.fill(Fill::EvenOdd, self.transform, color, None, &path);
     }
 }

@@ -251,14 +251,35 @@ impl CssBox {
 
     pub(crate) fn double_stripes(&self) -> [CssBox; 2] {
         let rounded = |part: f64| Insets {
-            x0: (self.border_width.x0 * part).round(),
-            y0: (self.border_width.y0 * part).round(),
-            x1: (self.border_width.x1 * part).round(),
-            y1: (self.border_width.y1 * part).round(),
+            x0: (self.border_width.x0 * part)
+                .round()
+                .min(self.border_width.x0),
+            y0: (self.border_width.y0 * part)
+                .round()
+                .min(self.border_width.y0),
+            x1: (self.border_width.x1 * part)
+                .round()
+                .min(self.border_width.x1),
+            y1: (self.border_width.y1 * part)
+                .round()
+                .min(self.border_width.y1),
         };
         [
             self.border_slice_between(Insets::ZERO, rounded(1.0 / 3.0)),
             self.border_slice_between(rounded(2.0 / 3.0), self.border_width),
+        ]
+    }
+
+    pub(crate) fn groove_halves(&self) -> [CssBox; 2] {
+        let half = Insets {
+            x0: (self.border_width.x0 / 2.0).ceil(),
+            y0: (self.border_width.y0 / 2.0).ceil(),
+            x1: (self.border_width.x1 / 2.0).floor(),
+            y1: (self.border_width.y1 / 2.0).floor(),
+        };
+        [
+            self.border_slice_between(Insets::ZERO, half),
+            self.border_slice_between(half, self.border_width),
         ]
     }
 
@@ -314,6 +335,27 @@ impl CssBox {
         let mut path = ring(offset + self.outline_width);
         path.extend(ring(offset));
         path
+    }
+
+    pub(crate) fn outline_frame(&self, offset: f64) -> Option<CssBox> {
+        let deepest = -self.border_box.width().min(self.border_box.height()) / 2.0;
+        if offset <= deepest {
+            return None;
+        }
+        let outer = self.outset(
+            self.border_box,
+            self.border_radii,
+            offset + self.outline_width,
+            moved_radius,
+        );
+        let frame = CssBox::new(
+            outer.border_box,
+            Insets::uniform(self.outline_width),
+            Insets::ZERO,
+            0.0,
+            outer.border_radii,
+        );
+        Some(frame.on_pixels(self.pixel_phase))
     }
 
     /// Construct a bezpath drawing the frame border

@@ -6,6 +6,7 @@ mod clip_path;
 mod form_controls;
 mod mask;
 mod miter;
+mod outline;
 mod pixels;
 mod projection;
 mod resizer;

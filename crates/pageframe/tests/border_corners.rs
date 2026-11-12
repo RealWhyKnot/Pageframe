@@ -65,4 +65,14 @@ fn a_thin_side_of_a_double_border_leaves_the_wide_sides_stripes_whole() {
     for (x, expected) in [(0, BLUE), (1, BLUE), (2, LIME), (3, BLUE)] {
         assert_eq!(pixel(&buffer, x, 0), expected, "({x},0)");
     }
+    for (x, expected) in [
+        (0, BLUE),
+        (1, BLUE),
+        (2, LIME),
+        (3, LIME),
+        (4, BLUE),
+        (5, BLUE),
+    ] {
+        assert_eq!(pixel(&buffer, x, 5), expected, "({x},5)");
+    }
 }
