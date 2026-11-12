@@ -76,10 +76,11 @@ pub(super) fn decoration_root(doc: &BaseDocument, node: &Node, framed: bool) -> 
     let mut parent = node.parent;
     while let Some(ancestor) = parent.and_then(|id| doc.get_node(id)) {
         root = ancestor.id;
-        let inline = ancestor
-            .primary_styles()
-            .is_some_and(|styles| styles.get_box().display == Display::Inline);
-        if !inline {
+        let passes = ancestor.primary_styles().is_some_and(|styles| {
+            let display = styles.get_box().display;
+            display == Display::Inline || display.is_contents()
+        });
+        if !passes {
             break;
         }
         parent = ancestor.parent;

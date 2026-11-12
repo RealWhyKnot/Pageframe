@@ -1350,11 +1350,12 @@ pub(crate) fn stroke_text<'a>(
     stack.clear();
     path_scratch.clear();
     deco_boxes.clear();
-    let is_rtl = doc
-        .get_node(inline_root_id)
-        .and_then(|node| node.element_data())
-        .and_then(|element| element.inline_layout_data.as_ref())
-        .is_some_and(|layout| layout.layout.is_rtl());
+    let is_rtl = !flat_ancestors
+        && doc
+            .get_node(inline_root_id)
+            .and_then(|node| node.element_data())
+            .and_then(|element| element.inline_layout_data.as_ref())
+            .is_some_and(|layout| layout.layout.is_rtl());
 
     // Persistent stack mirroring the ancestor path (inline root -> current run's
     // node) as we walk the runs. The `text-decoration-*` properties are *not*

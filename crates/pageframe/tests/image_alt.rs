@@ -504,3 +504,12 @@ fn an_atomic_alt_box_keeps_the_link_underline_out() {
     assert_eq!(link_pixel("width='120' height='40'", 22, 18), white);
     assert_eq!(link_pixel("style='float:left'", 20, 16), white);
 }
+
+#[test]
+fn a_contents_wrapper_lets_the_link_underline_through() {
+    let mut harness = open(App::new(
+        (),
+        "<style>html,body{margin:0;background:white;font:16px/20px Arial}</style><a href='#x'><span style='display:contents'><img src='data:,bad' alt='Hello link'></span></a>",
+    ));
+    assert_eq!(pixel(&render(&mut harness), 20, 16), [0, 0, 238, 255]);
+}
