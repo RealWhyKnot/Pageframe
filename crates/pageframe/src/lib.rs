@@ -20,7 +20,7 @@ pub mod events {
 }
 
 pub use app::App;
-pub use canvas::{Canvas, Color, Gradient, LineCap, LineJoin, TextAlign, TextBaseline};
+pub use canvas::{Canvas, Color, Gradient, Image, LineCap, LineJoin, TextAlign, TextBaseline};
 pub use error::Error;
 pub use event::Event;
 pub use events::{EventData, EventKind, Key, NamedKey};

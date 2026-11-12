@@ -18,6 +18,7 @@ pageframe-traits = { workspace = true }
 data-url = { workspace = true }
 keyboard-types = { workspace = true }
 bytemuck = { workspace = true }
+image = { workspace = true, features = ["gif", "jpeg", "png", "webp"] }
 kurbo = { workspace = true }
 num-traits = { workspace = true }
 parley = { workspace = true, features = ["bytemuck"] }

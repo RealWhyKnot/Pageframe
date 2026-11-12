@@ -1,4 +1,5 @@
 mod gradient;
+mod image;
 mod outline;
 mod shapes;
 mod text;
@@ -15,6 +16,7 @@ use style::properties::ComputedValues;
 use gradient::Ink;
 
 pub use gradient::Gradient;
+pub use image::Image;
 pub use text::{TextAlign, TextBaseline};
 
 const DEFAULT_WIDTH: u32 = 300;

@@ -3882,6 +3882,7 @@ dependencies = [
  "anyrender_vello_cpu",
  "bytemuck",
  "data-url",
+ "image",
  "keyboard-types",
  "kurbo",
  "num-traits",
