@@ -428,8 +428,10 @@ impl Canvas {
         let bounds = local.bounding_box();
         let reach = bounds.width().max(bounds.height()) + self.state.line_width;
         let tolerance = (STROKE_TOLERANCE / scale).max(reach * COARSEST_STROKE);
-        (tolerance.is_finite() && tolerance > 0.0)
-            .then(|| kurbo::stroke(local, style, &StrokeOpts::default(), tolerance))
+        (tolerance.is_finite() && tolerance > 0.0).then(|| {
+            let curved = kurbo::stroke(local, style, &StrokeOpts::default(), tolerance);
+            flattened(&curved, tolerance)
+        })
     }
 
     pub fn clip(&mut self) -> &mut Self {
@@ -485,6 +487,12 @@ impl Canvas {
             style
         }
     }
+}
+
+fn flattened(path: &BezPath, tolerance: f64) -> BezPath {
+    let mut lines = BezPath::new();
+    kurbo::flatten(path, tolerance, |element| lines.push(element));
+    lines
 }
 
 fn finite(values: &[f64]) -> bool {
