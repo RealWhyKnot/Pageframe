@@ -62,7 +62,7 @@ pub(crate) fn layout(node: &mut Node, mut inputs: LayoutInput) -> LayoutOutput {
     let framed = if fallback.quirks {
         sized
     } else {
-        specified.width.is_some() && specified.height.is_some()
+        !has_alt && specified.width.is_some() && specified.height.is_some()
     };
     fallback.inset = if framed && !fallback.loading {
         2.0
@@ -151,12 +151,18 @@ pub(crate) fn prepare(doc: &mut crate::BaseDocument, node_id: crate::NodeId) {
         .unwrap_or_default();
     text_style.vertical_align = parley::VerticalAlign::BASELINE;
     let alt = element.attr(local_name!("alt"));
+    let size = node.layout_style().size();
+    let framed = if doc.in_quirks_mode {
+        !size.width.is_auto() || !size.height.is_auto()
+    } else {
+        !size.width.is_auto() && !size.height.is_auto()
+    };
+    let source = element.attr(local_name!("src"));
     let icon = !fallback.loading
         && match alt {
-            Some(alt) => !alt.is_empty(),
-            None => element
-                .attr(local_name!("src"))
-                .is_some_and(|src| !src.is_empty()),
+            Some(alt) if !alt.is_empty() => true,
+            Some(_) => framed && source.is_some(),
+            None => source.is_some_and(|src| framed || !src.is_empty()),
         };
     let text = if fallback.loading {
         ""

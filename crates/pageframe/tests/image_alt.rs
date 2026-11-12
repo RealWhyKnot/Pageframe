@@ -429,3 +429,50 @@ fn sized_alt_text_sits_on_its_last_line_in_standards_mode() {
     let padded = "<img id='box' src='data:,bad' alt='Hello' style='display:inline-block;width:80px;height:30px;padding:3px;border:2px solid red'>";
     assert_eq!(line_and_box("<!doctype html>", padded), (40.0, 0.0));
 }
+
+fn icon_outline(doctype: &str, attributes: &str, x: usize, y: usize) -> [u8; 4] {
+    let mut harness = open(App::new(
+        (),
+        &format!(
+            "{doctype}<style>html,body{{margin:0;background:white;font:16px/20px Arial}}</style><img {attributes}>"
+        ),
+    ));
+    pixel(&render(&mut harness), x, y)
+}
+
+#[test]
+fn a_framed_fallback_paints_its_icon_inside_the_frame() {
+    let outline = [150, 150, 150, 255];
+    let attributes = "src='data:,bad' alt='Hello' width='80' height='30'";
+    assert_eq!(icon_outline("", attributes, 2, 12), outline);
+    assert_eq!(icon_outline("", attributes, 17, 12), outline);
+    assert_eq!(icon_outline("", "src='' width='80'", 2, 12), outline);
+    assert_eq!(
+        icon_outline("", "src='data:,bad' alt='' height='30'", 2, 12),
+        outline
+    );
+}
+
+#[test]
+fn standards_alt_text_paints_its_icon_at_the_box_corner() {
+    let outline = [150, 150, 150, 255];
+    let attributes =
+        "src='data:,bad' alt='Hello' width='80' height='30' style='display:inline-block'";
+    assert_eq!(icon_outline("<!doctype html>", attributes, 0, 10), outline);
+    assert_eq!(icon_outline("<!doctype html>", attributes, 15, 10), outline);
+}
+
+#[test]
+fn standards_images_without_alt_text_need_both_dimensions_for_an_icon() {
+    assert_eq!(image_size("src='' width='80'", true), (0.0, 0.0));
+    assert_eq!(
+        image_size(
+            "src='data:,bad' alt='' style='display:inline-block;width:60px'",
+            true
+        ),
+        (60.0, 0.0)
+    );
+    let outline = [150, 150, 150, 255];
+    let attributes = "src='' width='80' height='30'";
+    assert_eq!(icon_outline("<!doctype html>", attributes, 2, 12), outline);
+}

@@ -1,6 +1,7 @@
 mod background;
 mod border;
 mod box_shadow;
+mod broken_image;
 mod clip_path;
 mod form_controls;
 mod mask;
@@ -2151,6 +2152,7 @@ impl ElementCx<'_, '_> {
             None,
             None,
             |scene| {
+                broken_image::draw_broken_image_icon(scene, &fallback.layout.layout, transform);
                 crate::text::stroke_text(
                     scene,
                     fallback.layout.layout.lines(),
