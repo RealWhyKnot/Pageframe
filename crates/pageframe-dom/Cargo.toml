@@ -17,7 +17,7 @@ default = [
     "custom-widget",
     "text-transform-icu"
 ]
-custom-widget = ["dep:anyrender", "accessibility"]
+custom-widget = ["dep:anyrender"]
 tracing = ["dep:tracing"]
 svg = ["dep:usvg", "dep:svgtypes"]
 # WOFF decoding (using the "wuff" crate which is pure Rust)

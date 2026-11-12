@@ -51,5 +51,13 @@ winit = { workspace = true }
 anyrender_vello_cpu = { workspace = true }
 pageframe-test-harness = { workspace = true }
 
+[[example]]
+name = "counter"
+required-features = ["gpu"]
+
+[[example]]
+name = "todo"
+required-features = ["gpu"]
+
 [lints]
 workspace = true

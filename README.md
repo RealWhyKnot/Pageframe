@@ -43,6 +43,17 @@ In a handler, `ui.select(selector)` returns the matching elements. Read them wit
 
 `event.target()` is the element that was hit and `event.current_target()` the one your selector matched. `value()` has the text for input events and `key()` the key for keyboard events. `prevent_default()` and `stop_propagation()` work like they do in a browser.
 
+## Features
+
+`gpu`, `svg` and `accessibility` are on by default.
+
+- `gpu` draws windows with Vello on the GPU.
+- `svg` renders inline `<svg>` and SVG images.
+- `accessibility` exposes the page to screen readers through AccessKit.
+- `software` draws windows on the CPU. It's used when `gpu` is off, so set `default-features = false` with it.
+
+With neither `gpu` nor `software` there's no `.run()`. `app.page(..)` still builds the page.
+
 ## Testing
 
 `app.page(width, height)` builds the page without opening a window. Wrap it in `pageframe-test-harness` to click, type and check layout:
@@ -57,7 +68,7 @@ assert_eq!(harness.text_content("#count"), "1");
 
 ## Status
 
-Early, and the API will change. CSS support comes from Blitz. Flexbox, CSS variables, rounded corners, box and text shadows, gradients, `mix-blend-mode`, 2D and 3D transforms including `perspective()`, `text-overflow: ellipsis` and `line-clamp` work. The prefixed `-webkit-line-clamp` isn't parsed yet, and text shadows skip underlines. `<select>` doesn't render yet.
+Early, and the API will change. CSS support comes from Blitz. Flexbox, CSS variables, rounded corners, box and text shadows, gradients, `mix-blend-mode`, 2D and 3D transforms including `perspective()`, `text-overflow: ellipsis` and `line-clamp` work. The prefixed `-webkit-line-clamp` isn't parsed yet, and text shadows skip underlines.
 
 Draw on a `<canvas>` from Rust:
 
