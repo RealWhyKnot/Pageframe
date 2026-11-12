@@ -17,7 +17,7 @@ const DEFAULT_HEIGHT: u32 = 150;
 const MITER_LIMIT: f64 = 10.0;
 const ARC_TOLERANCE: f64 = 0.05;
 const MAX_DASHES: usize = 1024;
-const MAX_DASH_RUNS: f64 = 100_000.0;
+const MAX_DASH_RUNS: f64 = 1_000_000.0;
 const LENGTH_ACCURACY: f64 = 1.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -418,8 +418,8 @@ impl Canvas {
             .with_join(join)
             .with_miter_limit(MITER_LIMIT);
         let period = self.state.dashes.iter().sum::<f64>();
-        let entries = u32::try_from(self.state.dashes.len()).map_or(f64::MAX, f64::from);
-        if period > 0.0 && length / period * entries <= MAX_DASH_RUNS {
+        let runs = length / period * 2.0;
+        if period > 0.0 && runs <= MAX_DASH_RUNS {
             let offset = self.state.dash_offset.rem_euclid(period);
             style.with_dashes(offset, &self.state.dashes)
         } else {

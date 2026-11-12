@@ -6,6 +6,8 @@ use peniko::Fill;
 
 use super::{ARC_TOLERANCE, Canvas, MAX_DASHES, finite};
 
+const COARSEST_ARC: f64 = 1e-7;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Turn {
     Clockwise,
@@ -80,7 +82,15 @@ impl Canvas {
         self.line_to(from.x, from.y);
         let arc = Arc::new(center, radii, start, sweep, rotation);
         let transform = self.state.transform;
-        for element in arc.append_iter(ARC_TOLERANCE) {
+        let [a, b, c, d, ..] = transform.as_coeffs();
+        let scale = a.hypot(b).max(c.hypot(d));
+        let fine = if scale > 0.0 {
+            ARC_TOLERANCE / scale
+        } else {
+            ARC_TOLERANCE
+        };
+        let tolerance = fine.max(radii.0.max(radii.1) * COARSEST_ARC);
+        for element in arc.append_iter(tolerance) {
             self.path.push(transform * element);
         }
         self

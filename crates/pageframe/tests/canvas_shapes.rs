@@ -72,8 +72,8 @@ fn a_counterclockwise_arc_past_a_full_turn_closes_the_circle() {
             .arc_counterclockwise((50.0, 30.0), 20.0, 7.0, 0.0)
             .fill();
     });
-    for (x, y) in [(50, 14), (50, 46), (34, 30), (66, 30)] {
-        assert_eq!(pixel(&buffer, x, y), RED);
+    for (column, row) in [(50, 14), (50, 46), (34, 30), (66, 30)] {
+        assert_eq!(pixel(&buffer, column, row), RED);
     }
     assert_eq!(pixel(&buffer, 50, 5), WHITE);
 }
@@ -119,6 +119,53 @@ fn bad_arcs_and_ellipses_draw_nothing() {
 }
 
 #[test]
+fn enormous_arcs_stay_cheap_and_scaled_arcs_stay_round() {
+    let buffer = drawn(|canvas| {
+        canvas
+            .set_fill(Color::rgb(255, 0, 0))
+            .begin_path()
+            .arc((0.0, 0.0), 1e50, 0.0, TAU)
+            .ellipse((0.0, 0.0), (1e200, 1e120), 0.3, 0.0, TAU)
+            .fill();
+    });
+    assert_eq!(pixel(&buffer, 50, 30), RED);
+    let buffer = drawn(|canvas| {
+        canvas
+            .set_fill(Color::rgb(255, 0, 0))
+            .scale(1000.0, 1000.0)
+            .begin_path()
+            .arc((0.05, 0.03), 0.02, 0.0, TAU)
+            .fill();
+    });
+    let inside = [
+        (68, 30),
+        (32, 30),
+        (50, 48),
+        (50, 12),
+        (63, 43),
+        (37, 17),
+        (63, 17),
+        (37, 43),
+    ];
+    let outside = [
+        (72, 30),
+        (28, 30),
+        (50, 52),
+        (50, 8),
+        (66, 46),
+        (34, 14),
+        (66, 14),
+        (34, 46),
+    ];
+    for (column, row) in inside {
+        assert_eq!(pixel(&buffer, column, row), RED);
+    }
+    for (column, row) in outside {
+        assert_eq!(pixel(&buffer, column, row), WHITE);
+    }
+}
+
+#[test]
 fn dashes_leave_gaps_along_a_line() {
     let buffer = drawn(|canvas| {
         canvas.set_line_dash(&[10.0, 10.0]);
@@ -146,7 +193,10 @@ fn a_dash_offset_shifts_the_pattern() {
             .set_line_dash_offset(-1e300);
         red_line(canvas);
     });
-    assert_eq!(pixel(&buffer, 50, 28), pixel(&buffer, 50, 31));
+    let row: Vec<bool> = (0..100)
+        .map(|column| pixel(&buffer, column, 30) == RED)
+        .collect();
+    assert_eq!(row.iter().filter(|&&red| red).count(), 50);
 }
 
 #[test]
