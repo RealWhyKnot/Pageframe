@@ -891,6 +891,9 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                 quantize,
             );
             layout_box.baseline_offset = placement.baseline_offset;
+            if self.layout.data.empty_boxes_open_lines {
+                self.state.line.box_metrics.has_content = true;
+            }
             self.state
                 .append_aligned_inline_box_to_line(next_x, inline_box, placement, quantize);
         } else {
@@ -1874,8 +1877,7 @@ fn reset_trailing_whitespace_level<B: Brush>(
     let shaped_text = &layout.data.shaped_text;
     let run_slice = shaped_text.run_slice(last.index as u32);
     let slice = run_slice.narrow(last.shaped_cluster_range.clone());
-    let spacing =
-        EffectiveSpacing::new(layout.data.runs[last.index].spacing, Justification::NONE);
+    let spacing = EffectiveSpacing::new(layout.data.runs[last.index].spacing, Justification::NONE);
     let mut split = last.shaped_cluster_range.end;
     for atom in slice.atoms_end().rev() {
         let (_, all_hang) =

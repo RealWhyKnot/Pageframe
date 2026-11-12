@@ -201,6 +201,14 @@ impl<B: Brush> Layout<B> {
         self.data.indent_options = options;
     }
 
+    /// Sets whether an in-flow inline box with no size still gives its line the strut height,
+    /// as CSS does outside quirks mode. Off by default.
+    ///
+    /// This must be called before [`Layout::break_all_lines`] or [`Layout::break_lines`].
+    pub fn set_empty_boxes_open_lines(&mut self, open: bool) {
+        self.data.empty_boxes_open_lines = open;
+    }
+
     /// Returns line breaker to compute lines for the layout.
     pub fn break_lines(&mut self) -> BreakLines<'_, B> {
         BreakLines::new(self)

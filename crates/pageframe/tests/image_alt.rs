@@ -356,3 +356,29 @@ fn changing_and_removing_the_source_swaps_image_and_fallback() {
     }
     assert_eq!(sizes, [(16.0, 16.0), (10.0, 30.0), (0.0, 0.0)]);
 }
+
+fn collapsed_image_line(doctype: &str) -> (f32, f32) {
+    let html = format!(
+        "{doctype}<style>html,body{{margin:0;background:white;font:16px/20px Arial}}</style><div id='line'><img id='image' src=''></div>"
+    );
+    let harness = open(App::new((), &html));
+    let base = harness.base();
+    let layout = |selector: &str| {
+        let id = base
+            .query_selector_all(selector)
+            .expect("the selector parses")[0];
+        let layout = base.get_node(id).expect("the node exists").final_layout();
+        (layout.size.height, layout.location.y)
+    };
+    (layout("#line").0, layout("#image").1)
+}
+
+#[test]
+fn a_collapsed_image_still_takes_a_line_in_standards_mode() {
+    assert_eq!(collapsed_image_line("<!doctype html>"), (20.0, 15.0));
+}
+
+#[test]
+fn a_collapsed_image_takes_no_line_in_quirks_mode() {
+    assert_eq!(collapsed_image_line(""), (0.0, 0.0));
+}
