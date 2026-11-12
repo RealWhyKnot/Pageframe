@@ -2,7 +2,7 @@ mod support;
 
 use std::f64::consts::{PI, TAU};
 
-use pageframe::{App, Canvas, Color};
+use pageframe::{App, Canvas, Color, LineCap};
 use support::{open, pixel, render};
 
 const WHITE: [u8; 4] = [255, 255, 255, 255];
@@ -95,6 +95,36 @@ fn a_counterclockwise_ellipse_takes_the_other_way_round() {
     });
     assert_eq!(pixel(&buffer, 60, 30), RED);
     assert_eq!(pixel(&buffer, 40, 30), WHITE);
+}
+
+#[test]
+fn zero_length_dashes_with_caps_draw_dots() {
+    let dotted = |cap: LineCap| {
+        drawn(move |canvas| {
+            canvas
+                .set_stroke(Color::rgb(255, 0, 0))
+                .set_line_width(10.0)
+                .set_line_cap(cap)
+                .set_line_dash(&[0.0, 20.0])
+                .begin_path()
+                .move_to(10.0, 30.0)
+                .line_to(90.0, 30.0)
+                .stroke();
+        })
+    };
+    for cap in [LineCap::Round, LineCap::Square] {
+        let buffer = dotted(cap);
+        for column in [10, 30, 50, 70] {
+            assert_eq!(pixel(&buffer, column, 30), RED);
+        }
+        for column in [20, 40, 60, 80] {
+            assert_eq!(pixel(&buffer, column, 30), WHITE);
+        }
+    }
+    let buffer = dotted(LineCap::Butt);
+    for column in [10, 20, 30, 50] {
+        assert_eq!(pixel(&buffer, column, 30), WHITE);
+    }
 }
 
 #[test]

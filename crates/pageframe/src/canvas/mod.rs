@@ -31,6 +31,7 @@ const MAX_DASH_RUNS: f64 = 1_000_000.0;
 const LENGTH_ACCURACY: f64 = 1.0;
 const STROKE_TOLERANCE: f64 = 0.01;
 const COARSEST_STROKE: f64 = 1e-7;
+const DOT_LENGTH: f64 = 1e-3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Color {
@@ -460,8 +461,26 @@ impl Canvas {
         let period = self.state.dashes.iter().sum::<f64>();
         let runs = length / period * 2.0;
         if period > 0.0 && runs <= MAX_DASH_RUNS {
-            let offset = self.state.dash_offset.rem_euclid(period);
-            style.with_dashes(offset, &self.state.dashes)
+            let capped = !matches!(self.state.line_cap, LineCap::Butt);
+            let dashes: Vec<f64> = self
+                .state
+                .dashes
+                .chunks(2)
+                .flat_map(|pair| match *pair {
+                    [dash, gap] if capped && dash == 0.0 && gap > DOT_LENGTH => {
+                        [DOT_LENGTH, gap - DOT_LENGTH]
+                    }
+                    [dash, gap] => [dash, gap],
+                    _ => [0.0, 0.0],
+                })
+                .collect();
+            let delay = if dashes == self.state.dashes {
+                0.0
+            } else {
+                DOT_LENGTH
+            };
+            let offset = (self.state.dash_offset - delay).rem_euclid(period);
+            style.with_dashes(offset, dashes)
         } else {
             style
         }
