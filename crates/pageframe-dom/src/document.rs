@@ -133,6 +133,8 @@ pub(crate) fn init_stylo_prefs() {
     });
 }
 
+const QUIRKS_CSS: &str = include_str!("../assets/quirks.css");
+
 impl UserAgentStylesheet {
     pub fn parse(css: &str) -> Self {
         // Pref-gated UA declarations must be enabled before parsing.
@@ -157,6 +159,12 @@ impl UserAgentStylesheet {
     pub fn default_sheet() -> Self {
         static SHEET: LazyLock<UserAgentStylesheet> =
             LazyLock::new(|| UserAgentStylesheet::parse(DEFAULT_CSS));
+        SHEET.clone()
+    }
+
+    fn quirks_sheet() -> Self {
+        static SHEET: LazyLock<UserAgentStylesheet> =
+            LazyLock::new(|| UserAgentStylesheet::parse(QUIRKS_CSS));
         SHEET.clone()
     }
 
@@ -1284,6 +1292,30 @@ impl BaseDocument {
         let css = html_escape::decode_html_entities(&css);
         let sheet = self.make_stylesheet(&css, Origin::Author);
         self.add_stylesheet_for_node(sheet, target_id);
+    }
+
+    pub fn set_quirks_mode(&mut self, quirks: bool) {
+        self.in_quirks_mode = quirks;
+        let sheet = UserAgentStylesheet::quirks_sheet();
+        if !quirks {
+            self.remove_user_agent_stylesheet(&sheet);
+            return;
+        }
+        let default = UserAgentStylesheet::default_sheet();
+        let sheets: Vec<_> = self.useragent_stylesheets().cloned().collect();
+        let Some(index) = sheets.iter().position(|other| *other == default.0) else {
+            return;
+        };
+        if sheets.contains(&sheet.0) {
+            return;
+        }
+        let guard = self.guard.read();
+        match sheets.get(index + 1) {
+            Some(next) => self
+                .stylist
+                .insert_stylesheet_before(sheet.0, next.clone(), &guard),
+            None => self.stylist.append_stylesheet(sheet.0, &guard),
+        }
     }
 
     pub fn remove_user_agent_stylesheet(&mut self, sheet: &UserAgentStylesheet) {
