@@ -90,3 +90,15 @@ fn a_clip_path_circle_has_chromes_edge_pixels() {
         assert!(near(found, red), "({x},0) is {found}, Chrome has {red}");
     }
 }
+
+#[test]
+fn a_clip_path_inset_round_has_chromes_edge_pixels() {
+    let buffer = page(
+        "<div style='background:#0a0;width:60px;height:60px;clip-path:inset(0 round 12px)'></div>",
+    );
+    let chrome = [240, 161, 79, 39, 13];
+    for (x, red) in (7..).zip(chrome) {
+        let found = pixel(&buffer, x, 0)[0];
+        assert!(near(found, red), "({x},0) is {found}, Chrome has {red}");
+    }
+}

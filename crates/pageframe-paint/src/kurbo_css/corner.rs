@@ -2,6 +2,11 @@ use kurbo::{Arc, BezPath, PathEl, Point, Vec2};
 use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2};
 
 const TOLERANCE: f64 = 0.25;
+const MAX_SPLITS: u32 = 5;
+const MAX_SHIFT: u32 = 6;
+const FIXED_SCALE: f64 = 256.0;
+const TALL_STEP: f64 = 2.0;
+const ANGLE_SLACK: f64 = 1e-9;
 const QUARTER_HANDLE: f64 = 0.552_284_749_830_793_6;
 const HANDLE_SLACK: f64 = 0.01;
 
@@ -30,7 +35,6 @@ pub(crate) fn flatten_quarter_arcs(path: &BezPath, phase: f64) -> BezPath {
                         for along in arc_points(&arc, phase) {
                             flat.line_to(along);
                         }
-                        flat.line_to(point);
                     }
                     None => flat.curve_to(first, second, point),
                 }
@@ -62,7 +66,8 @@ fn quarter_arc([from, first, second, to]: [Point; 4]) -> Option<Arc> {
         let span = reach.x.abs() / radii.x + reach.y.abs() / radii.y;
         (span - QUARTER_HANDLE).abs() <= HANDLE_SLACK
     };
-    if !handle(first, from) || !handle(second, to) {
+    let inward = (first - from).dot(to - from) > 0.0 && (second - to).dot(from - to) > 0.0;
+    if !inward || !handle(first, from) || !handle(second, to) {
         return None;
     }
     let unit = |point: Point| {
@@ -77,12 +82,6 @@ fn quarter_arc([from, first, second, to]: [Point; 4]) -> Option<Arc> {
     };
     Some(Arc::new(center, radii, start.y.atan2(start.x), sweep, 0.0))
 }
-const MAX_SPLITS: u32 = 5;
-const MAX_SHIFT: u32 = 6;
-const FIXED_SCALE: f64 = 256.0;
-const TALL_STEP: f64 = 2.0;
-const ANGLE_SLACK: f64 = 1e-9;
-
 pub(super) fn arc_points(arc: &Arc, phase: f64) -> Vec<Point> {
     let end = arc.start_angle + arc.sweep_angle;
     let (low, high) = if arc.sweep_angle < 0.0 {
@@ -424,10 +423,41 @@ mod tests {
     }
 
     #[test]
+    fn a_curve_running_the_other_way_flattens_onto_the_same_circle() {
+        let handle = 20.0 * QUARTER_HANDLE;
+        let mut path = BezPath::new();
+        path.move_to((0.0, 20.0));
+        path.curve_to((handle, 20.0), (20.0, handle), (20.0, 0.0));
+        let flat = flatten_quarter_arcs(&path, 0.0);
+        assert!(!has_curves(&flat));
+        let mut points = Vec::new();
+        for element in flat.elements() {
+            if let PathEl::LineTo(point) = element {
+                assert!(
+                    (point.to_vec2().hypot() - 20.0).abs() < 0.2,
+                    "{point:?} is off the circle"
+                );
+                points.push(*point);
+            }
+        }
+        let last = points.last().expect("the arc has points");
+        assert!(last.distance(Point::new(20.0, 0.0)) < 0.2);
+        assert!(points.first().expect("the arc has points").y > last.y);
+    }
+
+    #[test]
     fn other_curves_stay_curves() {
         let mut path = BezPath::new();
         path.move_to((0.0, 0.0));
         path.curve_to((10.0, 0.0), (20.0, 5.0), (30.0, 30.0));
+        assert!(has_curves(&flatten_quarter_arcs(&path, 0.0)));
+    }
+
+    #[test]
+    fn a_curve_with_a_handle_pointing_outwards_stays_a_curve() {
+        let mut path = BezPath::new();
+        path.move_to((0.0, 0.0));
+        path.curve_to((0.0, 5.5), (15.5, 10.0), (10.0, 10.0));
         assert!(has_curves(&flatten_quarter_arcs(&path, 0.0)));
     }
 }
