@@ -247,6 +247,7 @@ select:is([multiple]:not([size="1"]), [size]:not([size="0"], [size="1"])):focus 
     color: white;
 }
 
+select:is([multiple]:not([size="1"]), [size]:not([size="0"], [size="1"])):disabled option:checked,
 select:is([multiple]:not([size="1"]), [size]:not([size="0"], [size="1"])) option[disabled],
 select:is([multiple]:not([size="1"]), [size]:not([size="0"], [size="1"])) optgroup[disabled] > option {
     color: rgb(109, 109, 109);

@@ -32,6 +32,9 @@ impl BaseDocument {
     }
 
     pub(crate) fn option_select(&self, option: NodeId) -> Option<NodeId> {
+        if !self.has_tag(option, &local_name!("option")) {
+            return None;
+        }
         let parent = self.get_node(option)?.parent?;
         if self.is_select(parent) {
             return Some(parent);

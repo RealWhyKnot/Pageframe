@@ -186,6 +186,33 @@ fn changing_size_switches_between_list_and_dropdown() {
     harness.doc.ui().select("#two").set_attr("size", "3");
     harness.pump();
     assert_eq!(size(&harness, "#two").1, 53.0);
+    assert_eq!(value(&mut harness, "#two").as_deref(), Some("s1"));
+}
+
+#[test]
+fn a_multiple_list_turned_into_a_dropdown_keeps_one_pick() {
+    let mut harness = page();
+    click_row(&mut harness, "#many", 0);
+    toggle_row(&mut harness, "#many", 3);
+    harness.doc.ui().select("#many").set_attr("size", "1");
+    harness.pump();
+    assert_eq!(size(&harness, "#many").1, 19.0);
+    assert_eq!(value(&mut harness, "#many").as_deref(), Some("Four"));
+    harness.press(Key::Named(NamedKey::ArrowUp));
+    assert_eq!(value(&mut harness, "#many").as_deref(), Some("Multi two"));
+}
+
+#[test]
+fn clicking_a_group_label_leaves_the_pick_alone() {
+    let mut harness = page();
+    let rect = harness.layout_rect("#big");
+    harness.click_at(rect.x + 10.0, rect.y + 1.0 + 25.0 + 12.0);
+    assert_eq!(value(&mut harness, "#big").as_deref(), Some("In group"));
+    harness.click_at(rect.x + 10.0, rect.y + 1.0 + 12.0);
+    assert_eq!(value(&mut harness, "#big").as_deref(), Some("In group"));
+    harness.click_at_with(rect.x + 10.0, rect.y + 1.0 + 12.0, TOGGLE);
+    assert_eq!(value(&mut harness, "#big").as_deref(), Some("In group"));
+    assert_eq!(harness.focused(), Some(harness.node("#big")));
 }
 
 #[test]
