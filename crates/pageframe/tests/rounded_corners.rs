@@ -102,3 +102,23 @@ fn a_clip_path_inset_round_has_chromes_edge_pixels() {
         assert!(near(found, red), "({x},0) is {found}, Chrome has {red}");
     }
 }
+
+#[test]
+fn a_dashed_round_border_spaces_its_dashes_like_chromes() {
+    let buffer = page(
+        "<div style='background:lime;width:60px;height:40px;border:2px dashed blue;border-radius:8px'></div>",
+    );
+    let chrome = [
+        (8, 0),
+        (13, 0),
+        (14, 255),
+        (16, 255),
+        (17, 191),
+        (23, 63),
+        (27, 127),
+    ];
+    for (x, green) in chrome {
+        let found = pixel(&buffer, x, 1)[1];
+        assert!(near(found, green), "({x},1) is {found}, Chrome has {green}");
+    }
+}

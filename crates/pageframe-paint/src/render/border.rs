@@ -1,5 +1,8 @@
 use anyrender::PaintScene;
-use kurbo::{BezPath, Cap, Circle, Insets, Join, PathEl, Point, Shape as _, Stroke, Vec2};
+use kurbo::{
+    BezPath, Cap, Circle, Insets, Join, ParamCurve as _, PathEl, PathSeg, Point, Shape as _,
+    Stroke, Vec2,
+};
 use pageframe_dom::CopyStyleGetters;
 use pageframe_dom::node::SpecialElementData;
 use peniko::{Color, Fill};
@@ -107,6 +110,44 @@ fn dashed_ratios(thickness: f64, scale: f64) -> (f64, f64) {
     } else {
         (3.0, 2.0)
     }
+}
+
+fn closed_dash_gap(length: f64, dash: f64, gap: f64) -> f64 {
+    if length <= 2.0 * dash {
+        return 0.0;
+    }
+    let fewer = (length / (dash + gap)).floor().max(1.0);
+    let more = fewer + 1.0;
+    let fewer_gap = (length - fewer * dash) / fewer;
+    let more_gap = (length - more * dash) / more;
+    if more_gap <= 0.0 || (fewer_gap - gap).abs() < (more_gap - gap).abs() {
+        fewer_gap
+    } else {
+        more_gap
+    }
+}
+
+fn starting_at(path: &BezPath, start: Point) -> BezPath {
+    let segments: Vec<PathSeg> = path.segments().collect();
+    let first = segments
+        .iter()
+        .enumerate()
+        .min_by(|(_, one), (_, other)| {
+            one.start()
+                .distance(start)
+                .total_cmp(&other.start().distance(start))
+        })
+        .map_or(0, |(index, _)| index);
+    let mut rotated = BezPath::new();
+    let (after, before) = segments.split_at(first);
+    for (index, segment) in before.iter().chain(after).enumerate() {
+        if index == 0 {
+            rotated.move_to(segment.start());
+        }
+        rotated.push(segment.as_path_el());
+    }
+    rotated.close_path();
+    rotated
 }
 
 /// Return `count` points spaced `spacing` apart (by arc length) along `path`,
@@ -373,19 +414,23 @@ impl ElementCx<'_, '_> {
             // Rounded corners: stroke the rounded centre line running through the
             // whole perimeter. Every edge uses the same centre line and pattern, so
             // dashes stay continuous and aligned as they wrap around each corner.
-            // Dash and gap keep their ratio, sized so a whole number of periods fit
-            // exactly around the perimeter (kurbo merges the dash across the seam).
-            let mut centerline = self.frame.border_slice(0.0, 0.5).padding_box_path();
-            centerline.close_path();
+            let middle = self.frame.border_slice(0.0, 0.5);
+            let corner = self.frame.border_radii.top_left.x - self.frame.border_width.x0 / 2.0;
+            let start = Point::new(
+                middle.padding_box.x0 + corner.max(0.0),
+                middle.padding_box.y0,
+            );
+            let mut outline = middle.padding_box_path();
+            outline.close_path();
+            let centerline = starting_at(&outline, start);
             let perimeter = centerline.perimeter(0.1);
             if perimeter <= 0.0 {
                 return;
             }
-            let period0 = (dash_ratio + gap_ratio) * thickness;
-            let count = (perimeter / period0).round().max(1.0);
-            let period = perimeter / count;
-            let dash = period * dash_ratio / (dash_ratio + gap_ratio);
-            (centerline, dash, period - dash)
+            let whole = (perimeter / self.scale).trunc() * self.scale;
+            let dash = dash_ratio * thickness;
+            let gap = closed_dash_gap(whole, dash, gap_ratio * thickness);
+            (centerline, dash, gap)
         } else {
             // Square corners: stroke a straight line through the middle of the edge,
             // corner to corner. Dash and gap keep their ratio but are scaled so the
