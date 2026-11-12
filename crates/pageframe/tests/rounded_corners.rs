@@ -128,7 +128,18 @@ fn a_dashed_round_border_too_short_for_two_dashes_is_solid() {
     let buffer = page(
         "<div style='background:lime;width:2px;height:2px;border:2px dashed blue;border-radius:3px'></div>",
     );
-    for (x, y) in [(2, 1), (3, 1), (1, 2), (1, 3), (3, 4), (2, 4)] {
+    for (x, y) in [
+        (2, 1),
+        (3, 1),
+        (1, 2),
+        (1, 3),
+        (3, 4),
+        (2, 4),
+        (1, 1),
+        (4, 1),
+        (1, 4),
+        (4, 4),
+    ] {
         let [red, green, blue, _] = pixel(&buffer, x, y);
         assert!(red < 30 && green < 30 && blue > 225, "({x},{y}) is blue");
     }

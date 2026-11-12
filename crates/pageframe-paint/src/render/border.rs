@@ -112,6 +112,15 @@ fn dashed_ratios(thickness: f64, scale: f64) -> (f64, f64) {
     }
 }
 
+fn dash_stroke(thickness: f64, dash: f64, gap: f64) -> Stroke {
+    let solid = Stroke::new(thickness).with_caps(Cap::Butt);
+    if gap > 0.0 {
+        solid.with_dashes(0.0, [dash, gap])
+    } else {
+        solid
+    }
+}
+
 fn closed_dash_gap(length: f64, dash: f64, gap: f64) -> f64 {
     if length <= 2.0 * dash {
         return 0.0;
@@ -320,6 +329,36 @@ impl ElementCx<'_, '_> {
             }
         }
 
+        let styles = [
+            border.border_top_style,
+            border.border_right_style,
+            border.border_bottom_style,
+            border.border_left_style,
+        ];
+        let colors = [
+            &border.border_top_color,
+            &border.border_right_color,
+            &border.border_bottom_color,
+            &border.border_left_color,
+        ]
+        .map(|color| color.resolve_to_absolute(&current_color).as_srgb_color());
+        let widths = self.frame.border_width;
+        let all_dashed = styles.iter().all(|style| *style == BorderStyle::Dashed);
+        let one_color = colors.iter().all(|color| *color == colors[0]);
+        let one_width = widths.x0 > 0.0
+            && [widths.y0, widths.x1, widths.y1]
+                .iter()
+                .all(|width| *width == widths.x0);
+        if all_dashed
+            && one_color
+            && one_width
+            && colors[0].components[3] > 0.0
+            && self.frame.has_border_radius()
+        {
+            self.draw_uniform_round_dashed_border(scene, colors[0]);
+            return;
+        }
+
         let mut sides: SmallVec<[Side; 4]> = SmallVec::new();
         for edge in [Edge::Top, Edge::Right, Edge::Bottom, Edge::Left] {
             let (color, edge_style) = match edge {
@@ -414,23 +453,10 @@ impl ElementCx<'_, '_> {
             // Rounded corners: stroke the rounded centre line running through the
             // whole perimeter. Every edge uses the same centre line and pattern, so
             // dashes stay continuous and aligned as they wrap around each corner.
-            let middle = self.frame.border_slice(0.0, 0.5);
-            let corner = self.frame.border_radii.top_left.x - self.frame.border_width.x0 / 2.0;
-            let start = Point::new(
-                middle.padding_box.x0 + corner.max(0.0),
-                middle.padding_box.y0,
-            );
-            let mut outline = middle.padding_box_path();
-            outline.close_path();
-            let centerline = starting_at(&outline, start);
-            let perimeter = centerline.perimeter(0.1);
-            if perimeter <= 0.0 {
+            let Some(dashes) = self.round_dash_loop(thickness) else {
                 return;
-            }
-            let whole = (perimeter / self.scale).trunc() * self.scale;
-            let dash = dash_ratio * thickness;
-            let gap = closed_dash_gap(whole, dash, gap_ratio * thickness);
-            (centerline, dash, gap)
+            };
+            dashes
         } else {
             // Square corners: stroke a straight line through the middle of the edge,
             // corner to corner. Dash and gap keep their ratio but are scaled so the
@@ -475,16 +501,55 @@ impl ElementCx<'_, '_> {
             (line, r * gap, gap)
         };
 
-        let solid = Stroke::new(thickness).with_caps(Cap::Butt);
-        let stroke = if gap > 0.0 {
-            solid.with_dashes(0.0, [dash, gap])
-        } else {
-            solid
-        };
         let clip = self.frame.border_edge_shape(edge);
         scene.push_clip_layer(Fill::NonZero, self.transform, &clip);
-        scene.stroke(&stroke, self.transform, color, None, &centerline);
+        scene.stroke(
+            &dash_stroke(thickness, dash, gap),
+            self.transform,
+            color,
+            None,
+            &centerline,
+        );
         scene.pop_layer();
+    }
+
+    fn draw_uniform_round_dashed_border(&self, scene: &mut impl PaintScene, color: Color) {
+        let thickness = self.frame.border_width.x0;
+        let Some((centerline, dash, gap)) = self.round_dash_loop(thickness) else {
+            return;
+        };
+        let mut ring = self.frame.border_box_path();
+        ring.extend(self.frame.padding_box_path());
+        scene.push_clip_layer(Fill::EvenOdd, self.transform, &ring);
+        scene.stroke(
+            &dash_stroke(thickness, dash, gap),
+            self.transform,
+            color,
+            None,
+            &centerline,
+        );
+        scene.pop_layer();
+    }
+
+    fn round_dash_loop(&self, thickness: f64) -> Option<(BezPath, f64, f64)> {
+        let (dash_ratio, gap_ratio) = dashed_ratios(thickness, self.scale);
+        let middle = self.frame.border_slice(0.0, 0.5);
+        let corner = self.frame.border_radii.top_left.x - self.frame.border_width.x0 / 2.0;
+        let start = Point::new(
+            middle.padding_box.x0 + corner.max(0.0),
+            middle.padding_box.y0,
+        );
+        let mut outline = middle.padding_box_path();
+        outline.close_path();
+        let centerline = starting_at(&outline, start);
+        let perimeter = centerline.perimeter(0.1);
+        if perimeter <= 0.0 {
+            return None;
+        }
+        let whole = (perimeter / self.scale).trunc() * self.scale;
+        let dash = dash_ratio * thickness;
+        let gap = closed_dash_gap(whole, dash, gap_ratio * thickness);
+        Some((centerline, dash, gap))
     }
 
     /// Draw a single `dotted` border edge.
