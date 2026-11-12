@@ -366,6 +366,7 @@ pub struct BaseDocument {
     pub(crate) mousedown_position: taffy::Point<f32>,
     /// How many clicks have been made in quick succession
     pub(crate) click_count: u16,
+    pub(crate) select_popup: Option<crate::select_popup::SelectPopup>,
     /// Whether we're currently in a text selection drag (moved 2px+ from mousedown)
     pub(crate) drag_mode: DragMode,
     /// The scrollbar thumb currently under the pointer, if any
@@ -602,6 +603,7 @@ impl BaseDocument {
             last_mousedown_time: None,
             mousedown_position: taffy::Point::ZERO,
             click_count: 0,
+            select_popup: None,
             drag_mode: DragMode::None,
             hovered_scrollbar: None,
             hovered_resizer: None,
@@ -2037,6 +2039,9 @@ impl BaseDocument {
             #[cfg(feature = "tracing")]
             tracing::warn!("No DOM - not resolving hit test");
             return (None, None);
+        }
+        if let Some(hit) = self.select_popup_hit(x, y) {
+            return (Some(hit), None);
         }
         let mut control = None;
         let hit = self

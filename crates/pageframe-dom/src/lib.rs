@@ -61,6 +61,7 @@ mod resolved_style;
 /// Scrolling of nodes and the viewport, and scroll animations.
 mod scrolling;
 mod select;
+mod select_popup;
 mod selection;
 /// Implementations that interact with servo's style engine
 mod stylo;
@@ -110,6 +111,7 @@ pub use mutator::DocumentMutator;
 pub use node::{Attribute, DocumentData, ElementData, Node, NodeData, TextNodeData};
 pub use parley::FontContext;
 pub use scrolling::{ScrollBehavior, ScrollLogicalPosition};
+pub use select_popup::{PopupLayout, PopupRow};
 pub use tree::NodeTree;
 
 /// Convert a Pageframe [`NodeId`] into a [`taffy::NodeId`] (which wraps a `u64`).

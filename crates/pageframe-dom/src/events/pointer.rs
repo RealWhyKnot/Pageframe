@@ -223,6 +223,7 @@ pub(crate) fn handle_pointermove<F: FnMut(DomEvent)>(
     let buttons = event.buttons;
 
     let mut changed = doc.set_hover_to(x, y);
+    doc.hover_select_popup(x, y);
 
     // Check if we've moved enough to be considered a selection drag (2px threshold)
     if buttons != MouseEventButtons::None && doc.drag_mode == DragMode::None {
@@ -422,6 +423,7 @@ pub(crate) fn handle_pointerdown(
     doc.mousedown_position = taffy::Point { x, y };
     doc.drag_mode = DragMode::None;
     doc.scroll_animation = ScrollAnimationState::None;
+    doc.dismiss_select_popup_outside(x, y);
 
     let Some(hit) = doc.hit(x, y) else {
         // Clear text selection when clicking outside any element
@@ -660,6 +662,17 @@ pub(crate) fn handle_click(
             }
 
             match el.name.local {
+                local_name!("select") => {
+                    generate_focus_events(
+                        doc,
+                        &mut |doc| {
+                            doc.set_focus_to(node_id);
+                        },
+                        dispatch_event,
+                    );
+                    doc.click_select(node_id, event.page_x(), event.page_y(), dispatch_event);
+                    break 'matched true;
+                }
                 local_name!("input") if el.input_type().as_deref() == Some("checkbox") => {
                     let mut is_checked = false;
                     doc.snapshot_node_and(node_id, ElementState::CHECKED, |node| {
@@ -854,6 +867,10 @@ pub(crate) fn handle_wheel<F: FnMut(DomEvent)>(
         PageframeWheelDelta::Lines(x, y) => (x * 20.0, y * 20.0),
         PageframeWheelDelta::Pixels(x, y) => (x, y),
     };
+    let rows = if scroll_y > 0.0 { -3 } else { 3 };
+    if scroll_y != 0.0 && doc.scroll_select_popup(event.page_x(), event.page_y(), rows) {
+        return;
+    }
 
     let has_changed = doc.scroll_chain_by(
         doc.get_hover_node_id(),

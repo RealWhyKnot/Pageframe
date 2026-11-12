@@ -18,6 +18,18 @@ pub(crate) fn handle_key_or_input_event<F: FnMut(DomEvent)>(
     event: KeyboardOrTextInputEvent,
     mut dispatch_event: F,
 ) {
+    if let KeyboardOrTextInputEvent::KeyPress(event) = &event
+        && event.state.is_pressed()
+        && !event.modifiers.contains(ACTION_MOD)
+        && let Some(select) = doc
+            .focus_node_id
+            .filter(|&id| id == target && doc.is_select(id))
+    {
+        doc.select_key(select, &event.key, &mut dispatch_event);
+        if event.key != Key::Named(NamedKey::Tab) {
+            return;
+        }
+    }
     if let KeyboardOrTextInputEvent::KeyPress(event) = &event {
         if event.key == Key::Named(NamedKey::Tab) {
             let backwards = event.modifiers.contains(Modifiers::SHIFT);

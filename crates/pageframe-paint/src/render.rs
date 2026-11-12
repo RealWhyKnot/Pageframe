@@ -9,6 +9,7 @@ mod pixels;
 mod projection;
 mod resizer;
 mod ring;
+mod select_popup;
 mod table_borders;
 mod text_field;
 
@@ -215,6 +216,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
             }),
             viewport_clip_rect,
         );
+        self.draw_select_popup(scene);
 
         // Render debug overlay
         if self.dom.devtools().highlight_hover {
