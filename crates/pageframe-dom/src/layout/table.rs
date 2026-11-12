@@ -2180,6 +2180,21 @@ impl TableTreeWrapper<'_, '_> {
         let Some(first) = self.ctx.cells.iter().map(|cell| cell.row).min() else {
             return;
         };
+        if first != 0 {
+            let top = self
+                .ctx
+                .computed_grid_info
+                .borrow()
+                .as_ref()
+                .and_then(|info| {
+                    let skipped = usize::from(info.rows.negative_implicit_tracks);
+                    info.rows.positions.get(skipped).map(|line| line.start)
+                });
+            if let Some(top) = top {
+                output.baselines.first = Some(top);
+            }
+            return;
+        }
         let mut edge: Option<f32> = None;
         let mut text_line: Option<f32> = None;
         let is_collapsed = self

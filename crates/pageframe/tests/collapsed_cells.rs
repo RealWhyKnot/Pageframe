@@ -377,6 +377,12 @@ fn only_baseline_cells_set_a_mixed_row_baseline() {
 }
 
 #[test]
+fn an_empty_first_row_leaves_the_baseline_at_its_top() {
+    let rows = "<tr></tr><tr><td style='padding:6px'>Ab</td></tr><tr><td>Cd</td></tr>";
+    assert_eq!(marker_top("<!doctype html>", "", &inline_table(rows)), 14.0);
+}
+
+#[test]
 fn a_collapsed_first_row_leaves_the_baseline_at_its_top() {
     let rows = "<tr style='visibility:collapse'><td style='padding:6px'>Ab</td></tr>\
 <tr><td style='padding:6px'>Cd</td></tr>";
