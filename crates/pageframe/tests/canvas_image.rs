@@ -13,6 +13,14 @@ const PNG: &[u8] = &[
     1, 15, 249, 3, 253, 133, 17, 153, 118, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
 ];
 
+const TURNED: &[u8] = &[
+    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 2, 0, 0, 0, 1, 8, 6, 0,
+    0, 0, 244, 34, 127, 138, 0, 0, 0, 26, 101, 88, 73, 102, 77, 77, 0, 42, 0, 0, 0, 8, 0, 1, 1, 18,
+    0, 3, 0, 0, 0, 1, 0, 6, 0, 0, 0, 0, 0, 0, 214, 103, 75, 105, 0, 0, 0, 14, 73, 68, 65, 84, 120,
+    156, 99, 248, 207, 192, 0, 66, 255, 1, 15, 249, 3, 253, 133, 17, 153, 118, 0, 0, 0, 0, 73, 69,
+    78, 68, 174, 66, 96, 130,
+];
+
 const PAGE: &str = r#"<html><head><style>
 body{margin:0;background:white}
 canvas{display:block}
@@ -121,6 +129,27 @@ fn a_png_decodes_into_an_image() {
     });
     assert_eq!(pixel(&buffer, 3, 30), RED);
     assert_eq!(pixel(&buffer, 96, 30), BLUE);
+}
+
+#[test]
+fn a_turned_photo_is_drawn_upright() {
+    let image = Image::decode(TURNED).expect("a png with a rotation tag");
+    assert_eq!((image.width(), image.height()), (1, 2));
+    let buffer = drawn(|canvas| {
+        canvas.draw_image_scaled(&image, 0.0, 0.0, 40.0, 60.0);
+    });
+    assert_eq!(pixel(&buffer, 20, 5), RED);
+    assert_eq!(pixel(&buffer, 20, 55), BLUE);
+}
+
+#[test]
+fn a_transform_past_what_numbers_hold_draws_nothing() {
+    let buffer = drawn(|canvas| {
+        canvas
+            .scale(1e200, 1e200)
+            .draw_image_scaled(&halves(), 0.0, 0.0, 1e200, 1e200);
+    });
+    assert_eq!(pixel(&buffer, 10, 10), WHITE);
 }
 
 #[test]

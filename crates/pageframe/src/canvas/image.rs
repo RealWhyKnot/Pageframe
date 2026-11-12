@@ -2,6 +2,8 @@ use std::io::Cursor;
 use std::sync::Arc;
 
 use anyrender::PaintScene;
+use image::metadata::Orientation;
+use image::{DynamicImage, ImageDecoder as _};
 use kurbo::{Affine, Rect, Vec2};
 use peniko::{
     Blob, Extend, Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageQuality,
@@ -11,6 +13,8 @@ use peniko::{
 use super::{Canvas, finite};
 
 const MAX_SIDE: u32 = 16_384;
+const MAX_PIXELS: u64 = 67_108_864;
+const MAX_SOURCE_BYTES: u64 = 268_435_456;
 
 #[derive(Clone, Debug)]
 pub struct Image {
@@ -21,9 +25,12 @@ pub struct Image {
 
 impl Image {
     pub fn from_rgba(width: u32, height: u32, pixels: Vec<u8>) -> Option<Self> {
-        let wanted = usize::try_from(u64::from(width) * u64::from(height) * 4).ok()?;
         let sized = (1..=MAX_SIDE).contains(&width) && (1..=MAX_SIDE).contains(&height);
-        (sized && pixels.len() == wanted).then(|| Self {
+        if !sized {
+            return None;
+        }
+        let wanted = usize::try_from(u64::from(width) * u64::from(height) * 4).ok()?;
+        (pixels.len() == wanted).then(|| Self {
             data: Blob::new(Arc::new(pixels)),
             width,
             height,
@@ -38,7 +45,16 @@ impl Image {
         limits.max_image_width = Some(MAX_SIDE);
         limits.max_image_height = Some(MAX_SIDE);
         reader.limits(limits);
-        let decoded = reader.decode().ok()?;
+        let mut decoder = reader.into_decoder().ok()?;
+        let (width, height) = decoder.dimensions();
+        let small = u64::from(width) * u64::from(height) <= MAX_PIXELS
+            && decoder.total_bytes() <= MAX_SOURCE_BYTES;
+        if !small {
+            return None;
+        }
+        let turn = decoder.orientation().unwrap_or(Orientation::NoTransforms);
+        let mut decoded = DynamicImage::from_decoder(decoder).ok()?;
+        decoded.apply_orientation(turn);
         Self::from_rgba(
             decoded.width(),
             decoded.height(),
@@ -130,6 +146,9 @@ impl Canvas {
             * Affine::translate((-source.x0, -source.y0));
         let brush = image.brush(self.state.alpha);
         let whole = self.state.transform * place;
+        if !finite(&whole.as_coeffs()) {
+            return self;
+        }
         let [_, lean, tilt, ..] = whole.as_coeffs();
         if lean == 0.0 && tilt == 0.0 {
             let edge = |value: f64| (value + 0.5).floor();
