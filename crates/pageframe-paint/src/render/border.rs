@@ -387,11 +387,14 @@ impl ElementCx<'_, '_> {
                     self.draw_dashed_border_edge(scene, edge, color, &shape(&self.frame));
                 }
                 BorderStyle::Double => {
-                    let path = if self.edge_width(edge) < 3.0 * self.scale {
+                    let width = self.edge_width(edge);
+                    let path = if width < 3.0 {
                         shape(&self.frame)
                     } else {
-                        let mut path = shape(&self.frame.border_slice(0.0, 1.0 / 3.0));
-                        path.extend(&shape(&self.frame.border_slice(2.0 / 3.0, 1.0)));
+                        let outer = (width / 3.0).round() / width;
+                        let inner = (width * 2.0 / 3.0).round() / width;
+                        let mut path = shape(&self.frame.border_slice(0.0, outer));
+                        path.extend(&shape(&self.frame.border_slice(inner, 1.0)));
                         path
                     };
                     borders.push((color, path));
