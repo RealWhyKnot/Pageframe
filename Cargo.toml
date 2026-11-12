@@ -250,6 +250,9 @@ vello_gpu = { git = "https://github.com/DioxusLabs/vello", branch = "devin/glifo
 parley_engine = { path = "./vendor/parley_engine" }
 parley = { path = "./vendor/parley" }
 
+[patch."https://github.com/DioxusLabs/anyrender"]
+anyrender_vello_cpu = { path = "./vendor/anyrender_vello_cpu" }
+
 # [patch.crates-io]
 # anyrender = { path = "../anyrender/crates/anyrender" }
 # anyrender_skia = { path = "../anyrender/crates/anyrender_skia" }
