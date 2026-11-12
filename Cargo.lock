@@ -3894,6 +3894,7 @@ dependencies = [
  "parley",
  "peniko",
  "selectors",
+ "skrifa",
  "stylo",
  "stylo_dom",
  "thiserror 2.0.21",

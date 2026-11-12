@@ -1,4 +1,5 @@
 mod gradient;
+mod outline;
 mod shapes;
 mod text;
 

@@ -5,6 +5,8 @@ use kurbo::{Affine, Vec2};
 use parley::{FontFamily, FontStyle, FontWeight, Layout, PositionedLayoutItem, StyleProperty};
 use peniko::Fill;
 
+use super::gradient::Ink;
+use super::outline::{Fit, Placed, glyph_path};
 use super::{Canvas, finite};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -96,13 +98,51 @@ impl Canvas {
                     x + shift_x,
                     y + f64::from(shift_y) - f64::from(glyph_run.baseline()),
                 );
+                let skew = run
+                    .synthesis()
+                    .skew()
+                    .map(|angle| f64::from(angle.to_radians().tan()));
+                let place = self.state.transform * Affine::translate(origin);
+                if matches!(self.state.fill, Ink::Gradient(_)) {
+                    let [.., left, top] = place.as_coeffs();
+                    let upright = place.as_coeffs()[..4] == [1.0, 0.0, 0.0, 1.0];
+                    let (fit, nudge) = match skew {
+                        None if upright => (Fit::Grid, Vec2::new(0.0, top.round() - top)),
+                        _ => (
+                            Fit::Smooth {
+                                skew: skew.unwrap_or(0.0),
+                            },
+                            Vec2::ZERO,
+                        ),
+                    };
+                    let paint = self.state.fill.paint(self.state.alpha, origin + nudge);
+                    let Some(paint) = paint else {
+                        continue;
+                    };
+                    let place = Affine::translate(nudge) * place;
+                    let glyphs = glyph_run.positioned_glyphs().map(|glyph| {
+                        let x = f64::from(glyph.x);
+                        Placed {
+                            id: glyph.id,
+                            x: match fit {
+                                Fit::Grid => ((left + x) * 4.0).round() / 4.0 - left,
+                                Fit::Smooth { .. } => x,
+                            },
+                            y: f64::from(glyph.y),
+                        }
+                    });
+                    let coords = bytemuck::cast_slice(run.normalized_coords());
+                    let outline = glyph_path(run.font(), run.font_size(), coords, fit, glyphs);
+                    if let Some(outline) = outline {
+                        self.scene
+                            .fill(Fill::NonZero, place, &paint, None, &outline);
+                    }
+                    continue;
+                }
                 let Some(paint) = self.state.fill.paint(self.state.alpha, origin) else {
                     continue;
                 };
-                let slant = run
-                    .synthesis()
-                    .skew()
-                    .map(|angle| Affine::skew(f64::from(angle.to_radians().tan()), 0.0));
+                let slant = skew.map(|tangent| Affine::skew(tangent, 0.0));
                 self.scene.draw_glyphs(
                     run.font(),
                     run.font_size(),
@@ -112,7 +152,7 @@ impl Canvas {
                     Fill::NonZero,
                     &paint,
                     1.0,
-                    self.state.transform * Affine::translate(origin),
+                    place,
                     slant,
                     glyph_run.positioned_glyphs().map(|glyph| Glyph {
                         id: glyph.id,

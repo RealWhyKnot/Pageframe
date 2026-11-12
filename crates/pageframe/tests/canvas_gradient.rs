@@ -184,11 +184,13 @@ fn alpha_fades_a_gradient_and_a_plain_colour_replaces_it() {
     let buffer = drawn(|canvas| {
         let dark = across().stop(0.0, Color::BLACK).stop(1.0, Color::BLACK);
         canvas
-            .save()
             .set_alpha(0.5)
             .set_fill_gradient(&dark)
+            .save()
             .fill_rect(0.0, 0.0, 30.0, 60.0)
+            .set_fill(BLUE)
             .restore()
+            .set_alpha(1.0)
             .fill_rect(30.0, 0.0, 30.0, 60.0)
             .set_fill_gradient(&dark)
             .set_fill(RED)
@@ -215,6 +217,49 @@ fn oversized_gradients_still_paint() {
             .set_fill_gradient(&vast)
             .fill_rect(0.0, 30.0, 100.0, 30.0);
     });
-    assert_ne!(pixel(&buffer, 80, 10), WHITE);
+    assert_eq!(pixel(&buffer, 80, 10), [0, 0, 255, 255]);
     assert_eq!(pixel(&buffer, 50, 45), [255, 0, 0, 255]);
+}
+
+#[test]
+fn text_takes_a_gradient_across_its_glyphs() {
+    let buffer = drawn(|canvas| {
+        canvas
+            .set_fill_gradient(&across().stop(0.0, RED).stop(1.0, BLUE))
+            .set_font("Arial", 60.0)
+            .set_font_weight(700.0)
+            .fill_text("HHH", 0.0, 55.0);
+    });
+    let solid = |column: usize| {
+        (0..60)
+            .map(|row| pixel(&buffer, column, row))
+            .find(|colour| colour[1] == 0)
+    };
+    let (left, right) = (0..50)
+        .find_map(solid)
+        .zip((50..100).rev().find_map(solid))
+        .expect("ink");
+    assert!(left[0] > 200 && left[2] < 55, "{left:?}");
+    assert!(right[2] > 150 && right[0] < 105, "{right:?}");
+}
+
+#[test]
+fn slanted_gradient_text_leans_like_plain_text() {
+    let inked = |gradient: bool| {
+        let buffer = drawn(|canvas| {
+            if gradient {
+                canvas.set_fill_gradient(&across().stop(0.0, Color::BLACK).stop(1.0, Color::BLACK));
+            }
+            canvas
+                .set_font("Arial", 50.0)
+                .set_font_italic(true)
+                .fill_text("III", 20.0, 50.0);
+        });
+        let dark = |row: usize| (0..100).find(|&column| pixel(&buffer, column, row)[0] < 128);
+        dark(20).zip(dark(45)).expect("ink")
+    };
+    let (plain_top, plain_foot) = inked(false);
+    let (top, foot) = inked(true);
+    assert!(top.abs_diff(plain_top) <= 1 && foot.abs_diff(plain_foot) <= 1);
+    assert!(top > foot);
 }
