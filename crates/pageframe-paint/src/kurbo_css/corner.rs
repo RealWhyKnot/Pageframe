@@ -8,7 +8,7 @@ const FIXED_SCALE: f64 = 256.0;
 const TALL_STEP: f64 = 2.0;
 const ANGLE_SLACK: f64 = 1e-9;
 
-pub(crate) fn arc_points(arc: &Arc, phase: f64) -> Vec<Point> {
+pub(super) fn arc_points(arc: &Arc, phase: f64) -> Vec<Point> {
     let end = arc.start_angle + arc.sweep_angle;
     let (low, high) = if arc.sweep_angle < 0.0 {
         (end, arc.start_angle)
@@ -157,11 +157,11 @@ fn quad_lines(points: &mut Vec<Point>, [start, control, end]: [Point; 3], phase:
         let point = if step == steps {
             Point::new(bottom.x, last_y)
         } else {
-            let t = f64::from(step) / f64::from(steps);
-            let mt = 1.0 - t;
-            let raw = (top.to_vec2() * (mt * mt)
-                + control.to_vec2() * (2.0 * mt * t)
-                + bottom.to_vec2() * (t * t))
+            let along = f64::from(step) / f64::from(steps);
+            let back = 1.0 - along;
+            let raw = (top.to_vec2() * (back * back)
+                + control.to_vec2() * (2.0 * back * along)
+                + bottom.to_vec2() * (along * along))
                 .to_point();
             let is_tall = (raw.y - previous_y).abs() >= TALL_STEP;
             previous_y = raw.y;
@@ -193,8 +193,11 @@ fn quad_lines(points: &mut Vec<Point>, [start, control, end]: [Point; 3], phase:
 
 fn segment_count(start: Point, control: Point, end: Point) -> u32 {
     let fixed = |value: f64| (value * FIXED_SCALE).trunc();
-    let deviation =
-        |a: f64, b: f64, c: f64| ((2.0 * fixed(b) - fixed(a) - fixed(c)) / 4.0).floor().abs();
+    let deviation = |from: f64, middle: f64, to: f64| {
+        ((2.0 * fixed(middle) - fixed(from) - fixed(to)) / 4.0)
+            .floor()
+            .abs()
+    };
     let dx = deviation(start.x, control.x, end.x);
     let dy = deviation(start.y, control.y, end.y);
     let distance = dx.max(dy) + (dx.min(dy) / 2.0).floor();
