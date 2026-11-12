@@ -19,6 +19,7 @@ data-url = { workspace = true }
 keyboard-types = { workspace = true }
 bytemuck = { workspace = true }
 kurbo = { workspace = true }
+num-traits = { workspace = true }
 parley = { workspace = true, features = ["bytemuck"] }
 peniko = { workspace = true }
 selectors = { workspace = true }

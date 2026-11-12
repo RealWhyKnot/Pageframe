@@ -3884,6 +3884,7 @@ dependencies = [
  "data-url",
  "keyboard-types",
  "kurbo",
+ "num-traits",
  "pageframe-dom",
  "pageframe-html",
  "pageframe-paint",

@@ -1,6 +1,6 @@
 use std::sync::PoisonError;
 
-use anyrender::{Glyph, Paint, PaintScene};
+use anyrender::{Glyph, PaintScene};
 use kurbo::{Affine, Vec2};
 use parley::{FontFamily, FontStyle, FontWeight, Layout, PositionedLayoutItem, StyleProperty};
 use peniko::Fill;
@@ -73,7 +73,6 @@ impl Canvas {
             TextAlign::Center => -width / 2.0,
             TextAlign::Right => -width,
         };
-        let paint = Paint::from(self.state.fill.brush(self.state.alpha));
         let baseline = self.state.text_baseline;
         let size = self.state.font_size;
         let shift_y = layout.root_span_metrics().map_or(0.0, |metrics| {
@@ -97,6 +96,9 @@ impl Canvas {
                     x + shift_x,
                     y + f64::from(shift_y) - f64::from(glyph_run.baseline()),
                 );
+                let Some(paint) = self.state.fill.paint(self.state.alpha, origin) else {
+                    continue;
+                };
                 let slant = run
                     .synthesis()
                     .skew()

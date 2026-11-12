@@ -1,3 +1,4 @@
+mod gradient;
 mod shapes;
 mod text;
 
@@ -10,6 +11,9 @@ use parley::{FontContext, LayoutContext};
 use peniko::Fill;
 use style::properties::ComputedValues;
 
+use gradient::Ink;
+
+pub use gradient::Gradient;
 pub use text::{TextAlign, TextBaseline};
 
 const DEFAULT_WIDTH: u32 = 300;
@@ -84,8 +88,8 @@ pub enum LineJoin {
 #[derive(Clone)]
 struct State {
     transform: Affine,
-    fill: Color,
-    stroke: Color,
+    fill: Ink,
+    stroke: Ink,
     line_width: f64,
     line_cap: LineCap,
     line_join: LineJoin,
@@ -105,8 +109,8 @@ impl Default for State {
     fn default() -> Self {
         Self {
             transform: Affine::IDENTITY,
-            fill: Color::BLACK,
-            stroke: Color::BLACK,
+            fill: Ink::Solid(Color::BLACK),
+            stroke: Ink::Solid(Color::BLACK),
             line_width: 1.0,
             line_cap: LineCap::default(),
             line_join: LineJoin::default(),
@@ -184,12 +188,12 @@ impl Canvas {
     }
 
     pub fn set_fill(&mut self, color: Color) -> &mut Self {
-        self.state.fill = color;
+        self.state.fill = Ink::Solid(color);
         self
     }
 
     pub fn set_stroke(&mut self, color: Color) -> &mut Self {
-        self.state.stroke = color;
+        self.state.stroke = Ink::Solid(color);
         self
     }
 
@@ -274,9 +278,11 @@ impl Canvas {
             return self;
         }
         let rect = Rect::new(x, y, x + width, y + height);
-        let brush = self.state.fill.brush(self.state.alpha);
+        let Some(brush) = self.state.fill.paint(self.state.alpha, Vec2::ZERO) else {
+            return self;
+        };
         self.scene
-            .fill(Fill::NonZero, self.state.transform, brush, None, &rect);
+            .fill(Fill::NonZero, self.state.transform, &brush, None, &rect);
         self
     }
 
@@ -285,10 +291,12 @@ impl Canvas {
             return self;
         }
         let rect = Rect::new(x, y, x + width, y + height);
-        let brush = self.state.stroke.brush(self.state.alpha);
+        let Some(brush) = self.state.stroke.paint(self.state.alpha, Vec2::ZERO) else {
+            return self;
+        };
         let style = self.stroke_style(2.0 * (width.abs() + height.abs()));
         self.scene
-            .stroke(&style, self.state.transform, brush, None, &rect);
+            .stroke(&style, self.state.transform, &brush, None, &rect);
         self
     }
 
@@ -369,9 +377,15 @@ impl Canvas {
     }
 
     fn fill_path(&mut self, rule: Fill) -> &mut Self {
-        let brush = self.state.fill.brush(self.state.alpha);
+        let transform = self.state.transform;
+        if transform.determinant().abs() < f64::EPSILON {
+            return self;
+        }
+        let Some(brush) = self.state.fill.paint(self.state.alpha, Vec2::ZERO) else {
+            return self;
+        };
         self.scene
-            .fill(rule, Affine::IDENTITY, brush, None, &self.path);
+            .fill(rule, Affine::IDENTITY, &brush, Some(transform), &self.path);
         self
     }
 
@@ -381,13 +395,15 @@ impl Canvas {
             return self;
         }
         let local = transform.inverse() * self.path.clone();
-        let brush = self.state.stroke.brush(self.state.alpha);
+        let Some(brush) = self.state.stroke.paint(self.state.alpha, Vec2::ZERO) else {
+            return self;
+        };
         let length = local
             .segments()
             .map(|segment| segment.arclen(LENGTH_ACCURACY))
             .sum();
         let style = self.stroke_style(length);
-        self.scene.stroke(&style, transform, brush, None, &local);
+        self.scene.stroke(&style, transform, &brush, None, &local);
         self
     }
 
