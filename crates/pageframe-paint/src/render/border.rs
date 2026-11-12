@@ -139,8 +139,8 @@ fn starting_at(path: &BezPath, start: Point) -> BezPath {
         })
         .map_or(0, |(index, _)| index);
     let mut rotated = BezPath::new();
-    let (after, before) = segments.split_at(first);
-    for (index, segment) in before.iter().chain(after).enumerate() {
+    let (head, tail) = segments.split_at(first);
+    for (index, segment) in tail.iter().chain(head).enumerate() {
         if index == 0 {
             rotated.move_to(segment.start());
         }
@@ -475,9 +475,12 @@ impl ElementCx<'_, '_> {
             (line, r * gap, gap)
         };
 
-        let stroke = Stroke::new(thickness)
-            .with_caps(Cap::Butt)
-            .with_dashes(0.0, [dash, gap]);
+        let solid = Stroke::new(thickness).with_caps(Cap::Butt);
+        let stroke = if gap > 0.0 {
+            solid.with_dashes(0.0, [dash, gap])
+        } else {
+            solid
+        };
         let clip = self.frame.border_edge_shape(edge);
         scene.push_clip_layer(Fill::NonZero, self.transform, &clip);
         scene.stroke(&stroke, self.transform, color, None, &centerline);
