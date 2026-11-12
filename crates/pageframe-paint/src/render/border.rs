@@ -102,8 +102,8 @@ fn grooved_edge_colors(color: Color, edge: Edge, ridge: bool) -> (Color, Color) 
 ///
 /// Matches Chrome: borders that are at least 3px use a 2:1 dash-to-gap ratio,
 /// while thinner borders use longer dashes and gaps (3:2) so they still read as
-/// dashes rather than dots or a solid line. `thickness` and `scale` are in device
-/// pixels; the 3px threshold is applied in CSS pixels.
+/// dashes rather than dots or a solid line. `thickness` and the 3px threshold are
+/// in device pixels.
 fn dashed_ratios(thickness: f64) -> (f64, f64) {
     if thickness >= 3.0 {
         (2.0, 1.0)
