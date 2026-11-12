@@ -67,6 +67,7 @@ mod scrollbar_drag;
 mod scrollbars;
 mod stale_dirty_descendants;
 mod stale_interaction_state;
+mod stale_node_id;
 mod style_property_invalidation;
 mod svg_attr_sizing;
 mod svg_background_size;

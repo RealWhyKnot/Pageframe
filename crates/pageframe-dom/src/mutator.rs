@@ -1324,13 +1324,8 @@ impl<'doc> DocumentMutator<'doc> {
             #[cfg(feature = "autofocus")]
             if node.is_focussable() {
                 if let NodeData::Element(ref element) = node.data {
-                    // `autofocus` is a boolean attribute, so presence alone enables it
-                    // (`<input autofocus>`). "false" is still ignored, because Dioxus
-                    // writes `autofocus: false` as the string "false".
-                    if let Some(value) = element.attr(local_name!("autofocus")) {
-                        if value != "false" {
-                            self.node_to_autofocus = Some(node_id);
-                        }
+                    if element.attr(local_name!("autofocus")).is_some() {
+                        self.node_to_autofocus = Some(node_id);
                     }
                 }
             }

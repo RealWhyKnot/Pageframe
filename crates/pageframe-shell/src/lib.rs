@@ -5,7 +5,6 @@
 //! ## Feature flags
 //!  - `default`: Enables the features listed below.
 //!  - `accessibility`: Enables [`accesskit`] accessibility support.
-//!  - `hot-reload`: Enables hot-reloading of Dioxus RSX.
 //!  - `tracing`: Enables tracing support.
 
 mod application;

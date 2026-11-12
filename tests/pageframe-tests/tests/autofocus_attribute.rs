@@ -1,6 +1,5 @@
 //! `autofocus` is a boolean attribute: its presence alone should focus the
-//! element when it is inserted. "false" is ignored because Dioxus writes
-//! `autofocus: false` as that string.
+//! element when it is inserted, whatever its value.
 
 use pageframe_dom::DocumentConfig;
 use pageframe_html::{HtmlDocument, HtmlProvider};
@@ -40,8 +39,8 @@ fn true_autofocus_focusses_element() {
 }
 
 #[test]
-fn false_autofocus_is_ignored() {
-    assert_eq!(focussed_id(r#"autofocus="false""#), None);
+fn false_autofocus_focusses_element() {
+    assert_eq!(focussed_id(r#"autofocus="false""#), Some("target".into()));
 }
 
 #[test]

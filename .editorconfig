@@ -16,7 +16,7 @@ switch_case_indent = true
 binary_next_line = true
 simplify = true
 
-[{vendor,third_party,node_modules,.yarn,crates/pageframe-devtools,crates/pageframe-script,crates/pageframe-test-harness,crates/pageframe-traits,crates/pageframe-html,crates/pageframe-paint,crates/pageframe-shell,crates/pageframe-dom,crates/accesskit_xplat,crates/debug_timer,crates/stylo_taffy,crates/dioxus-native-dom,tests,wpt,docs,.github/scripts,.github/workflows}/**]
+[{vendor,third_party,node_modules,.yarn,crates/pageframe-devtools,crates/pageframe-script,crates/pageframe-test-harness,crates/pageframe-traits,crates/pageframe-html,crates/pageframe-paint,crates/pageframe-shell,crates/pageframe-dom,crates/accesskit_xplat,crates/debug_timer,crates/stylo_taffy,tests,wpt,docs,.github/scripts,.github/workflows}/**]
 ignore = true
 
 [**/{vendor,third_party,node_modules,.yarn}/**]

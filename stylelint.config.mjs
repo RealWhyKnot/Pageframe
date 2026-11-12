@@ -65,7 +65,6 @@ const ignored = [
   "crates/accesskit_xplat/**",
   "crates/debug_timer/**",
   "crates/stylo_taffy/**",
-  "crates/dioxus-native-dom/**",
   "tests/**",
   "wpt/**",
   "docs/**",

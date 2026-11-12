@@ -12,7 +12,7 @@ rust-version.workspace = true
 [dev-dependencies]
 # Pageframe dependencies
 pageframe-test-harness = { workspace = true }
-pageframe-dom = { workspace = true, features = ["accessibility", "autofocus", "floats", "system-fonts", "text-transform-icu"] }
+pageframe-dom = { workspace = true, features = ["accessibility", "autofocus", "custom-widget", "floats", "system-fonts", "text-transform-icu"] }
 pageframe-html = { workspace = true }
 pageframe-traits = { workspace = true }
 pageframe-paint = { workspace = true, features = ["scrollbars", "svg"] }
