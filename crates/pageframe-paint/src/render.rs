@@ -668,11 +668,8 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
             child_clip_rect,
         };
 
-        if filters.is_empty() && !has_clip_path {
-            cx.draw_outline(scene);
-            if paints_own_box {
-                cx.draw_outset_box_shadow(scene);
-            }
+        if filters.is_empty() && !has_clip_path && paints_own_box {
+            cx.draw_outset_box_shadow(scene);
         }
 
         self.layer_manager.maybe_with_clip_layer(
@@ -696,13 +693,12 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                         None,
                         None,
                         |scene| {
-                            if has_clip_path {
-                                cx.draw_outline(scene);
-                                if paints_own_box {
-                                    cx.draw_outset_box_shadow(scene);
-                                }
+                            if has_clip_path && paints_own_box {
+                                cx.draw_outset_box_shadow(scene);
                             }
                             self.paint_effect_body(&mut cx, scene, &body);
+                            cx.transform = unscrolled_transform;
+                            cx.draw_outline(scene);
                         },
                     );
                     cx.transform = unscrolled_transform;
@@ -710,12 +706,12 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                     cx.draw_focus_ring(scene);
                 } else {
                     let mut recording = Scene::new();
-                    cx.draw_outline(&mut recording);
                     if paints_own_box {
                         cx.draw_outset_box_shadow(&mut recording);
                     }
                     self.paint_effect_body(&mut cx, &mut recording, &body);
                     cx.transform = unscrolled_transform;
+                    cx.draw_outline(&mut recording);
                     cx.draw_resizer(&mut recording);
                     cx.draw_focus_ring(&mut recording);
                     match filtered_image(recording, &filters, self.viewport_rect()) {

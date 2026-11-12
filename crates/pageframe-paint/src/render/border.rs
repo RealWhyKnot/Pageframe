@@ -582,20 +582,14 @@ impl ElementCx<'_, '_> {
             OutlineStyle::BorderStyle(style) => style,
         };
 
-        let path = match style {
-            BorderStyle::None | BorderStyle::Hidden => return,
-            BorderStyle::Solid => self.frame.outline(),
+        if matches!(style, BorderStyle::None | BorderStyle::Hidden)
+            || self.frame.outline_width <= 0.0
+        {
+            return;
+        }
+        let offset = (outline.outline_offset.to_f64_px() * self.scale).trunc();
+        let path = self.frame.outline(offset);
 
-            // TODO: Implement other border styles
-            BorderStyle::Inset
-            | BorderStyle::Groove
-            | BorderStyle::Outset
-            | BorderStyle::Ridge
-            | BorderStyle::Dotted
-            | BorderStyle::Dashed
-            | BorderStyle::Double => self.frame.outline(),
-        };
-
-        scene.fill(Fill::NonZero, self.transform, color, None, &path);
+        scene.fill(Fill::EvenOdd, self.transform, color, None, &path);
     }
 }

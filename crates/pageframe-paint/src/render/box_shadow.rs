@@ -1,7 +1,7 @@
 use super::ElementCx;
 use crate::color::{Color, ToColorColor as _};
 use anyrender::PaintScene;
-use kurbo::{Rect, Vec2};
+use kurbo::{Affine, Rect, Shape as _, Vec2};
 use pageframe_dom::CopyStyleGetters;
 use peniko::{Compose, Fill, Mix};
 
@@ -63,22 +63,23 @@ impl ElementCx<'_, '_> {
                         let spread = shadow.spread.px() as f64 * self.scale;
                         let blur = shadow.base.blur.px() as f64;
 
-                        // Without blur or spread the shadow is exactly the element's shape,
-                        // so fill the border box path directly (preserving individual radii)
-                        if blur == 0.0 && spread == 0.0 {
+                        let grown = self.frame.outset_border_box(spread);
+                        let rect = grown.border_box;
+                        if rect.width() <= 0.0 || rect.height() <= 0.0 {
+                            continue;
+                        }
+                        if blur == 0.0 {
                             scene.fill(
                                 Fill::NonZero,
                                 transform,
                                 shadow_color,
                                 None,
-                                &self.frame.border_box_path(),
+                                &grown.border_box_path(),
                             );
                             continue;
                         }
 
-                        // TODO draw shadows with matching individual radii instead of averaging
-                        let radius = self.frame.border_radii.average();
-                        let rect = self.frame.border_box.inflate(spread, spread);
+                        let radius = grown.border_radii.average();
 
                         // Fill the color
                         scene.draw_box_shadow(transform, rect, shadow_color, radius, blur);
@@ -108,12 +109,34 @@ impl ElementCx<'_, '_> {
                 return;
             }
 
-            // TODO draw shadows with matching individual radii instead of averaging
-            let radius = self.frame.border_radii.average();
-            let transform = self.transform.then_translate(Vec2 {
-                x: shadow.base.horizontal.px() as f64,
-                y: shadow.base.vertical.px() as f64,
-            });
+            let offset = Vec2 {
+                x: f64::from(shadow.base.horizontal.px()) * self.scale,
+                y: f64::from(shadow.base.vertical.px()) * self.scale,
+            };
+            let transform = self.transform.then_translate(offset);
+            let spread = f64::from(shadow.spread.px()) * self.scale;
+            let blur = f64::from(shadow.base.blur.px()) * self.scale;
+            let hole = self.frame.outset_padding_box(-spread);
+
+            if blur == 0.0 {
+                let reach = offset.x.abs().max(offset.y.abs()) + 1.0;
+                let mut ring = self.frame.padding_box.inflate(reach, reach).to_path(0.1);
+                if hole.border_box.width() > 0.0 && hole.border_box.height() > 0.0 {
+                    ring.extend(Affine::translate(offset) * hole.border_box_path());
+                }
+                scene.push_layer(
+                    Fill::NonZero,
+                    Mix::Normal,
+                    1.0,
+                    self.transform,
+                    &padding_box,
+                    None,
+                    None,
+                );
+                scene.fill(Fill::EvenOdd, self.transform, shadow_color, None, &ring);
+                scene.pop_layer();
+                continue;
+            }
 
             scene.push_layer(
                 Fill::NonZero,
@@ -141,15 +164,12 @@ impl ElementCx<'_, '_> {
                 None,
                 None,
             );
-            // The unshadowed area is the padding box shrunk by the spread radius
-            let spread = shadow.spread.px() as f64 * self.scale;
-            let hole = self.frame.padding_box.inflate(-spread, -spread);
             scene.draw_box_shadow(
                 transform,
-                hole,
+                hole.border_box,
                 Color::WHITE,
-                radius,
-                shadow.base.blur.px() as f64 * self.scale,
+                hole.border_radii.average(),
+                blur,
             );
 
             scene.pop_layer();

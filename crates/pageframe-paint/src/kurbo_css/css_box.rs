@@ -34,7 +34,6 @@ pub struct CssBox {
     pub border_box: Rect,
     pub padding_box: Rect,
     pub content_box: Rect,
-    pub outline_box: Rect,
 
     pub padding_width: Insets,
     pub border_width: Insets,
@@ -54,7 +53,6 @@ impl CssBox {
     ) -> Self {
         let padding_box = border_box - border;
         let content_box = padding_box - padding;
-        let outline_box = border_box.inset(outline_width);
 
         // Correct the border radii if they are too big if two border radii would intersect, then we need to shrink
         // ALL border radii by the same factor such that they do not
@@ -80,7 +78,6 @@ impl CssBox {
             padding_box,
             border_box,
             content_box,
-            outline_box,
             outline_width,
             padding_width: padding,
             border_width: border,
@@ -92,6 +89,44 @@ impl CssBox {
     pub fn on_pixels(mut self, phase: Option<f64>) -> Self {
         self.pixel_phase = phase;
         self
+    }
+
+    pub fn outset_border_box(&self, by: f64) -> CssBox {
+        self.outset(self.border_box, self.border_radii, by, grown_radius)
+    }
+
+    pub fn outset_padding_box(&self, by: f64) -> CssBox {
+        let inner = |radius: Vec2, corner: Corner| {
+            rounded_or_sharp(radius - get_corner_insets(self.border_width, corner))
+        };
+        let radii = NonUniformRoundedRectRadii {
+            top_left: inner(self.border_radii.top_left, Corner::TopLeft),
+            top_right: inner(self.border_radii.top_right, Corner::TopRight),
+            bottom_right: inner(self.border_radii.bottom_right, Corner::BottomRight),
+            bottom_left: inner(self.border_radii.bottom_left, Corner::BottomLeft),
+        };
+        self.outset(self.padding_box, radii, by, grown_radius)
+    }
+
+    fn outset(
+        &self,
+        rect: Rect,
+        radii: NonUniformRoundedRectRadii,
+        by: f64,
+        rule: fn(f64, f64) -> f64,
+    ) -> CssBox {
+        let grow =
+            |radius: Vec2| rounded_or_sharp(Vec2::new(rule(radius.x, by), rule(radius.y, by)));
+        let radii = NonUniformRoundedRectRadii {
+            top_left: grow(radii.top_left),
+            top_right: grow(radii.top_right),
+            bottom_right: grow(radii.bottom_right),
+            bottom_left: grow(radii.bottom_left),
+        };
+        let width = (rect.width() + 2.0 * by).max(0.0);
+        let height = (rect.height() + 2.0 * by).max(0.0);
+        let grown = Rect::from_center_size(rect.center(), (width, height));
+        CssBox::new(grown, Insets::ZERO, Insets::ZERO, 0.0, radii).on_pixels(self.pixel_phase)
     }
 
     fn add_arc(&self, path: &mut BezPath, arc: Arc) {
@@ -247,16 +282,17 @@ impl CssBox {
     }
 
     /// Construct a bezpath drawing the outline
-    pub fn outline(&self) -> BezPath {
-        let mut path = BezPath::new();
-
-        // TODO: this has been known to produce quirky outputs with hugely rounded edges
-        self.shape(&mut path, CssBoxKind::OutlineBox, Direction::Clockwise);
-        path.move_to(self.corner(Corner::TopLeft, CssBoxKind::BorderBox));
-
-        self.shape(&mut path, CssBoxKind::BorderBox, Direction::Anticlockwise);
-        path.move_to(self.corner(Corner::TopLeft, CssBoxKind::BorderBox));
-
+    pub fn outline(&self, offset: f64) -> BezPath {
+        let deepest = -self.border_box.width().min(self.border_box.height()) / 2.0;
+        if offset <= deepest {
+            return BezPath::new();
+        }
+        let ring = |by: f64| {
+            self.outset(self.border_box, self.border_radii, by, moved_radius)
+                .border_box_path()
+        };
+        let mut path = ring(offset + self.outline_width);
+        path.extend(ring(offset));
         path
     }
 
@@ -397,7 +433,6 @@ impl CssBox {
 
     fn corner(&self, corner: Corner, css_box: CssBoxKind) -> Point {
         let Rect { x0, y0, x1, y1 } = match css_box {
-            CssBoxKind::OutlineBox => self.outline_box,
             CssBoxKind::BorderBox => self.border_box,
             CssBoxKind::PaddingBox => self.padding_box,
             CssBoxKind::ContentBox => self.content_box,
@@ -579,7 +614,6 @@ impl CssBox {
         }
 
         let css_box: Insets = match side {
-            OutlineBox => return false,
             BorderBox => return false,
             PaddingBox => self.border_width,
             ContentBox => add_insets(self.border_width, self.padding_width),
@@ -638,7 +672,6 @@ impl CssBox {
 
         let radii: Vec2 = match side {
             BorderBox => corner_radii,
-            OutlineBox => corner_radii + Vec2::new(self.outline_width, self.outline_width),
             PaddingBox => corner_radii - get_corner_insets(*border_width, corner),
             ContentBox => {
                 corner_radii - get_corner_insets(add_insets(*border_width, *padding_width), corner)
@@ -683,6 +716,35 @@ impl BuildBezpath for BezPath {
             self.push(PathEl::LineTo(point));
         }
     }
+}
+
+fn rounded_or_sharp(radius: Vec2) -> Vec2 {
+    if radius.x > 0.0 && radius.y > 0.0 {
+        radius
+    } else {
+        Vec2::ZERO
+    }
+}
+
+fn moved_radius(radius: f64, by: f64) -> f64 {
+    if radius <= 0.0 {
+        return 0.0;
+    }
+    (radius + by).max(0.0)
+}
+
+fn grown_radius(radius: f64, by: f64) -> f64 {
+    if radius <= 0.0 {
+        return 0.0;
+    }
+    if by < 0.0 {
+        return (radius + by).max(0.0);
+    }
+    if radius >= by {
+        return radius + by;
+    }
+    let short = 1.0 - radius / by;
+    radius + by * (1.0 - short * short * short)
 }
 
 /// Get the start angle of the arc based on the border width and the radii
