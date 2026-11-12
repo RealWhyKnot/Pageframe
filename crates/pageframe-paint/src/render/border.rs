@@ -104,8 +104,8 @@ fn grooved_edge_colors(color: Color, edge: Edge, ridge: bool) -> (Color, Color) 
 /// while thinner borders use longer dashes and gaps (3:2) so they still read as
 /// dashes rather than dots or a solid line. `thickness` and `scale` are in device
 /// pixels; the 3px threshold is applied in CSS pixels.
-fn dashed_ratios(thickness: f64, scale: f64) -> (f64, f64) {
-    if thickness >= 3.0 * scale {
+fn dashed_ratios(thickness: f64) -> (f64, f64) {
+    if thickness >= 3.0 {
         (2.0, 1.0)
     } else {
         (3.0, 2.0)
@@ -446,7 +446,7 @@ impl ElementCx<'_, '_> {
             return;
         }
 
-        let (dash_ratio, gap_ratio) = dashed_ratios(thickness, self.scale);
+        let (dash_ratio, gap_ratio) = dashed_ratios(thickness);
 
         // Work out the centre line to stroke and the dash/gap lengths along it.
         let (centerline, dash, gap) = if self.frame.has_border_radius() {
@@ -532,7 +532,7 @@ impl ElementCx<'_, '_> {
     }
 
     fn round_dash_loop(&self, thickness: f64) -> Option<(BezPath, f64, f64)> {
-        let (dash_ratio, gap_ratio) = dashed_ratios(thickness, self.scale);
+        let (dash_ratio, gap_ratio) = dashed_ratios(thickness);
         let middle = self.frame.border_slice(0.0, 0.5);
         let corner = self.frame.border_radii.top_left.x - self.frame.border_width.x0 / 2.0;
         let start = Point::new(
@@ -546,7 +546,7 @@ impl ElementCx<'_, '_> {
         if perimeter <= 0.0 {
             return None;
         }
-        let whole = (perimeter / self.scale).trunc() * self.scale;
+        let whole = perimeter.trunc();
         let dash = dash_ratio * thickness;
         let gap = closed_dash_gap(whole, dash, gap_ratio * thickness);
         Some((centerline, dash, gap))

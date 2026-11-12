@@ -1,6 +1,8 @@
+mod scaled;
 mod support;
 
 use pageframe::App;
+use scaled::render_at_scale;
 use support::{open, pixel, render};
 
 fn page(body: &str) -> Vec<u8> {
@@ -142,5 +144,30 @@ fn a_dashed_round_border_too_short_for_two_dashes_is_solid() {
     ] {
         let [red, green, blue, _] = pixel(&buffer, x, y);
         assert!(red < 30 && green < 30 && blue > 225, "({x},{y}) is blue");
+    }
+}
+
+#[test]
+fn a_short_dashed_round_border_is_dashed_at_double_scale_like_chromes() {
+    let html = "<!DOCTYPE html><html><head><style>html,body{margin:0;background:white}</style></head><body><div style='background:lime;width:2px;height:2px;border:2px dashed blue;border-radius:3px'></div></body></html>";
+    let mut harness = open(App::new((), html));
+    let buffer = render_at_scale(&mut harness, 2);
+    let width = usize::try_from(support::WIDTH).expect("test width fits in usize") * 2;
+    let chrome = [
+        ((2, 2), [0, 255, 0]),
+        ((3, 1), [0, 255, 0]),
+        ((9, 9), [0, 255, 0]),
+        ((7, 2), [0, 0, 255]),
+        ((2, 7), [0, 0, 255]),
+    ];
+    for ((x, y), expected) in chrome {
+        let start = (y * width + x) * 4;
+        let found = &buffer[start..start + 3];
+        for channel in 0..3 {
+            assert!(
+                near(found[channel], expected[channel]),
+                "({x},{y}) is {found:?}, Chrome has {expected:?}"
+            );
+        }
     }
 }
