@@ -135,7 +135,7 @@ impl ElementCx<'_, '_> {
 
         // The background color is clipped by the clip of the last layer in the list
         let last_clip = *get_cyclic(&bg_styles.background_clip.0, layer_count - 1);
-        let background_clip_path = self.box_path(self.clip_box(last_clip.into()));
+        let background_clip_path = self.background_path(self.clip_box(last_clip.into()));
 
         // Draw background color (if any)
         let mut text_run = last_clip == StyloBackgroundClip::Text;
@@ -157,7 +157,7 @@ impl ElementCx<'_, '_> {
             if layer_paints_nothing(&layer) {
                 continue;
             }
-            let background_clip_path = self.box_path(self.clip_box(layer.clip));
+            let background_clip_path = self.background_path(self.clip_box(layer.clip));
 
             self.context.layer_manager.maybe_with_layer(
                 scene,
@@ -220,6 +220,15 @@ impl ElementCx<'_, '_> {
             BoxModelBox::PaddingBox
         } else {
             clip
+        }
+    }
+
+    fn background_path(&self, css_box: BoxModelBox) -> BezPath {
+        match (css_box, self.covered_border_share()) {
+            (BoxModelBox::BorderBox, Some(share)) => {
+                self.frame.border_slice(0.0, share).padding_box_path()
+            }
+            _ => self.box_path(css_box),
         }
     }
 

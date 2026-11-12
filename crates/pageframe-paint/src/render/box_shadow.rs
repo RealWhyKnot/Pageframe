@@ -22,7 +22,7 @@ impl ElementCx<'_, '_> {
             .resolve_to_absolute(&current_color)
             .as_srgb_color();
         let bg_is_opaque = bg_color.components[3] >= 1.0;
-        let needs_clip = opacity < 1.0 || !bg_is_opaque;
+        let needs_clip = opacity < 1.0 || !bg_is_opaque || self.covered_border_share().is_some();
 
         let max_shadow_rect = box_shadow.iter().fold(Rect::ZERO, |prev, shadow| {
             let x = shadow.base.horizontal.px() as f64 * self.scale;

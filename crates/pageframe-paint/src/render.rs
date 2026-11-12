@@ -1031,7 +1031,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
         // todo: maybe cache this so we don't need to constantly be figuring it out
         // It is quite a bit of math to calculate during render/traverse
         // Also! we can cache the bezpaths themselves, saving us a bunch of work
-        let frame = create_css_rect(&style, &layout, scale);
+        let frame = create_css_rect(&style, &layout, scale).on_pixels(pixel_phase(transform));
 
         let element = node.element_data().unwrap();
 
@@ -1069,9 +1069,11 @@ impl ElementCx<'_, '_> {
         }
         let mut layout = *self.node.final_layout();
         layout.size.height -= above + below;
+        let transform = self.transform * Affine::translate((0.0, f64::from(above) * self.scale));
         Some(OwnBox {
-            frame: create_css_rect(&self.style, &layout, self.scale),
-            transform: self.transform * Affine::translate((0.0, f64::from(above) * self.scale)),
+            frame: create_css_rect(&self.style, &layout, self.scale)
+                .on_pixels(pixel_phase(transform)),
+            transform,
         })
     }
 
@@ -1408,7 +1410,8 @@ impl ElementCx<'_, '_> {
             None,
         );
         let outline_width = style.get_outline().outline_width.0.to_f64_px() * self.scale;
-        cx.frame = CssBox::new(size.to_rect(), border, padding, outline_width, radii);
+        cx.frame = CssBox::new(size.to_rect(), border, padding, outline_width, radii)
+            .on_pixels(pixel_phase(cx.transform));
         cx.draw_outset_box_shadow(scene);
         cx.draw_background(scene);
         cx.draw_inset_box_shadow(scene);
@@ -1997,11 +2000,12 @@ impl ElementCx<'_, '_> {
                 if !has_corner_radius(&style) {
                     continue;
                 }
-                let frame = create_css_rect(&style, clipper.final_layout(), self.scale);
                 let offset = kurbo::Vec2 {
                     x: f64::from(origin.x) * self.scale,
                     y: f64::from(origin.y) * self.scale,
                 };
+                let frame = create_css_rect(&style, clipper.final_layout(), self.scale)
+                    .on_pixels(pixel_phase(transform.pre_translate(offset)));
                 let is_pushed = self.context.layer_manager.maybe_push_layer(
                     scene,
                     frame.has_border_radius(),
@@ -2360,6 +2364,11 @@ fn has_corner_radius(style: &ComputedValues) -> bool {
     .any(|radius| {
         !style::Zero::is_zero(&radius.0.width.0) && !style::Zero::is_zero(&radius.0.height.0)
     })
+}
+
+fn pixel_phase(transform: Affine) -> Option<f64> {
+    let [a, b, c, d, _, y] = transform.as_coeffs();
+    (a == 1.0 && b == 0.0 && c == 0.0 && d == 1.0).then(|| y - y.floor())
 }
 
 /// Convert Stylo and Taffy types into Kurbo types

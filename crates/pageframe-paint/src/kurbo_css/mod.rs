@@ -8,6 +8,7 @@
 
 use kurbo::{Insets, Vec2};
 
+mod corner;
 mod css_box;
 mod non_uniform_radii;
 

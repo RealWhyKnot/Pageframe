@@ -7,7 +7,7 @@ use smallvec::SmallVec;
 use style::{
     computed_values::border_collapse::T as BorderCollapse,
     values::computed::{BorderStyle, OutlineStyle},
-    values::specified::box_::DisplayInside,
+    values::specified::box_::{Display, DisplayInside},
 };
 
 use crate::{
@@ -150,6 +150,48 @@ fn sample_points_along_path(path: &BezPath, spacing: f64, count: usize) -> Vec<P
 }
 
 impl ElementCx<'_, '_> {
+    pub(super) fn covered_border_share(&self) -> Option<f64> {
+        if self.style.clone_display() == Display::Inline || !self.frame.has_border_radius() {
+            return None;
+        }
+        let border = self.style.get_border();
+        let current_color = self.style.clone_color();
+        let width = self.frame.border_width;
+        let sides = [
+            (border.border_top_style, &border.border_top_color, width.y0),
+            (
+                border.border_right_style,
+                &border.border_right_color,
+                width.x1,
+            ),
+            (
+                border.border_bottom_style,
+                &border.border_bottom_color,
+                width.y1,
+            ),
+            (
+                border.border_left_style,
+                &border.border_left_color,
+                width.x0,
+            ),
+        ];
+        let mut share: f64 = 0.5;
+        for (line, color, width) in sides {
+            let is_broken = matches!(
+                line,
+                BorderStyle::None | BorderStyle::Hidden | BorderStyle::Dotted | BorderStyle::Dashed
+            );
+            let color = color.resolve_to_absolute(&current_color).as_srgb_color();
+            if is_broken || width <= 0.0 || color.components[3] < 1.0 {
+                return None;
+            }
+            if line == BorderStyle::Double {
+                share = share.min(1.0 / 6.0);
+            }
+        }
+        Some(share)
+    }
+
     /// Draw all borders for a node
     pub(crate) fn draw_border(&self, scene: &mut impl PaintScene) {
         let style = &*self.style;
@@ -191,6 +233,12 @@ impl ElementCx<'_, '_> {
                 let width = (bb.width() - pb.width()) / 2.0;
                 // Miter join keeps sharp corners square. It has no effect on rounded
                 // corners, whose arcs meet the straight edges tangentially.
+                if self.frame.pixel_phase.is_some() && self.frame.has_border_radius() {
+                    let mut ring = self.frame.border_box_path();
+                    ring.extend(self.frame.padding_box_path());
+                    scene.fill(Fill::EvenOdd, self.transform, color, None, &ring);
+                    return;
+                }
                 let stroke = Stroke::new(width).with_join(Join::Miter);
 
                 if self.frame.is_uniform_corner_border() {

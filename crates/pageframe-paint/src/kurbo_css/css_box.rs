@@ -1,6 +1,7 @@
 use kurbo::{Arc, BezPath, Insets, PathEl, Point, Rect, Shape as _, Vec2};
 use std::{f64::consts::FRAC_PI_2, f64::consts::PI};
 
+use super::corner::arc_points;
 use super::non_uniform_radii::NonUniformRoundedRectRadii;
 use super::{Corner, CssBoxKind, Direction, Edge, EdgeEnd, add_insets, get_corner_insets};
 
@@ -40,6 +41,7 @@ pub struct CssBox {
     pub outline_width: f64,
 
     pub border_radii: NonUniformRoundedRectRadii,
+    pub pixel_phase: Option<f64>,
 }
 
 impl CssBox {
@@ -83,6 +85,23 @@ impl CssBox {
             padding_width: padding,
             border_width: border,
             border_radii,
+            pixel_phase: None,
+        }
+    }
+
+    pub fn on_pixels(mut self, phase: Option<f64>) -> Self {
+        self.pixel_phase = phase;
+        self
+    }
+
+    fn add_arc(&self, path: &mut BezPath, arc: Arc) {
+        match self.pixel_phase {
+            Some(phase) => {
+                for point in arc_points(&arc, phase) {
+                    path.insert_point(point);
+                }
+            }
+            None => path.insert_arc(arc),
         }
     }
 
@@ -120,11 +139,17 @@ impl CssBox {
         } else {
             match self.corner_needs_infill(c0) {
                 true => {
-                    path.insert_arc(self.partial_corner_arc(c0, PaddingBox, edge, Anticlockwise))
+                    self.add_arc(
+                        &mut path,
+                        self.partial_corner_arc(c0, PaddingBox, edge, Anticlockwise),
+                    );
                 }
                 false => path.move_to(self.corner(c0, PaddingBox)),
             }
-            path.insert_arc(self.partial_corner_arc(c0, BorderBox, edge, Clockwise));
+            self.add_arc(
+                &mut path,
+                self.partial_corner_arc(c0, BorderBox, edge, Clockwise),
+            );
         }
 
         // 2. Second corner
@@ -133,10 +158,16 @@ impl CssBox {
             path.line_to(outer);
             path.line_to(inner);
         } else {
-            path.insert_arc(self.partial_corner_arc(c1, BorderBox, edge, Clockwise));
+            self.add_arc(
+                &mut path,
+                self.partial_corner_arc(c1, BorderBox, edge, Clockwise),
+            );
             match self.corner_needs_infill(c1) {
                 true => {
-                    path.insert_arc(self.partial_corner_arc(c1, PaddingBox, edge, Anticlockwise))
+                    self.add_arc(
+                        &mut path,
+                        self.partial_corner_arc(c1, PaddingBox, edge, Anticlockwise),
+                    );
                 }
                 false => path.line_to(self.corner(c1, PaddingBox)),
             }
@@ -212,6 +243,7 @@ impl CssBox {
             0.0,
             slice_radii,
         )
+        .on_pixels(self.pixel_phase)
     }
 
     /// Construct a bezpath drawing the outline
@@ -313,7 +345,7 @@ impl CssBox {
             if self.is_sharp(corner, line) {
                 path.insert_point(self.corner(corner, line));
             } else {
-                path.insert_arc(self.corner_arc(corner, line, direction));
+                self.add_arc(path, self.corner_arc(corner, line, direction));
             }
         }
     }
@@ -337,19 +369,28 @@ impl CssBox {
         } else {
             const TOLERANCE: f64 = 0.1;
             let arc = self.corner_arc(TopLeft, CssBoxKind::BorderBox, Direction::Anticlockwise);
-            let elements = arc.path_elements(TOLERANCE);
-            path.extend(elements);
+            match self.pixel_phase {
+                Some(phase) => {
+                    for (index, point) in arc_points(&arc, phase).into_iter().enumerate() {
+                        if index == 0 {
+                            path.move_to(point);
+                        } else {
+                            path.line_to(point);
+                        }
+                    }
+                }
+                None => path.extend(arc.path_elements(TOLERANCE)),
+            }
         }
 
         for corner in [/*TopLeft, */ BottomLeft, BottomRight, TopRight] {
             if self.is_sharp(corner, CssBoxKind::BorderBox) {
                 path.insert_point(self.corner(corner, CssBoxKind::BorderBox));
             } else {
-                path.insert_arc(self.corner_arc(
-                    corner,
-                    CssBoxKind::BorderBox,
-                    Direction::Anticlockwise,
-                ));
+                self.add_arc(
+                    path,
+                    self.corner_arc(corner, CssBoxKind::BorderBox, Direction::Anticlockwise),
+                );
             }
         }
     }
