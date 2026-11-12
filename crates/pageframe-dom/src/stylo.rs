@@ -945,6 +945,23 @@ impl<'a> TElement for PageframeNode<'a> {
 
         let tag = &elem.name.local;
 
+        if let Some(rows) = crate::select_list_rows(elem) {
+            let css = format!("height: calc({rows} * (1.2em + 1px))");
+            let url_data = crate::url::DocumentUrl::default().url_extra_data();
+            let block = style::properties::parse_style_attribute(
+                &css,
+                &url_data,
+                None,
+                style::context::QuirksMode::NoQuirks,
+                style::stylesheets::CssRuleType::Style,
+            );
+            hints.push(ApplicableDeclarationBlock::from_declarations(
+                Arc::new(self.guard().wrap(block)),
+                CascadeLevel::new(CascadeOrigin::PresHints),
+                LayerOrder::root(),
+            ));
+        }
+
         let mut push_style = |decl: PropertyDeclaration| {
             hints.push(ApplicableDeclarationBlock::from_declarations(
                 Arc::new(

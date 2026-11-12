@@ -107,6 +107,14 @@ impl<D: Document> Harness<D> {
         self.pump();
     }
 
+    pub fn click_at_with(&mut self, x: f32, y: f32, modifiers: Modifiers) {
+        let mut event = mouse_pointer_event(x, y);
+        event.mods = modifiers;
+        self.dispatch(UiEvent::PointerDown(event.clone()));
+        self.dispatch(UiEvent::PointerUp(event));
+        self.pump();
+    }
+
     /// Press the main mouse button at page coordinates `(x, y)`
     pub fn mouse_down_at(&mut self, x: f32, y: f32) {
         self.dispatch(UiEvent::PointerDown(mouse_pointer_event(x, y)));

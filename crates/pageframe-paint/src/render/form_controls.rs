@@ -68,7 +68,12 @@ impl ElementCx<'_, '_> {
     }
 
     pub(super) fn draw_select_arrow(&self, scene: &mut impl PaintScene) {
-        if self.node.local_name() != "select" || self.node.attr(local_name!("multiple")).is_some() {
+        let list = self
+            .node
+            .element_data()
+            .and_then(pageframe_dom::select_list_rows)
+            .is_some();
+        if self.node.local_name() != "select" || list {
             return;
         }
         let border_box = self.frame.border_box;

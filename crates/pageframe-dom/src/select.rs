@@ -81,11 +81,7 @@ impl BaseDocument {
             .map(|option| self.option_value(option))
     }
 
-    pub(crate) fn select_is_list(&self, select: NodeId) -> bool {
-        self.nodes[select].attr(local_name!("multiple")).is_some()
-    }
-
-    fn set_option_selected(&mut self, option: NodeId, selected: bool) {
+    pub(crate) fn set_option_selected(&mut self, option: NodeId, selected: bool) {
         if self.option_is_selected(option) == selected {
             return;
         }
@@ -102,7 +98,8 @@ impl BaseDocument {
         if !options.contains(&option) {
             return;
         }
-        let single = !self.select_is_list(select);
+        let single = !self.select_is_list(select)
+            || self.nodes[select].attr(local_name!("multiple")).is_none();
         for other in options {
             if other == option {
                 self.set_option_selected(other, true);
@@ -125,7 +122,8 @@ impl BaseDocument {
     }
 
     pub(crate) fn reset_select(&mut self, select: NodeId) {
-        if self.select_is_list(select) {
+        let list = self.select_is_list(select);
+        if list && self.nodes[select].attr(local_name!("multiple")).is_some() {
             return;
         }
         let options = self.select_options(select);
@@ -138,7 +136,7 @@ impl BaseDocument {
                 options
                     .iter()
                     .copied()
-                    .find(|&option| !self.option_is_disabled(option))
+                    .find(|&option| !list && !self.option_is_disabled(option))
             });
         for option in options {
             self.set_option_selected(option, Some(option) == keep);

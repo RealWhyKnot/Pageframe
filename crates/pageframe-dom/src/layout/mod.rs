@@ -282,6 +282,9 @@ impl LayoutPassState<'_> {
             && self.nodes[dom_node_id(node_id)]
                 .data
                 .is_element_with_tag_name(&local_name!("option"))
+            && !self
+                .option_select(dom_node_id(node_id))
+                .is_some_and(|select| self.select_is_list(select))
         {
             output.size.width = output.size.width.ceil();
         }

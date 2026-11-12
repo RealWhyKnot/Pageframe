@@ -74,7 +74,7 @@ impl PopupLayout {
 }
 
 #[derive(Clone, Copy)]
-enum Step {
+pub(crate) enum Step {
     Next,
     Previous,
     First,
@@ -84,6 +84,18 @@ enum Step {
 }
 
 const PAGE_STEP: usize = 3;
+
+pub(crate) fn key_step(key: &Key) -> Option<Step> {
+    match key {
+        Key::Named(NamedKey::ArrowDown | NamedKey::ArrowRight) => Some(Step::Next),
+        Key::Named(NamedKey::ArrowUp | NamedKey::ArrowLeft) => Some(Step::Previous),
+        Key::Named(NamedKey::Home) => Some(Step::First),
+        Key::Named(NamedKey::End) => Some(Step::Last),
+        Key::Named(NamedKey::PageDown) => Some(Step::PageDown),
+        Key::Named(NamedKey::PageUp) => Some(Step::PageUp),
+        _ => None,
+    }
+}
 
 fn count(rows: usize) -> f64 {
     f64::from(u32::try_from(rows).unwrap_or(u32::MAX))
@@ -396,7 +408,12 @@ impl BaseDocument {
         }
     }
 
-    fn stepped_option(&self, select: NodeId, from: Option<NodeId>, step: Step) -> Option<NodeId> {
+    pub(crate) fn stepped_option(
+        &self,
+        select: NodeId,
+        from: Option<NodeId>,
+        step: Step,
+    ) -> Option<NodeId> {
         let options: Vec<NodeId> = self
             .select_options(select)
             .into_iter()
@@ -445,22 +462,14 @@ impl BaseDocument {
         dispatch_event: &mut dyn FnMut(DomEvent),
     ) -> bool {
         if self.select_is_list(select) {
-            return false;
+            return self.list_key(select, key, dispatch_event);
         }
         let open = self.open_popup().filter(|popup| popup.select == select);
         let current = match open {
             Some(popup) => popup.highlighted,
             None => self.selected_option(select),
         };
-        let step = match key {
-            Key::Named(NamedKey::ArrowDown | NamedKey::ArrowRight) => Some(Step::Next),
-            Key::Named(NamedKey::ArrowUp | NamedKey::ArrowLeft) => Some(Step::Previous),
-            Key::Named(NamedKey::Home) => Some(Step::First),
-            Key::Named(NamedKey::End) => Some(Step::Last),
-            Key::Named(NamedKey::PageDown) => Some(Step::PageDown),
-            Key::Named(NamedKey::PageUp) => Some(Step::PageUp),
-            _ => None,
-        };
+        let step = key_step(key);
         let target = match (step, key) {
             (Some(step), _) => self.stepped_option(select, current, step),
             (None, Key::Character(typed)) if typed.as_str() != " " => {

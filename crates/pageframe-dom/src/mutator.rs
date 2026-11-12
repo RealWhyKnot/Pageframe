@@ -454,6 +454,7 @@ impl DocumentMutator<'_> {
         } else if (tag, attr) == tag_and_attr!("option", "selected") {
             self.picked_options.push(node_id);
         } else if (tag, attr) == tag_and_attr!("select", "multiple")
+            || (tag, attr) == tag_and_attr!("select", "size")
             || (tag, attr) == tag_and_attr!("option", "disabled")
         {
             self.selects_changed = true;
@@ -577,6 +578,7 @@ impl DocumentMutator<'_> {
         } else if (tag, attr) == tag_and_attr!("input", "checked") {
             element.set_checkbox_input_checked(false);
         } else if (tag, attr) == tag_and_attr!("select", "multiple")
+            || (tag, attr) == tag_and_attr!("select", "size")
             || (tag, attr) == tag_and_attr!("option", "disabled")
         {
             self.selects_changed = true;

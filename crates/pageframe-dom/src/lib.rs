@@ -61,6 +61,7 @@ mod resolved_style;
 /// Scrolling of nodes and the viewport, and scroll animations.
 mod scrolling;
 mod select;
+mod select_list;
 mod select_popup;
 mod selection;
 /// Implementations that interact with servo's style engine
@@ -111,6 +112,7 @@ pub use mutator::DocumentMutator;
 pub use node::{Attribute, DocumentData, ElementData, Node, NodeData, TextNodeData};
 pub use parley::FontContext;
 pub use scrolling::{ScrollBehavior, ScrollLogicalPosition};
+pub use select_list::select_list_rows;
 pub use select_popup::{PopupLayout, PopupRow};
 pub use tree::NodeTree;
 

@@ -175,8 +175,7 @@ optgroup > option {
     margin-right: 30px;
 }
 
-option:checked,
-select[multiple] option {
+option:checked {
     height: auto;
     padding-block: 1px;
     visibility: visible;
@@ -199,7 +198,62 @@ select:empty::before {
     padding-block: 1px;
 }
 
+select:is([multiple]:not([size="1"]), [size]:not([size="0"], [size="1"])) {
+    display: inline-block;
+    box-sizing: content-box;
+    min-width: 0;
+    vertical-align: text-bottom;
+    border-radius: 2px;
+    overflow: hidden auto;
+}
+
+select:is([multiple]:not([size="1"]), [size]:not([size="0"], [size="1"])):disabled {
+    background-color: white;
+}
+
+select:is([multiple]:not([size="1"]), [size]:not([size="0"], [size="1"])) option {
+    height: auto;
+    min-height: 1.2em;
+    margin: 0;
+    padding: 0 2px 1px;
+    overflow: visible;
+    visibility: visible;
+}
+
+select:is([multiple]:not([size="1"]), [size]:not([size="0"], [size="1"])) optgroup {
+    display: block;
+    font-weight: bold;
+}
+
+select:is([multiple]:not([size="1"]), [size]:not([size="0"], [size="1"])) optgroup::before {
+    content: attr(label);
+    display: block;
+    min-height: 1.2em;
+    padding: 0 2px 1px;
+}
+
+select:is([multiple]:not([size="1"]), [size]:not([size="0"], [size="1"])) optgroup > option {
+    padding-left: 20px;
+    font-weight: normal;
+}
+
+select:is([multiple]:not([size="1"]), [size]:not([size="0"], [size="1"])) option:checked {
+    background-color: rgb(206, 206, 206);
+    color: rgb(16, 16, 16);
+}
+
+select:is([multiple]:not([size="1"]), [size]:not([size="0"], [size="1"])):focus option:checked {
+    background-color: rgb(25, 103, 210);
+    color: white;
+}
+
+select:is([multiple]:not([size="1"]), [size]:not([size="0"], [size="1"])) option[disabled],
+select:is([multiple]:not([size="1"]), [size]:not([size="0"], [size="1"])) optgroup[disabled] > option {
+    color: rgb(109, 109, 109);
+}
+
 input:focus,
+select:focus,
 textarea:focus {
     outline: auto 1px #101010;
     outline-offset: 0;

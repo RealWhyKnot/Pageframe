@@ -642,6 +642,17 @@ pub(crate) fn handle_click(
     let mut maybe_node_id = Some(target);
     let matched = 'matched: {
         while let Some(node_id) = maybe_node_id {
+            let toggle = event.mods.contains(crate::util::ACTION_MOD);
+            if let Some(select) = doc.click_list_option(node_id, toggle, dispatch_event) {
+                generate_focus_events(
+                    doc,
+                    &mut |doc| {
+                        doc.set_focus_to(select);
+                    },
+                    dispatch_event,
+                );
+                break 'matched true;
+            }
             let maybe_element = {
                 let node = &mut doc.nodes[node_id];
                 node.data.downcast_element_mut()
