@@ -159,13 +159,13 @@ impl ElementCx<'_, '_> {
             }
         } else {
             let middle = (across_start + across_end) / 2.0;
-            for along in round_dot_centers(start, length, thickness) {
+            for along in round_dot_centers(start, length, width) {
                 let center = if vertical {
                     Point::new(middle, along)
                 } else {
                     Point::new(along, middle)
                 };
-                path.extend(Circle::new(center, thickness / 2.0).path_elements(0.1));
+                path.extend(Circle::new(center, width / 2.0).path_elements(0.1));
             }
         }
         scene.push_clip_layer(Fill::NonZero, self.transform, clip);

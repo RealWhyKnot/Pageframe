@@ -454,9 +454,6 @@ impl ElementCx<'_, '_> {
             };
             dashes
         } else {
-            // Square corners: stroke a straight line through the middle of the edge,
-            // corner to corner. Dash and gap keep their ratio but are scaled so the
-            // edge both starts and ends with a dash (covering the corners).
             let bb = self.frame.border_box;
             let half = thickness / 2.0;
             let (start, end, length) = match edge {
@@ -551,13 +548,6 @@ impl ElementCx<'_, '_> {
         Some((centerline, dash, gap))
     }
 
-    /// Draw a single `dotted` border edge.
-    ///
-    /// Dots are filled circles (diameter == border thickness). Unlike dashes they
-    /// can't be produced by stroking, because kurbo doesn't emit zero-length dashes
-    /// (so a round-capped dash pattern would render nothing); drawing them
-    /// explicitly also lets us anchor a dot in each square corner. Everything is
-    /// clipped to the edge's region, as for the other styles.
     pub(crate) fn caption_space(&self) -> (f32, f32) {
         let SpecialElementData::TableRoot(table) = &self.element.special_data else {
             return (0.0, 0.0);
