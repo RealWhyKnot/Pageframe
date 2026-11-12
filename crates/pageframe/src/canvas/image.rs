@@ -153,6 +153,9 @@ impl Canvas {
         if lean == 0.0 && tilt == 0.0 {
             let edge = |value: f64| (value + 0.5).floor();
             let covered = whole.transform_rect_bbox(shown);
+            if !finite(&[covered.x0, covered.y0, covered.x1, covered.y1]) {
+                return self;
+            }
             let snapped = Rect::new(
                 edge(covered.x0),
                 edge(covered.y0),

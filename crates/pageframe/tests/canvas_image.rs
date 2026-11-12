@@ -150,6 +150,12 @@ fn a_transform_past_what_numbers_hold_draws_nothing() {
             .draw_image_scaled(&halves(), 0.0, 0.0, 1e200, 1e200);
     });
     assert_eq!(pixel(&buffer, 10, 10), WHITE);
+    let buffer = drawn(|canvas| {
+        canvas
+            .scale(1e150, 1e150)
+            .draw_image_scaled(&halves(), 0.0, 0.0, 2e158, 2e158);
+    });
+    assert_eq!(pixel(&buffer, 10, 10), WHITE);
 }
 
 #[test]
