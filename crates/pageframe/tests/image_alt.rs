@@ -412,3 +412,20 @@ fn wrapped_alt_text_sits_on_its_last_line() {
     let content = "<img id='box' src='data:,bad' alt='Hello' style='max-width:30px'>";
     assert_eq!(line_and_box("<!doctype html>", content), (36.0, 0.0));
 }
+
+#[test]
+fn standards_alt_with_one_dimension_has_no_frame() {
+    for display in ["block", "inline-block"] {
+        let attributes =
+            format!("src='data:,bad' alt='Hello there you' style='display:{display};width:60px'");
+        assert_eq!(image_size(&attributes, true), (60.0, 60.0));
+    }
+}
+
+#[test]
+fn sized_alt_text_sits_on_its_last_line_in_standards_mode() {
+    let sized = "<img id='box' src='data:,bad' alt='Hello there you' style='display:inline-block;width:60px;height:50px'>";
+    assert_eq!(line_and_box("<!doctype html>", sized), (60.0, 0.0));
+    let padded = "<img id='box' src='data:,bad' alt='Hello' style='display:inline-block;width:80px;height:30px;padding:3px;border:2px solid red'>";
+    assert_eq!(line_and_box("<!doctype html>", padded), (40.0, 0.0));
+}

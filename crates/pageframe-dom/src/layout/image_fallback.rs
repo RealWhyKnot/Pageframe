@@ -59,7 +59,16 @@ pub(crate) fn layout(node: &mut Node, mut inputs: LayoutInput) -> LayoutOutput {
         .primary_styles()
         .map(|s| crate::stylo_to_parley::text_align(s.clone_text_align()))
         .unwrap_or(parley::Alignment::Start);
-    fallback.inset = if sized && !fallback.loading { 2.0 } else { 0.0 };
+    let framed = if fallback.quirks {
+        sized
+    } else {
+        specified.width.is_some() && specified.height.is_some()
+    };
+    fallback.inset = if framed && !fallback.loading {
+        2.0
+    } else {
+        0.0
+    };
     let inset = fallback.inset * 2.0;
     let natural = if fallback.loading {
         0.0
@@ -112,13 +121,13 @@ pub(crate) fn layout(node: &mut Node, mut inputs: LayoutInput) -> LayoutOutput {
         .layout
         .layout
         .align(alignment, AlignmentOptions::default());
-    if has_alt && !sized {
+    if has_alt && !(sized && fallback.quirks) {
         output.baselines.first = fallback
             .layout
             .layout
             .lines()
             .last()
-            .map(|line| line.metrics().baseline / scale);
+            .map(|line| pb.top + line.metrics().baseline / scale);
         output.baselines.last = output.baselines.first;
     }
     drop(source_style);
