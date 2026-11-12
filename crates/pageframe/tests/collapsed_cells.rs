@@ -349,3 +349,22 @@ fn a_quirks_table_starts_from_the_default_font() {
         39.0
     );
 }
+
+#[test]
+fn a_top_caption_pushes_the_inline_table_baseline_down() {
+    let rows = "<caption>Cap</caption><tr><td style='padding:6px'>Ab</td></tr>";
+    assert_eq!(marker_top("<!doctype html>", "", &inline_table(rows)), 47.0);
+    let below = "<caption style='caption-side:bottom'>Cap</caption>\
+<tr><td style='padding:6px'>Ab</td></tr>";
+    assert_eq!(
+        marker_top("<!doctype html>", "", &inline_table(below)),
+        27.0
+    );
+}
+
+#[test]
+fn a_spanning_baseline_cell_still_sets_the_inline_table_baseline() {
+    let rows = "<tr><td rowspan='2' style='padding:6px;vertical-align:baseline'>Ab</td>\
+<td style='padding:6px'>Cd</td></tr><tr><td>Ef</td></tr>";
+    assert_eq!(marker_top("<!doctype html>", "", &inline_table(rows)), 22.0);
+}

@@ -2181,13 +2181,16 @@ impl TableTreeWrapper<'_, '_> {
         };
         let mut edge: Option<f32> = None;
         let cells = self.ctx.cells.iter();
-        for cell in cells.filter(|cell| cell.row == first && cell.row_span == 1) {
+        for cell in cells.filter(|cell| cell.row == first) {
             let node = &self.doc.nodes[cell.node_id];
             let on_baseline = node.primary_styles().is_none_or(|style| {
                 stylo_taffy::convert::table_cell_vertical_align(&style).is_none()
             });
             if on_baseline {
                 return;
+            }
+            if cell.row_span != 1 {
+                continue;
             }
             let layout = node.unrounded_layout();
             let bottom = layout.location.y + layout.size.height
@@ -2460,6 +2463,7 @@ impl TableTreeWrapper<'_, '_> {
         let above = side_height(false);
         let grid_height = output.size.height;
         output.size.height += above + side_height(true);
+        output.baselines.first = output.baselines.first.map(|baseline| baseline + above);
         if inputs.run_mode != taffy::RunMode::PerformLayout {
             return;
         }
