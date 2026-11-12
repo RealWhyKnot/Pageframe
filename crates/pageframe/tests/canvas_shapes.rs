@@ -128,6 +128,24 @@ fn zero_length_dashes_with_caps_draw_dots() {
 }
 
 #[test]
+fn a_line_with_very_many_dashes_still_draws() {
+    let buffer = drawn(|canvas| {
+        canvas
+            .set_stroke(Color::rgb(255, 0, 0))
+            .set_line_width(10.0)
+            .set_line_dash(&[0.1, 0.1])
+            .begin_path()
+            .move_to(0.0, 30.0)
+            .line_to(30_000.0, 30.0)
+            .stroke();
+    });
+    let [red, green, blue, _] = pixel(&buffer, 50, 30);
+    assert_eq!(red, 255);
+    assert!((100..160).contains(&green) && (100..160).contains(&blue));
+    assert_eq!(pixel(&buffer, 50, 50), WHITE);
+}
+
+#[test]
 fn a_stroked_curve_keeps_its_outer_edge() {
     let buffer = drawn(|canvas| {
         canvas
