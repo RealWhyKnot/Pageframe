@@ -32,7 +32,7 @@ const LENGTH_ACCURACY: f64 = 1.0;
 const STROKE_TOLERANCE: f64 = 0.01;
 const COARSEST_STROKE: f64 = 1e-7;
 const DOT_LENGTH: f64 = 1e-3;
-const MAX_FLATTENED: usize = 100_000;
+const MAX_FLATTENED: usize = 500_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Color {
@@ -431,11 +431,7 @@ impl Canvas {
         let tolerance = (STROKE_TOLERANCE / scale).max(reach * COARSEST_STROKE);
         (tolerance.is_finite() && tolerance > 0.0).then(|| {
             let curved = kurbo::stroke(local, style, &StrokeOpts::default(), tolerance);
-            if curved.elements().len() > MAX_FLATTENED {
-                curved
-            } else {
-                flattened(&curved, tolerance)
-            }
+            flattened(&curved, tolerance).unwrap_or(curved)
         })
     }
 
@@ -494,10 +490,16 @@ impl Canvas {
     }
 }
 
-fn flattened(path: &BezPath, tolerance: f64) -> BezPath {
+fn flattened(path: &BezPath, tolerance: f64) -> Option<BezPath> {
     let mut lines = BezPath::new();
-    kurbo::flatten(path, tolerance, |element| lines.push(element));
-    lines
+    let mut count = 0_usize;
+    kurbo::flatten(path, tolerance, |element| {
+        count += 1;
+        if count <= MAX_FLATTENED {
+            lines.push(element);
+        }
+    });
+    (count <= MAX_FLATTENED).then_some(lines)
 }
 
 fn finite(values: &[f64]) -> bool {
