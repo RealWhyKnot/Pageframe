@@ -207,6 +207,20 @@ fn a_clip_with_nothing_to_draw_hides_the_box() {
 }
 
 #[test]
+fn bad_numbers_drop_only_their_own_shape() {
+    let clip = r#"<clipPath id="c"><polygon points="0,0 NaN,60 100,60"/><rect width="40" height="30" transform="scale(inf)"/><rect x="60" width="40" height="30"/></clipPath>"#;
+    assert_eq!(
+        colors(clip, [(80, 15), (20, 15), (50, 50)]),
+        [FILL, FILL, PAGE]
+    );
+    let huge = r#"<clipPath id="c"><circle cx="50" cy="50" r="1e300" transform="scale(1e300)"/></clipPath>"#;
+    assert_eq!(
+        colors(huge, [(2, 2), (50, 30), (98, 58)]),
+        [FILL, FILL, FILL]
+    );
+}
+
+#[test]
 fn a_reference_to_something_else_does_not_clip() {
     let gradient = r#"<linearGradient id="c"></linearGradient>"#;
     assert_eq!(

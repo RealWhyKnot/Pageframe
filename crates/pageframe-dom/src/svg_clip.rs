@@ -7,6 +7,8 @@ use pageframe_traits::node_id::NodeId;
 use style::computed_values::visibility::T as Visibility;
 use style::values::computed::url::ComputedUrl;
 
+const MAX_REACH: f64 = 1e9;
+
 impl BaseDocument {
     pub fn clip_path_of(&self, node: &Node) -> Option<ResolvedClipPath> {
         node.clip_path_with(|id| self.get_element_by_id(id))
@@ -68,6 +70,21 @@ impl Node {
                 continue;
             };
             path.apply_affine(base * transform_of(element));
+            let bounds = path.bounding_box();
+            let reach = [bounds.x0, bounds.y0, bounds.x1, bounds.y1];
+            if reach
+                .iter()
+                .any(|edge| !edge.is_finite() || edge.abs() > MAX_REACH)
+            {
+                let misses = bounds.x0 > 0.0
+                    || bounds.y0 > 0.0
+                    || bounds.x1 < f64::from(size.width)
+                    || bounds.y1 < f64::from(size.height);
+                if misses {
+                    continue;
+                }
+                path = Rect::new(-MAX_REACH, -MAX_REACH, MAX_REACH, MAX_REACH).to_path(0.1);
+            }
             let rule = element
                 .attr(local_name!("clip-rule"))
                 .or_else(|| clip_element.attr(local_name!("clip-rule")));
@@ -294,7 +311,7 @@ fn parse_length(value: &str) -> Option<f64> {
 fn parse_numbers(list: &str) -> Option<Vec<f64>> {
     list.split(|character: char| character == ',' || character.is_whitespace())
         .filter(|number| !number.is_empty())
-        .map(|number| number.parse().ok())
+        .map(|number| number.parse().ok().filter(|value: &f64| value.is_finite()))
         .collect()
 }
 
