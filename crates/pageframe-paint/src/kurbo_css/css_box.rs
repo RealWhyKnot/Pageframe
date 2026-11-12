@@ -9,7 +9,7 @@ use super::{Corner, CssBoxKind, Direction, Edge, EdgeEnd, add_insets, get_corner
 /// We have 4 boxes, 4 corners, and clockwise/anticlockwise for a total of 16 different options
 ///
 /// ```a
-///    *--------------------------------------------------------*  <--- CssBox::OutlineBox
+///    *--------------------------------------------------------*
 ///    |                         Outline                        |
 ///    |    *----------------------------------------------*    |  <--- CssBox::BorderBox
 ///    |    |                    Border                    |    |

@@ -4,6 +4,7 @@ use anyrender::PaintScene;
 use kurbo::{Affine, Rect, Shape as _, Vec2};
 use pageframe_dom::CopyStyleGetters;
 use peniko::{Compose, Fill, Mix};
+use std::f64::consts::FRAC_1_SQRT_2;
 
 impl ElementCx<'_, '_> {
     pub(super) fn draw_outset_box_shadow(&self, scene: &mut impl PaintScene) {
@@ -61,7 +62,7 @@ impl ElementCx<'_, '_> {
                         });
 
                         let spread = shadow.spread.px() as f64 * self.scale;
-                        let blur = shadow.base.blur.px() as f64;
+                        let blur = f64::from(shadow.base.blur.px()) * self.scale;
 
                         let grown = self.frame.outset_border_box(spread);
                         let rect = grown.border_box;
@@ -82,7 +83,13 @@ impl ElementCx<'_, '_> {
                         let radius = grown.border_radii.average();
 
                         // Fill the color
-                        scene.draw_box_shadow(transform, rect, shadow_color, radius, blur);
+                        scene.draw_box_shadow(
+                            transform,
+                            rect,
+                            shadow_color,
+                            radius,
+                            blur * FRAC_1_SQRT_2,
+                        );
                     }
                 }
             },
@@ -169,7 +176,7 @@ impl ElementCx<'_, '_> {
                 hole.border_box,
                 Color::WHITE,
                 hole.border_radii.average(),
-                blur,
+                blur * FRAC_1_SQRT_2,
             );
 
             scene.pop_layer();

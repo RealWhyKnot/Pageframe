@@ -1,6 +1,8 @@
+mod scaled;
 mod support;
 
 use pageframe::App;
+use scaled::render_at_scale;
 use support::{open, pixel, render};
 
 fn page(style: &str) -> Vec<u8> {
@@ -73,4 +75,44 @@ fn an_inset_spread_wider_than_the_radius_has_a_square_hole() {
     let ring = pixel(&buffer, 19, 19);
     assert!(ring[0] > 225 && ring[1] < 30, "the shadow ring");
     assert!(is_lime(pixel(&buffer, 20, 20)), "the hole's corner pixel");
+}
+
+fn near(found: u8, expected: u8) -> bool {
+    found.abs_diff(expected) <= 8
+}
+
+#[test]
+fn a_blurred_shadow_fades_like_chromes() {
+    let buffer = page("box-shadow:0 0 6px red");
+    for (x, green) in [(13, 143), (11, 201), (8, 246), (5, 254)] {
+        let found = pixel(&buffer, x, 24)[1];
+        assert!(
+            near(found, green),
+            "({x},24) is {found}, Chrome has {green}"
+        );
+    }
+}
+
+#[test]
+fn a_blurred_inset_shadow_fades_like_chromes() {
+    let buffer = page("box-shadow:inset 0 0 6px red");
+    for (x, red) in [(14, 108), (16, 57), (18, 20), (22, 0)] {
+        let found = pixel(&buffer, x, 24)[0];
+        assert!(near(found, red), "({x},24) is {found}, Chrome has {red}");
+    }
+}
+
+#[test]
+fn a_blurred_shadow_doubles_its_reach_at_double_scale() {
+    let html = "<!DOCTYPE html><html><head><style>html,body{margin:0;background:white}</style></head><body><div style='background:lime;width:40px;height:20px;margin:14px;box-shadow:0 0 6px red'></div></body></html>";
+    let mut harness = open(App::new((), html));
+    let buffer = render_at_scale(&mut harness, 2);
+    let width = usize::try_from(support::WIDTH).expect("test width fits in usize") * 2;
+    for (x, green) in [(27, 135), (25, 166), (21, 217), (15, 248)] {
+        let found = buffer[(48 * width + x) * 4 + 1];
+        assert!(
+            near(found, green),
+            "({x},48) is {found}, Chrome has {green}"
+        );
+    }
 }
