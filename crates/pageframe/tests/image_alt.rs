@@ -571,3 +571,13 @@ fn a_span_holding_only_a_box_adds_its_strut_in_standards_mode() {
         (40.0, 15.0)
     );
 }
+
+#[test]
+fn a_framed_fallback_sits_on_its_content_edge() {
+    let marker = "<b id='box' style='display:inline-block;width:10px;height:10px'></b>";
+    let style = "style='width:60px;height:30px;padding:3px 3px 7px;border:2px solid red'";
+    let with_alt = format!("{marker}<img src='data:,bad' alt='Hello' {style}>");
+    assert_eq!(line_and_box("", &with_alt), (44.0, 25.0));
+    let without_alt = format!("{marker}<img src='data:,bad' {style}>");
+    assert_eq!(line_and_box("<!doctype html>", &without_alt), (44.0, 25.0));
+}

@@ -129,6 +129,9 @@ pub(crate) fn layout(node: &mut Node, mut inputs: LayoutInput) -> LayoutOutput {
             .last()
             .map(|line| pb.top + line.metrics().baseline / scale);
         output.baselines.last = output.baselines.first;
+    } else if fallback.inset != 0.0 && (has_source || has_alt) {
+        output.baselines.first = Some(output.size.height - pb.bottom);
+        output.baselines.last = output.baselines.first;
     }
     drop(source_style);
     if let Some(element) = node.element_data_mut() {
