@@ -234,9 +234,9 @@ fn an_inline_block_uses_the_line_before_a_table_as_its_baseline() {
     let buffer = draw(&format!(
         "<div><span style=\"display:inline-block\">{LINE}<table>{CELLS}</table></span>{MARKER}</div>"
     ));
-    assert_eq!(pixel(&buffer, 40, 13), RED);
-    assert_eq!(pixel(&buffer, 3, 3), WHITE);
-    assert_eq!(pixel(&buffer, 3, 5), YELLOW);
+    assert_eq!(pixel(&buffer, 40, 9), RED);
+    assert_eq!(pixel(&buffer, 40, 13), WHITE);
+    assert_eq!(pixel(&buffer, 3, 3), YELLOW);
 }
 
 #[test]

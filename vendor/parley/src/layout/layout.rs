@@ -209,6 +209,14 @@ impl<B: Brush> Layout<B> {
         self.data.empty_boxes_open_lines = open;
     }
 
+    /// Sets whether a line gets the root strut only once it holds text, as in quirks mode,
+    /// where a line of nothing but inline boxes is exactly as tall as those boxes.
+    ///
+    /// This must be called before [`Layout::break_all_lines`] or [`Layout::break_lines`].
+    pub fn set_strut_needs_text(&mut self, needs_text: bool) {
+        self.data.strut_needs_text = needs_text;
+    }
+
     /// Returns line breaker to compute lines for the layout.
     pub fn break_lines(&mut self) -> BreakLines<'_, B> {
         BreakLines::new(self)

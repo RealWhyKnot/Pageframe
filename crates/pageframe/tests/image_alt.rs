@@ -513,3 +513,61 @@ fn a_contents_wrapper_lets_the_link_underline_through() {
     ));
     assert_eq!(pixel(&render(&mut harness), 20, 16), [0, 0, 238, 255]);
 }
+
+const BOX: &str = "<span id='box' style='display:inline-block;width:30px;height:10px'></span>";
+const OTHER: &str = "<span style='display:inline-block;width:30px;height:10px'></span>";
+
+#[test]
+fn a_quirks_line_of_boxes_is_as_tall_as_its_boxes() {
+    assert_eq!(line_and_box("", BOX), (10.0, 0.0));
+    assert_eq!(
+        line_and_box("", &format!("<span>{BOX}</span>")),
+        (10.0, 0.0)
+    );
+    assert_eq!(
+        line_and_box(
+            "",
+            &format!("<a href='#x' style='line-height:40px'>{BOX}</a>")
+        ),
+        (10.0, 0.0)
+    );
+    assert_eq!(line_and_box("<!doctype html>", BOX), (20.0, 5.0));
+}
+
+#[test]
+fn text_brings_the_strut_back_in_quirks_mode() {
+    assert_eq!(line_and_box("", &format!("ab{BOX}")), (20.0, 5.0));
+    assert_eq!(line_and_box("", &format!("{BOX} {OTHER}")), (20.0, 5.0));
+    assert_eq!(line_and_box("", &format!("&nbsp;{BOX}")), (20.0, 5.0));
+    assert_eq!(
+        line_and_box(
+            "",
+            &format!("<span style='border:1px solid red'>{BOX}</span>")
+        ),
+        (20.0, 5.0)
+    );
+}
+
+#[test]
+fn breaks_between_boxes_add_no_strut_in_quirks_mode() {
+    assert_eq!(line_and_box("", &format!("{BOX}<br>{OTHER}")), (20.0, 0.0));
+    assert_eq!(line_and_box("", &format!("<br><br>{BOX}")), (50.0, 40.0));
+    assert_eq!(
+        line_and_box(
+            "",
+            &format!("<div style='width:60px'>{BOX} {OTHER} {OTHER}</div>")
+        ),
+        (30.0, 0.0)
+    );
+}
+
+#[test]
+fn a_span_holding_only_a_box_adds_its_strut_in_standards_mode() {
+    assert_eq!(
+        line_and_box(
+            "<!doctype html>",
+            &format!("<span style='line-height:40px'>{BOX}</span>")
+        ),
+        (40.0, 15.0)
+    );
+}

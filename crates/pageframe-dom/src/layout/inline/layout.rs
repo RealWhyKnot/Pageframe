@@ -1003,6 +1003,9 @@ impl LayoutPassState<'_> {
         inline_layout
             .layout
             .set_empty_boxes_open_lines(!self.in_quirks_mode);
+        inline_layout
+            .layout
+            .set_strut_needs_text(self.in_quirks_mode);
         // Percentage indents do not contribute to intrinsic widths.
         inline_layout.layout.set_text_indent(
             text_indent.length.resolve(CSSPixelLength::new(0.0)).px() * scale,

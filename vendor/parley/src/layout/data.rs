@@ -238,6 +238,9 @@ pub(crate) struct LayoutData<B: Brush> {
     pub(crate) indent_options: IndentOptions,
     /// Whether an in-flow inline box with no size still gives its line the strut height.
     pub(crate) empty_boxes_open_lines: bool,
+    /// Whether a line gets the root strut only once it holds text (the quirks mode line height
+    /// rule). Span boxes then also stay off lines where they hold no text.
+    pub(crate) strut_needs_text: bool,
 }
 
 impl<B: Brush> Default for LayoutData<B> {
@@ -264,6 +267,7 @@ impl<B: Brush> Default for LayoutData<B> {
             indent_amount: 0.0,
             indent_options: IndentOptions::default(),
             empty_boxes_open_lines: false,
+            strut_needs_text: false,
         }
     }
 }
@@ -281,6 +285,7 @@ impl<B: Brush> LayoutData<B> {
         self.indent_amount = 0.0;
         self.indent_options = IndentOptions::default();
         self.empty_boxes_open_lines = false;
+        self.strut_needs_text = false;
         self.styles.clear();
         self.style_metrics.clear();
         self.inline_boxes.clear();
