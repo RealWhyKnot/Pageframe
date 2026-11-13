@@ -37,6 +37,6 @@ impl ElementCx<'_, '_> {
             style: Arc::clone(&self.style),
             ..*self
         };
-        ring.draw_sides(scene, [style; 4], [color; 4]);
+        ring.draw_sides(scene, [style; 4], [color; 4], false);
     }
 }

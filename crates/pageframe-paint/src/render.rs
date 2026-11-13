@@ -785,11 +785,15 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
         if let Some(other) = &mut other_box {
             cx.swap_box(other);
         }
+        let outer_clipped = body.paints_own_box && cx.clips_dashed_background();
+        if outer_clipped {
+            cx.begin_dashed_background(scene);
+        }
         if body.paints_own_box {
             if native_text_field {
                 cx.draw_native_text_field(scene);
             } else {
-                cx.draw_background(scene);
+                cx.draw_background(scene, outer_clipped);
             }
             cx.draw_inset_box_shadow(scene);
         }
@@ -801,7 +805,10 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
             cx.swap_box(other);
         }
         if body.paints_own_box && !native_text_field && !cx.has_collapsed_borders() {
-            cx.draw_border(scene);
+            cx.draw_border(scene, outer_clipped);
+        }
+        if outer_clipped {
+            scene.pop_layer();
         }
         if let Some(other) = &mut other_box {
             cx.swap_box(other);
@@ -1413,9 +1420,16 @@ impl ElementCx<'_, '_> {
         cx.frame = CssBox::new(size.to_rect(), border, padding, outline_width, radii)
             .on_pixels(pixel_phase(cx.transform));
         cx.draw_outset_box_shadow(scene);
-        cx.draw_background(scene);
+        let outer_clipped = cx.clips_dashed_background();
+        if outer_clipped {
+            cx.begin_dashed_background(scene);
+        }
+        cx.draw_background(scene, outer_clipped);
         cx.draw_inset_box_shadow(scene);
-        cx.draw_border(scene);
+        cx.draw_border(scene, outer_clipped);
+        if outer_clipped {
+            scene.pop_layer();
+        }
         cx.draw_outline(scene);
     }
 

@@ -2,7 +2,7 @@ use super::{ALMOST_OPAQUE, ElementCx, to_image_quality, to_peniko_image};
 use crate::color::{Color, ToColorColor};
 use crate::gradient::to_peniko_gradient;
 use anyrender::PaintScene;
-use kurbo::{self, Affine, BezPath, Point, Rect, Size, Vec2};
+use kurbo::{self, Affine, BezPath, Point, Rect, Shape as _, Size, Vec2};
 use pageframe_dom::CopyStyleGetters;
 use pageframe_dom::NodeId;
 use pageframe_dom::node::{ImageData, ImageResourceData, SpecialElementData};
@@ -127,7 +127,7 @@ impl<'a> ImageLayerStyles<'a> {
 }
 
 impl ElementCx<'_, '_> {
-    pub(super) fn draw_background(&self, scene: &mut impl PaintScene) {
+    pub(super) fn draw_background(&self, scene: &mut impl PaintScene, outer_clipped: bool) {
         self.draw_lifted_cell_tracks(scene);
         let bg_styles = &self.style.get_background();
         let image_data = &self.element.background_images;
@@ -135,7 +135,10 @@ impl ElementCx<'_, '_> {
 
         // The background color is clipped by the clip of the last layer in the list
         let last_clip = *get_cyclic(&bg_styles.background_clip.0, layer_count - 1);
-        let background_clip_path = self.background_path(self.clip_box(last_clip.into()));
+        let background_clip_path = self.background_path(
+            self.clip_box(last_clip.into()),
+            outer_clipped && last_clip != StyloBackgroundClip::Text,
+        );
 
         // Draw background color (if any)
         let mut text_run = last_clip == StyloBackgroundClip::Text;
@@ -157,7 +160,8 @@ impl ElementCx<'_, '_> {
             if layer_paints_nothing(&layer) {
                 continue;
             }
-            let background_clip_path = self.background_path(self.clip_box(layer.clip));
+            let background_clip_path =
+                self.background_path(self.clip_box(layer.clip), outer_clipped && !layer.text_clip);
 
             self.context.layer_manager.maybe_with_layer(
                 scene,
@@ -223,7 +227,10 @@ impl ElementCx<'_, '_> {
         }
     }
 
-    fn background_path(&self, css_box: BoxModelBox) -> BezPath {
+    fn background_path(&self, css_box: BoxModelBox, outer_clipped: bool) -> BezPath {
+        if css_box == BoxModelBox::BorderBox && outer_clipped {
+            return self.frame.border_box.to_path(0.1);
+        }
         match (css_box, self.covered_border_share()) {
             (BoxModelBox::BorderBox, Some(share)) => {
                 self.frame.border_slice(0.0, share).padding_box_path()
