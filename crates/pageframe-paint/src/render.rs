@@ -2073,8 +2073,12 @@ impl ElementCx<'_, '_> {
         // Apply object-fit algorithm
         let container_size = taffy::Size { width, height };
         let object_size = taffy::Size {
-            width: svg_size.width(),
-            height: svg_size.height(),
+            width: (f64::from(svg_size.width()) * self.scale)
+                .to_f32()
+                .unwrap_or(0.0),
+            height: (f64::from(svg_size.height()) * self.scale)
+                .to_f32()
+                .unwrap_or(0.0),
         };
         let paint_size = compute_object_fit(container_size, Some(object_size), object_fit);
 
@@ -2228,8 +2232,12 @@ impl ElementCx<'_, '_> {
                 height: height as f32,
             };
             let object_size = taffy::Size {
-                width: image.width as f32,
-                height: image.height as f32,
+                width: (f64::from(image.width) * self.scale)
+                    .to_f32()
+                    .unwrap_or(0.0),
+                height: (f64::from(image.height) * self.scale)
+                    .to_f32()
+                    .unwrap_or(0.0),
             };
             let paint_size = compute_object_fit(container_size, Some(object_size), object_fit);
 
@@ -2243,8 +2251,8 @@ impl ElementCx<'_, '_> {
             let x = x + x_offset.px() as f64;
             let y = y + y_offset.px() as f64;
 
-            let x_scale = paint_size.width as f64 / object_size.width as f64;
-            let y_scale = paint_size.height as f64 / object_size.height as f64;
+            let x_scale = f64::from(paint_size.width) / f64::from(image.width);
+            let y_scale = f64::from(paint_size.height) / f64::from(image.height);
             let transform = self
                 .transform
                 .pre_translate(Vec2 { x, y })
