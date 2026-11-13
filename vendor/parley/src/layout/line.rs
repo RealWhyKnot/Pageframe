@@ -430,6 +430,10 @@ impl<'a, B: Brush> Iterator for GlyphRunIter<'a, B> {
             let item = self.line.item(self.item_index)?;
             match item {
                 LineItem::InlineBox(inline_box) => {
+                    if inline_box.kind == InlineBoxKind::EmptySpan {
+                        self.item_index += 1;
+                        continue;
+                    }
                     let x = self.offset
                         + self.line.data.metrics.inline_min_coord
                         + self.line.data.metrics.offset;

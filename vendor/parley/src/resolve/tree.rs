@@ -191,6 +191,10 @@ impl<B: Brush> TreeStyleBuilder<B> {
         self.resolve_style_id(self.current_span)
     }
 
+    pub(crate) fn current_span_is_empty(&self) -> bool {
+        self.tree[self.current_span].style_id.is_none()
+    }
+
     /// Appends already white space processed `text` to the buffer, attributed to `span`.
     fn commit_text(&mut self, span: usize, text: &str) {
         let style_index = self.resolve_style_id(span);

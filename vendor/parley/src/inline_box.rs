@@ -44,6 +44,7 @@ pub(crate) struct LayoutInlineBox {
 /// or custom-out-of-flow (line-breaking should yield control flow)
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum InlineBoxKind {
+    EmptySpan,
     /// `InFlow` boxes take up space in the layout and flow in line with text
     ///
     /// They correspond to `display: inline-block` boxes in CSS.

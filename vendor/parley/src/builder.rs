@@ -300,6 +300,20 @@ impl<'b, B: Brush> TreeBuilder<'b, B> {
         });
     }
 
+    pub fn push_empty_span(&mut self, id: u64) {
+        if self.lcx.tree_style_builder.current_span_is_empty() {
+            self.push_inline_box(InlineBox {
+                id,
+                kind: InlineBoxKind::EmptySpan,
+                index: 0,
+                width: 0.,
+                height: 0.,
+                baseline: None,
+                vertical_align: crate::VerticalAlign::BASELINE,
+            });
+        }
+    }
+
     /// Sets the paragraph's base direction.
     ///
     /// The default is [`BaseDirection::Auto`], which infers the direction from the text.

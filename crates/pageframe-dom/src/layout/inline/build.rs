@@ -472,6 +472,7 @@ pub(crate) fn build_inline_layout_into(
                                     edges.inset_end,
                                 );
                             }
+                            builder.push_empty_span(node_id.as_u64());
                             builder.pop_style_span();
                             if let Some(edges) = &edges {
                                 push_margin_spacer(

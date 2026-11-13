@@ -964,6 +964,15 @@ impl<'a, B: Brush> BreakLines<'a, B> {
             self.state
                 .append_aligned_inline_box_to_line(next_x, inline_box, placement, quantize);
         } else {
+            if inline_box.kind == InlineBoxKind::EmptySpan && !self.layout.data.strut_needs_text {
+                self.state.line.box_metrics.add_style(
+                    layout_box.parent_style_index,
+                    true,
+                    &self.layout.data.style_metrics,
+                    &mut self.state.contributed,
+                    &mut self.state.subtrees,
+                );
+            }
             self.state
                 .append_inline_box_to_line(next_x, f32::NEG_INFINITY, f32::NEG_INFINITY);
         }
@@ -1148,7 +1157,7 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                     // line and otherwise skipped.
                     let (width_contribution, height_contribution) = match inline_box.kind {
                         InlineBoxKind::InFlow => (inline_box.width, inline_box.height),
-                        InlineBoxKind::OutOfFlow => {
+                        InlineBoxKind::OutOfFlow | InlineBoxKind::EmptySpan => {
                             self.append_layout_inline_box(item.index, self.state.line.x);
                             continue;
                         }

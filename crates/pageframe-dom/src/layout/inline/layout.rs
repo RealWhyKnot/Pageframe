@@ -888,6 +888,9 @@ impl LayoutPassState<'_> {
 
         // Update inline boxes
         for ibox in inline_layout.layout.inline_boxes_mut() {
+            if ibox.kind == parley::InlineBoxKind::EmptySpan {
+                continue;
+            }
             let style = self.child_layout_style(&self.nodes[NodeId::from_u64(ibox.id)]);
             let margin = style
                 .margin()
