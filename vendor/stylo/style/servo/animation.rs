@@ -1675,7 +1675,7 @@ impl DocumentAnimationSet {
             .map_or(false, |set| set.has_active_transition())
     }
 
-    /// Return whether or not the provided node has active CSS animations or transitions 
+    /// Return whether or not the provided node has active CSS animations or transitions
     pub fn has_active_animations_or_transitions(&self, key: &AnimationSetKey) -> bool {
         self.sets
             .read()

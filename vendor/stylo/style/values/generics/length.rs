@@ -182,12 +182,7 @@ where
 {
     fn collect_completion_keywords(f: style_traits::KeywordsCollectFn) {
         LengthPercent::collect_completion_keywords(f);
-        f(&[
-            "auto",
-            "fit-content",
-            "max-content",
-            "min-content",
-        ]);
+        f(&["auto", "fit-content", "max-content", "min-content"]);
         if crate::pref!("layout.css.anchor-positioning.enabled", gecko = true) {
             f(&["anchor-size"]);
         }

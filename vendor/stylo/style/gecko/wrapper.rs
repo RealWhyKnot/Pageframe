@@ -14,7 +14,9 @@
 //! style system it's kind of pointless in the Stylo case, and only Servo forces
 //! the separation between the style system implementation and everything else.
 
+use crate::CaseSensitivityExt;
 use crate::FxHashMap;
+use crate::LocalName;
 use crate::applicable_declarations::ApplicableDeclarationBlock;
 use crate::bloom::each_relevant_element_hash;
 use crate::context::{QuirksMode, SharedStyleContext, UpdateAnimationsTasks};
@@ -39,22 +41,22 @@ use crate::gecko_bindings::bindings::Gecko_IsSignificantChild;
 use crate::gecko_bindings::bindings::Gecko_MatchLang;
 use crate::gecko_bindings::bindings::Gecko_UpdateAnimations;
 use crate::gecko_bindings::structs;
-use crate::gecko_bindings::structs::nsChangeHint;
-use crate::gecko_bindings::structs::EffectCompositor_CascadeLevel as CascadeLevel;
 use crate::gecko_bindings::structs::ELEMENT_HANDLED_SNAPSHOT;
 use crate::gecko_bindings::structs::ELEMENT_HAS_ANIMATION_ONLY_DIRTY_DESCENDANTS_FOR_SERVO;
 use crate::gecko_bindings::structs::ELEMENT_HAS_DIRTY_DESCENDANTS_FOR_SERVO;
 use crate::gecko_bindings::structs::ELEMENT_HAS_SNAPSHOT;
+use crate::gecko_bindings::structs::EffectCompositor_CascadeLevel as CascadeLevel;
 use crate::gecko_bindings::structs::NODE_DESCENDANTS_NEED_FRAMES;
 use crate::gecko_bindings::structs::NODE_NEEDS_FRAME;
+use crate::gecko_bindings::structs::nsChangeHint;
+use crate::gecko_bindings::structs::{Element as RawGeckoElement, nsINode as RawGeckoNode};
 use crate::gecko_bindings::structs::{nsAtom, nsIContent, nsINode_BooleanFlag};
-use crate::gecko_bindings::structs::{nsINode as RawGeckoNode, Element as RawGeckoElement};
 use crate::global_style_data::GLOBAL_STYLE_DATA;
 use crate::invalidation::element::restyle_hints::RestyleHint;
 use crate::properties::{
-    animated_properties::{AnimationValue, AnimationValueMap},
     ComputedValues, Importance, OwnedPropertyDeclarationId, PropertyDeclaration,
     PropertyDeclarationBlock, PropertyDeclarationId, PropertyDeclarationIdSet,
+    animated_properties::{AnimationValue, AnimationValueMap},
 };
 use crate::rule_tree::CascadeLevel as ServoCascadeLevel;
 use crate::rule_tree::CascadeOrigin as ServoCascadeOrigin;
@@ -65,14 +67,12 @@ use crate::stylesheets::scope_rule::ImplicitScopeRoot;
 use crate::stylist::CascadeData;
 use crate::values::computed::Display;
 use crate::values::{AtomIdent, AtomString};
-use crate::CaseSensitivityExt;
-use crate::LocalName;
 use app_units::Au;
 use dom::{DocumentState, ElementState};
 use euclid::default::Size2D;
 use nsstring::nsString;
 use selectors::attr::{AttrSelectorOperation, CaseSensitivity, NamespaceConstraint};
-use selectors::bloom::{BloomFilter, BLOOM_HASH_MASK};
+use selectors::bloom::{BLOOM_HASH_MASK, BloomFilter};
 use selectors::matching::VisitedHandlingMode;
 use selectors::matching::{ElementSelectorFlags, MatchingContext};
 use selectors::sink::Push;
@@ -1746,7 +1746,7 @@ impl<'le> TElement for GeckoElement<'le> {
             let active = self
                 .state()
                 .intersects(NonTSPseudoClass::Active.state_flag());
-            if active
+            if active {
                 let declarations =
                     unsafe { Gecko_GetActiveLinkAttrDeclarationBlock(self.0).as_ref() };
                 if let Some(decl) = declarations {
@@ -1962,10 +1962,11 @@ impl<'le> ::selectors::Element for GeckoElement<'le> {
             return false;
         }
 
-        debug_assert!(self
-            .as_node()
-            .parent_node()
-            .is_some_and(|p| p.is_document()));
+        debug_assert!(
+            self.as_node()
+                .parent_node()
+                .is_some_and(|p| p.is_document())
+        );
         // XXX this should always return true at this point, shouldn't it?
         unsafe { bindings::Gecko_IsRootElement(self.0) }
     }

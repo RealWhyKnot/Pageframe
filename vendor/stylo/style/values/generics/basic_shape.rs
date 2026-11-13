@@ -817,7 +817,6 @@ pub enum GenericShapeCommand<Angle, AxisPosition, Position, LengthPercentage> {
 
 pub use self::GenericShapeCommand as ShapeCommand;
 
-
 impl<Angle, AxisPosition, Position, LengthPercentage> ToCss
     for ShapeCommand<Angle, AxisPosition, Position, LengthPercentage>
 where

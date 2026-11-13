@@ -1966,7 +1966,7 @@ impl MaxSize {
         {
             Ok(length) => return Ok(GenericMaxSize::LengthPercentage(length)),
             Err(e) if !crate::pref!("layout.css.anchor-positioning.enabled", gecko = true) => {
-                return Err(e.into())
+                return Err(e.into());
             },
             Err(_) => (),
         };
@@ -2007,7 +2007,7 @@ impl Margin {
         match input.try_parse(|i| i.expect_ident_matching("auto")) {
             Ok(_) => return Ok(Self::Auto),
             Err(e) if !crate::pref!("layout.css.anchor-positioning.enabled", gecko = true) => {
-                return Err(e.into())
+                return Err(e.into());
             },
             Err(_) => (),
         };

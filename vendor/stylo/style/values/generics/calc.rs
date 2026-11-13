@@ -12,10 +12,10 @@ use crate::typed_om::{
     NumericBaseType, NumericType, NumericValue, ToTyped, TypedValue,
 };
 use crate::values::calc_random;
-use crate::values::specified::NoCalcPercentage;
 use crate::values::generics::Optional;
 use crate::values::generics::length::GenericAnchorSizeFunction;
 use crate::values::generics::position::{GenericAnchorFunction, GenericAnchorSide};
+use crate::values::specified::NoCalcPercentage;
 use num_traits::Zero;
 use smallvec::SmallVec;
 use std::convert::AsRef;
@@ -2492,11 +2492,8 @@ impl<L: CalcNodeLeaf> CalcNode<L> {
                 SimplificationResult::Unchanged
             },
             Self::Random(ref mut r) => {
-                let (
-                    CalcNode::Leaf(key_leaf),
-                    CalcNode::Leaf(min_leaf),
-                    CalcNode::Leaf(max_leaf),
-                ) = (&r.key, &r.min, &r.max)
+                let (CalcNode::Leaf(key_leaf), CalcNode::Leaf(min_leaf), CalcNode::Leaf(max_leaf)) =
+                    (&r.key, &r.min, &r.max)
                 else {
                     return SimplificationResult::Unchanged;
                 };
