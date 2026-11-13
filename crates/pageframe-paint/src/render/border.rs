@@ -14,6 +14,7 @@ mod bleed;
 mod contour;
 mod dashed;
 mod dotted;
+mod groove;
 
 use crate::{
     color::ToColorColor as _,
@@ -171,10 +172,15 @@ impl ElementCx<'_, '_> {
         // A full ellipse (`border-radius: 50%` on a non-square box) has the same
         // seam problem but no rounded-rect representation, so it is stroked as an
         // ellipse.
-        let all_solid = border.border_top_style == BorderStyle::Solid
-            && border.border_right_style == BorderStyle::Solid
-            && border.border_bottom_style == BorderStyle::Solid
-            && border.border_left_style == BorderStyle::Solid;
+        let widths = self.frame.border_width;
+        let styles = [
+            (border.border_top_style, widths.y0),
+            (border.border_right_style, widths.x1),
+            (border.border_bottom_style, widths.y1),
+            (border.border_left_style, widths.x0),
+        ]
+        .map(|(style, width)| groove::effective_style(style, width));
+        let all_solid = styles.iter().all(|style| *style == BorderStyle::Solid);
         if all_solid {
             let color = border
                 .border_top_color
@@ -241,12 +247,6 @@ impl ElementCx<'_, '_> {
             }
         }
 
-        let styles = [
-            border.border_top_style,
-            border.border_right_style,
-            border.border_bottom_style,
-            border.border_left_style,
-        ];
         let colors = [
             &border.border_top_color,
             &border.border_right_color,
@@ -322,17 +322,19 @@ impl ElementCx<'_, '_> {
                     borders.push((shade, shape(&self.frame)));
                 }
                 BorderStyle::Groove | BorderStyle::Ridge => {
+                    if self.edge_width(edge) <= 1.0 {
+                        borders.push((color, shape(&self.frame)));
+                        continue;
+                    }
                     let ridge = edge_style == BorderStyle::Ridge;
                     let (outer, inner) = grooved_edge_colors(color, edge, ridge);
-                    let [outer_half, inner_half] = if self.edge_width(edge) <= 1.0 {
-                        [
-                            self.frame.border_slice(0.0, 0.5),
-                            self.frame.border_slice(0.5, 1.0),
-                        ]
+                    let [outer_half, inner_half] = self.frame.groove_halves(edge);
+                    let outer_shape = if self.frame.has_border_radius() {
+                        shape(&self.frame)
                     } else {
-                        self.frame.groove_halves()
+                        shape(&outer_half)
                     };
-                    borders.push((outer, shape(&outer_half)));
+                    borders.push((outer, outer_shape));
                     borders.push((inner, shape(&inner_half)));
                 }
                 BorderStyle::Solid => borders.push((color, shape(&self.frame))),
