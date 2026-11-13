@@ -329,7 +329,15 @@ impl ElementCx<'_, '_> {
                     let ridge = edge_style == BorderStyle::Ridge;
                     let (outer, inner) = grooved_edge_colors(color, edge, ridge);
                     let [outer_half, inner_half] = self.frame.groove_halves(edge);
-                    let outer_shape = if self.frame.has_border_radius() {
+                    let width = self.edge_width(edge);
+                    let neighbours = match edge {
+                        Edge::Top | Edge::Bottom => [Edge::Left, Edge::Right],
+                        Edge::Left | Edge::Right => [Edge::Top, Edge::Bottom],
+                    };
+                    let mitred_evenly = neighbours
+                        .iter()
+                        .all(|side| self.edge_width(*side) == width);
+                    let outer_shape = if self.frame.has_border_radius() || !mitred_evenly {
                         shape(&self.frame)
                     } else {
                         shape(&outer_half)

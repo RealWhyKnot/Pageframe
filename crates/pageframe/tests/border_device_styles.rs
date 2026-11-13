@@ -91,6 +91,24 @@ fn rounded_grooves_cover_the_background_between_shades() {
 }
 
 #[test]
+fn mixed_groove_widths_leave_no_background_in_the_corners() {
+    let mut harness = open(App::new(
+        (),
+        "<style>html,body{margin:0}div{width:40px;height:30px;background:lime;border-style:groove;border-color:blue;border-width:3px 2px}</style><div></div>",
+    ));
+    let buffer = render(&mut harness);
+    for (horizontal, vertical, blue) in [(0, 34, 170), (1, 33, 226), (43, 0, 200), (42, 2, 199)] {
+        let actual = pixel(&buffer, horizontal, vertical);
+        for (channel, expected) in actual.into_iter().zip([0, 0, blue, 255]) {
+            assert!(
+                channel.abs_diff(expected) <= 6,
+                "({horizontal}, {vertical}) {actual:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn odd_groove_widths_keep_corner_halves_at_forty_five_degrees() {
     let mut harness = open(App::new(
         (),

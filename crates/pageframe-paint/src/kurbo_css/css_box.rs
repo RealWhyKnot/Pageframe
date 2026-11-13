@@ -278,16 +278,28 @@ impl CssBox {
                 width / 2.0
             }
         };
-        let round = if !self.has_border_radius() && matches!(edge, Edge::Top | Edge::Left) {
-            f64::ceil
+        let widths = self.border_width;
+        let half = if self.has_border_radius() {
+            Insets {
+                x0: split(widths.x0, f64::floor),
+                y0: split(widths.y0, f64::floor),
+                x1: split(widths.x1, f64::floor),
+                y1: split(widths.y1, f64::floor),
+            }
         } else {
-            f64::floor
-        };
-        let half = Insets {
-            x0: split(self.border_width.x0, round),
-            y0: split(self.border_width.y0, round),
-            x1: split(self.border_width.x1, round),
-            y1: split(self.border_width.y1, round),
+            let (width, round): (f64, fn(f64) -> f64) = match edge {
+                Edge::Top => (widths.y0, f64::ceil),
+                Edge::Left => (widths.x0, f64::ceil),
+                Edge::Bottom => (widths.y1, f64::floor),
+                Edge::Right => (widths.x1, f64::floor),
+            };
+            let ratio = split(width, round) / width;
+            Insets {
+                x0: widths.x0 * ratio,
+                y0: widths.y0 * ratio,
+                x1: widths.x1 * ratio,
+                y1: widths.y1 * ratio,
+            }
         };
         [
             self.border_slice_between(Insets::ZERO, half),
