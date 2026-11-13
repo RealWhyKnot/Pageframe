@@ -6,6 +6,17 @@ use super::open_dash_gap;
 use crate::{kurbo_css::Edge, render::ElementCx};
 
 const DOT_EPSILON: f64 = 0.01;
+const DOT_FLATTEN_TOLERANCE: f64 = 0.01;
+
+fn round_dot(center: Point, radius: f64) -> BezPath {
+    let mut path = BezPath::new();
+    kurbo::flatten(
+        Circle::new(center, radius).path_elements(0.1),
+        DOT_FLATTEN_TOLERANCE,
+        |element| path.push(element),
+    );
+    path
+}
 
 fn square_dot_spans(start: f64, length: f64, width: f64) -> Vec<(f64, f64)> {
     if length <= 2.0 * width {
@@ -165,7 +176,7 @@ impl ElementCx<'_, '_> {
                 } else {
                     Point::new(along, middle)
                 };
-                path.extend(Circle::new(center, width / 2.0).path_elements(0.1));
+                path.extend(round_dot(center, width / 2.0));
             }
         }
         scene.push_clip_layer(Fill::NonZero, self.transform, clip);
@@ -189,7 +200,7 @@ impl ElementCx<'_, '_> {
         let count = (perimeter / (2.0 * thickness)).round().max(1.0);
         let mut path = BezPath::new();
         for center in points_along(&centerline, perimeter / count, count) {
-            path.extend(Circle::new(center, thickness / 2.0).path_elements(0.1));
+            path.extend(round_dot(center, thickness / 2.0));
         }
         let clip = self.frame.border_edge_shape(edge);
         scene.push_clip_layer(Fill::NonZero, self.transform, &clip);

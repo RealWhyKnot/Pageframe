@@ -51,3 +51,19 @@ fn a_one_pixel_dotted_border_alternates_after_a_two_pixel_start_dot() {
         assert_eq!(pixel(&buffer, x, 0), color, "({x},0)");
     }
 }
+
+#[test]
+fn a_wide_dotted_border_draws_round_dots() {
+    let buffer = dotted("6px");
+    let mut covered = 0.0;
+    for y in 0..6 {
+        for x in 10..18 {
+            covered += 1.0 - f64::from(pixel(&buffer, x, y)[1]) / 255.0;
+        }
+    }
+    let circle = std::f64::consts::PI * 9.0;
+    assert!(
+        (covered - circle).abs() < 0.4,
+        "dot covers {covered}, circle {circle}"
+    );
+}
