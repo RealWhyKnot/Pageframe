@@ -20,30 +20,38 @@ struct Segment {
 }
 
 impl Segment {
-    fn point(&self, t: f32) -> Point {
+    fn point(&self, parameter: f32) -> Point {
         let [first, control, last] = self.points;
-        let x = |p: Point| scalar(p.x);
-        let y = |p: Point| scalar(p.y);
-        let coordinate = |a: f32, b: f32, c: f32| {
+        let horizontal = |point: Point| scalar(point.x);
+        let vertical = |point: Point| scalar(point.y);
+        let coordinate = |start: f32, control: f32, end: f32| {
             if self.curved {
-                let middle = 2.0 * CONIC_WEIGHT * t * (1.0 - t);
-                let first = (1.0 - t) * (1.0 - t);
-                let last = t * t;
-                (first * a + middle * b + last * c) / (first + middle + last)
+                let middle = 2.0 * CONIC_WEIGHT * parameter * (1.0 - parameter);
+                let first = (1.0 - parameter) * (1.0 - parameter);
+                let last = parameter * parameter;
+                (first * start + middle * control + last * end) / (first + middle + last)
             } else {
-                a + (c - a) * t
+                start + (end - start) * parameter
             }
         };
         Point::new(
-            f64::from(coordinate(x(first), x(control), x(last))),
-            f64::from(coordinate(y(first), y(control), y(last))),
+            f64::from(coordinate(
+                horizontal(first),
+                horizontal(control),
+                horizontal(last),
+            )),
+            f64::from(coordinate(
+                vertical(first),
+                vertical(control),
+                vertical(last),
+            )),
         )
     }
 
     fn measure(&mut self, low: u32, high: u32, from: Point, to: Point, depth: u32) {
         let middle = (low + high) >> 1;
-        let t = scalar(f64::from(middle)) / scalar(f64::from(MAX_T));
-        let halfway = self.point(t);
+        let parameter = scalar(f64::from(middle)) / scalar(f64::from(MAX_T));
+        let halfway = self.point(parameter);
         let dx = scalar(halfway.x) - (scalar(from.x) + scalar(to.x)) * 0.5;
         let dy = scalar(halfway.y) - (scalar(from.y) + scalar(to.y)) * 0.5;
         if self.curved && depth < 8 && (high - low) >> 10 > 0 && dx.abs().max(dy.abs()) > 0.5 {
@@ -63,11 +71,11 @@ impl Segment {
 
     fn parameter(&self, distance: f32) -> f32 {
         let mut start = (self.start, 0.0);
-        for &(end, t) in &self.distances {
+        for &(end, parameter) in &self.distances {
             if distance <= end {
-                return start.1 + (t - start.1) * (distance - start.0) / (end - start.0);
+                return start.1 + (parameter - start.1) * (distance - start.0) / (end - start.0);
             }
-            start = (end, t);
+            start = (end, parameter);
         }
         1.0
     }
@@ -85,13 +93,24 @@ impl Segment {
         let [first, corner, last] = self.points;
         let center = first + (last - corner);
         let radius = Vec2::new((first.x - last.x).abs(), (first.y - last.y).abs());
-        let unit = |p: Point| Vec2::new((p.x - center.x) / radius.x, (p.y - center.y) / radius.y);
-        let a = unit(start);
-        let b = unit(end);
-        let angle = a.cross(b).atan2(a.dot(b));
+        let unit = |point: Point| {
+            Vec2::new(
+                (point.x - center.x) / radius.x,
+                (point.y - center.y) / radius.y,
+            )
+        };
+        let start_direction = unit(start);
+        let end_direction = unit(end);
+        let angle = start_direction
+            .cross(end_direction)
+            .atan2(start_direction.dot(end_direction));
         let handle = 4.0 / 3.0 * (angle / 4.0).tan();
-        let tangent = |v: Vec2| Vec2::new(-v.y * radius.x, v.x * radius.y);
-        path.curve_to(start + tangent(a) * handle, end - tangent(b) * handle, end);
+        let tangent = |vector: Vec2| Vec2::new(-vector.y * radius.x, vector.x * radius.y);
+        path.curve_to(
+            start + tangent(start_direction) * handle,
+            end - tangent(end_direction) * handle,
+            end,
+        );
     }
 }
 
@@ -110,8 +129,11 @@ fn contour(frame: &CssBox, offset: Vec2) -> Vec<Segment> {
         (rect.x1 + offset.x).round() - offset.x,
         (rect.y1 + offset.y).round() - offset.y,
     ) - half;
-    let reduce = |radius: Vec2, x: f64, y: f64| {
-        let reduced = Vec2::new((radius.x - x).max(0.0), (radius.y - y).max(0.0));
+    let reduce = |radius: Vec2, horizontal: f64, vertical: f64| {
+        let reduced = Vec2::new(
+            (radius.x - horizontal).max(0.0),
+            (radius.y - vertical).max(0.0),
+        );
         if reduced.x == 0.0 || reduced.y == 0.0 {
             Vec2::ZERO
         } else {
@@ -212,13 +234,10 @@ pub(super) fn dashed_contour(frame: &CssBox, thickness: f64, offset: Vec2) -> Op
     let length = segments.last()?.end;
     let (dash, gap) = pattern(length.trunc(), scalar(thickness));
     let mut path = BezPath::new();
-    if gap <= 0.0 {
+    if gap <= 0.0 || length / (dash + gap) > 1_000_000.0 {
         append_span(&mut path, &segments, 0.0, length, true);
         path.close_path();
         return Some(path);
-    }
-    if length / (dash + gap) > 1_000_000.0 {
-        return None;
     }
     let step = f64::from(dash) + f64::from(gap);
     let mut distance = step;

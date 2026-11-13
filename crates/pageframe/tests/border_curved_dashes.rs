@@ -5,6 +5,20 @@ use pageframe::App;
 use scaled::render_at_scale;
 use support::{WIDTH, open, pixel, render};
 
+#[test]
+fn excessive_round_dashes_paint_a_solid_border() {
+    check(
+        "width:6000000px;height:24px;border:2px dashed blue;border-radius:6px",
+        1,
+        &[
+            (20, 0, [0, 0, 255]),
+            (20, 1, [0, 0, 255]),
+            (0, 12, [0, 0, 255]),
+            (20, 2, [0, 255, 0]),
+        ],
+    );
+}
+
 fn check(style: &str, scale: u16, samples: &[(usize, usize, [u8; 3])]) {
     let html = format!(
         "<!doctype html><html><head><style>html,body{{margin:0;background:white}}</style></head><body><div style='background:lime;{style}'></div></body></html>"
