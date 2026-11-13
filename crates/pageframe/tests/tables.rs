@@ -12,6 +12,8 @@ mod nested;
 mod rows;
 #[path = "tables_cases/spans.rs"]
 mod spans;
+#[path = "tables_cases/widths.rs"]
+mod widths;
 
 mod support;
 

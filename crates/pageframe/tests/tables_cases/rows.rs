@@ -349,3 +349,41 @@ fn collapsing_every_row_preserves_outer_spacing() {
         ],
     );
 }
+
+#[test]
+fn a_collapsed_row_colours_the_seam_between_its_neighbours() {
+    let buffer = seam_table("", "", "");
+    assert_eq!(
+        column(&buffer, 5, &[11, 12, 13, 14]),
+        [GREEN, RED, RED, GREEN]
+    );
+    assert_eq!(row(&buffer, &[0, 9], 13), [RED, RED]);
+}
+
+#[test]
+fn a_wide_border_above_a_collapsed_row_stops_at_the_row_below() {
+    let buffer = seam_table("border-bottom:6px solid black", "", "");
+    assert_eq!(
+        column(&buffer, 5, &[11, 12, 13, 14, 15, 16]),
+        [GREEN, BLACK, BLACK, RED, RED, BLACK]
+    );
+    assert_eq!(column(&buffer, 5, &[17, 18]), [BLACK, GREEN]);
+}
+
+#[test]
+fn a_wide_border_below_a_collapsed_row_stops_at_the_row_above() {
+    let buffer = seam_table("", "", "border-top:6px solid black");
+    assert_eq!(
+        column(&buffer, 5, &[9, 10, 15, 16]),
+        [GREEN, BLACK, BLACK, GREEN]
+    );
+}
+
+#[test]
+fn a_wide_border_on_a_collapsed_row_fills_the_seam() {
+    let buffer = seam_table("", "border-width:6px", "");
+    assert_eq!(
+        column(&buffer, 5, &[11, 12, 17, 18]),
+        [GREEN, RED, RED, GREEN]
+    );
+}
