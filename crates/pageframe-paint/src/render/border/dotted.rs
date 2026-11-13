@@ -1,5 +1,5 @@
 use anyrender::PaintScene;
-use kurbo::{BezPath, Circle, PathEl, Point, Rect, Shape as _};
+use kurbo::{Affine, BezPath, Circle, PathEl, Point, Rect, Shape as _};
 use peniko::{Color, Fill};
 
 use super::open_dash_gap;
@@ -8,14 +8,22 @@ use crate::{kurbo_css::Edge, render::ElementCx};
 const DOT_EPSILON: f64 = 0.01;
 const DOT_FLATTEN_TOLERANCE: f64 = 0.01;
 
-fn round_dot(center: Point, radius: f64) -> BezPath {
-    let mut path = BezPath::new();
+fn dot_tolerance(transform: Affine) -> f64 {
+    let [a, b, c, d, _, _] = transform.as_coeffs();
+    let scale = a.hypot(b).max(c.hypot(d));
+    if scale.is_finite() && scale > 0.0 {
+        DOT_FLATTEN_TOLERANCE / scale
+    } else {
+        DOT_FLATTEN_TOLERANCE
+    }
+}
+
+fn push_round_dot(path: &mut BezPath, center: Point, radius: f64, tolerance: f64) {
     kurbo::flatten(
-        Circle::new(center, radius).path_elements(0.1),
-        DOT_FLATTEN_TOLERANCE,
+        Circle::new(center, radius).path_elements(tolerance),
+        tolerance,
         |element| path.push(element),
     );
-    path
 }
 
 fn square_dot_spans(start: f64, length: f64, width: f64) -> Vec<(f64, f64)> {
@@ -170,13 +178,14 @@ impl ElementCx<'_, '_> {
             }
         } else {
             let middle = (across_start + across_end) / 2.0;
+            let tolerance = dot_tolerance(self.transform);
             for along in round_dot_centers(start, length, width) {
                 let center = if vertical {
                     Point::new(middle, along)
                 } else {
                     Point::new(along, middle)
                 };
-                path.extend(round_dot(center, width / 2.0));
+                push_round_dot(&mut path, center, width / 2.0, tolerance);
             }
         }
         scene.push_clip_layer(Fill::NonZero, self.transform, clip);
@@ -199,12 +208,50 @@ impl ElementCx<'_, '_> {
         }
         let count = (perimeter / (2.0 * thickness)).round().max(1.0);
         let mut path = BezPath::new();
+        let tolerance = dot_tolerance(self.transform);
         for center in points_along(&centerline, perimeter / count, count) {
-            path.extend(round_dot(center, thickness / 2.0));
+            push_round_dot(&mut path, center, thickness / 2.0, tolerance);
         }
         let clip = self.frame.border_edge_shape(edge);
         scene.push_clip_layer(Fill::NonZero, self.transform, &clip);
         scene.fill(Fill::NonZero, self.transform, color, None, &path);
         scene.pop_layer();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn worst_device_error(scale: f64) -> f64 {
+        let center = Point::new(10.0, 10.0);
+        let radius = 3.0;
+        let mut path = BezPath::new();
+        push_round_dot(
+            &mut path,
+            center,
+            radius,
+            dot_tolerance(Affine::scale(scale)),
+        );
+        let mut previous = None;
+        let mut worst: f64 = 0.0;
+        for element in path.elements() {
+            if let PathEl::MoveTo(point) | PathEl::LineTo(point) = *element {
+                if let Some(start) = previous {
+                    let middle = Point::lerp(start, point, 0.5);
+                    worst = worst.max(radius - (middle - center).hypot());
+                }
+                previous = Some(point);
+            }
+        }
+        worst * scale
+    }
+
+    #[test]
+    fn dots_stay_round_in_device_pixels_under_large_scales() {
+        for scale in [1.0, 2.0, 20.0, 100.0] {
+            let error = worst_device_error(scale);
+            assert!(error < 0.012, "scale {scale}: off by {error} device px");
+        }
     }
 }
