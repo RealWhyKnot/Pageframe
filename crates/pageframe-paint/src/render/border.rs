@@ -337,11 +337,13 @@ impl ElementCx<'_, '_> {
                     let mitred_evenly = neighbours
                         .iter()
                         .all(|side| self.edge_width(*side) == width);
-                    let outer_shape = if self.frame.has_border_radius() || !mitred_evenly {
-                        shape(&self.frame)
-                    } else {
-                        shape(&outer_half)
-                    };
+                    let opaque = outer.components[3] >= 1.0;
+                    let outer_shape =
+                        if opaque && (self.frame.has_border_radius() || !mitred_evenly) {
+                            shape(&self.frame)
+                        } else {
+                            shape(&outer_half)
+                        };
                     borders.push((outer, outer_shape));
                     borders.push((inner, shape(&inner_half)));
                 }

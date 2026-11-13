@@ -109,6 +109,29 @@ fn mixed_groove_widths_leave_no_background_in_the_corners() {
 }
 
 #[test]
+fn translucent_grooves_paint_each_half_once() {
+    for (extra, rows) in [
+        ("border-width:3px 2px", 2..3),
+        ("border-width:4px;border-radius:8px", 2..4),
+    ] {
+        let html = format!(
+            "<style>html,body{{margin:0;background:white}}div{{width:40px;height:30px;background:lime;border-style:groove;border-color:rgba(0,0,255,.5);{extra}}}</style><div></div>"
+        );
+        let mut harness = open(App::new((), &html));
+        let buffer = render(&mut harness);
+        for vertical in rows {
+            let actual = pixel(&buffer, 20, vertical);
+            for (channel, expected) in actual.into_iter().zip([0, 127, 128, 255]) {
+                assert!(
+                    channel.abs_diff(expected) <= 2,
+                    "{extra} row {vertical} {actual:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn odd_groove_widths_keep_corner_halves_at_forty_five_degrees() {
     let mut harness = open(App::new(
         (),
