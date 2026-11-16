@@ -89,15 +89,16 @@ fn backdrop_filter_leaves_children_unclipped() {
     check(&buffer, 95, 15, [0, 0, 0]);
 }
 
-#[test]
-fn backdrop_blur_matches_chrome() {
-    let html = r#"<html><body style="margin:0;background:white">
+const BACKDROP: &str = r#"<html><body style="margin:0;background:white">
 <div style="position:absolute;left:0;top:0;width:60px;height:60px;background:rgb(255,0,0)"></div>
 <div style="position:absolute;left:60px;top:0;width:60px;height:60px;background:rgb(0,0,255)"></div>
 <div style="position:absolute;left:0;top:8px;width:120px;height:6px;background:rgb(0,0,0)"></div>
 <div style="position:absolute;left:40px;top:10px;width:40px;height:40px;backdrop-filter:blur(4px)"></div>
 </body></html>"#;
-    let buffer = render(&mut open(App::new((), html)));
+
+#[test]
+fn backdrop_blur_matches_chrome() {
+    let buffer = render(&mut open(App::new((), BACKDROP)));
     for (x, y, chrome) in [
         (40, 10, [90, 0, 0]),
         (50, 16, [182, 0, 1]),
@@ -108,6 +109,71 @@ fn backdrop_blur_matches_chrome() {
         (79, 49, [0, 0, 255]),
         (30, 30, [255, 0, 0]),
         (85, 11, [0, 0, 0]),
+    ] {
+        check(&buffer, x, y, chrome);
+    }
+}
+
+#[test]
+fn backdrop_blur_scales_with_the_display() {
+    let buffer = render_at_scale(&mut open(App::new((), BACKDROP)), 2);
+    let width = usize::try_from(WIDTH * 2).expect("test width fits in usize");
+    let at = |x: usize, y: usize| {
+        let start = (y * width + x) * 4;
+        let mut rgba = [0; 4];
+        rgba.copy_from_slice(&buffer[start..start + 4]);
+        rgba
+    };
+    for (x, y, chrome) in [
+        (80, 20, [77, 0, 0]),
+        (100, 32, [183, 0, 0]),
+        (112, 60, [213, 0, 42]),
+        (120, 60, [121, 0, 134]),
+        (126, 40, [49, 0, 194]),
+        (140, 26, [0, 0, 115]),
+    ] {
+        assert_near(at(x, y), chrome, (x, y));
+    }
+}
+
+#[test]
+fn a_later_backdrop_sees_an_earlier_one_blurred() {
+    let html = r#"<html><body style="margin:0;background:white">
+<div style="position:absolute;left:0;top:0;width:60px;height:70px;background:rgb(255,0,0)"></div>
+<div style="position:absolute;left:60px;top:0;width:60px;height:70px;background:rgb(0,0,255)"></div>
+<div style="position:absolute;left:40px;top:5px;width:40px;height:30px;backdrop-filter:blur(6px)"></div>
+<div style="position:absolute;left:20px;top:25px;width:80px;height:40px;backdrop-filter:blur(1px)"></div>
+</body></html>"#;
+    let buffer = render(&mut open(App::new((), html)));
+    for (x, y, chrome) in [
+        (50, 10, [244, 0, 11]),
+        (56, 10, [186, 0, 69]),
+        (56, 28, [185, 0, 70]),
+        (60, 28, [119, 0, 136]),
+        (64, 28, [56, 0, 199]),
+        (56, 40, [255, 0, 0]),
+        (60, 40, [85, 0, 170]),
+    ] {
+        check(&buffer, x, y, chrome);
+    }
+}
+
+#[test]
+fn thin_backdrops_mirror_their_content_over_and_over() {
+    let html = r#"<html><body style="margin:0;background:white">
+<div style="position:absolute;left:0;top:20px;width:120px;height:2px;background:rgb(0,0,0)"></div>
+<div style="position:absolute;left:0;top:30px;width:120px;height:1px;background:rgb(0,0,0)"></div>
+<div style="position:absolute;left:20px;top:20px;width:80px;height:4px;backdrop-filter:blur(10px)"></div>
+<div style="position:absolute;left:20px;top:30px;width:80px;height:3px;backdrop-filter:blur(10px)"></div>
+</body></html>"#;
+    let buffer = render(&mut open(App::new((), html)));
+    for (x, y, chrome) in [
+        (50, 20, [127, 127, 127]),
+        (50, 23, [128, 128, 128]),
+        (21, 20, [127, 127, 127]),
+        (50, 30, [170, 170, 170]),
+        (50, 32, [170, 170, 170]),
+        (10, 20, [0, 0, 0]),
     ] {
         check(&buffer, x, y, chrome);
     }

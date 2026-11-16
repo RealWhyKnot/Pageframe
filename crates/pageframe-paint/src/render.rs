@@ -102,6 +102,8 @@ pub struct PageframeDomPainter<'dom, 'a> {
     pub(crate) custom_widget_scenes: &'a CustomWidgetSceneMap,
     pub(crate) backdrop_stop: Option<NodeId>,
     pub(crate) backdrop_reached: Cell<bool>,
+    backdrop_depth: usize,
+    backdrops: Rc<RefCell<HashMap<NodeId, Option<backdrop::Backdrop>>>>,
 }
 
 impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
@@ -144,6 +146,8 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
             custom_widget_scenes,
             backdrop_stop: None,
             backdrop_reached: Cell::new(false),
+            backdrop_depth: 0,
+            backdrops: Rc::default(),
         }
     }
 
@@ -686,7 +690,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
         if filters.is_empty() && !has_clip_path && paints_own_box {
             cx.draw_outset_box_shadow(scene);
         }
-        let backdrop = self.backdrop(node, &styles, &cx);
+        let backdrop = self.backdrop(node, &styles, &cx, own_transform.is_some());
 
         self.layer_manager.maybe_with_clip_layer(
             scene,

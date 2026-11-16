@@ -366,15 +366,19 @@ pub(crate) fn filtered_backdrop(
 }
 
 fn mirror_index(index: isize, length: usize) -> usize {
-    let last = isize::try_from(length).unwrap_or(isize::MAX) - 1;
-    let folded = if index < 0 {
-        -index - 1
-    } else if index > last {
-        2 * last + 1 - index
-    } else {
-        index
+    let Ok(length) = isize::try_from(length) else {
+        return 0;
     };
-    usize::try_from(folded.clamp(0, last.max(0))).unwrap_or(0)
+    if length == 0 {
+        return 0;
+    }
+    let folded = index.rem_euclid(2 * length);
+    let mirrored = if folded < length {
+        folded
+    } else {
+        2 * length - 1 - folded
+    };
+    usize::try_from(mirrored).unwrap_or(0)
 }
 
 struct FilterImage {
@@ -389,13 +393,13 @@ impl FilterImage {
         let height = self.height + 2 * margin;
         let offset = isize::try_from(margin).unwrap_or(0);
         let mut pixels = Vec::with_capacity(width * height);
-        for y in 0..height {
-            let row = isize::try_from(y).unwrap_or(0) - offset;
-            let source_y = mirror_index(row, self.height);
-            for x in 0..width {
-                let column = isize::try_from(x).unwrap_or(0) - offset;
-                let source_x = mirror_index(column, self.width);
-                pixels.push(self.pixels[source_y * self.width + source_x]);
+        for padded_row in 0..height {
+            let row = isize::try_from(padded_row).unwrap_or(0) - offset;
+            let source_row = mirror_index(row, self.height);
+            for padded_column in 0..width {
+                let column = isize::try_from(padded_column).unwrap_or(0) - offset;
+                let source_column = mirror_index(column, self.width);
+                pixels.push(self.pixels[source_row * self.width + source_column]);
             }
         }
         Self {
@@ -409,8 +413,8 @@ impl FilterImage {
         let width = self.width.saturating_sub(2 * margin);
         let height = self.height.saturating_sub(2 * margin);
         let mut pixels = Vec::with_capacity(width * height);
-        for y in margin..margin + height {
-            let start = y * self.width + margin;
+        for row in margin..margin + height {
+            let start = row * self.width + margin;
             pixels.extend_from_slice(&self.pixels[start..start + width]);
         }
         Self {

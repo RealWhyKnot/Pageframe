@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use anyrender::{Filter, Glyph, NormalizedCoord, PaintRef, PaintScene, RenderContext, Scene};
@@ -12,6 +13,9 @@ use crate::blend::convert_blend_mode;
 use crate::filters::{filtered_backdrop, pixel_filters};
 use pageframe_dom::{CopyStyleGetters as _, Node};
 
+const MAX_DEPTH: usize = 8;
+
+#[derive(Clone)]
 pub(super) struct Backdrop {
     image: peniko::ImageBrush,
     area: Rect,
@@ -163,22 +167,44 @@ impl PageframeDomPainter<'_, '_> {
         node: &Node,
         styles: &ComputedValues,
         cx: &ElementCx<'_, '_>,
+        projected: bool,
     ) -> Option<Backdrop> {
         let backdrop_filter = &styles.get_effects().backdrop_filter.0;
         if backdrop_filter.is_empty()
-            || self.backdrop_stop.is_some()
+            || self.backdrop_depth >= MAX_DEPTH
             || self.has_backdrop_root_ancestor(node)
         {
             return None;
         }
+        if let Some(cached) = self.backdrops.borrow().get(&node.id) {
+            return cached.clone();
+        }
+        let backdrop = self.paint_backdrop(node, styles, cx, projected);
+        self.backdrops
+            .borrow_mut()
+            .insert(node.id, backdrop.clone());
+        backdrop
+    }
+
+    fn paint_backdrop(
+        &self,
+        node: &Node,
+        styles: &ComputedValues,
+        cx: &ElementCx<'_, '_>,
+        projected: bool,
+    ) -> Option<Backdrop> {
+        let backdrop_filter = &styles.get_effects().backdrop_filter.0;
         let filters = pixel_filters(backdrop_filter, &styles.clone_color(), self.scale);
         if filters.is_empty() {
             return None;
         }
-        let area = cx
-            .transform
-            .transform_rect_bbox(cx.frame.border_box)
-            .intersect(self.viewport_rect());
+        let area = if projected {
+            self.viewport_rect()
+        } else {
+            cx.transform
+                .transform_rect_bbox(cx.frame.border_box)
+                .intersect(self.viewport_rect())
+        };
         if area.width() <= 0.0 || area.height() <= 0.0 {
             return None;
         }
@@ -192,6 +218,8 @@ impl PageframeDomPainter<'_, '_> {
             self.custom_widget_scenes,
         );
         painter.backdrop_stop = Some(node.id);
+        painter.backdrop_depth = self.backdrop_depth + 1;
+        painter.backdrops = Rc::clone(&self.backdrops);
         let mut cutoff = Cutoff::new(&painter.backdrop_reached);
         painter.paint_scene(&mut cutoff);
         let recording = cutoff.finish();
