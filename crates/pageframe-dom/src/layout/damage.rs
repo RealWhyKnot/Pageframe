@@ -552,8 +552,8 @@ impl BaseDocument {
         }
     }
 
-    /// Flush a CSS image layer list (`background-image`, `mask-image` or `border-image-source`) from style
-    /// to dedicated storage on the node, fetching any images which are not yet loaded.
+    /// Flush a CSS image layer list (`background-image`, `mask-image` or `border-image-source`)
+    /// from style to dedicated storage on the node, fetching any images which are not yet loaded.
     fn flush_image_layers_from_style(&mut self, node_id: NodeId, kind: ImageLayerKind) {
         let doc_id = self.id();
         let node = self.nodes.get_mut(node_id).unwrap();

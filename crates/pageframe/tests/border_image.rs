@@ -90,3 +90,52 @@ fn a_source_that_fails_to_load_keeps_the_plain_border() {
     assert_eq!(pixel(&buffer, 5, 5), BLACK);
     assert_eq!(pixel(&buffer, 40, 45), BLACK);
 }
+
+#[test]
+fn long_edges_with_tiny_tiles_reach_the_far_corner() {
+    let stripe = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAYAAAC09K7GAAAAH0lEQVR42l3EsQ0AMAgDMKf//xwGlgoPDlrEHtTnOQajVQQDRUvUBQAAAABJRU5ErkJggg==";
+    let html = format!(
+        "<!doctype html><style>html,body{{margin:0;background:white}}div{{position:absolute;left:-8950px;top:0;width:8998px;height:10px;border:1px solid black;border-image:url({stripe}) 1 repeat}}</style><div></div>"
+    );
+    let buffer = render(&mut open(App::new((), &html)));
+    let (red, blue) = ([255, 0, 0, 255], [0, 0, 255, 255]);
+    assert!(close(pixel(&buffer, 10, 0), blue));
+    assert!(close(pixel(&buffer, 11, 0), red));
+    assert!(close(pixel(&buffer, 40, 0), blue));
+    assert!(close(pixel(&buffer, 41, 0), red));
+}
+
+#[test]
+fn outset_width_and_percentage_slices_match_chrome() {
+    let html = format!(
+        "<!doctype html><style>html,body{{margin:0;background:white}}div{{position:absolute;width:20px;height:10px;background:#ddd;border:10px solid black}}</style>\
+<div style=\"left:10px;top:10px;border-image:url({NINE}) 10;border-image-outset:5px\"></div>\
+<div style=\"left:65px;top:10px;border-image:url({NINE}) 10;border-image-width:15px\"></div>\
+<div style=\"left:10px;top:45px;border-image:url({NINE}) 50%\"></div>"
+    );
+    let buffer = render(&mut open(App::new((), &html)));
+    let (red, green, grey) = ([220, 40, 40, 255], [40, 160, 40, 255], [90, 90, 90, 255]);
+    let white = [255, 255, 255, 255];
+    let orange = [250, 130, 20, 255];
+    for ((x, y), chrome) in [
+        ((4, 4), white),
+        ((6, 6), red),
+        ((30, 7), green),
+        ((52, 42), grey),
+        ((30, 25), GREY),
+        ((79, 11), red),
+        ((81, 11), green),
+        ((79, 24), red),
+        ((12, 47), red),
+        ((18, 47), green),
+        ((22, 47), GREY),
+        ((40, 70), orange),
+        ((38, 73), GREY),
+    ] {
+        let actual = pixel(&buffer, x, y);
+        assert!(
+            close(actual, chrome),
+            "({x},{y}) {actual:?}, Chrome draws {chrome:?}"
+        );
+    }
+}

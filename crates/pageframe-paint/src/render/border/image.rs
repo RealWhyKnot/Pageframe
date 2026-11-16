@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::hash::{DefaultHasher, Hash as _, Hasher as _};
 use std::sync::Arc;
 
-use anyrender::PaintScene;
+use anyrender::{PaintScene, Scene};
 use kurbo::{Affine, Rect, Size};
 use num_traits::ToPrimitive as _;
 use pageframe_dom::CopyStyleGetters as _;
@@ -22,6 +22,7 @@ use crate::image_cache::ImageCache;
 use crate::render::{ElementCx, to_image_quality, to_peniko_image};
 
 const MAX_TILES: usize = 4096;
+const MAX_PATTERN_SIDE: f64 = 4096.0;
 const SLICE_CACHE_BYTES: usize = 16 << 20;
 
 thread_local! {
@@ -33,6 +34,12 @@ enum Source<'a> {
     Gradient(&'a Gradient),
     #[cfg(feature = "svg")]
     Svg(&'a pageframe_dom::node::SvgImageData),
+}
+
+struct Art<'a> {
+    source: Source<'a>,
+    gradient: Option<(peniko::Gradient, Affine)>,
+    image: Size,
 }
 
 #[derive(Clone, Copy)]
@@ -88,22 +95,56 @@ fn tiling(
     }
 }
 
-fn tile_starts(destination_start: f64, destination_end: f64, tile: f64, axis: Tiling) -> Vec<f64> {
-    if axis.stretch {
-        return vec![destination_start];
-    }
+fn first_tile(destination_start: f64, tile: f64, axis: Tiling) -> Option<(f64, f64)> {
     let step = tile + axis.spacing;
     if !step.is_finite() || step <= 0.0 || tile <= 0.0 {
-        return Vec::new();
+        return None;
     }
-    let mut start = destination_start + axis.phase;
-    start -= ((start + tile - destination_start) / step).ceil().max(1.0) * step - step;
+    let start = destination_start + axis.phase;
+    let skipped = ((start + tile - destination_start) / step).ceil().max(1.0) - 1.0;
+    Some((start - skipped * step, step))
+}
+
+fn tile_starts(
+    destination_start: f64,
+    destination_end: f64,
+    tile: f64,
+    axis: Tiling,
+) -> Option<Vec<f64>> {
+    if axis.stretch {
+        return Some(vec![destination_start]);
+    }
+    let Some((mut start, step)) = first_tile(destination_start, tile, axis) else {
+        return Some(Vec::new());
+    };
     let mut starts = Vec::new();
-    while start < destination_end && starts.len() < MAX_TILES {
+    while start < destination_end {
+        if starts.len() == MAX_TILES {
+            return None;
+        }
         starts.push(start);
         start += step;
     }
-    starts
+    Some(starts)
+}
+
+fn straight_alpha(premultiplied: &[u8]) -> Vec<u8> {
+    premultiplied
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .flat_map(|&[red, green, blue, alpha]| {
+            let straight = |channel: u8| {
+                if alpha == 0 {
+                    0
+                } else {
+                    let scaled = u32::from(channel) * 255 + u32::from(alpha) / 2;
+                    u8::try_from((scaled / u32::from(alpha)).min(255)).unwrap_or(u8::MAX)
+                }
+            };
+            [straight(red), straight(green), straight(blue), alpha]
+        })
+        .collect()
 }
 
 struct Edge {
@@ -198,14 +239,18 @@ impl ElementCx<'_, '_> {
             Source::Gradient(_) => area,
             #[cfg(feature = "svg")]
             Source::Svg(svg) => {
-                let width = svg.intrinsic_width().filter(|w| w.is_finite() && *w > 0.0);
-                let height = svg.intrinsic_height().filter(|h| h.is_finite() && *h > 0.0);
+                let width = svg
+                    .intrinsic_width()
+                    .filter(|length| length.is_finite() && *length > 0.0);
+                let height = svg
+                    .intrinsic_height()
+                    .filter(|length| length.is_finite() && *length > 0.0);
                 let ratio = match (width, height) {
-                    (Some(w), Some(h)) => Some(w / h),
+                    (Some(known_width), Some(known_height)) => Some(known_width / known_height),
                     _ => svg.viewbox_aspect_ratio(),
                 }
-                .filter(|r| r.is_finite() && *r > 0.0);
-                let (w, h) = crate::render::background::default_sizing(
+                .filter(|ratio| ratio.is_finite() && *ratio > 0.0);
+                let (sized_width, sized_height) = crate::render::background::default_sizing(
                     width,
                     height,
                     ratio,
@@ -213,8 +258,8 @@ impl ElementCx<'_, '_> {
                     (area.height / self.scale).to_f32().unwrap_or(0.0),
                 );
                 Size::new(
-                    self.device_length(f64::from(w)),
-                    self.device_length(f64::from(h)),
+                    self.device_length(f64::from(sized_width)),
+                    self.device_length(f64::from(sized_height)),
                 )
             }
         }
@@ -433,35 +478,35 @@ impl ElementCx<'_, '_> {
             }
         }
 
+        let gradient = match source {
+            Source::Gradient(gradient) => {
+                let (gradient, transform) = to_peniko_gradient(
+                    gradient,
+                    Rect::from_origin_size((0.0, 0.0), image),
+                    self.scale,
+                    &self.style.clone_color(),
+                );
+                Some((gradient, transform.unwrap_or(Affine::IDENTITY)))
+            }
+            _ => None,
+        };
+        let art = Art {
+            source,
+            gradient,
+            image,
+        };
         for piece in &pieces {
-            self.draw_border_image_piece(scene, &source, image, piece);
+            self.draw_border_image_piece(scene, &art, piece);
         }
         true
     }
 
-    fn draw_border_image_piece(
-        &self,
-        scene: &mut impl PaintScene,
-        source: &Source,
-        image: Size,
-        piece: &Piece,
-    ) {
+    fn draw_border_image_piece(&self, scene: &mut impl PaintScene, art: &Art, piece: &Piece) {
         let tile_width = piece.source.width() * piece.horizontal.scale;
         let tile_height = piece.source.height() * piece.vertical.scale;
         let destination = piece.destination;
         if piece.horizontal.stretch && piece.vertical.stretch {
-            self.draw_border_image_tile(
-                scene,
-                source,
-                image,
-                piece.source,
-                (destination, destination),
-            );
-            return;
-        }
-        let columns = tile_starts(destination.x0, destination.x1, tile_width, piece.horizontal);
-        let rows = tile_starts(destination.y0, destination.y1, tile_height, piece.vertical);
-        if columns.is_empty() || rows.is_empty() || columns.len() * rows.len() > MAX_TILES {
+            self.draw_border_image_tile(scene, art, piece.source, (destination, destination));
             return;
         }
         let width = if piece.horizontal.stretch {
@@ -474,6 +519,19 @@ impl ElementCx<'_, '_> {
         } else {
             tile_height
         };
+        let columns = tile_starts(destination.x0, destination.x1, tile_width, piece.horizontal);
+        let rows = tile_starts(destination.y0, destination.y1, tile_height, piece.vertical);
+        let (Some(columns), Some(rows)) = (columns, rows) else {
+            self.fill_repeating(scene, art, piece, Size::new(width, height));
+            return;
+        };
+        if columns.is_empty() || rows.is_empty() {
+            return;
+        }
+        if columns.len() * rows.len() > MAX_TILES {
+            self.fill_repeating(scene, art, piece, Size::new(width, height));
+            return;
+        }
         let overlap = |axis: Tiling| {
             if axis.stretch || axis.spacing > 0.0 {
                 0.0
@@ -483,14 +541,79 @@ impl ElementCx<'_, '_> {
         };
         let (overlap_x, overlap_y) = (overlap(piece.horizontal), overlap(piece.vertical));
         scene.push_clip_layer(Fill::NonZero, self.transform, &destination);
-        for &y in &rows {
-            for &x in &columns {
-                let tile = Rect::new(x, y, x + width, y + height);
-                let shape = Rect::new(x, y, x + width + overlap_x, y + height + overlap_y);
-                self.draw_border_image_tile(scene, source, image, piece.source, (tile, shape));
+        for &top in &rows {
+            for &left in &columns {
+                let tile = Rect::new(left, top, left + width, top + height);
+                let shape = Rect::new(
+                    left,
+                    top,
+                    left + width + overlap_x,
+                    top + height + overlap_y,
+                );
+                self.draw_border_image_tile(scene, art, piece.source, (tile, shape));
             }
         }
         scene.pop_layer();
+    }
+
+    fn fill_repeating(&self, scene: &mut impl PaintScene, art: &Art, piece: &Piece, tile: Size) {
+        let destination = piece.destination;
+        let period = |start: f64, length: f64, axis: Tiling| {
+            if axis.stretch {
+                Some((start, length))
+            } else {
+                first_tile(start, length, axis)
+            }
+        };
+        let Some((left, period_x)) = period(destination.x0, tile.width, piece.horizontal) else {
+            return;
+        };
+        let Some((top, period_y)) = period(destination.y0, tile.height, piece.vertical) else {
+            return;
+        };
+        let fits = |side: f64| (1.0..=MAX_PATTERN_SIDE).contains(&side);
+        let (pattern_width, pattern_height) = (period_x.ceil(), period_y.ceil());
+        if !fits(pattern_width)
+            || !fits(pattern_height)
+            || !self.transform.determinant().is_normal()
+        {
+            return;
+        }
+        let (Some(pixels_wide), Some(pixels_high)) =
+            (pattern_width.to_u32(), pattern_height.to_u32())
+        else {
+            return;
+        };
+        let local = Rect::from_origin_size((0.0, 0.0), tile);
+        let mut recording = Scene::new();
+        self.draw_border_image_tile(&mut recording, art, piece.source, (local, local));
+        let to_pattern =
+            Affine::scale_non_uniform(pattern_width / period_x, pattern_height / period_y)
+                * self.transform.inverse();
+        let premultiplied =
+            anyrender::render_to_buffer::<anyrender_vello_cpu::VelloCpuImageRenderer, _>(
+                |pattern| pattern.append_scene(recording, to_pattern),
+                pixels_wide,
+                pixels_high,
+            );
+        let mut brush = peniko::ImageBrush::new(peniko::ImageData {
+            data: peniko::Blob::new(Arc::new(straight_alpha(&premultiplied))),
+            format: peniko::ImageFormat::Rgba8,
+            alpha_type: peniko::ImageAlphaType::Alpha,
+            width: pixels_wide,
+            height: pixels_high,
+        });
+        brush.sampler.x_extend = Extend::Repeat;
+        brush.sampler.y_extend = Extend::Repeat;
+        let brush_transform = Affine::translate((left, top))
+            * Affine::scale_non_uniform(period_x / pattern_width, period_y / pattern_height);
+        scene.fill(
+            Fill::NonZero,
+            self.transform,
+            brush.as_ref(),
+            Some(brush_transform),
+            &destination,
+        );
     }
 
     fn fill_raster(
@@ -530,34 +653,30 @@ impl ElementCx<'_, '_> {
     fn draw_border_image_tile(
         &self,
         scene: &mut impl PaintScene,
-        source: &Source,
-        image: Size,
+        art: &Art,
         from: Rect,
         (to, shape): (Rect, Rect),
     ) {
+        let image = art.image;
         if from.width() <= 0.0 || from.height() <= 0.0 {
             return;
         }
         let map = Affine::translate(to.origin().to_vec2())
             * Affine::scale_non_uniform(to.width() / from.width(), to.height() / from.height())
             * Affine::translate(-from.origin().to_vec2());
-        match source {
+        match &art.source {
             Source::Raster(raster) => {
                 self.fill_raster(scene, raster, image, (from, to, shape));
             }
-            Source::Gradient(gradient) => {
-                let color = self.style.clone_color();
-                let (gradient, gradient_transform) = to_peniko_gradient(
-                    gradient,
-                    Rect::from_origin_size((0.0, 0.0), image),
-                    self.scale,
-                    &color,
-                );
+            Source::Gradient(_) => {
+                let Some((gradient, gradient_transform)) = &art.gradient else {
+                    return;
+                };
                 scene.fill(
                     Fill::NonZero,
                     self.transform,
-                    anyrender::Paint::Gradient(&gradient),
-                    Some(map * gradient_transform.unwrap_or(Affine::IDENTITY)),
+                    anyrender::Paint::Gradient(gradient),
+                    Some(map * *gradient_transform),
                     &shape,
                 );
             }
@@ -637,14 +756,17 @@ mod tests {
         let axis =
             tiling(BorderImageRepeatKeyword::Round, 100.0, 10.0, 3.0).expect("round always tiles");
         assert_eq!(axis.scale, 100.0 / 30.0);
-        assert_eq!(tile_starts(0.0, 100.0, 10.0 * axis.scale, axis).len(), 3);
+        assert_eq!(
+            tile_starts(0.0, 100.0, 10.0 * axis.scale, axis).map(|starts| starts.len()),
+            Some(3)
+        );
     }
 
     #[test]
     fn repeat_centres_a_tile() {
         let axis = tiling(BorderImageRepeatKeyword::Repeat, 100.0, 10.0, 3.0)
             .expect("repeat always tiles");
-        let starts = tile_starts(0.0, 100.0, 30.0, axis);
+        let starts = tile_starts(0.0, 100.0, 30.0, axis).expect("a few tiles");
         assert!(starts.contains(&35.0));
         assert_eq!(starts.first().copied(), Some(-25.0));
     }
@@ -655,7 +777,10 @@ mod tests {
         let axis =
             tiling(BorderImageRepeatKeyword::Space, 100.0, 10.0, 3.0).expect("three tiles fit");
         assert_eq!(axis.spacing, 2.5);
-        assert_eq!(tile_starts(0.0, 100.0, 30.0, axis), vec![2.5, 35.0, 67.5]);
+        assert_eq!(
+            tile_starts(0.0, 100.0, 30.0, axis),
+            Some(vec![2.5, 35.0, 67.5])
+        );
     }
 
     #[test]
