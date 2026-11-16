@@ -1,8 +1,10 @@
-use crate::color::{Color, ToColorColor};
-use color::DynamicColor;
+use crate::color::ToColorColor;
+use color::{ColorSpaceTag, HueDirection};
 use kurbo::{self, Affine, Point, Rect, Vec2};
+use num_traits::ToPrimitive as _;
 use peniko::{self, ColorStop, Gradient, LinearGradientPosition, SweepGradientPosition};
-use style::color::AbsoluteColor;
+use style::color::mix::{ColorInterpolationMethod, HueInterpolationMethod};
+use style::color::{AbsoluteColor, ColorSpace};
 use style::{
     OwnedSlice,
     values::{
@@ -25,6 +27,9 @@ use style::{
         },
     },
 };
+
+const MAX_STOP_GAP: f32 = 1.0 / 64.0;
+const MAX_PIECES: u16 = 1024;
 
 type GradientItem<T> = GenericGradientItem<GenericColor<Percentage>, T>;
 type LinearGradient<'a> = (
@@ -63,7 +68,19 @@ pub(crate) fn to_peniko_gradient(
             transform.map(|transform| Affine::scale(scale) * transform),
         )
     };
-    match gradient {
+    let (GenericGradient::Linear {
+        color_interpolation_method: method,
+        ..
+    }
+    | GenericGradient::Radial {
+        color_interpolation_method: method,
+        ..
+    }
+    | GenericGradient::Conic {
+        color_interpolation_method: method,
+        ..
+    }) = gradient;
+    let (mut painted, transform) = match gradient {
         // https://developer.mozilla.org/en-US/docs/Web/CSS/gradient/linear-gradient
         GenericGradient::Linear {
             direction,
@@ -76,6 +93,7 @@ pub(crate) fn to_peniko_gradient(
             origin_rect,
             scale,
             current_color,
+            method,
         ),
         GenericGradient::Radial {
             shape,
@@ -88,6 +106,7 @@ pub(crate) fn to_peniko_gradient(
             (shape, position, items, *flags),
             css_rect,
             current_color,
+            method,
         )),
         GenericGradient::Conic {
             angle,
@@ -99,8 +118,75 @@ pub(crate) fn to_peniko_gradient(
             (angle, position, items, *flags),
             css_rect,
             current_color,
+            method,
         )),
+    };
+    densify(&mut painted);
+    (painted, transform)
+}
+
+fn densify(gradient: &mut peniko::Gradient) {
+    if gradient.interpolation_cs == ColorSpaceTag::Srgb {
+        return;
     }
+    let (space, hue) = (gradient.interpolation_cs, gradient.hue_direction);
+    let mut dense: Vec<ColorStop> = Vec::with_capacity(gradient.stops.len());
+    for pair in gradient.stops.windows(2) {
+        let [from, to] = pair else {
+            continue;
+        };
+        dense.push(*from);
+        let gap = to.offset - from.offset;
+        if !gap.is_finite() || gap <= 0.0 {
+            continue;
+        }
+        let pieces = (gap / MAX_STOP_GAP)
+            .ceil()
+            .to_u16()
+            .unwrap_or(MAX_PIECES)
+            .clamp(2, MAX_PIECES);
+        let ramp = from.color.interpolate(to.color, space, hue);
+        for piece in 1..pieces {
+            let fraction = f32::from(piece) / f32::from(pieces);
+            dense.push(ColorStop {
+                offset: from.offset + gap * fraction,
+                color: ramp.eval(fraction),
+            });
+        }
+    }
+    dense.extend(gradient.stops.last().copied());
+    gradient.stops = dense.as_slice().into();
+    gradient.hue_direction = HueDirection::Shorter;
+}
+
+fn interpolated(gradient: peniko::Gradient, method: &ColorInterpolationMethod) -> peniko::Gradient {
+    let space = match method.space {
+        ColorSpace::Srgb => ColorSpaceTag::Srgb,
+        ColorSpace::Hsl => ColorSpaceTag::Hsl,
+        ColorSpace::Hwb => ColorSpaceTag::Hwb,
+        ColorSpace::Lab => ColorSpaceTag::Lab,
+        ColorSpace::Lch => ColorSpaceTag::Lch,
+        ColorSpace::Oklab => ColorSpaceTag::Oklab,
+        ColorSpace::Oklch => ColorSpaceTag::Oklch,
+        ColorSpace::SrgbLinear | ColorSpace::DisplayP3Linear => ColorSpaceTag::LinearSrgb,
+        ColorSpace::DisplayP3 => ColorSpaceTag::DisplayP3,
+        ColorSpace::A98Rgb => ColorSpaceTag::A98Rgb,
+        ColorSpace::ProphotoRgb => ColorSpaceTag::ProphotoRgb,
+        ColorSpace::Rec2020 => ColorSpaceTag::Rec2020,
+        ColorSpace::XyzD50 => ColorSpaceTag::XyzD50,
+        ColorSpace::XyzD65 => ColorSpaceTag::XyzD65,
+    };
+    let hue = match method.hue {
+        HueInterpolationMethod::Shorter | HueInterpolationMethod::Specified => {
+            HueDirection::Shorter
+        }
+        HueInterpolationMethod::Longer => HueDirection::Longer,
+        HueInterpolationMethod::Increasing => HueDirection::Increasing,
+        HueInterpolationMethod::Decreasing => HueDirection::Decreasing,
+    };
+    gradient
+        .with_interpolation_cs(space)
+        .with_hue_direction(hue)
 }
 
 fn linear_gradient(
@@ -108,6 +194,7 @@ fn linear_gradient(
     rect: Rect,
     scale: f64,
     current_color: &AbsoluteColor,
+    method: &ColorInterpolationMethod,
 ) -> (peniko::Gradient, Option<Affine>) {
     let (direction, items, flags) = gradient;
 
@@ -152,11 +239,14 @@ fn linear_gradient(
     let gradient_length = CSSPixelLength::new((start.distance(end) / scale) as f32);
     let repeating = flags.contains(GradientFlags::REPEATING);
 
-    let mut gradient = peniko::Gradient::new_linear(start, end).with_extend(if repeating {
-        peniko::Extend::Repeat
-    } else {
-        peniko::Extend::Pad
-    });
+    let mut gradient = interpolated(
+        peniko::Gradient::new_linear(start, end).with_extend(if repeating {
+            peniko::Extend::Repeat
+        } else {
+            peniko::Extend::Pad
+        }),
+        method,
+    );
 
     let (first_offset, last_offset) = resolve_length_color_stops(
         current_color,
@@ -179,15 +269,19 @@ fn radial_gradient(
     gradient: RadialGradient,
     rect: Rect,
     current_color: &AbsoluteColor,
+    method: &ColorInterpolationMethod,
 ) -> (peniko::Gradient, Option<Affine>) {
     let (shape, position, items, flags) = gradient;
     let repeating = flags.contains(GradientFlags::REPEATING);
 
-    let mut gradient = peniko::Gradient::new_radial((0.0, 0.0), 1.0).with_extend(if repeating {
-        peniko::Extend::Repeat
-    } else {
-        peniko::Extend::Pad
-    });
+    let mut gradient = interpolated(
+        peniko::Gradient::new_radial((0.0, 0.0), 1.0).with_extend(if repeating {
+            peniko::Extend::Repeat
+        } else {
+            peniko::Extend::Pad
+        }),
+        method,
+    );
 
     let (width_px, height_px) = (
         resolve_gradient_length(&position.horizontal, rect.width()),
@@ -204,16 +298,12 @@ fn radial_gradient(
                     ShapeExtent::ClosestSide => width_px
                         .min(rect.width() - width_px)
                         .min(height_px.min(rect.height() - height_px)),
-                    ShapeExtent::FarthestCorner => {
-                        (width_px.max(rect.width() - width_px)
-                            + height_px.max(rect.height() - height_px))
-                            * 0.5_f64.sqrt()
-                    }
-                    ShapeExtent::ClosestCorner => {
-                        (width_px.min(rect.width() - width_px)
-                            + height_px.min(rect.height() - height_px))
-                            * 0.5_f64.sqrt()
-                    }
+                    ShapeExtent::FarthestCorner => width_px
+                        .max(rect.width() - width_px)
+                        .hypot(height_px.max(rect.height() - height_px)),
+                    ShapeExtent::ClosestCorner => width_px
+                        .min(rect.width() - width_px)
+                        .hypot(height_px.min(rect.height() - height_px)),
                     _ => 0.0,
                 },
                 GenericCircle::Radius(radius) => radius.0.px() as f64,
@@ -282,16 +372,21 @@ fn conic_gradient(
     gradient: ConicGradient,
     rect: Rect,
     current_color: &AbsoluteColor,
+    method: &ColorInterpolationMethod,
 ) -> (peniko::Gradient, Option<Affine>) {
     let (angle, position, items, flags) = gradient;
 
     let repeating = flags.contains(GradientFlags::REPEATING);
-    let mut gradient = peniko::Gradient::new_sweep((0.0, 0.0), 0.0, std::f32::consts::PI * 2.0)
-        .with_extend(if repeating {
-            peniko::Extend::Repeat
-        } else {
-            peniko::Extend::Pad
-        });
+    let mut gradient = interpolated(
+        peniko::Gradient::new_sweep((0.0, 0.0), 0.0, std::f32::consts::PI * 2.0).with_extend(
+            if repeating {
+                peniko::Extend::Repeat
+            } else {
+                peniko::Extend::Pad
+            },
+        ),
+        method,
+    );
 
     let (first_offset, last_offset) = resolve_angle_color_stops(
         current_color,
@@ -417,21 +512,17 @@ fn resolve_color_stops<T>(
                     gradient.stops.push(peniko::ColorStop { color, offset });
                 } else {
                     let mid_point = (hint - last_stop.offset) / (offset - last_stop.offset);
+                    let ramp = last_stop.color.interpolate(
+                        color,
+                        gradient.interpolation_cs,
+                        gradient.hue_direction,
+                    );
                     let mut interpolate_stop = |cur_offset: f32| {
                         let relative_offset =
                             (cur_offset - last_stop.offset) / (offset - last_stop.offset);
                         let multiplier = relative_offset.powf(0.5f32.log(mid_point));
-                        let [last_r, last_g, last_b, last_a] = last_stop.color.components;
-                        let [r, g, b, a] = color.components;
-
-                        let color = Color::new([
-                            (last_r + multiplier * (r - last_r)),
-                            (last_g + multiplier * (g - last_g)),
-                            (last_b + multiplier * (b - last_b)),
-                            (last_a + multiplier * (a - last_a)),
-                        ]);
                         gradient.stops.push(peniko::ColorStop {
-                            color: DynamicColor::from_alpha_color(color),
+                            color: ramp.eval(multiplier),
                             offset: cur_offset,
                         });
                     };
