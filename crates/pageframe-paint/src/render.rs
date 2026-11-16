@@ -1594,6 +1594,28 @@ impl ElementCx<'_, '_> {
             let transform = self.transform
                 * Affine::translate((pos.x * self.scale - scroll_x, pos.y * self.scale - scroll_y));
 
+            if let Some(placeholder) = input_data.shown_placeholder()
+                && let Some(layout) = placeholder.editor.try_layout()
+            {
+                let mut draw_text_context = self.context.draw_text_context.borrow_mut();
+                crate::text::stroke_text(
+                    scene,
+                    layout.lines(),
+                    self.context.dom,
+                    transform,
+                    TextPaintOptions {
+                        scale: self.scale,
+                        brush_override: Some(placeholder.color.as_srgb_color()),
+                        ellipsis: None,
+                        text: None,
+                        group: None,
+                        flat_ancestors: false,
+                    },
+                    self.node.id,
+                    &mut draw_text_context,
+                );
+            }
+
             if self.node.is_focussed() {
                 // Render selection/caret
                 for (rect, _line_idx) in input_data.editor.selection_geometry().iter() {

@@ -7,9 +7,12 @@ use markup5ever::{QualName, local_name, ns};
 use parley::StyleProperty;
 use style::selector_parser::PseudoElement;
 use style::{
+    color::AbsoluteColor,
     computed_values::position::T as PositionProperty,
     data::ElementData as StyloElementData,
+    properties::ComputedValues,
     shared_lock::StylesheetGuards,
+    stylist::RuleInclusion,
     values::{
         computed::{Content, ContentItem, Display, Float},
         specified::box_::{DisplayInside, DisplayOutside},
@@ -22,7 +25,9 @@ use crate::{
     layout::damage::{
         CONSTRUCT_BOX, CONSTRUCT_DESCENDENT, CONSTRUCT_FC, sort_layout_children_by_order,
     },
-    node::{NodeFlags, NodeKind, SpecialElementData, TextInputData, TextLayout},
+    node::{
+        NodeFlags, NodeKind, Placeholder, SpecialElementData, TextBrush, TextInputData, TextLayout,
+    },
     qual_name, stylo_to_parley,
     traversal::{iter_children, iter_children_and_pseudos},
 };
@@ -966,6 +971,7 @@ fn leading_details_summary(doc: &BaseDocument, container_node_id: NodeId) -> Opt
 }
 
 fn create_text_editor(doc: &mut BaseDocument, input_element_id: NodeId, is_multiline: bool) {
+    let placeholder = placeholder_style(doc, input_element_id, is_multiline);
     let node = &mut doc.nodes[input_element_id];
     let parley_style = node
         .primary_styles()
@@ -1010,8 +1016,72 @@ fn create_text_editor(doc: &mut BaseDocument, input_element_id: NodeId, is_multi
     };
 
     text_input_data.set_password(is_password);
-    let editor = &mut text_input_data.editor;
-    editor.set_scale(doc.viewport.scale_f64() as f32);
+    let scale = doc.viewport.scale();
+    configure_editor(
+        &mut text_input_data.editor,
+        parley_style,
+        (alignment, base_direction),
+        scale,
+    );
+    text_input_data.placeholder = placeholder.map(|(text, style, color)| {
+        let mut editor = Box::new(parley::PlainEditor::new(16.0));
+        editor.set_text(&text);
+        configure_editor(&mut editor, style, (alignment, base_direction), scale);
+        Placeholder { editor, color }
+    });
+
+    text_input_data.refresh_layout(&mut doc.font_ctx.lock().unwrap(), &mut doc.layout_ctx);
+}
+
+fn placeholder_style(
+    doc: &BaseDocument,
+    input_element_id: NodeId,
+    is_multiline: bool,
+) -> Option<(
+    String,
+    parley::TextStyle<'static, 'static, TextBrush>,
+    AbsoluteColor,
+)> {
+    let node = &doc.nodes[input_element_id];
+    let raw = node.attr(local_name!("placeholder"))?;
+    let text: String = if is_multiline {
+        raw.replace("\r\n", "\n")
+    } else {
+        raw.chars()
+            .filter(|character| !matches!(character, '\n' | '\r'))
+            .collect()
+    };
+    if text.is_empty() {
+        return None;
+    }
+    let styles = node.primary_styles()?;
+    let pseudo = {
+        let read_guard = doc.guard.read();
+        doc.stylist.lazily_compute_pseudo_element_style(
+            &StylesheetGuards::same(&read_guard),
+            node,
+            &PseudoElement::Placeholder,
+            RuleInclusion::All,
+            &styles,
+            true,
+            None,
+        )
+    };
+    let style: &ComputedValues = pseudo.as_deref().unwrap_or(&styles);
+    Some((
+        text,
+        stylo_to_parley::style(node.id, style),
+        style.clone_color(),
+    ))
+}
+
+fn configure_editor(
+    editor: &mut parley::PlainEditor<TextBrush>,
+    parley_style: parley::TextStyle<'static, 'static, TextBrush>,
+    (alignment, base_direction): (parley::layout::Alignment, parley::BaseDirection),
+    scale: f32,
+) {
+    editor.set_scale(scale);
     editor.set_width(None);
 
     let styles = editor.edit_styles();
@@ -1035,8 +1105,6 @@ fn create_text_editor(doc: &mut BaseDocument, input_element_id: NodeId, is_multi
     styles.insert(StyleProperty::Brush(parley_style.brush));
     editor.set_alignment(alignment);
     editor.set_base_direction(base_direction);
-
-    editor.refresh_layout(&mut doc.font_ctx.lock().unwrap(), &mut doc.layout_ctx);
 }
 
 fn create_checkbox_input(doc: &mut BaseDocument, input_element_id: NodeId) {

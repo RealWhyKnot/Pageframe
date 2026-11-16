@@ -6,6 +6,7 @@ use pageframe_traits::{
 };
 use parley::{ContentWidths, FontContext, LayoutContext, PlainEditorDriver};
 use std::ops::Range;
+use style::color::AbsoluteColor;
 
 use crate::util::ACTION_MOD;
 
@@ -95,6 +96,12 @@ pub struct TextInputData {
     /// position while box edges stay snapped. Set by the `writing-mode` layout pass; zero otherwise.
     pub content_box_subpixel_offset: taffy::Point<f32>,
     pub password: Option<String>,
+    pub placeholder: Option<Placeholder>,
+}
+
+pub struct Placeholder {
+    pub editor: Box<parley::PlainEditor<TextBrush>>,
+    pub color: AbsoluteColor,
 }
 
 // FIXME: Implement Clone for PlainEditor
@@ -113,7 +120,39 @@ impl TextInputData {
             scroll_offset: 0.0,
             content_box_subpixel_offset: taffy::Point::ZERO,
             password: None,
+            placeholder: None,
         }
+    }
+
+    pub fn set_width(&mut self, width: Option<f32>) {
+        self.editor.set_width(width);
+        if let Some(placeholder) = &mut self.placeholder {
+            placeholder.editor.set_width(width);
+        }
+    }
+
+    pub fn set_scale(&mut self, scale: f32) {
+        self.editor.set_scale(scale);
+        if let Some(placeholder) = &mut self.placeholder {
+            placeholder.editor.set_scale(scale);
+        }
+    }
+
+    pub fn refresh_layout(
+        &mut self,
+        font_ctx: &mut FontContext,
+        layout_ctx: &mut LayoutContext<TextBrush>,
+    ) {
+        self.editor.refresh_layout(font_ctx, layout_ctx);
+        if let Some(placeholder) = &mut self.placeholder {
+            placeholder.editor.refresh_layout(font_ctx, layout_ctx);
+        }
+    }
+
+    pub fn shown_placeholder(&self) -> Option<&Placeholder> {
+        self.placeholder
+            .as_ref()
+            .filter(|_| self.editor.raw_text().is_empty())
     }
 
     pub fn set_text(

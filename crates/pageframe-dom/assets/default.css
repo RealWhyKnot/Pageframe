@@ -77,6 +77,10 @@ textarea {
     resize: both;
 }
 
+::placeholder {
+    color: #757575;
+}
+
 input[type="checkbox"],
 input[type="radio"] {
     box-sizing: border-box;
