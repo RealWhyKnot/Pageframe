@@ -6,7 +6,8 @@ use pageframe_traits::{
 };
 use parley::{ContentWidths, FontContext, LayoutContext, PlainEditorDriver};
 use std::ops::Range;
-use style::color::AbsoluteColor;
+use style::properties::ComputedValues;
+use style::servo_arc::Arc as ServoArc;
 
 use crate::util::ACTION_MOD;
 
@@ -101,7 +102,7 @@ pub struct TextInputData {
 
 pub struct Placeholder {
     pub editor: Box<parley::PlainEditor<TextBrush>>,
-    pub color: AbsoluteColor,
+    pub style: ServoArc<ComputedValues>,
 }
 
 // FIXME: Implement Clone for PlainEditor

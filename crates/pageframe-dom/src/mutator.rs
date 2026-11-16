@@ -769,6 +769,7 @@ impl DocumentMutator<'_> {
                     | local_name!("srcdoc")
                     | local_name!("span")
                     | local_name!("open")
+                    | local_name!("placeholder")
             );
         // A table's `cellpadding` is a presentational hint on its cells, not on the table.
         let restyles_cells = *attr == local_name!("cellpadding")

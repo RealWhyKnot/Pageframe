@@ -1597,15 +1597,24 @@ impl ElementCx<'_, '_> {
             if let Some(placeholder) = input_data.shown_placeholder()
                 && let Some(layout) = placeholder.editor.try_layout()
             {
+                let value_baseline = input_data
+                    .editor
+                    .try_layout()
+                    .and_then(|value| value.lines().next())
+                    .map(|line| line.metrics().baseline);
+                let own_baseline = layout.lines().next().map(|line| line.metrics().baseline);
+                let baseline_shift = value_baseline
+                    .zip(own_baseline)
+                    .map_or(0.0, |(value, own)| f64::from(value - own));
                 let mut draw_text_context = self.context.draw_text_context.borrow_mut();
                 crate::text::stroke_text(
                     scene,
                     layout.lines(),
                     self.context.dom,
-                    transform,
+                    transform * Affine::translate((0.0, baseline_shift)),
                     TextPaintOptions {
                         scale: self.scale,
-                        brush_override: Some(placeholder.color.as_srgb_color()),
+                        brush_override: Some(placeholder.style.clone_color().as_srgb_color()),
                         ellipsis: None,
                         text: None,
                         group: None,

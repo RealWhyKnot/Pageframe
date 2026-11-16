@@ -30,6 +30,7 @@ use crate::{
         construct::{
             ConstructionTask, ConstructionTaskData, ConstructionTaskResult,
             ConstructionTaskResultData, LayoutChildren, collect_layout_children,
+            refresh_placeholder_styles,
         },
         damage::{ALL_DAMAGE, CONSTRUCT_BOX, CONSTRUCT_DESCENDENT, CONSTRUCT_FC},
         inline::build_inline_layout_into,
@@ -84,6 +85,7 @@ impl BaseDocument {
 
         // we need to resolve stylist first since it will need to drive our layout bits
         self.resolve_stylist(current_time_for_animations);
+        refresh_placeholder_styles(self);
         self.resolve_generated_content();
         timer.record_time("style");
 
@@ -122,6 +124,7 @@ impl BaseDocument {
                 break;
             }
             self.resolve_stylist(current_time_for_animations);
+            refresh_placeholder_styles(self);
             self.resolve_generated_content();
             self.propagate_damage_flags(root_node_id);
             self.resolve_layout_children();

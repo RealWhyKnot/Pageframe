@@ -19,6 +19,25 @@ const TEXTAREA: &str = r#"<html><body style="margin:0;background:white">
 <textarea style="position:absolute;left:4px;top:2px;width:100px;height:60px;font:13px monospace;border:1px solid black;resize:none" placeholder="one&#10;two"></textarea>
 </body></html>"#;
 
+const SIZES: &str = r#"<!DOCTYPE html><html><head><style>
+body{margin:0;background:white}
+input{position:absolute;left:4px;width:100px;height:30px;font:13px sans-serif;border:1px solid black}
+.small::placeholder{font-size:8px}
+.big::placeholder{font-size:20px}
+</style></head><body>
+<input class="small" style="top:2px" placeholder="Hxg">
+<input class="big" style="top:42px" placeholder="Hxg">
+</body></html>"#;
+
+const DYNAMIC: &str = r#"<html><head><style>
+body{margin:0;background:white}
+input{position:absolute;left:4px;width:100px;font:13px sans-serif;border:1px solid black}
+#swap:focus::placeholder{color:rgb(200,0,0)}
+</style></head><body>
+<input id="late" style="top:2px">
+<input id="swap" style="top:28px" placeholder="Hello">
+</body></html>"#;
+
 struct Ink {
     darkest: u8,
     inked_rows: Vec<usize>,
@@ -130,5 +149,49 @@ fn textarea_placeholders_keep_their_line_breaks() {
             "textarea placeholder rows at {scale}x"
         );
         assert_eq!(area.darkest, 117, "textarea placeholder ink at {scale}x");
+    }
+}
+
+#[test]
+fn placeholder_attribute_changes_show_up() {
+    let mut harness = open(App::new((), DYNAMIC));
+    assert_eq!(ink(&render(&mut harness), 1, 6, 18).darkest, u8::MAX);
+    harness
+        .doc
+        .ui()
+        .select("#late")
+        .set_attr("placeholder", "Hello");
+    harness.pump();
+    assert_eq!(ink(&render(&mut harness), 1, 6, 18).darkest, 117);
+    harness.doc.ui().select("#late").remove_attr("placeholder");
+    harness.pump();
+    assert_eq!(ink(&render(&mut harness), 1, 6, 18).darkest, u8::MAX);
+}
+
+#[test]
+fn focus_restyles_the_placeholder() {
+    let mut harness = open(App::new((), DYNAMIC));
+    assert_eq!(ink(&render(&mut harness), 1, 32, 44).red, 0);
+    harness.click("#swap");
+    harness.pump();
+    let red = ink(&render(&mut harness), 1, 32, 44).red;
+    assert!(red > 20, "focused placeholder has {red} red pixels");
+}
+
+#[test]
+fn placeholder_fonts_share_the_value_baseline() {
+    for (scale, chrome_rows) in [(1_u16, [(18, 25), (49, 67)]), (2, [(17, 24), (49, 67)])] {
+        let buffer = draw(SIZES, scale);
+        for ((top, bottom), chrome) in [(4, 30), (44, 70)].into_iter().zip(chrome_rows) {
+            let rows = ink(&buffer, scale, top, bottom).inked_rows;
+            let span = (
+                rows.first().copied().unwrap_or_default(),
+                rows.last().copied().unwrap_or_default(),
+            );
+            assert_eq!(
+                span, chrome,
+                "placeholder rows in {top}..{bottom} at {scale}x"
+            );
+        }
     }
 }

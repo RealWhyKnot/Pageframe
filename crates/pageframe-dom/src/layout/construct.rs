@@ -7,10 +7,10 @@ use markup5ever::{QualName, local_name, ns};
 use parley::StyleProperty;
 use style::selector_parser::PseudoElement;
 use style::{
-    color::AbsoluteColor,
     computed_values::position::T as PositionProperty,
     data::ElementData as StyloElementData,
     properties::ComputedValues,
+    servo_arc::Arc as ServoArc,
     shared_lock::StylesheetGuards,
     stylist::RuleInclusion,
     values::{
@@ -1023,11 +1023,16 @@ fn create_text_editor(doc: &mut BaseDocument, input_element_id: NodeId, is_multi
         (alignment, base_direction),
         scale,
     );
-    text_input_data.placeholder = placeholder.map(|(text, style, color)| {
+    text_input_data.placeholder = placeholder.map(|(text, parley_style, style)| {
         let mut editor = Box::new(parley::PlainEditor::new(16.0));
         editor.set_text(&text);
-        configure_editor(&mut editor, style, (alignment, base_direction), scale);
-        Placeholder { editor, color }
+        configure_editor(
+            &mut editor,
+            parley_style,
+            (alignment, base_direction),
+            scale,
+        );
+        Placeholder { editor, style }
     });
 
     text_input_data.refresh_layout(&mut doc.font_ctx.lock().unwrap(), &mut doc.layout_ctx);
@@ -1040,7 +1045,7 @@ fn placeholder_style(
 ) -> Option<(
     String,
     parley::TextStyle<'static, 'static, TextBrush>,
-    AbsoluteColor,
+    ServoArc<ComputedValues>,
 )> {
     let node = &doc.nodes[input_element_id];
     let raw = node.attr(local_name!("placeholder"))?;
@@ -1054,25 +1059,60 @@ fn placeholder_style(
     if text.is_empty() {
         return None;
     }
+    let style = placeholder_computed_style(doc, input_element_id)?;
+    Some((text, stylo_to_parley::style(node.id, &style), style))
+}
+
+fn placeholder_computed_style(
+    doc: &BaseDocument,
+    input_element_id: NodeId,
+) -> Option<ServoArc<ComputedValues>> {
+    let node = &doc.nodes[input_element_id];
     let styles = node.primary_styles()?;
-    let pseudo = {
-        let read_guard = doc.guard.read();
-        doc.stylist.lazily_compute_pseudo_element_style(
-            &StylesheetGuards::same(&read_guard),
-            node,
-            &PseudoElement::Placeholder,
-            RuleInclusion::All,
-            &styles,
-            true,
-            None,
-        )
-    };
-    let style: &ComputedValues = pseudo.as_deref().unwrap_or(&styles);
-    Some((
-        text,
-        stylo_to_parley::style(node.id, style),
-        style.clone_color(),
-    ))
+    let read_guard = doc.guard.read();
+    let pseudo = doc.stylist.lazily_compute_pseudo_element_style(
+        &StylesheetGuards::same(&read_guard),
+        node,
+        &PseudoElement::Placeholder,
+        RuleInclusion::All,
+        &styles,
+        true,
+        None,
+    );
+    Some(pseudo.unwrap_or_else(|| ServoArc::clone(&styles)))
+}
+
+pub(crate) fn refresh_placeholder_styles(doc: &mut BaseDocument) {
+    let mut hosts = std::mem::take(&mut doc.pending_placeholder_hosts);
+    hosts.sort_unstable();
+    hosts.dedup();
+    for host in hosts {
+        let Some(stored) = doc
+            .nodes
+            .get(host)
+            .and_then(|node| node.element_data())
+            .and_then(|element| element.text_input_data())
+            .and_then(|input| input.placeholder.as_ref())
+            .map(|placeholder| ServoArc::clone(&placeholder.style))
+        else {
+            continue;
+        };
+        let Some(current) = placeholder_computed_style(doc, host) else {
+            continue;
+        };
+        if placeholder_text_changed(&stored, &current) {
+            let node = &mut doc.nodes[host];
+            node.insert_damage(ALL_DAMAGE);
+            node.mark_damaged();
+        }
+    }
+}
+
+fn placeholder_text_changed(old: &ComputedValues, new: &ComputedValues) -> bool {
+    old.clone_color() != new.clone_color()
+        || old.get_font() != new.get_font()
+        || old.get_inherited_text() != new.get_inherited_text()
+        || old.get_text() != new.get_text()
 }
 
 fn configure_editor(

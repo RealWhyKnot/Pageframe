@@ -3,8 +3,8 @@
 
 use pageframe_traits::node_id::NodeId;
 use std::ptr::NonNull;
-use std::sync::Mutex;
 use std::sync::atomic::Ordering;
+use std::sync::{Mutex, PoisonError};
 
 use crate::StyleThreading;
 use crate::layout::damage::compute_layout_damage;
@@ -165,6 +165,7 @@ impl crate::document::BaseDocument {
         let token = RecalcStyle::pre_traverse(root, &context);
 
         let mut nodes_needing_style_image_flush = Vec::new();
+        let mut placeholder_hosts = Vec::new();
         if token.should_traverse() {
             // Style the elements, resolving their data
             let mut traverser = RecalcStyle::new(context);
@@ -180,7 +181,14 @@ impl crate::document::BaseDocument {
             style::driver::traverse_dom(&traverser, token, rayon_pool);
             nodes_needing_style_image_flush =
                 std::mem::take(traverser.nodes_needing_style_image_flush.get_mut().unwrap());
+            placeholder_hosts = std::mem::take(
+                traverser
+                    .placeholder_hosts
+                    .get_mut()
+                    .unwrap_or_else(PoisonError::into_inner),
+            );
         }
+        self.pending_placeholder_hosts.extend(placeholder_hosts);
         self.pending_style_image_nodes
             .extend(nodes_needing_style_image_flush);
 
@@ -1491,6 +1499,7 @@ pub struct RecalcStyle<'a> {
     /// dedicated storage on the node (see `flush_image_layers_from_style`)
     /// because their style changed during this traversal.
     nodes_needing_style_image_flush: Mutex<Vec<NodeId>>,
+    placeholder_hosts: Mutex<Vec<NodeId>>,
 }
 
 impl<'a> RecalcStyle<'a> {
@@ -1498,6 +1507,7 @@ impl<'a> RecalcStyle<'a> {
         RecalcStyle {
             context,
             nodes_needing_style_image_flush: Mutex::new(Vec::new()),
+            placeholder_hosts: Mutex::new(Vec::new()),
         }
     }
 }
@@ -1516,6 +1526,16 @@ impl<'dom> DomTraversal<PageframeNode<'dom>> for RecalcStyle<'_> {
             recalc_style_at(self, context, el, &mut data, note_child);
 
             sync_pseudo_element_styles(el, &data, &self.nodes_needing_style_image_flush);
+            if el
+                .element_data()
+                .and_then(|element| element.text_input_data())
+                .is_some_and(|input| input.placeholder.is_some())
+            {
+                self.placeholder_hosts
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(el.id);
+            }
             if let Some(style) = data.styles.get_primary() {
                 el.record_out_of_flow(style);
             }
