@@ -319,6 +319,64 @@ pub(crate) fn filtered_image(
     FilterOutput::Image(image, region)
 }
 
+pub(crate) fn filtered_backdrop(
+    recording: Scene,
+    area: Rect,
+    filters: &[PixelFilter],
+) -> Option<(peniko::ImageBrush, Rect)> {
+    let area = area.expand();
+    let reach = filter_reach(filters);
+    let pad = [-reach.x0, -reach.y0, reach.x1, reach.y1]
+        .into_iter()
+        .fold(0.0_f64, f64::max)
+        .ceil();
+    let fits = |side: f64| (1.0..=MAX_FILTER_IMAGE_SIDE).contains(&side);
+    if !fits(area.width() + 2.0 * pad) || !fits(area.height() + 2.0 * pad) {
+        return None;
+    }
+    let width = area.width().to_u32()?;
+    let height = area.height().to_u32()?;
+    let pixels = anyrender::render_to_buffer::<anyrender_vello_cpu::VelloCpuImageRenderer, _>(
+        |scene| scene.append_scene(recording, Affine::translate((-area.x0, -area.y0))),
+        width,
+        height,
+    );
+    let margin = pad.to_usize()?;
+    let mut image = FilterImage::from_rgba8(
+        &pixels,
+        usize::try_from(width).ok()?,
+        usize::try_from(height).ok()?,
+    )
+    .mirrored(margin);
+    for filter in filters {
+        image.apply(filter);
+    }
+    let image = image.cropped(margin);
+    let image = peniko::ImageBrush {
+        image: peniko::ImageData {
+            data: peniko::Blob::new(Arc::new(image.to_rgba8())),
+            format: peniko::ImageFormat::Rgba8,
+            alpha_type: peniko::ImageAlphaType::Alpha,
+            width: u32::try_from(image.width).ok()?,
+            height: u32::try_from(image.height).ok()?,
+        },
+        sampler: peniko::ImageSampler::default(),
+    };
+    Some((image, area))
+}
+
+fn mirror_index(index: isize, length: usize) -> usize {
+    let last = isize::try_from(length).unwrap_or(isize::MAX) - 1;
+    let folded = if index < 0 {
+        -index - 1
+    } else if index > last {
+        2 * last + 1 - index
+    } else {
+        index
+    };
+    usize::try_from(folded.clamp(0, last.max(0))).unwrap_or(0)
+}
+
 struct FilterImage {
     width: usize,
     height: usize,
@@ -326,6 +384,42 @@ struct FilterImage {
 }
 
 impl FilterImage {
+    fn mirrored(&self, margin: usize) -> Self {
+        let width = self.width + 2 * margin;
+        let height = self.height + 2 * margin;
+        let offset = isize::try_from(margin).unwrap_or(0);
+        let mut pixels = Vec::with_capacity(width * height);
+        for y in 0..height {
+            let row = isize::try_from(y).unwrap_or(0) - offset;
+            let source_y = mirror_index(row, self.height);
+            for x in 0..width {
+                let column = isize::try_from(x).unwrap_or(0) - offset;
+                let source_x = mirror_index(column, self.width);
+                pixels.push(self.pixels[source_y * self.width + source_x]);
+            }
+        }
+        Self {
+            width,
+            height,
+            pixels,
+        }
+    }
+
+    fn cropped(&self, margin: usize) -> Self {
+        let width = self.width.saturating_sub(2 * margin);
+        let height = self.height.saturating_sub(2 * margin);
+        let mut pixels = Vec::with_capacity(width * height);
+        for y in margin..margin + height {
+            let start = y * self.width + margin;
+            pixels.extend_from_slice(&self.pixels[start..start + width]);
+        }
+        Self {
+            width,
+            height,
+            pixels,
+        }
+    }
+
     fn from_rgba8(data: &[u8], width: usize, height: usize) -> Self {
         let pixels = data
             .as_chunks::<4>()

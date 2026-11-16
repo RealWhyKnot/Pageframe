@@ -1,3 +1,4 @@
+mod backdrop;
 mod background;
 mod border;
 mod box_shadow;
@@ -16,7 +17,7 @@ mod table_borders;
 mod text_field;
 
 use pageframe_dom::CopyStyleGetters;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -99,6 +100,8 @@ pub struct PageframeDomPainter<'dom, 'a> {
 
     // Pre-computed `Scene`s for each CustomWidget
     pub(crate) custom_widget_scenes: &'a CustomWidgetSceneMap,
+    pub(crate) backdrop_stop: Option<NodeId>,
+    pub(crate) backdrop_reached: Cell<bool>,
 }
 
 impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
@@ -139,6 +142,8 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
             table_edges: RefCell::new(HashMap::new()),
             selection_ranges,
             custom_widget_scenes,
+            backdrop_stop: None,
+            backdrop_reached: Cell::new(false),
         }
     }
 
@@ -421,6 +426,12 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
         clip_rect: Rect,
         own_transform: Option<Affine>,
     ) {
+        if self.backdrop_stop == Some(node_id) {
+            self.backdrop_reached.set(true);
+        }
+        if self.backdrop_reached.get() {
+            return;
+        }
         let node = &self.dom.as_ref().tree()[node_id];
 
         // Early return if the element is hidden
@@ -675,6 +686,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
         if filters.is_empty() && !has_clip_path && paints_own_box {
             cx.draw_outset_box_shadow(scene);
         }
+        let backdrop = self.backdrop(node, &styles, &cx);
 
         self.layer_manager.maybe_with_clip_layer(
             scene,
@@ -700,6 +712,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                             if has_clip_path && paints_own_box {
                                 cx.draw_outset_box_shadow(scene);
                             }
+                            self.draw_backdrop(scene, &cx, backdrop.as_ref());
                             self.paint_effect_body(&mut cx, scene, &body);
                             cx.transform = unscrolled_transform;
                             cx.draw_outline(scene);
@@ -713,6 +726,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                     if paints_own_box {
                         cx.draw_outset_box_shadow(&mut recording);
                     }
+                    self.draw_backdrop(&mut recording, &cx, backdrop.as_ref());
                     self.paint_effect_body(&mut cx, &mut recording, &body);
                     cx.transform = unscrolled_transform;
                     cx.draw_outline(&mut recording);

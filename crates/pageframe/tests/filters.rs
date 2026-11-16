@@ -88,3 +88,27 @@ fn backdrop_filter_leaves_children_unclipped() {
     check(&buffer, 82, 15, [0, 0, 0]);
     check(&buffer, 95, 15, [0, 0, 0]);
 }
+
+#[test]
+fn backdrop_blur_matches_chrome() {
+    let html = r#"<html><body style="margin:0;background:white">
+<div style="position:absolute;left:0;top:0;width:60px;height:60px;background:rgb(255,0,0)"></div>
+<div style="position:absolute;left:60px;top:0;width:60px;height:60px;background:rgb(0,0,255)"></div>
+<div style="position:absolute;left:0;top:8px;width:120px;height:6px;background:rgb(0,0,0)"></div>
+<div style="position:absolute;left:40px;top:10px;width:40px;height:40px;backdrop-filter:blur(4px)"></div>
+</body></html>"#;
+    let buffer = render(&mut open(App::new((), html)));
+    for (x, y, chrome) in [
+        (40, 10, [90, 0, 0]),
+        (50, 16, [182, 0, 1]),
+        (56, 30, [202, 0, 53]),
+        (60, 30, [116, 0, 139]),
+        (63, 20, [50, 0, 190]),
+        (70, 13, [0, 0, 125]),
+        (79, 49, [0, 0, 255]),
+        (30, 30, [255, 0, 0]),
+        (85, 11, [0, 0, 0]),
+    ] {
+        check(&buffer, x, y, chrome);
+    }
+}
