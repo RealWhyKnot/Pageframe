@@ -1,10 +1,10 @@
 use crate::color::ToColorColor;
-use color::{ColorSpaceTag, HueDirection};
+use color::{ColorSpaceTag, DynamicColor, Flags, HueDirection, Missing};
 use kurbo::{self, Affine, Point, Rect, Vec2};
 use num_traits::ToPrimitive as _;
 use peniko::{self, ColorStop, Gradient, LinearGradientPosition, SweepGradientPosition};
 use style::color::mix::{ColorInterpolationMethod, HueInterpolationMethod};
-use style::color::{AbsoluteColor, ColorSpace};
+use style::color::{AbsoluteColor, ColorFlags, ColorSpace};
 use style::{
     OwnedSlice,
     values::{
@@ -159,8 +159,8 @@ fn densify(gradient: &mut peniko::Gradient) {
     gradient.hue_direction = HueDirection::Shorter;
 }
 
-fn interpolated(gradient: peniko::Gradient, method: &ColorInterpolationMethod) -> peniko::Gradient {
-    let space = match method.space {
+fn color_space_tag(space: ColorSpace) -> ColorSpaceTag {
+    match space {
         ColorSpace::Srgb => ColorSpaceTag::Srgb,
         ColorSpace::Hsl => ColorSpaceTag::Hsl,
         ColorSpace::Hwb => ColorSpaceTag::Hwb,
@@ -168,14 +168,49 @@ fn interpolated(gradient: peniko::Gradient, method: &ColorInterpolationMethod) -
         ColorSpace::Lch => ColorSpaceTag::Lch,
         ColorSpace::Oklab => ColorSpaceTag::Oklab,
         ColorSpace::Oklch => ColorSpaceTag::Oklch,
-        ColorSpace::SrgbLinear | ColorSpace::DisplayP3Linear => ColorSpaceTag::LinearSrgb,
+        ColorSpace::SrgbLinear => ColorSpaceTag::LinearSrgb,
         ColorSpace::DisplayP3 => ColorSpaceTag::DisplayP3,
         ColorSpace::A98Rgb => ColorSpaceTag::A98Rgb,
         ColorSpace::ProphotoRgb => ColorSpaceTag::ProphotoRgb,
         ColorSpace::Rec2020 => ColorSpaceTag::Rec2020,
         ColorSpace::XyzD50 => ColorSpaceTag::XyzD50,
-        ColorSpace::XyzD65 => ColorSpaceTag::XyzD65,
-    };
+        ColorSpace::XyzD65 | ColorSpace::DisplayP3Linear => ColorSpaceTag::XyzD65,
+    }
+}
+
+fn stop_color(color: &AbsoluteColor) -> DynamicColor {
+    let srgb = color.as_dynamic_color();
+    if color.color_space == ColorSpace::DisplayP3Linear {
+        return srgb;
+    }
+    let missing = [
+        ColorFlags::C0_IS_NONE,
+        ColorFlags::C1_IS_NONE,
+        ColorFlags::C2_IS_NONE,
+        ColorFlags::ALPHA_IS_NONE,
+    ]
+    .into_iter()
+    .enumerate()
+    .filter(|(_, flag)| color.flags.contains(*flag))
+    .fold(Missing::default(), |mut missing, (index, _)| {
+        missing.insert(index);
+        missing
+    });
+    if missing.is_empty() {
+        return srgb;
+    }
+    let mut own = srgb.convert(color_space_tag(color.color_space));
+    for (index, component) in own.components.iter_mut().enumerate() {
+        if missing.contains(index) {
+            *component = 0.0;
+        }
+    }
+    own.flags = Flags::from_missing(own.flags.missing() | missing);
+    own
+}
+
+fn interpolated(gradient: peniko::Gradient, method: &ColorInterpolationMethod) -> peniko::Gradient {
+    let space = color_space_tag(method.space);
     let hue = match method.hue {
         HueInterpolationMethod::Shorter | HueInterpolationMethod::Specified => {
             HueDirection::Shorter
@@ -449,7 +484,7 @@ fn resolve_color_stops<T>(
             GenericGradientItem::SimpleColorStop(color) => {
                 let step = 1.0 / (items.len() as f32 - 1.0);
                 (
-                    color.resolve_to_absolute(current_color).as_dynamic_color(),
+                    stop_color(&color.resolve_to_absolute(current_color)),
                     step * idx as f32,
                 )
             }
@@ -457,7 +492,7 @@ fn resolve_color_stops<T>(
                 let offset = item_resolver(gradient_length, position);
                 if let Some(offset) = offset {
                     (
-                        color.resolve_to_absolute(current_color).as_dynamic_color(),
+                        stop_color(&color.resolve_to_absolute(current_color)),
                         offset,
                     )
                 } else {
