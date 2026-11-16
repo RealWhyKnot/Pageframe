@@ -51,6 +51,18 @@ pub(crate) fn to_peniko_gradient(
     scale: f64,
     current_color: &AbsoluteColor,
 ) -> (peniko::Gradient, Option<Affine>) {
+    let css_rect = Rect::new(
+        origin_rect.x0 / scale,
+        origin_rect.y0 / scale,
+        origin_rect.x1 / scale,
+        origin_rect.y1 / scale,
+    );
+    let to_device = |(gradient, transform): (peniko::Gradient, Option<Affine>)| {
+        (
+            gradient,
+            transform.map(|transform| Affine::scale(scale) * transform),
+        )
+    };
     match gradient {
         // https://developer.mozilla.org/en-US/docs/Web/CSS/gradient/linear-gradient
         GenericGradient::Linear {
@@ -72,14 +84,22 @@ pub(crate) fn to_peniko_gradient(
             flags,
             // compat_mode,
             ..
-        } => radial_gradient((shape, position, items, *flags), origin_rect, current_color),
+        } => to_device(radial_gradient(
+            (shape, position, items, *flags),
+            css_rect,
+            current_color,
+        )),
         GenericGradient::Conic {
             angle,
             position,
             items,
             flags,
             ..
-        } => conic_gradient((angle, position, items, *flags), origin_rect, current_color),
+        } => to_device(conic_gradient(
+            (angle, position, items, *flags),
+            css_rect,
+            current_color,
+        )),
     }
 }
 
