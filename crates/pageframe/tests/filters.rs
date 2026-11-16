@@ -25,8 +25,8 @@ fn assert_near(actual: [u8; 4], chrome: [u8; 3], at: (usize, usize)) {
     );
 }
 
-fn check(buffer: &[u8], x: usize, y: usize, chrome: [u8; 3]) {
-    assert_near(pixel(buffer, x, y), chrome, (x, y));
+fn check(buffer: &[u8], column: usize, row: usize, chrome: [u8; 3]) {
+    assert_near(pixel(buffer, column, row), chrome, (column, row));
 }
 
 #[test]
@@ -62,13 +62,13 @@ fn blur_spreads_past_the_box() {
 fn blur_scales_with_the_display() {
     let buffer = render_at_scale(&mut open(App::new((), PAGE)), 2);
     let width = usize::try_from(WIDTH * 2).expect("test width fits in usize");
-    let at = |x: usize, y: usize| {
-        let start = (y * width + x) * 4;
+    let at = |column: usize, row: usize| {
+        let start = (row * width + column) * 4;
         let mut rgba = [0; 4];
         rgba.copy_from_slice(&buffer[start..start + 4]);
         rgba
     };
-    for (x, y, chrome) in [
+    for (column, row, chrome) in [
         (40, 130, [49, 49, 49]),
         (40, 124, [77, 77, 77]),
         (40, 116, [171, 171, 171]),
@@ -78,7 +78,7 @@ fn blur_scales_with_the_display() {
         (6, 130, [248, 248, 248]),
         (20, 80, [54, 54, 54]),
     ] {
-        assert_near(at(x, y), chrome, (x, y));
+        assert_near(at(column, row), chrome, (column, row));
     }
 }
 
@@ -99,7 +99,7 @@ const BACKDROP: &str = r#"<html><body style="margin:0;background:white">
 #[test]
 fn backdrop_blur_matches_chrome() {
     let buffer = render(&mut open(App::new((), BACKDROP)));
-    for (x, y, chrome) in [
+    for (column, row, chrome) in [
         (40, 10, [90, 0, 0]),
         (50, 16, [182, 0, 1]),
         (56, 30, [202, 0, 53]),
@@ -110,7 +110,7 @@ fn backdrop_blur_matches_chrome() {
         (30, 30, [255, 0, 0]),
         (85, 11, [0, 0, 0]),
     ] {
-        check(&buffer, x, y, chrome);
+        check(&buffer, column, row, chrome);
     }
 }
 
@@ -118,13 +118,13 @@ fn backdrop_blur_matches_chrome() {
 fn backdrop_blur_scales_with_the_display() {
     let buffer = render_at_scale(&mut open(App::new((), BACKDROP)), 2);
     let width = usize::try_from(WIDTH * 2).expect("test width fits in usize");
-    let at = |x: usize, y: usize| {
-        let start = (y * width + x) * 4;
+    let at = |column: usize, row: usize| {
+        let start = (row * width + column) * 4;
         let mut rgba = [0; 4];
         rgba.copy_from_slice(&buffer[start..start + 4]);
         rgba
     };
-    for (x, y, chrome) in [
+    for (column, row, chrome) in [
         (80, 20, [77, 0, 0]),
         (100, 32, [183, 0, 0]),
         (112, 60, [213, 0, 42]),
@@ -132,7 +132,7 @@ fn backdrop_blur_scales_with_the_display() {
         (126, 40, [49, 0, 194]),
         (140, 26, [0, 0, 115]),
     ] {
-        assert_near(at(x, y), chrome, (x, y));
+        assert_near(at(column, row), chrome, (column, row));
     }
 }
 
@@ -145,7 +145,7 @@ fn a_later_backdrop_sees_an_earlier_one_blurred() {
 <div style="position:absolute;left:20px;top:25px;width:80px;height:40px;backdrop-filter:blur(1px)"></div>
 </body></html>"#;
     let buffer = render(&mut open(App::new((), html)));
-    for (x, y, chrome) in [
+    for (column, row, chrome) in [
         (50, 10, [244, 0, 11]),
         (56, 10, [186, 0, 69]),
         (56, 28, [185, 0, 70]),
@@ -154,7 +154,7 @@ fn a_later_backdrop_sees_an_earlier_one_blurred() {
         (56, 40, [255, 0, 0]),
         (60, 40, [85, 0, 170]),
     ] {
-        check(&buffer, x, y, chrome);
+        check(&buffer, column, row, chrome);
     }
 }
 
@@ -167,7 +167,7 @@ fn thin_backdrops_mirror_their_content_over_and_over() {
 <div style="position:absolute;left:20px;top:30px;width:80px;height:3px;backdrop-filter:blur(10px)"></div>
 </body></html>"#;
     let buffer = render(&mut open(App::new((), html)));
-    for (x, y, chrome) in [
+    for (column, row, chrome) in [
         (50, 20, [127, 127, 127]),
         (50, 23, [128, 128, 128]),
         (21, 20, [127, 127, 127]),
@@ -175,6 +175,6 @@ fn thin_backdrops_mirror_their_content_over_and_over() {
         (50, 32, [170, 170, 170]),
         (10, 20, [0, 0, 0]),
     ] {
-        check(&buffer, x, y, chrome);
+        check(&buffer, column, row, chrome);
     }
 }

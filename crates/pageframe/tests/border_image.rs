@@ -36,19 +36,19 @@ fn close(actual: [u8; 4], expected: [u8; 4]) -> bool {
 fn nine_slices_land_in_their_border_areas_at_1x_and_2x() {
     let html = page(60, &format!("url({NINE}) 10"));
     let buffer = render(&mut open(App::new((), &html)));
-    for ((x, y), color) in REGIONS {
-        let actual = pixel(&buffer, x, y);
-        assert!(close(actual, color), "({x},{y}) {actual:?} at 1x");
+    for ((column, row), color) in REGIONS {
+        let actual = pixel(&buffer, column, row);
+        assert!(close(actual, color), "({column},{row}) {actual:?} at 1x");
     }
     assert_eq!(pixel(&buffer, 40, 25), GREY);
 
     let buffer = render_at_scale(&mut open(App::new((), &html)), 2);
     let stride = usize::try_from(WIDTH).expect("test width fits in usize") * 2 * 4;
-    for ((x, y), color) in REGIONS {
-        let start = y * 2 * stride + x * 2 * 4;
+    for ((column, row), color) in REGIONS {
+        let start = row * 2 * stride + column * 2 * 4;
         let mut actual = [0; 4];
         actual.copy_from_slice(&buffer[start..start + 4]);
-        assert!(close(actual, color), "({x},{y}) {actual:?} at 2x");
+        assert!(close(actual, color), "({column},{row}) {actual:?} at 2x");
     }
 }
 
@@ -69,8 +69,8 @@ fn fill_paints_the_middle_with_a_gradient_source() {
     let green = [0, 170, 0, 255];
     let html = page(60, "linear-gradient(#0a0,#0a0) 1 fill");
     let buffer = render(&mut open(App::new((), &html)));
-    for (x, y) in [(5, 5), (40, 5), (40, 25), (75, 45)] {
-        assert_eq!(pixel(&buffer, x, y), green, "({x},{y})");
+    for (column, row) in [(5, 5), (40, 5), (40, 25), (75, 45)] {
+        assert_eq!(pixel(&buffer, column, row), green, "({column},{row})");
     }
 }
 
@@ -91,18 +91,62 @@ fn a_source_that_fails_to_load_keeps_the_plain_border() {
     assert_eq!(pixel(&buffer, 40, 45), BLACK);
 }
 
+const STRIPE: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAYAAAC09K7GAAAAH0lEQVR42l3EsQ0AMAgDMKf//xwGlgoPDlrEHtTnOQajVQQDRUvUBQAAAABJRU5ErkJggg==";
+
+fn long_edge(left: i32, transform: &str) -> String {
+    format!(
+        "<!doctype html><style>html,body{{margin:0;background:white}}div{{position:absolute;left:{left}px;top:0;width:8998px;height:10px;border:1px solid black;border-image:url({STRIPE}) 1 repeat;transform-origin:0 0;transform:{transform}}}</style><div></div>"
+    )
+}
+
+fn device_pixel(buffer: &[u8], scale: usize, column: usize, row: usize) -> [u8; 4] {
+    let width = usize::try_from(WIDTH).expect("test width fits in usize") * scale;
+    let start = (row * width + column) * 4;
+    let mut rgba = [0; 4];
+    rgba.copy_from_slice(&buffer[start..start + 4]);
+    rgba
+}
+
 #[test]
-fn long_edges_with_tiny_tiles_reach_the_far_corner() {
-    let stripe = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAYAAAC09K7GAAAAH0lEQVR42l3EsQ0AMAgDMKf//xwGlgoPDlrEHtTnOQajVQQDRUvUBQAAAABJRU5ErkJggg==";
-    let html = format!(
-        "<!doctype html><style>html,body{{margin:0;background:white}}div{{position:absolute;left:-8950px;top:0;width:8998px;height:10px;border:1px solid black;border-image:url({stripe}) 1 repeat}}</style><div></div>"
-    );
-    let buffer = render(&mut open(App::new((), &html)));
+fn long_edges_with_tiny_tiles_reach_the_far_end() {
     let (red, blue) = ([255, 0, 0, 255], [0, 0, 255, 255]);
-    assert!(close(pixel(&buffer, 10, 0), blue));
-    assert!(close(pixel(&buffer, 11, 0), red));
-    assert!(close(pixel(&buffer, 40, 0), blue));
-    assert!(close(pixel(&buffer, 41, 0), red));
+    let html = long_edge(-8950, "none");
+    let buffer = render(&mut open(App::new((), &html)));
+    for ((column, row), chrome) in [
+        ((10, 0), blue),
+        ((11, 0), red),
+        ((40, 0), blue),
+        ((41, 0), red),
+    ] {
+        let actual = pixel(&buffer, column, row);
+        assert!(close(actual, chrome), "({column},{row}) {actual:?} at 1x");
+    }
+
+    let buffer = render_at_scale(&mut open(App::new((), &html)), 2);
+    for ((column, row), chrome) in [
+        ((20, 0), [64, 0, 191, 255]),
+        ((21, 0), blue),
+        ((22, 0), red),
+        ((23, 0), [191, 0, 64, 255]),
+    ] {
+        let actual = device_pixel(&buffer, 2, column, row);
+        assert!(close(actual, chrome), "({column},{row}) {actual:?} at 2x");
+    }
+
+    let html = long_edge(-26850, "scale(3)");
+    let buffer = render(&mut open(App::new((), &html)));
+    for ((column, row), chrome) in [
+        ((29, 1), [170, 0, 85, 255]),
+        ((30, 1), [85, 0, 170, 255]),
+        ((32, 1), blue),
+        ((33, 1), red),
+    ] {
+        let actual = pixel(&buffer, column, row);
+        assert!(
+            close(actual, chrome),
+            "({column},{row}) {actual:?} under scale(3)"
+        );
+    }
 }
 
 #[test]
@@ -117,7 +161,7 @@ fn outset_width_and_percentage_slices_match_chrome() {
     let (red, green, grey) = ([220, 40, 40, 255], [40, 160, 40, 255], [90, 90, 90, 255]);
     let white = [255, 255, 255, 255];
     let orange = [250, 130, 20, 255];
-    for ((x, y), chrome) in [
+    for ((column, row), chrome) in [
         ((4, 4), white),
         ((6, 6), red),
         ((30, 7), green),
@@ -132,10 +176,10 @@ fn outset_width_and_percentage_slices_match_chrome() {
         ((40, 70), orange),
         ((38, 73), GREY),
     ] {
-        let actual = pixel(&buffer, x, y);
+        let actual = pixel(&buffer, column, row);
         assert!(
             close(actual, chrome),
-            "({x},{y}) {actual:?}, Chrome draws {chrome:?}"
+            "({column},{row}) {actual:?}, Chrome draws {chrome:?}"
         );
     }
 }

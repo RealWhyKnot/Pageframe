@@ -571,14 +571,14 @@ impl ElementCx<'_, '_> {
         let Some((top, period_y)) = period(destination.y0, tile.height, piece.vertical) else {
             return;
         };
-        let fits = |side: f64| (1.0..=MAX_PATTERN_SIDE).contains(&side);
-        let (pattern_width, pattern_height) = (period_x.ceil(), period_y.ceil());
-        if !fits(pattern_width)
-            || !fits(pattern_height)
-            || !self.transform.determinant().is_normal()
-        {
+        if !self.transform.determinant().is_normal() {
             return;
         }
+        let [scale_xx, scale_xy, scale_yx, scale_yy, _, _] = self.transform.as_coeffs();
+        let pattern_side =
+            |period: f64, stretch: f64| (period * stretch).ceil().clamp(1.0, MAX_PATTERN_SIDE);
+        let pattern_width = pattern_side(period_x, scale_xx.hypot(scale_xy));
+        let pattern_height = pattern_side(period_y, scale_yx.hypot(scale_yy));
         let (Some(pixels_wide), Some(pixels_high)) =
             (pattern_width.to_u32(), pattern_height.to_u32())
         else {
