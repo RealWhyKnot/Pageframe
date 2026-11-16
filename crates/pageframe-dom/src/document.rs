@@ -436,7 +436,7 @@ pub struct BaseDocument {
     /// Value is a list of (node_id, image_type) pairs waiting for the image.
     pub(crate) pending_images: HashMap<String, Vec<(NodeId, ImageType)>>,
 
-    /// Nodes whose `background-image`/`mask-image` layers need flushing to
+    /// Nodes whose `background-image`/`mask-image`/`border-image-source` layers need flushing to
     /// dedicated storage on the node because their style changed (populated by
     /// the style traversal and by pseudo-element box construction).
     pub(crate) pending_style_image_nodes: Vec<NodeId>,
@@ -1621,11 +1621,12 @@ impl BaseDocument {
                     node.clear_layout_cache();
                     node.insert_damage(ALL_DAMAGE);
                 }
-                ImageType::Background(idx) | ImageType::Mask(idx) => {
+                ImageType::Background(idx) | ImageType::Mask(idx) | ImageType::Border(idx) => {
                     let layer_image = node.element_data_mut().and_then(|el| {
                         let images = match image_type {
                             ImageType::Background(_) => &mut el.background_images,
                             ImageType::Mask(_) => &mut el.mask_images,
+                            ImageType::Border(_) => &mut el.border_images,
                             ImageType::Image => unreachable!(),
                         };
                         images.get_mut(idx)
@@ -3141,7 +3142,10 @@ fn is_style_image(msg: &DocumentEvent) -> bool {
         Ok(Resource::Svg(kind, _)) => kind,
         _ => return false,
     };
-    matches!(kind, ImageType::Background(_) | ImageType::Mask(_))
+    matches!(
+        kind,
+        ImageType::Background(_) | ImageType::Mask(_) | ImageType::Border(_)
+    )
 }
 
 impl Drop for BaseDocument {

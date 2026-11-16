@@ -1487,7 +1487,7 @@ use style::traversal::recalc_style_at;
 
 pub struct RecalcStyle<'a> {
     context: SharedStyleContext<'a>,
-    /// Nodes whose `background-image`/`mask-image` layers need flushing to
+    /// Nodes whose `background-image`/`mask-image`/`border-image-source` layers need flushing to
     /// dedicated storage on the node (see `flush_image_layers_from_style`)
     /// because their style changed during this traversal.
     nodes_needing_style_image_flush: Mutex<Vec<NodeId>>,
@@ -1639,7 +1639,7 @@ fn sync_pseudo_element_styles(
     }
 }
 
-/// Whether a node's `background-image`/`mask-image` layers need flushing to
+/// Whether a node's `background-image`/`mask-image`/`border-image-source` layers need flushing to
 /// dedicated storage on the node: the URLs referenced by the new style differ
 /// from the image data currently stored on the node.
 fn needs_style_image_flush(node: &Node, style: &ComputedValues) -> bool {
@@ -1671,6 +1671,10 @@ fn needs_style_image_flush(node: &Node, style: &ComputedValues) -> bool {
             &style.get_background().background_image.0,
             &el.background_images,
         ) || out_of_sync(&style.get_svg().mask_image.0, &el.mask_images)
+            || out_of_sync(
+                std::slice::from_ref(&style.get_border().border_image_source),
+                &el.border_images,
+            )
     })
 }
 

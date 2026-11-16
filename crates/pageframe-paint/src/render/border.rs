@@ -15,6 +15,7 @@ mod contour;
 mod dashed;
 mod dotted;
 mod groove;
+mod image;
 
 use crate::{
     color::ToColorColor as _,
@@ -157,6 +158,9 @@ impl ElementCx<'_, '_> {
 
     /// Draw all borders for a node
     pub(crate) fn draw_border(&self, scene: &mut impl PaintScene, outer_clipped: bool) {
+        if self.draw_border_image(scene) {
+            return;
+        }
         let style = &*self.style;
         let border = style.get_border();
         let current_color = style.clone_color();

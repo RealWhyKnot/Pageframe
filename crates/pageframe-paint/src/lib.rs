@@ -8,6 +8,7 @@ mod color;
 mod debug_overlay;
 mod filters;
 mod gradient;
+mod image_cache;
 mod kurbo_css;
 mod layers;
 mod render;

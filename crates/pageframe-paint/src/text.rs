@@ -17,6 +17,7 @@ use style::values::computed::{
 use style::values::generics::text::{GenericTextDecorationInset, GenericTextDecorationLength};
 
 use crate::color::{Color, ToColorColor as _};
+use crate::image_cache::ImageCache;
 use crate::{FONT_EMBOLDEN_ENABLED, SELECTION_COLOR};
 
 mod ink;
@@ -1748,47 +1749,9 @@ const MAX_SHADOW_IMAGE_SIDE: f64 = 4096.0;
 /// How many bytes of blurred shadow images each thread keeps for reuse.
 const SHADOW_CACHE_BYTES: usize = 32 << 20;
 
-#[derive(Default)]
-struct ShadowCache {
-    entries: HashMap<u64, (peniko::ImageBrush, u64)>,
-    clock: u64,
-    bytes: usize,
-}
-
-impl ShadowCache {
-    fn get(&mut self, key: u64) -> Option<peniko::ImageBrush> {
-        self.clock += 1;
-        let (image, last_used) = self.entries.get_mut(&key)?;
-        *last_used = self.clock;
-        Some(image.clone())
-    }
-
-    fn insert(&mut self, key: u64, image: peniko::ImageBrush) {
-        self.bytes += image.image.data.len();
-        if let Some((old, _)) = self.entries.insert(key, (image, self.clock)) {
-            self.bytes -= old.image.data.len();
-        }
-        if self.bytes > SHADOW_CACHE_BYTES {
-            let mut by_age: Vec<(u64, u64)> = self
-                .entries
-                .iter()
-                .map(|(key, (_, last_used))| (*last_used, *key))
-                .collect();
-            by_age.sort_unstable();
-            for (_, key) in by_age {
-                if self.bytes <= SHADOW_CACHE_BYTES / 2 {
-                    break;
-                }
-                if let Some((old, _)) = self.entries.remove(&key) {
-                    self.bytes -= old.image.data.len();
-                }
-            }
-        }
-    }
-}
-
 thread_local! {
-    static SHADOW_CACHE: std::cell::RefCell<ShadowCache> = std::cell::RefCell::default();
+    static SHADOW_CACHE: std::cell::RefCell<ImageCache> =
+        std::cell::RefCell::new(ImageCache::new(SHADOW_CACHE_BYTES));
 }
 
 /// Renders what `draw` paints into an image, blurs it with a Gaussian of `std_deviation` and
@@ -1825,7 +1788,7 @@ fn blurred_shadow_image(
     color.to_rgba8().to_u8_array().hash(&mut hasher);
     let key = hasher.finish();
     if let Some(image) = SHADOW_CACHE.with_borrow_mut(|cache| cache.get(key)) {
-        return Some((image, origin));
+        return Some((peniko::ImageBrush::new(image), origin));
     }
 
     let coverage = anyrender::render_to_buffer::<anyrender_vello_cpu::VelloCpuImageRenderer, _>(
@@ -1856,7 +1819,7 @@ fn blurred_shadow_image(
         },
         sampler: peniko::ImageSampler::default(),
     };
-    SHADOW_CACHE.with_borrow_mut(|cache| cache.insert(key, image.clone()));
+    SHADOW_CACHE.with_borrow_mut(|cache| cache.insert(key, image.image.clone()));
     Some((image, origin))
 }
 

@@ -905,7 +905,7 @@ enum BackgroundSizeComputeMode {
 /// The CSS default sizing algorithm for the unconstrained (`auto auto`) case:
 /// resolve the concrete object size from whichever intrinsic dimensions exist,
 /// falling back to the default object size (the background positioning area).
-fn default_sizing(
+pub(super) fn default_sizing(
     width: Option<f32>,
     height: Option<f32>,
     ratio: Option<f32>,
