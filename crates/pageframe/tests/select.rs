@@ -156,3 +156,40 @@ fn oversized_options_stay_inside_a_sized_select() {
         Some(20_000)
     );
 }
+
+const SCALED: &str = "<!doctype html><style>body{margin:0}</style>\
+<select id=small><option>Option</option></select>\
+<select id=large style=\"font-size:16px\"><option>Option</option></select>";
+
+fn sizes_at_scale(scale: f32) -> [(f32, f32); 2] {
+    let mut harness = open(App::new((), SCALED));
+    let scheme = harness.base().get_viewport().color_scheme;
+    harness
+        .base_mut()
+        .set_viewport(pageframe_traits::shell::Viewport::new(
+            support::WIDTH * 2,
+            support::HEIGHT * 2,
+            scale,
+            scheme,
+        ));
+    harness.pump();
+    [size(&harness, "#small"), size(&harness, "#large")]
+}
+
+#[test]
+fn closed_selects_snap_their_line_to_device_pixels_like_chrome() {
+    let cases = [
+        (1.0, [(62.0, 19.0), (70.0, 21.0)]),
+        (1.5, [(60.666_67, 17.333_33), (68.666_67, 20.666_67)]),
+        (2.0, [(61.5, 19.0), (69.5, 22.0)]),
+    ];
+    for (scale, expected) in cases {
+        let sizes = sizes_at_scale(scale);
+        for ((width, height), (chrome_width, chrome_height)) in sizes.into_iter().zip(expected) {
+            assert!(
+                (width - chrome_width).abs() < 0.01 && (height - chrome_height).abs() < 0.01,
+                "at {scale}x got {width}x{height}, Chrome draws {chrome_width}x{chrome_height}"
+            );
+        }
+    }
+}

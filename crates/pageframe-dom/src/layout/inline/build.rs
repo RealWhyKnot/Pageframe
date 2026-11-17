@@ -175,6 +175,60 @@ fn push_edge_spacer(
     }
 }
 
+fn shows_dropdown_value(nodes: &crate::NodeTree, root: NodeId) -> bool {
+    let host = match nodes[root].parent {
+        Some(parent) if nodes[parent].before() == Some(root) => parent,
+        _ => root,
+    };
+    let select = if nodes[host]
+        .data
+        .is_element_with_tag_name(&local_name!("option"))
+    {
+        nodes[host].parent.and_then(|parent| {
+            if nodes[parent]
+                .data
+                .is_element_with_tag_name(&local_name!("optgroup"))
+            {
+                nodes[parent].parent
+            } else {
+                Some(parent)
+            }
+        })
+    } else {
+        Some(host)
+    };
+    select
+        .and_then(|select| nodes[select].element_data())
+        .is_some_and(|element| {
+            element.name.local == local_name!("select")
+                && crate::select_list::select_list_rows(element).is_none()
+        })
+}
+
+fn dropdown_line_height(
+    font_ctx: &mut FontContext,
+    computed: &ComputedValues,
+    scale: f32,
+) -> Option<f32> {
+    use style::values::computed::font::LineHeight;
+
+    let font_size = computed.slow_clone_font_size().used_size().px();
+    let text_height = match computed.clone_line_height() {
+        LineHeight::Normal => {
+            let metrics = crate::font_metrics::form_control_metrics(
+                font_ctx,
+                computed.get_font(),
+                font_size,
+                scale,
+            )?;
+            (metrics.ascent.round() + metrics.descent.round()) / scale
+        }
+        LineHeight::Number(number) => font_size * number.0,
+        LineHeight::Length(length) => length.0.px(),
+    };
+    Some(text_height + 2.0 * scale.floor() / scale)
+}
+
 pub(crate) fn build_inline_layout_into(
     nodes: &crate::NodeTree,
     layout_ctx: &mut LayoutContext<TextBrush>,
@@ -193,9 +247,17 @@ pub(crate) fn build_inline_layout_into(
 
     let parley_style = root_node_style
         .as_ref()
-        .map(|s| parley::TextStyle {
-            vertical_align: parley::VerticalAlign::BASELINE,
-            ..stylo_to_parley::style(inline_context_root_node_id, s)
+        .map(|s| {
+            let mut root_style = parley::TextStyle {
+                vertical_align: parley::VerticalAlign::BASELINE,
+                ..stylo_to_parley::style(inline_context_root_node_id, s)
+            };
+            if shows_dropdown_value(nodes, inline_context_root_node_id)
+                && let Some(height) = dropdown_line_height(font_ctx, s, scale)
+            {
+                root_style.line_height = parley::LineHeight::Absolute(height);
+            }
+            root_style
         })
         .unwrap_or_else(|| parley::TextStyle {
             white_space_collapse: WhiteSpaceCollapse::Collapse,
@@ -294,6 +356,11 @@ pub(crate) fn build_inline_layout_into(
     }
 
     text_layout.text = builder.build_into(&mut text_layout.layout);
+    for inline_box in text_layout.layout.inline_boxes_mut() {
+        if let parley::BaselineShift::Length(length) = inline_box.vertical_align.shift {
+            inline_box.vertical_align.shift = parley::BaselineShift::Length(length * scale);
+        }
+    }
     text_layout.has_percent_edges = edge_basis.has_percent;
     text_layout.has_clone_spans = edge_basis.has_clone;
     return;

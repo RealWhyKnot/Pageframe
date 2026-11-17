@@ -219,3 +219,28 @@ fn meter_regions_follow_low_high_and_optimum() {
         ]
     );
 }
+
+const LOWERED: &str = "<!doctype html><style>html,body{margin:0}</style>\
+<p style=\"margin:0;font:14px Arial\">Xg<span id=box style=\"display:inline-block;\
+width:20px;height:14px;vertical-align:-0.2em\"></span></p>";
+
+fn lowered_top_at_scale(scale: f32) -> f32 {
+    let mut harness = open(App::new((), LOWERED));
+    let scheme = harness.base().get_viewport().color_scheme;
+    harness
+        .base_mut()
+        .set_viewport(pageframe_traits::shell::Viewport::new(
+            support::WIDTH * 2,
+            support::HEIGHT * 2,
+            scale,
+            scheme,
+        ));
+    harness.pump();
+    harness.layout_rect("#box").y
+}
+
+#[test]
+fn length_vertical_align_moves_inline_blocks_by_css_pixels_at_every_scale() {
+    assert_eq!(lowered_top_at_scale(1.0), 2.0);
+    assert_eq!(lowered_top_at_scale(2.0), 1.5);
+}

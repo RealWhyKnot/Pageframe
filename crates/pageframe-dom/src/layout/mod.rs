@@ -303,7 +303,8 @@ impl LayoutPassState<'_> {
                 .option_select(dom_node_id(node_id))
                 .is_some_and(|select| self.select_is_list(select))
         {
-            output.size.width = output.size.width.ceil();
+            let scale = self.doc.viewport.scale();
+            output.size.width = (output.size.width * scale).ceil() / scale;
         }
         if let Some(line_height) = self.empty_list_item_line_height(node_id, &inputs) {
             output.size.height += line_height;

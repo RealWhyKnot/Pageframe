@@ -235,7 +235,6 @@ optgroup > option {
 
 option:checked {
     height: auto;
-    padding-block: 1px;
     visibility: visible;
 }
 
@@ -250,10 +249,6 @@ select:empty::before {
     width: 0;
     overflow: hidden;
     white-space: pre;
-}
-
-select:empty::before {
-    padding-block: 1px;
 }
 
 select:is([multiple]:not([size="1"]), [size]:not([size="0"], [size="1"])) {
