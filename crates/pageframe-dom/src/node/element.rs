@@ -886,13 +886,13 @@ impl ElementData {
         let number = |name: LocalName| self.attr(name).and_then(parse_html_float);
         let minimum = number(local_name!("min")).unwrap_or(0.0);
         let maximum = number(local_name!("max")).unwrap_or(100.0).max(minimum);
-        let span = maximum - minimum;
-        if span <= 0.0 {
+        let half_span = maximum / 2.0 - minimum / 2.0;
+        if half_span <= 0.0 {
             return 0.0;
         }
         let written = number(local_name!("value"));
         let value = written
-            .unwrap_or(minimum + span / 2.0)
+            .unwrap_or(minimum + half_span)
             .clamp(minimum, maximum);
         let step = match self.attr(local_name!("step")) {
             Some(step) if step.eq_ignore_ascii_case("any") => None,
@@ -906,8 +906,11 @@ impl ElementData {
         let value = match step {
             Some(step) => {
                 let base = number(local_name!("min")).or(written).unwrap_or(0.0);
-                let rounded = base + ((value - base) / step + 0.5).floor() * step;
-                if rounded > maximum {
+                let steps = ((value / 2.0 - base / 2.0) / step * 2.0 + 0.5).floor();
+                let rounded = (base / 2.0 + steps * step / 2.0) * 2.0;
+                if !rounded.is_finite() {
+                    value
+                } else if rounded > maximum {
                     rounded - step
                 } else if rounded < minimum {
                     rounded + step
@@ -917,7 +920,7 @@ impl ElementData {
             }
             None => value,
         };
-        ((value - minimum) / span).clamp(0.0, 1.0)
+        ((value / 2.0 - minimum / 2.0) / half_span).clamp(0.0, 1.0)
     }
 
     pub(crate) fn is_button_input(&self) -> bool {
