@@ -35,6 +35,7 @@ bitflags! {
         /// Whether the node is a button-type input whose label always uses block layout
         const IS_BUTTON_INPUT = 1 << 4;
         const IS_COMPRESSIBLE_REPLACED = 1 << 5;
+        const IS_FIELDSET = 1 << 6;
     }
 }
 
@@ -191,7 +192,9 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
     #[inline]
     fn is_block(&self) -> bool {
         // Button inputs always establish an independent formatting context.
-        !self.flags.contains(StyleFlags::IS_BUTTON_INPUT)
+        !self
+            .flags
+            .intersects(StyleFlags::IS_BUTTON_INPUT | StyleFlags::IS_FIELDSET)
             && convert::is_block(self.effective_display())
     }
 

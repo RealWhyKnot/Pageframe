@@ -1179,6 +1179,9 @@ impl Node {
             if crate::layout::replaced::is_replaced_element(&el.name.local) {
                 flags |= stylo_taffy::StyleFlags::IS_REPLACED;
             }
+            if el.name.local == local_name!("fieldset") {
+                flags |= stylo_taffy::StyleFlags::IS_FIELDSET;
+            }
             if el.name.local == local_name!("button") {
                 flags |= stylo_taffy::StyleFlags::IS_BUTTON;
             }

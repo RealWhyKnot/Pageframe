@@ -919,22 +919,21 @@ impl LayoutPassState<'_> {
                     return output;
                 }
 
+                let is_fieldset = node.data.is_element_with_tag_name(&local_name!("fieldset"));
                 // The default CSS file will set
                 match node.taffy_display() {
                     Display::Block | Display::FlowRoot if legend_pass => {
-                        let mut block_inputs = inputs;
-                        block_inputs.run_mode = RunMode::PerformLayout;
-                        let mut output = compute_block_layout(self, node_id, block_inputs, None);
+                        let mut output = compute_block_layout(self, node_id, inputs, None);
                         self.place_rendered_legend(dom_node_id(node_id), &inputs, &mut output);
                         self.clamp_child_lines(dom_node_id(node_id), &inputs, &mut output);
                         output
                     }
-                    Display::Block => {
+                    Display::Block if !is_fieldset => {
                         let mut output = compute_block_layout(self, node_id, inputs, block_ctx);
                         self.clamp_child_lines(dom_node_id(node_id), &inputs, &mut output);
                         output
                     }
-                    Display::FlowRoot => {
+                    Display::Block | Display::FlowRoot => {
                         let mut output = compute_block_layout(self, node_id, inputs, None);
                         self.clamp_child_lines(dom_node_id(node_id), &inputs, &mut output);
                         output

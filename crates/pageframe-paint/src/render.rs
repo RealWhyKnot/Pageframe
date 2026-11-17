@@ -688,7 +688,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
         };
 
         if filters.is_empty() && !has_clip_path && paints_own_box {
-            cx.draw_outset_box_shadow(scene);
+            cx.draw_box_shadow_under_legend(scene);
         }
         let backdrop = self.backdrop(node, &styles, &cx, own_transform.is_some());
 
@@ -714,7 +714,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                         None,
                         |scene| {
                             if has_clip_path && paints_own_box {
-                                cx.draw_outset_box_shadow(scene);
+                                cx.draw_box_shadow_under_legend(scene);
                             }
                             self.draw_backdrop(scene, &cx, backdrop.as_ref());
                             self.paint_effect_body(&mut cx, scene, &body);
@@ -728,7 +728,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                 } else {
                     let mut recording = Scene::new();
                     if paints_own_box {
-                        cx.draw_outset_box_shadow(&mut recording);
+                        cx.draw_box_shadow_under_legend(&mut recording);
                     }
                     self.draw_backdrop(&mut recording, &cx, backdrop.as_ref());
                     self.paint_effect_body(&mut cx, &mut recording, &body);
@@ -1092,10 +1092,31 @@ struct OwnBox {
 
 impl ElementCx<'_, '_> {
     fn decoration_box(&self) -> Option<OwnBox> {
-        let (above, below) = match self.context.dom.legend_gap(self.node.id) {
-            Some(gap) => (gap.border_inset, 0.0),
-            None => self.caption_space(),
-        };
+        match self.context.dom.legend_gap(self.node.id) {
+            Some(gap) => self.inset_box(gap.border_inset, 0.0),
+            None => {
+                let (above, below) = self.caption_space();
+                self.inset_box(above, below)
+            }
+        }
+    }
+
+    fn draw_box_shadow_under_legend(&mut self, scene: &mut impl PaintScene) {
+        let mut legend_box = self
+            .context
+            .dom
+            .legend_gap(self.node.id)
+            .and_then(|gap| self.inset_box(gap.border_inset, 0.0));
+        if let Some(other) = &mut legend_box {
+            self.swap_box(other);
+        }
+        self.draw_outset_box_shadow(scene);
+        if let Some(other) = &mut legend_box {
+            self.swap_box(other);
+        }
+    }
+
+    fn inset_box(&self, above: f32, below: f32) -> Option<OwnBox> {
         if above == 0.0 && below == 0.0 {
             return None;
         }
