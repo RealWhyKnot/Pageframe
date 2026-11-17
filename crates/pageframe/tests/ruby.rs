@@ -117,6 +117,46 @@ fn annotations_sit_above_their_bases_like_chrome() {
 }
 
 #[test]
+fn unusual_rubies_match_chrome() {
+    let mut harness = open(App::new(
+        (),
+        "<!doctype html><style>html,body{margin:0;font:14px Arial}div{border:1px solid #999;margin:3px;width:200px}</style>\
+<div>ab<ruby id=hidden>base<rt style=\"display:none\">long annotation</rt></ruby>cd</div>\
+<div>\n  <ruby id=blank>x<rt>long annotation</rt></ruby> after</div>\
+<div><ruby id=floated style=\"float:left\">base<rt id=floated-rt>annotation</rt></ruby>text</div>\
+<div dir=rtl><ruby><rb id=wide>AAA</rb><rt>1</rt><rb id=narrow>B</rb><rt>2</rt></ruby></div>",
+    ));
+    assert_boxes(
+        &boxes(&mut harness, "div"),
+        &[
+            [3.0, 3.0, 202.0, 18.0],
+            [3.0, 24.0, 202.0, 23.0],
+            [3.0, 50.0, 202.0, 18.0],
+            [3.0, 71.0, 202.0, 23.0],
+        ],
+        "divs",
+    );
+    assert_boxes(
+        &boxes(&mut harness, "#hidden, #blank, #floated"),
+        &[
+            [19.58, 4.0, 30.36, 16.0],
+            [4.0, 25.0, 44.88, 21.0],
+            [4.0, 51.0, 32.7, 21.0],
+        ],
+        "rubies",
+    );
+    assert_boxes(
+        &boxes(&mut harness, "#floated-rt, #wide, #narrow"),
+        &[
+            [4.0, 51.0, 32.7, 7.0],
+            [175.98, 77.0, 28.02, 16.0],
+            [166.66, 77.0, 9.34, 16.0],
+        ],
+        "annotation and bases",
+    );
+}
+
+#[test]
 fn a_ruby_without_annotations_stays_inline() {
     let mut harness = open(App::new(
         (),

@@ -1822,14 +1822,32 @@ impl Node {
     pub fn is_ruby_box(&self) -> bool {
         self.data.is_element_with_tag_name(&local_name!("ruby"))
             && self.display_style().is_some_and(|display| {
-                display.outside() == DisplayOutside::Inline
-                    && display.inside() == DisplayInside::Flow
+                display.inside() == DisplayInside::Flow
+                    && (display.outside() == DisplayOutside::Inline
+                        || (display.outside() == DisplayOutside::Block && self.is_blockified()))
             })
             && self.children.iter().any(|&child_id| {
-                self.tree()[child_id]
-                    .data
-                    .is_element_with_tag_name(&local_name!("rt"))
+                let child = &self.tree()[child_id];
+                child.data.is_element_with_tag_name(&local_name!("rt"))
+                    && child
+                        .display_style()
+                        .is_some_and(|display| display.outside() == DisplayOutside::Block)
             })
+    }
+
+    fn is_blockified(&self) -> bool {
+        let is_floating_or_out_of_flow = self
+            .primary_styles()
+            .is_some_and(|style| style.clone_float().is_floating() || style_is_out_of_flow(&style));
+        is_floating_or_out_of_flow
+            || self
+                .layout_parent
+                .get()
+                .or(self.parent)
+                .and_then(|parent| self.tree()[parent].display_style())
+                .is_some_and(|display| {
+                    matches!(display.inside(), DisplayInside::Flex | DisplayInside::Grid)
+                })
     }
 
     /// The node whose box this node's `Layout.location` is relative to: the

@@ -1,5 +1,8 @@
 use markup5ever::local_name;
 use pageframe_traits::node_id::NodeId;
+use style::computed_values::direction::T as Direction;
+use style::values::specified::box_::DisplayOutside;
+use stylo_taffy::CopyStyleGetters as _;
 use taffy::{
     AvailableSpace, Baselines, CoreStyle, Layout, LayoutInput, LayoutOutput, LayoutPartialTree,
     Line, Point, Rect, RequestedAxis, ResolveOrZero, RunMode, ScrollableOverflow, Size, SizingMode,
@@ -116,7 +119,10 @@ impl LayoutPassState<'_> {
     }
 
     fn ruby_neighbours(&self, ruby: NodeId) -> (Option<NodeId>, Option<NodeId>) {
-        let Some(parent) = self.nodes[ruby].parent else {
+        let is_inline = self.nodes[ruby]
+            .display_style()
+            .is_some_and(|display| display.outside() == DisplayOutside::Inline);
+        let (true, Some(parent)) = (is_inline, self.nodes[ruby].parent) else {
             return (None, None);
         };
         let siblings: Vec<NodeId> = self.nodes[parent]
@@ -128,12 +134,19 @@ impl LayoutPassState<'_> {
         let Some(index) = siblings.iter().position(|&sibling| sibling == ruby) else {
             return (None, None);
         };
-        (
-            index
-                .checked_sub(1)
-                .and_then(|before| siblings.get(before).copied()),
-            siblings.get(index + 1).copied(),
-        )
+        let is_blank = |sibling: NodeId| match &self.nodes[sibling].data {
+            NodeData::Text(text) => text.content.trim().is_empty(),
+            _ => false,
+        };
+        let previous = index
+            .checked_sub(1)
+            .and_then(|before| siblings.get(before).copied())
+            .filter(|&before| index > 1 || !is_blank(before));
+        let next = siblings
+            .get(index + 1)
+            .copied()
+            .filter(|&after| index + 2 < siblings.len() || !is_blank(after));
+        (previous, next)
     }
 
     fn overhangs_into(&self, ruby: NodeId, neighbour: NodeId) -> bool {
@@ -244,6 +257,17 @@ impl LayoutPassState<'_> {
                 .map(|base| inline_end - base.location.x - base.measured.size.width),
             annotations.last().and_then(Option::as_ref),
         );
+        let is_rtl = self.nodes[node_id]
+            .primary_styles()
+            .is_some_and(|style| style.clone_direction() == Direction::Rtl);
+        let (left_overhang, right_overhang) = if is_rtl {
+            for placed in bases.iter_mut().chain(annotations.iter_mut()).flatten() {
+                placed.location.x = inline_end - placed.location.x - placed.measured.size.width;
+            }
+            (end_overhang, start_overhang)
+        } else {
+            (start_overhang, end_overhang)
+        };
         let baseline = bases
             .iter()
             .flatten()
@@ -307,7 +331,7 @@ impl LayoutPassState<'_> {
         };
         let size = Size {
             width: inputs.known_dimensions.width.unwrap_or(
-                inline_end + frame.horizontal_axis_sum() - start_overhang - end_overhang,
+                inline_end + frame.horizontal_axis_sum() - left_overhang - right_overhang,
             ),
             height: inputs
                 .known_dimensions
@@ -315,7 +339,7 @@ impl LayoutPassState<'_> {
                 .unwrap_or(block_end - block_start + frame.vertical_axis_sum()),
         };
         let offset = Point {
-            x: frame.left - start_overhang,
+            x: frame.left - left_overhang,
             y: frame.top - block_start,
         };
 
@@ -345,9 +369,9 @@ impl LayoutPassState<'_> {
             size,
             ScrollableOverflow::new(
                 Rect {
-                    left: -start_overhang,
+                    left: -left_overhang,
                     top: overflow_top,
-                    right: size.width + end_overhang,
+                    right: size.width + right_overhang,
                     bottom: size.height,
                 },
                 Point { x: false, y: false },
