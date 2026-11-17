@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 use style::properties::generated::longhands::text_decoration_style::computed_value::T as TextDecorationStyle;
+use style::properties::generated::longhands::visibility::computed_value::T as Visibility;
 use style::values::computed::{
     Display, Length, LengthPercentage, TextDecorationLength, TextDecorationLine,
     TextUnderlinePosition,
@@ -1324,6 +1325,12 @@ fn flush_line_decorations(
     }
 }
 
+pub(crate) fn is_invisible(doc: &BaseDocument, id: NodeId) -> bool {
+    doc.get_node(id)
+        .and_then(|node| node.primary_styles())
+        .is_some_and(|style| style.get_inherited_box().visibility != Visibility::Visible)
+}
+
 pub(crate) fn stroke_text<'a>(
     scene: &mut impl PaintScene,
     lines: impl Iterator<Item = Line<'a, TextBrush>>,
@@ -1408,6 +1415,9 @@ pub(crate) fn stroke_text<'a>(
                     hung = hung_space(&glyph_run, run_text, doc, glyph_run.style().brush.id)
                         .filter(|_| !is_rtl || body.chars().all(|ch| ch == ' '));
                     has_text = true;
+                }
+                if is_invisible(doc, glyph_run.style().brush.id) {
+                    continue;
                 }
                 let font = run.font();
                 let font_size = run.font_size();

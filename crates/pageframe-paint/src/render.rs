@@ -467,9 +467,13 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                 let cx = self.element_cx(node, *node.final_layout(), transform, None);
                 let base = self.deferred_paints.borrow().len();
                 cx.draw_children(scene, transform, clip_rect, Some(base));
+                return;
             }
-            return;
+            if !self.has_visible_descendant(node) {
+                return;
+            }
         }
+        let hidden = styles.get_inherited_box().visibility != StyloVisibility::Visible;
 
         let effects = styles.get_effects();
         let opacity = effects.opacity;
@@ -672,7 +676,8 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                     SpecialElementData::TableRoot(table) => table.cell_is_collapsed(node.id),
                     _ => false,
                 });
-        let paints_own_box = !node.is_inline_with_only_block_children() && !is_removed_cell;
+        let paints_own_box =
+            !hidden && !node.is_inline_with_only_block_children() && !is_removed_cell;
         let parent_is_flex_or_grid = parent.is_some_and(is_flex_or_grid);
         let is_table_part = parent.is_some_and(|parent| parent.flags.is_table_root());
         let is_paint_scope = parent.is_none_or(|parent| parent.flags.is_inline_root())
@@ -701,7 +706,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
         if filters.is_empty() && !has_clip_path && paints_own_box {
             cx.draw_box_shadow_under_legend(scene);
         }
-        let backdrop = if is_backdrop_root {
+        let backdrop = if is_backdrop_root || hidden {
             None
         } else {
             self.backdrop(node, &styles, &cx, own_transform.is_some())
@@ -734,12 +739,16 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                             self.draw_backdrop(scene, &cx, backdrop.as_ref());
                             self.paint_effect_body(&mut cx, scene, &body);
                             cx.transform = unscrolled_transform;
-                            cx.draw_outline(scene);
+                            if !hidden {
+                                cx.draw_outline(scene);
+                            }
                         },
                     );
                     cx.transform = unscrolled_transform;
-                    cx.draw_resizer(scene);
-                    cx.draw_focus_ring(scene);
+                    if !hidden {
+                        cx.draw_resizer(scene);
+                        cx.draw_focus_ring(scene);
+                    }
                 } else {
                     let mut recording = Scene::new();
                     if paints_own_box {
@@ -748,9 +757,11 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                     self.draw_backdrop(&mut recording, &cx, backdrop.as_ref());
                     self.paint_effect_body(&mut cx, &mut recording, &body);
                     cx.transform = unscrolled_transform;
-                    cx.draw_outline(&mut recording);
-                    cx.draw_resizer(&mut recording);
-                    cx.draw_focus_ring(&mut recording);
+                    if !hidden {
+                        cx.draw_outline(&mut recording);
+                        cx.draw_resizer(&mut recording);
+                        cx.draw_focus_ring(&mut recording);
+                    }
                     match filtered_image(recording, &filters, self.viewport_rect()) {
                         FilterOutput::Image(image, region) => {
                             self.layer_manager.maybe_with_layer(
@@ -797,6 +808,33 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
             .maybe_pop_layer(scene, css_clip_layer_pushed);
     }
 
+    fn has_visible_descendant(&self, node: &Node) -> bool {
+        let tree = self.dom.as_ref().tree();
+        let mut pending: Vec<NodeId> = node
+            .children
+            .iter()
+            .copied()
+            .chain(node.before())
+            .chain(node.after())
+            .collect();
+        while let Some(id) = pending.pop() {
+            let Some(child) = tree.get(id) else {
+                continue;
+            };
+            if child.is_element()
+                && child.primary_styles().is_some_and(|style| {
+                    style.get_inherited_box().visibility == StyloVisibility::Visible
+                })
+            {
+                return true;
+            }
+            pending.extend(child.children.iter().copied());
+            pending.extend(child.before());
+            pending.extend(child.after());
+        }
+        false
+    }
+
     fn viewport_rect(&self) -> Rect {
         Rect::new(
             self.initial_x,
@@ -813,6 +851,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
         body: &EffectBody<'_>,
     ) {
         let unscrolled_transform = cx.transform;
+        let hidden = cx.style.get_inherited_box().visibility != StyloVisibility::Visible;
         let native_frame = cx.has_native_frame();
         let mut other_box = cx.decoration_box();
         if let Some(other) = &mut other_box {
@@ -874,15 +913,17 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                 };
 
                 cx.transform = self.scrolled_transform(body.node, cx.transform);
-                cx.draw_image(scene);
-                #[cfg(feature = "svg")]
-                cx.draw_svg(scene);
-                #[cfg(feature = "custom-widget")]
-                cx.draw_custom_widget(scene);
-                cx.draw_sub_document(scene);
-                cx.draw_input(scene);
-                cx.draw_select_arrow(scene);
-                cx.draw_text_input_text(scene, content_position);
+                if !hidden {
+                    cx.draw_image(scene);
+                    #[cfg(feature = "svg")]
+                    cx.draw_svg(scene);
+                    #[cfg(feature = "custom-widget")]
+                    cx.draw_custom_widget(scene);
+                    cx.draw_sub_document(scene);
+                    cx.draw_input(scene);
+                    cx.draw_select_arrow(scene);
+                    cx.draw_text_input_text(scene, content_position);
+                }
                 if !body.is_paint_scope && body.node.flags.is_inline_root() {
                     self.deferred_paints
                         .borrow_mut()
@@ -906,7 +947,9 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                         });
                 }
                 if let Some(columns) = body.node.columns() {
-                    cx.draw_column_rules(scene, columns);
+                    if !hidden {
+                        cx.draw_column_rules(scene, columns);
+                    }
                     let base = cx.transform;
                     let last = columns.fragments.len().saturating_sub(1);
                     let origin = base.translation().y;
@@ -947,7 +990,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                             |scene| {
                                 cx.draw_float_children(scene, cx.transform, body.child_clip_rect);
                                 cx.draw_inline_layout(scene, content_position);
-                                if index == 0 {
+                                if index == 0 && !hidden {
                                     cx.draw_marker(scene, content_position);
                                 }
                                 cx.draw_children(
@@ -964,7 +1007,9 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                 }
                 cx.draw_float_children(scene, cx.transform, body.child_clip_rect);
                 cx.draw_inline_layout(scene, content_position);
-                cx.draw_marker(scene, content_position);
+                if !hidden {
+                    cx.draw_marker(scene, content_position);
+                }
                 cx.draw_children(scene, cx.transform, body.child_clip_rect, flush_from);
             },
         );
@@ -974,7 +1019,9 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
             cx.paint_table_borders(scene);
         }
         #[cfg(feature = "scrollbars")]
-        cx.draw_scrollbars(scene);
+        if !hidden {
+            cx.draw_scrollbars(scene);
+        }
     }
 
     fn render_node(
@@ -1522,13 +1569,15 @@ impl ElementCx<'_, '_> {
 
             // Render inline element backgrounds (e.g. `<span style="background: ...">`)
             // behind the text and selection highlight.
-            let fragments = crate::text::inline_fragments(
+            let mut fragments = crate::text::inline_fragments(
                 text_layout.layout.lines().take(visible_lines),
                 self.context.dom,
                 self.node.id,
                 &text_layout.text,
                 self.scale,
             );
+            fragments
+                .retain(|fragment| !crate::text::is_invisible(self.context.dom, fragment.node_id));
             let cut = (visible_lines, ellipsis);
             self.draw_inline_group(scene, transform, &fragments, None, cut);
             let mut groups: Vec<NodeId> = Vec::new();
