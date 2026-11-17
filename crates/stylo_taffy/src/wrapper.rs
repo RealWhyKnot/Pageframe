@@ -36,6 +36,7 @@ bitflags! {
         const IS_BUTTON_INPUT = 1 << 4;
         const IS_COMPRESSIBLE_REPLACED = 1 << 5;
         const IS_FIELDSET = 1 << 6;
+        const IS_NATIVE_TOGGLE = 1 << 7;
     }
 }
 
@@ -320,6 +321,9 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
 
     #[inline]
     fn padding(&self) -> taffy::Rect<taffy::LengthPercentage> {
+        if self.flags.contains(StyleFlags::IS_NATIVE_TOGGLE) {
+            return taffy::style_helpers::zero();
+        }
         let padding_styles = self.style.get_padding();
         if let Some(basis) = self.percent_basis() {
             let resolve = |value: &stylo::LengthPercentage| {
@@ -345,6 +349,9 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
 
     #[inline]
     fn border(&self) -> taffy::Rect<taffy::LengthPercentage> {
+        if self.flags.contains(StyleFlags::IS_NATIVE_TOGGLE) {
+            return taffy::style_helpers::zero();
+        }
         let border_styles = self.style.get_border();
         let border = self.rect(taffy::Rect {
             left: convert::border(

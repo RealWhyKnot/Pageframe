@@ -27,6 +27,7 @@ use style::selector_parser::RestyleDamage;
 use style::servo_arc::Arc as ServoArc;
 use style::shared_lock::SharedRwLock;
 use style::stylesheets::UrlExtraData;
+use style::values::computed::Appearance;
 use style::values::computed::CSSPixelLength;
 use style::values::computed::Contain;
 use style::values::computed::Display as StyloDisplay;
@@ -1164,6 +1165,11 @@ impl Node {
             }
             if el.name.local == local_name!("button") {
                 flags |= stylo_taffy::StyleFlags::IS_BUTTON;
+            }
+            if el.checkbox_input_checked().is_some()
+                && styles.get_box().appearance != Appearance::None
+            {
+                flags |= stylo_taffy::StyleFlags::IS_NATIVE_TOGGLE;
             }
             if el.is_button_input() {
                 flags |= stylo_taffy::StyleFlags::IS_BUTTON_INPUT;
