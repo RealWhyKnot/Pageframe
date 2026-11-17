@@ -1174,6 +1174,7 @@ impl<'a> TElement for PageframeNode<'a> {
                     "left" => Some(StyloTextAlign::MozLeft),
                     "right" => Some(StyloTextAlign::MozRight),
                     "center" | "middle" => Some(StyloTextAlign::MozCenter),
+                    "justify" => Some(StyloTextAlign::Justify),
                     _ => None,
                 };
 
