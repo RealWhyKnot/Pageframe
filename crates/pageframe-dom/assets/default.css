@@ -84,8 +84,6 @@ textarea {
 input[type="checkbox"],
 input[type="radio"] {
     box-sizing: border-box;
-    width: 13px;
-    height: 13px;
     padding: 0;
     border: none;
     background-color: transparent;

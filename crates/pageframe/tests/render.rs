@@ -534,3 +534,27 @@ fn checkboxes_fill_with_the_accent_color() {
     assert_eq!(pixel(&buffer, 63, 16), [255, 255, 255, 255]);
     assert_eq!(pixel(&buffer, 60, 10), [0x76, 0x76, 0x76, 255]);
 }
+
+#[test]
+fn appearance_none_drops_the_native_checkbox_and_radio() {
+    let page = r#"<html><body style="margin:0;background:white">
+<input id="bare" type="checkbox" checked style="appearance:none;position:absolute;left:0;top:0;margin:0">
+<input id="dot" type="radio" checked style="appearance:none;position:absolute;left:30px;top:0;margin:0">
+<input type="checkbox" checked style="appearance:none;position:absolute;left:60px;top:0;width:20px;height:20px;margin:0;background:rgb(255,165,0)">
+</body></html>"#;
+    let mut harness = open(App::new((), page));
+    let buffer = render(&mut harness);
+    let sizes = ["#bare", "#dot"].map(|selector| {
+        let doc = harness.base_mut();
+        let id = doc
+            .query_selector(selector)
+            .expect("valid selector")
+            .expect("the input exists");
+        doc.get_client_bounding_rect(id)
+            .map(|rect| (rect.width, rect.height))
+            .expect("the input has a box")
+    });
+    assert_eq!(sizes, [(0.0, 0.0), (0.0, 0.0)]);
+    assert_eq!(pixel(&buffer, 63, 16), [255, 165, 0, 255]);
+    assert_eq!(pixel(&buffer, 70, 10), [255, 165, 0, 255]);
+}

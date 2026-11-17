@@ -15,7 +15,7 @@ use std::sync::Arc;
 use style::Atom;
 use style::values::computed::CSSPixelLength;
 use style::values::computed::length_percentage::CalcLengthPercentage;
-use style::values::computed::{Contain, ContainerType};
+use style::values::computed::{Appearance, Contain, ContainerType};
 use style::values::generics::length::{GenericMaxSize, GenericSize};
 use stylo_taffy::CopyStyleGetters;
 use stylo_taffy::TaffyStyloStyle;
@@ -117,6 +117,7 @@ pub(crate) struct LayoutPassState<'doc> {
 }
 
 const SCROLLBAR_WIDTH: f32 = 15.0;
+const NATIVE_TOGGLE_SIDE: f32 = 13.0;
 const COLOR_SWATCH_INSET: f32 = 4.0;
 const SLIDER_SIZE: taffy::Size<f32> = taffy::Size {
     width: 129.0,
@@ -629,19 +630,17 @@ impl LayoutPassState<'_> {
                                 &node.layout_style(),
                                 resolve_calc_value,
                                 |_known_size, _available_space| {
-                                    let size = node.layout_style().size();
-                                    let width = size.width.resolve_or_zero(
-                                        inputs.parent_size.width,
-                                        resolve_calc_value,
-                                    );
-                                    let height = size.height.resolve_or_zero(
-                                        inputs.parent_size.height,
-                                        resolve_calc_value,
-                                    );
-                                    let min_size = width.min(height);
+                                    let side = node
+                                        .primary_styles()
+                                        .filter(|style| {
+                                            style.get_box().appearance != Appearance::None
+                                        })
+                                        .map_or(0.0, |style| {
+                                            NATIVE_TOGGLE_SIDE * style.effective_zoom.value()
+                                        });
                                     taffy::Size {
-                                        width: min_size,
-                                        height: min_size,
+                                        width: side,
+                                        height: side,
                                     }
                                 },
                             );

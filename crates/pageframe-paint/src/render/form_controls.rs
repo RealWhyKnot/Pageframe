@@ -75,6 +75,9 @@ impl ElementCx<'_, '_> {
             Some("radio") => false,
             _ => return,
         };
+        if self.style.get_box().appearance == Appearance::None {
+            return;
+        }
 
         let colors = self.control_colors();
         let (device_transform, border_box) = device_space(self.transform, self.frame.border_box);
