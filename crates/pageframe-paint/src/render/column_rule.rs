@@ -25,10 +25,8 @@ impl ElementCx<'_, '_> {
         let snap_y = |y: f64| (origin.y + y).round() - origin.y;
         let top = snap_y(f64::from(columns.content_top) * self.scale);
         let bottom = snap_y(f64::from(columns.content_top + columns.height) * self.scale);
-        let half_gap = f64::from(columns.gap) / 2.0;
         for index in 1..columns.fragments.len() {
-            let next_left = f64::from(columns.content_left + columns.offset(index).x);
-            let centre = (next_left - half_gap) * self.scale;
+            let centre = f64::from(columns.rule_x(index)) * self.scale;
             let left = snap_x(centre - width / 2.0);
             let frame = CssBox::new(
                 Rect::new(left, top, left + width, bottom),

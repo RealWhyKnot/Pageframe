@@ -1,10 +1,12 @@
 use std::ops::Range;
 
+use style::computed_values::direction::T as Direction;
 use style::values::computed::{CSSPixelLength, ColumnFill};
 use style::values::generics::column::GenericColumnCount;
 use style::values::generics::length::{
     GenericLengthPercentageOrAuto, GenericLengthPercentageOrNormal,
 };
+use stylo_taffy::CopyStyleGetters as _;
 use taffy::{
     AvailableSpace, Baselines, BoxSizing, CollapsibleMarginSet, CoreStyle as _, LayoutInput,
     LayoutOutput, Line, MaybeMath as _, MaybeResolve as _, Point, Rect, RequestedAxis,
@@ -39,13 +41,29 @@ pub struct ColumnLayout {
     pub gap: f32,
     pub content_left: f32,
     pub content_top: f32,
+    pub content_width: f32,
     pub height: f32,
+    pub is_rtl: bool,
 }
 
 impl ColumnLayout {
     fn column_x(&self, index: usize) -> f32 {
         let count = f32::from(u16::try_from(index).unwrap_or(u16::MAX));
-        (count * self.stride * LAYOUT_UNIT).round() / LAYOUT_UNIT
+        let step = (count * self.stride * LAYOUT_UNIT).round() / LAYOUT_UNIT;
+        if self.is_rtl {
+            self.content_width - self.column_width - step
+        } else {
+            step
+        }
+    }
+
+    pub fn rule_x(&self, index: usize) -> f32 {
+        let left = self.content_left + self.column_x(index);
+        if self.is_rtl {
+            left + self.column_width + self.gap / 2.0
+        } else {
+            left - self.gap / 2.0
+        }
     }
 
     pub fn index_at(&self, flow_y: f32) -> usize {
@@ -92,8 +110,9 @@ impl ColumnLayout {
         (0..=last).find_map(|index| {
             let left = self.content_left + self.column_x(index);
             let right = left + self.column_width;
-            let is_inside =
-                (index == 0 || x >= left - half_gap) && (index == last || x < right + half_gap);
+            let (leftmost, rightmost) = if self.is_rtl { (last, 0) } else { (0, last) };
+            let is_inside = (index == leftmost || x >= left - half_gap)
+                && (index == rightmost || x < right + half_gap);
             if !is_inside {
                 return None;
             }
@@ -133,17 +152,28 @@ impl ColumnLayout {
             .fold(bottom + end.y - self.content_top, f32::max);
         (
             Point {
-                x: location.x + start.x,
+                x: location.x + start.x.min(end.x),
                 y: self.content_top,
             },
             Size {
-                width: size.width + end.x - start.x,
+                width: size.width + (end.x - start.x).abs(),
                 height,
             },
         )
     }
 
+    pub fn start(&self) -> f32 {
+        if self.is_rtl {
+            self.column_x(self.fragments.len().max(1) - 1)
+        } else {
+            0.0
+        }
+    }
+
     pub fn extent(&self) -> f32 {
+        if self.is_rtl {
+            return self.content_width;
+        }
         let count = self.fragments.len().max(1);
         self.column_x(count) - self.gap
     }
@@ -174,6 +204,7 @@ struct ColumnStyle {
     gap: Option<f32>,
     font_size: f32,
     fill: ColumnFill,
+    is_rtl: bool,
 }
 
 fn used_columns(style: &ColumnStyle, content_width: f32, gap: f32) -> (usize, f32) {
@@ -385,6 +416,7 @@ impl BaseDocument {
             gap,
             font_size: style.get_font().font_size.computed_size().px(),
             fill: column.column_fill,
+            is_rtl: style.clone_direction() == Direction::Rtl,
         })
     }
 
@@ -522,7 +554,7 @@ impl LayoutPassState<'_> {
         inputs: LayoutInput,
         mut flow_layout: impl FnMut(&mut Self, LayoutInput) -> LayoutOutput,
     ) -> LayoutOutput {
-        let (padding_border, padding_size, style_size, min_size, max_size) = {
+        let (padding_border, padding, style_size, min_size, max_size) = {
             let style = self.nodes[node_id].layout_style();
             let padding = style
                 .padding()
@@ -532,13 +564,7 @@ impl LayoutPassState<'_> {
                 .resolve_or_zero(inputs.parent_size.width, resolve_calc_value);
             let padding_border = padding + border;
             if inputs.sizing_mode == SizingMode::ContentSize {
-                (
-                    padding_border,
-                    padding.sum_axes(),
-                    Size::NONE,
-                    Size::NONE,
-                    Size::NONE,
-                )
+                (padding_border, padding, Size::NONE, Size::NONE, Size::NONE)
             } else {
                 let adjustment = if style.box_sizing() == BoxSizing::ContentBox {
                     padding_border.sum_axes()
@@ -547,7 +573,7 @@ impl LayoutPassState<'_> {
                 };
                 (
                     padding_border,
-                    padding.sum_axes(),
+                    padding,
                     style
                         .size()
                         .maybe_resolve(inputs.parent_size, resolve_calc_value)
@@ -564,6 +590,7 @@ impl LayoutPassState<'_> {
             }
         };
         let edges = padding_border.sum_axes();
+        let padding_size = padding.sum_axes();
         let padding_width = padding_size.width;
         let padding_height = padding_size.height;
         let border_width = edges.width - padding_width;
@@ -661,7 +688,9 @@ impl LayoutPassState<'_> {
             gap,
             content_left: padding_border.left,
             content_top: padding_border.top,
+            content_width,
             height: column_height,
+            is_rtl: column_style.is_rtl,
         };
 
         let mut output = flow;
@@ -671,7 +700,7 @@ impl LayoutPassState<'_> {
         };
         output.scrollable_overflow_rect = ScrollableOverflow::new(
             Rect {
-                left: 0.0,
+                left: (padding.left + columns.start()).min(0.0),
                 top: 0.0,
                 right: (columns.extent() + padding_width).max(width - border_width),
                 bottom: content_height + padding_height,

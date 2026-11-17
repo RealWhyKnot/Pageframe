@@ -452,3 +452,37 @@ fn a_paragraph_moved_to_the_next_column_takes_its_padding() {
         );
     }
 }
+
+#[test]
+fn right_to_left_columns_run_from_the_right_like_chrome() {
+    let mut harness = page(&format!(
+        "<div class=\"c\" style=\"direction:rtl\">{}</div>\
+         <div class=\"c\" style=\"direction:rtl;column-fill:auto;height:20px;\
+         margin-left:220px;column-rule:2px solid #f00\">{}</div>",
+        paragraphs("r", &[6]),
+        paragraphs("o", &[4]),
+    ));
+    let expected = [
+        (312.0, 10.0, "r0_0"),
+        (312.0, 30.0, "r0_1"),
+        (202.0, 10.0, "r0_2"),
+        (92.0, 30.0, "r0_5"),
+        (532.0, 50.0, "o0_0"),
+        (422.0, 50.0, "o0_1"),
+        (312.0, 50.0, "o0_2"),
+        (202.0, 50.0, "o0_3"),
+    ];
+    for (left, top, id) in expected {
+        assert_eq!(
+            hit_id(&harness, left, top).as_deref(),
+            Some(id),
+            "at {left},{top}"
+        );
+    }
+    let buffer = draw(&mut harness);
+    let rules: Vec<usize> = (0..WIDTH)
+        .map(|x| usize::try_from(x).expect("test width fits in usize"))
+        .filter(|&x| pixel(&buffer, x, 50) == RED)
+        .collect();
+    assert_eq!(rules, vec![214, 215, 324, 325, 434, 435]);
+}
