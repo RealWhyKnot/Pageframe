@@ -341,7 +341,7 @@ fieldset {
     display: block;
     margin-inline-start: 2px;
     margin-inline-end: 2px;
-    border: 2px groove #c0c0c0;
+    border: 2px groove #f0f0f0;
     padding-block-start: 0.35em;
     padding-block-end: 0.625em;
     padding-inline-start: 0.75em;
@@ -353,6 +353,10 @@ legend {
     display: block;
     padding-inline-start: 2px;
     padding-inline-end: 2px;
+}
+
+fieldset > legend:first-of-type {
+    inline-size: fit-content;
 }
 
 source {

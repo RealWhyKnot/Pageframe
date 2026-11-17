@@ -1,5 +1,5 @@
 use anyrender::PaintScene;
-use kurbo::{BezPath, Insets, Join, Stroke, Vec2};
+use kurbo::{BezPath, Insets, Join, Rect, Shape, Stroke, Vec2};
 use pageframe_dom::CopyStyleGetters;
 use pageframe_dom::node::SpecialElementData;
 use peniko::{Color, Fill};
@@ -377,6 +377,27 @@ impl ElementCx<'_, '_> {
             Edge::Left => self.frame.border_width.x0,
             Edge::Right => self.frame.border_width.x1,
         }
+    }
+
+    pub(crate) fn clip_out_legend(&self, scene: &mut impl PaintScene) -> bool {
+        let Some(gap) = self.context.dom.legend_gap(self.node.id) else {
+            return false;
+        };
+        if gap.right <= gap.left {
+            return false;
+        }
+        let top = -f64::from(gap.border_inset) * self.scale;
+        let hole = Rect::new(
+            f64::from(gap.left) * self.scale,
+            top,
+            f64::from(gap.right) * self.scale,
+            top + f64::from(gap.depth) * self.scale,
+        );
+        let bounds = self.frame.border_box.union(hole).inflate(1.0, 1.0);
+        let mut clip = bounds.to_path(0.1);
+        clip.extend(hole.to_path(0.1));
+        scene.push_clip_layer(Fill::EvenOdd, self.transform, &clip);
+        true
     }
 
     pub(crate) fn caption_space(&self) -> (f32, f32) {

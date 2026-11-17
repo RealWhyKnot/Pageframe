@@ -30,6 +30,7 @@ use taffy::{
 pub(crate) mod construct;
 pub(crate) mod counter_style;
 pub(crate) mod damage;
+pub(crate) mod fieldset;
 pub(crate) mod generated_content;
 pub(crate) mod image_fallback;
 pub(crate) mod inline;
@@ -414,6 +415,7 @@ impl LayoutPassState<'_> {
     ) -> taffy::tree::LayoutOutput {
         let orthogonal_percent_basis = self.orthogonal_percent_basis_of(dom_node_id(node_id));
         let form_control = self.form_control_metrics(dom_node_id(node_id));
+        let legend_pass = self.needs_legend_pass(dom_node_id(node_id), &inputs);
         let node = &mut self.nodes[dom_node_id(node_id)];
 
         let font_styles = node.primary_styles().map(|style| {
@@ -919,6 +921,14 @@ impl LayoutPassState<'_> {
 
                 // The default CSS file will set
                 match node.taffy_display() {
+                    Display::Block | Display::FlowRoot if legend_pass => {
+                        let mut block_inputs = inputs;
+                        block_inputs.run_mode = RunMode::PerformLayout;
+                        let mut output = compute_block_layout(self, node_id, block_inputs, None);
+                        self.place_rendered_legend(dom_node_id(node_id), &inputs, &mut output);
+                        self.clamp_child_lines(dom_node_id(node_id), &inputs, &mut output);
+                        output
+                    }
                     Display::Block => {
                         let mut output = compute_block_layout(self, node_id, inputs, block_ctx);
                         self.clamp_child_lines(dom_node_id(node_id), &inputs, &mut output);

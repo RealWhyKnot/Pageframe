@@ -89,6 +89,7 @@ pub mod util;
 #[cfg(feature = "accessibility")]
 mod accessibility;
 
+pub use crate::layout::fieldset::LegendGap;
 pub use crate::layout::multicol::{ColumnFragment, ColumnLayout};
 pub use crate::layout::paint_tree::{HoistedPaintChild, StackingContext, hoisted_child_position};
 pub use crate::layout::replaced::IntrinsicSizes;

@@ -799,7 +799,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
     ) {
         let unscrolled_transform = cx.transform;
         let native_text_field = cx.has_native_text_field();
-        let mut other_box = cx.table_grid_box();
+        let mut other_box = cx.decoration_box();
         if let Some(other) = &mut other_box {
             cx.swap_box(other);
         }
@@ -823,7 +823,11 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
             cx.swap_box(other);
         }
         if body.paints_own_box && !native_text_field && !cx.has_collapsed_borders() {
+            let legend_clipped = cx.clip_out_legend(scene);
             cx.draw_border(scene, outer_clipped);
+            if legend_clipped {
+                scene.pop_layer();
+            }
         }
         if outer_clipped {
             scene.pop_layer();
@@ -1087,8 +1091,11 @@ struct OwnBox {
 }
 
 impl ElementCx<'_, '_> {
-    fn table_grid_box(&self) -> Option<OwnBox> {
-        let (above, below) = self.caption_space();
+    fn decoration_box(&self) -> Option<OwnBox> {
+        let (above, below) = match self.context.dom.legend_gap(self.node.id) {
+            Some(gap) => (gap.border_inset, 0.0),
+            None => self.caption_space(),
+        };
         if above == 0.0 && below == 0.0 {
             return None;
         }
