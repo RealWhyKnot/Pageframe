@@ -5,6 +5,7 @@ use taffy::{NodeId, Rect, RoundTree, ScrollableOverflow, TraversePartialTree};
 
 const LAYOUT_UNITS: f32 = 64.0;
 const UNIT_SLACK: f32 = 1.0 / 32.0;
+const NOISE_ULPS: f32 = 4.0;
 
 #[derive(Clone, Copy)]
 pub(crate) struct DeviceSnap {
@@ -31,7 +32,10 @@ impl DeviceSnap {
     }
 
     fn device(self, value: f32) -> f32 {
-        ((value * self.scale * LAYOUT_UNITS + UNIT_SLACK).floor() / LAYOUT_UNITS).round()
+        let units = value * self.scale * LAYOUT_UNITS;
+        let slack = (units.abs() * NOISE_ULPS * f32::EPSILON).max(UNIT_SLACK);
+        let truncated = (units.abs() + slack).floor().copysign(units);
+        ((truncated + LAYOUT_UNITS / 2.0) / LAYOUT_UNITS).floor()
     }
 }
 
@@ -130,5 +134,32 @@ fn round_inner(
     for index in 0..tree.hoisted_child_count(node_id) {
         let child = tree.get_hoisted_child_id(node_id, index);
         round_inner(tree, child, snap, x, y);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DeviceSnap;
+
+    #[test]
+    fn negative_offsets_truncate_toward_zero_then_round_half_up() {
+        let snap = DeviceSnap::new(1.0);
+        assert_eq!(snap.round(-7.49), -7.0);
+        assert_eq!(snap.round(-7.5), -7.0);
+        assert_eq!(snap.round(-7.52), -8.0);
+        assert_eq!(snap.round(7.5), 8.0);
+        assert_eq!(snap.round(7.49), 7.0);
+    }
+
+    #[test]
+    fn float_noise_below_a_half_pixel_rounds_up_far_down_the_page() {
+        let snap = DeviceSnap::new(1.75);
+        for whole in [4.0_f32, 2_340.0, 8_000.0, 16_384.0] {
+            let css = (whole + 0.5) / 1.75;
+            for noisy in [css, css.next_down(), css.next_down().next_down()] {
+                let device = snap.round(noisy) * 1.75;
+                assert!((device - whole - 1.0).abs() < 1e-2, "{whole}: {device}");
+            }
+        }
     }
 }
