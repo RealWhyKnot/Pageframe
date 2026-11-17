@@ -333,3 +333,19 @@ fn computed_border_widths_report_whole_device_pixels_at_seven_quarters_scale() {
     assert_eq!(value("two", "border-top"), "1.71429px solid rgb(0, 0, 0)");
     assert_eq!(value("one", "outline"), "rgb(255, 0, 0) solid 2.85714px");
 }
+
+#[test]
+fn a_legend_shifted_border_lands_on_whole_device_pixels_at_seven_quarters_scale() {
+    let mut harness = open(App::new(
+        (),
+        "<!doctype html><style>html,body{margin:0;background:#fff}#s{height:1px}fieldset{margin:0;padding:0;width:60px;height:20px;border:2px solid blue;background:lime}legend{padding:0;width:10px;height:16px}</style><div id=s></div><fieldset><legend></legend></fieldset>",
+    ));
+    let at = paint_at_seven_quarters(&mut harness);
+    let column = |column: usize, rows: std::ops::Range<usize>| -> Vec<[u8; 4]> {
+        rows.map(|row| at(column, row)).collect()
+    };
+    let white = [255, 255, 255, 255];
+    assert_eq!(column(80, 13..18), [white, BLUE, BLUE, BLUE, LIME]);
+    assert_eq!(column(10, 13..18), [white, LIME, LIME, LIME, LIME]);
+    assert_eq!(column(80, 39..44), [LIME, BLUE, BLUE, BLUE, white]);
+}

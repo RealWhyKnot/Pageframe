@@ -1187,7 +1187,8 @@ impl ElementCx<'_, '_> {
         }
         let mut layout = *self.node.final_layout();
         layout.size.height -= above + below;
-        let transform = self.transform * Affine::translate((0.0, f64::from(above) * self.scale));
+        let shift = whole_device_px(f64::from(above) * self.scale);
+        let transform = self.transform * Affine::translate((0.0, shift));
         Some(OwnBox {
             frame: create_css_rect(&self.style, &layout, self.scale)
                 .on_pixels(pixel_phase(transform)),

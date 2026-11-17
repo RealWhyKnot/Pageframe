@@ -9,7 +9,7 @@ use taffy::{
 
 use crate::{
     BaseDocument,
-    layout::{LayoutPassState, resolve_calc_value},
+    layout::{LayoutPassState, resolve_calc_value, round::DeviceSnap},
     taffy_node_id,
 };
 
@@ -75,11 +75,23 @@ impl BaseDocument {
         let legend_height = legend.margin.top + legend.size.height + legend.margin.bottom;
         let band = border_top.max(legend_height);
         Some(LegendGap {
-            border_inset: (band - border_top) / 2.0,
+            border_inset: self.snapped_border_inset(fieldset, (band - border_top) / 2.0),
             left: legend.location.x,
             right: legend.location.x + legend.size.width,
             depth: band,
         })
+    }
+
+    fn snapped_border_inset(&self, fieldset: NodeId, inset: f32) -> f32 {
+        let snap = DeviceSnap::new(self.viewport.scale());
+        let mut top = 0.0;
+        let mut current = Some(fieldset);
+        while let Some(id) = current {
+            let node = &self.nodes[id];
+            top += node.unrounded_layout().location.y;
+            current = node.containing_block();
+        }
+        snap.round(top + inset) - snap.round(top)
     }
 }
 

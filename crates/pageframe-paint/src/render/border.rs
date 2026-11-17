@@ -23,6 +23,7 @@ use crate::{
     render::{
         ElementCx,
         miter::{Side, SideShape, paint_order},
+        whole_device_px,
     },
 };
 
@@ -379,7 +380,7 @@ impl ElementCx<'_, '_> {
         if gap.right <= gap.left {
             return false;
         }
-        let top = -f64::from(gap.border_inset) * self.scale;
+        let top = -whole_device_px(f64::from(gap.border_inset) * self.scale);
         let hole = Rect::new(
             f64::from(gap.left) * self.scale,
             top,
