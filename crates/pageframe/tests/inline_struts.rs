@@ -174,19 +174,40 @@ fn painting_uses_the_baseline_from_the_empty_span() {
 
 #[test]
 fn lines_of_preserved_spaces_keep_their_height_like_chrome() {
-    for standards in [true, false] {
-        for (mode, height) in [
-            ("pre", 20.0),
-            ("pre-wrap", 20.0),
-            ("break-spaces", 20.0),
-            ("normal", 0.0),
-            ("pre-line", 0.0),
-        ] {
-            let content = format!("<div id='spaces' style='white-space:{mode}'> </div>");
+    let image = "<img style='display:inline-block;width:10px;height:10px'>";
+    let cases = [
+        ("pre", " ".to_owned(), 20.0, 20.0),
+        ("pre", "   ".to_owned(), 20.0, 20.0),
+        ("pre", "\t".to_owned(), 20.0, 20.0),
+        ("pre", "<span> </span>".to_owned(), 20.0, 20.0),
+        ("pre-wrap", " ".to_owned(), 20.0, 20.0),
+        ("break-spaces", " ".to_owned(), 20.0, 20.0),
+        ("normal", " ".to_owned(), 0.0, 0.0),
+        ("pre-line", " ".to_owned(), 0.0, 0.0),
+        (
+            "normal",
+            " <span style='white-space:pre'> </span>".to_owned(),
+            20.0,
+            20.0,
+        ),
+        (
+            "pre-line",
+            "<span style='white-space:pre'> </span>".to_owned(),
+            20.0,
+            20.0,
+        ),
+        ("pre", format!("{image} "), 20.0, 20.0),
+        ("pre", format!("{image}\n"), 10.0, 20.0),
+        ("pre", format!("{image} \n{image}"), 30.0, 40.0),
+        ("pre", format!("{image}\n{image}"), 20.0, 40.0),
+    ];
+    for (mode, inner, quirks, standard) in &cases {
+        for (standards, expected) in [(true, *standard), (false, *quirks)] {
+            let content = format!("<div id='spaces' style='white-space:{mode}'>{inner}</div>");
+            let found = boxes(standards, &content, &["#spaces"])[0].0;
             assert_eq!(
-                boxes(standards, &content, &["#spaces"]),
-                [(height, 0.0)],
-                "white-space:{mode}, standards {standards}"
+                found, expected,
+                "{inner:?} under white-space:{mode}, standards {standards}"
             );
         }
     }
