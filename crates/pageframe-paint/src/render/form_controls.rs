@@ -246,7 +246,7 @@ impl ElementCx<'_, '_> {
         if bar.width() <= 0.0 || bar.height() <= 0.0 {
             return;
         }
-        let border = BORDER_WIDTH * self.scale;
+        let border = self.scale.floor().max(BORDER_WIDTH);
         let radius = METER_RADIUS * self.scale;
         let fit = (bar.width() / (2.0 * radius))
             .min(bar.height() / (2.0 * radius))
