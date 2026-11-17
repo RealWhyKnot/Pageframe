@@ -408,7 +408,12 @@ impl LineBoxMetrics {
                 Some(Whitespace::Newline) if self.has_content && self.last_text.0 == usize::MAX => {
                     return;
                 }
-                Some(Whitespace::Space) => {
+                Some(Whitespace::Space)
+                    if matches!(
+                        data.styles[usize::from(style_index)].white_space_collapse,
+                        WhiteSpaceCollapse::Collapse | WhiteSpaceCollapse::PreserveBreaks
+                    ) =>
+                {
                     self.pending_space = Some((item_idx, run_idx, style_index));
                     return;
                 }

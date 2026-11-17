@@ -171,3 +171,23 @@ fn painting_uses_the_baseline_from_the_empty_span() {
     assert_eq!(pixel(&pixels, 15, 20), [0, 255, 0, 255]);
     assert_eq!(pixel(&pixels, 15, 21), [255, 255, 255, 255]);
 }
+
+#[test]
+fn lines_of_preserved_spaces_keep_their_height_like_chrome() {
+    for standards in [true, false] {
+        for (mode, height) in [
+            ("pre", 20.0),
+            ("pre-wrap", 20.0),
+            ("break-spaces", 20.0),
+            ("normal", 0.0),
+            ("pre-line", 0.0),
+        ] {
+            let content = format!("<div id='spaces' style='white-space:{mode}'> </div>");
+            assert_eq!(
+                boxes(standards, &content, &["#spaces"]),
+                [(height, 0.0)],
+                "white-space:{mode}, standards {standards}"
+            );
+        }
+    }
+}
