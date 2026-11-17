@@ -14,7 +14,9 @@ use icu_normalizer::properties::{
     CanonicalComposition, CanonicalCompositionBorrowed, CanonicalDecomposition,
     CanonicalDecompositionBorrowed,
 };
-use icu_properties::props::{BidiMirroringGlyph, GeneralCategory, GraphemeClusterBreak, Script};
+use icu_properties::props::{
+    BidiMirroringGlyph, GeneralCategory, GraphemeClusterBreak, LineBreak as LineBreakClass, Script,
+};
 use icu_properties::{
     CodePointMapData, CodePointMapDataBorrowed, PropertyNamesShort, PropertyNamesShortBorrowed,
 };
@@ -148,6 +150,38 @@ impl AnalysisDataSources {
     fn brackets(&self) -> CodePointMapDataBorrowed<'_, BidiMirroringGlyph> {
         const { CodePointMapData::new() }
     }
+
+    #[inline(always)]
+    fn line_break_class(&self, c: char) -> LineBreakClass {
+        if c == '+' {
+            return LineBreakClass::AL;
+        }
+        const { CodePointMapData::<LineBreakClass>::new() }.get(c)
+    }
+}
+
+fn breaks_under_break_all(
+    before: LineBreakClass,
+    after: LineBreakClass,
+    after_char: char,
+    is_loose: bool,
+) -> bool {
+    use LineBreakClass as Class;
+    let common = matches!(after, Class::AI | Class::AL | Class::BA | Class::HL)
+        || matches!(after, Class::HY | Class::NU);
+    let allowed = match before {
+        Class::AI | Class::AL | Class::BA | Class::NU | Class::SA | Class::SY | Class::HL => {
+            common || matches!(after, Class::OP | Class::PR | Class::SA)
+        }
+        Class::CP => common || matches!(after, Class::PR | Class::SA),
+        Class::CL => common || after == Class::PR,
+        Class::EX | Class::PO => common || matches!(after, Class::PO | Class::PR),
+        Class::IS => common,
+        Class::HY => after == Class::NU,
+        Class::PR => after == Class::PO,
+        _ => false,
+    };
+    allowed && (after != Class::BA || after_char == '|' || is_loose)
 }
 
 #[cfg(feature = "complex-scripts")]
@@ -642,8 +676,9 @@ pub(crate) fn analyze_text(
         .filter(|(_, config)| {
             config.word_break == WordBreak::BreakAll && config.line_break != LineBreak::Anywhere
         })
-        .map(|(range, _)| range)
+        .map(|(range, config)| (range, config.line_break == LineBreak::Loose))
         .peekable();
+    let mut prev_class = None;
     let boundary_iter = text.char_indices().map(|(byte_pos, ch)| {
         // advance any stale word boundary positions
         while let Some(&w) = wb_iter.peek() {
@@ -731,14 +766,33 @@ pub(crate) fn analyze_text(
 
         while break_all_iter
             .peek()
-            .is_some_and(|range| range.end <= byte_pos)
+            .is_some_and(|(range, _)| range.end <= byte_pos)
         {
             _ = break_all_iter.next();
         }
-        let keeps_break_all = is_icu_line
-            && break_all_iter
-                .peek()
-                .is_some_and(|range| range.contains(&byte_pos));
+        let class = data_sources.line_break_class(ch);
+        let break_all = break_all_iter
+            .peek()
+            .filter(|(range, _)| range.contains(&byte_pos))
+            .map(|&(_, is_loose)| {
+                let loose_hyphen = is_loose
+                    && matches!(ch, '\u{2010}' | '\u{2013}')
+                    && prev_class.is_some_and(|before| {
+                        matches!(
+                            before,
+                            LineBreakClass::NU
+                                | LineBreakClass::AL
+                                | LineBreakClass::SA
+                                | LineBreakClass::ID
+                        )
+                    });
+                loose_hyphen
+                    || prev_class
+                        .is_some_and(|before| breaks_under_break_all(before, class, ch, is_loose))
+            });
+        if class != LineBreakClass::CM {
+            prev_class = Some(class);
+        }
 
         let is_mandatory_linebreak = properties.is_mandatory_linebreak();
 
@@ -764,11 +818,20 @@ pub(crate) fn analyze_text(
                     before: prev,
                     after: ch,
                 });
-                if let Some(forced) = forced
-                    && (forced || !keeps_break_all)
-                {
+                if let Some(forced) = forced {
                     opportunity = forced;
                 }
+                if let Some(break_all) = break_all {
+                    opportunity = match forced {
+                        Some(true) => true,
+                        Some(false) => break_all,
+                        None => break_all || is_icu_line,
+                    };
+                }
+            } else if let Some(break_all) = break_all
+                && !is_break_anywhere
+            {
+                opportunity = opportunity || break_all;
             }
             opportunity
         };

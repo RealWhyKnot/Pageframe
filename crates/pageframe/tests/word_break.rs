@@ -47,6 +47,38 @@ fn break_all_splits_words_where_chrome_does() {
     assert_eq!(mismatches, Vec::<String>::new());
 }
 
+const BREAK_ALL_MARKS: &str = "<!doctype html><style>html,body{margin:0;background:#fff}\
+body{display:flex;align-items:flex-start;font:10px/10px Consolas,monospace}\
+p{margin:0 8px 0 0;word-break:break-all}i{font-style:normal;color:#f00}</style>\
+<p style='width:4ch'>abcd<i>-</i>efgh-abcd</p>\
+<p style='width:4ch'>abcd<i>|</i>efgh|abcd</p>\
+<p style='width:5ch'>abcd<i>+</i>efgh+abcd</p>";
+
+#[test]
+fn break_all_breaks_around_marks_like_chrome() {
+    let mut harness = open(App::new((), BREAK_ALL_MARKS));
+    let buffer = render(&mut harness);
+    let cells: Vec<Option<(usize, usize)>> = [0, 30, 60]
+        .iter()
+        .map(|&left| {
+            let red: Vec<(usize, usize)> = (0..40)
+                .flat_map(|row| (0..28).map(move |column| (column, row)))
+                .filter(|&(column, row)| {
+                    let found = pixel(&buffer, left + column, row);
+                    found[0] > 180 && found[1] < 120
+                })
+                .collect();
+            let count = red.len();
+            (count > 0).then(|| {
+                let sum_x: usize = red.iter().map(|point| point.0).sum();
+                let sum_y: usize = red.iter().map(|point| point.1).sum();
+                (sum_x * 2 / (count * 11), sum_y / (count * 10))
+            })
+        })
+        .collect();
+    assert_eq!(cells, vec![Some((0, 1)), Some((0, 1)), Some((4, 0))]);
+}
+
 #[test]
 fn break_all_text_stays_inside_its_box() {
     let mut harness = open(App::new((), BREAK_ALL));
