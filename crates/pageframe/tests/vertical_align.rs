@@ -101,3 +101,25 @@ fn a_line_on_a_half_device_pixel_paints_half_up_at_seven_quarters_scale() {
     let ink = |row: usize| at(175, row).iter().all(|&channel| channel < 80);
     assert_eq!((ink(132), ink(133), ink(134)), (true, true, false));
 }
+
+#[test]
+fn a_line_ending_on_a_quarter_device_pixel_keeps_it_at_seven_quarters_scale() {
+    let mut harness = open(App::new(
+        (),
+        "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}input{margin:3px}</style><input value=text><input type=range value=30><br><input id=next type=color>",
+    ));
+    render_at_ratio(&mut harness, (7, 4), 640);
+    let doc = harness.base_mut();
+    let next = doc
+        .query_selector("#next")
+        .expect("valid selector")
+        .expect("the color input exists");
+    let top = doc
+        .get_client_bounding_rect(next)
+        .expect("the color input has a box")
+        .y;
+    assert!(
+        (top - 31.142858).abs() < 0.001,
+        "Chrome starts the second line at 49.25 device px, found {top}"
+    );
+}

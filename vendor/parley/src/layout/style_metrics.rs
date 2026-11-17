@@ -299,7 +299,7 @@ fn layout_unit_floor(value: f32) -> f32 {
     (value * 64.).floor() / 64.
 }
 
-fn layout_unit_round(value: f32) -> f32 {
+pub(crate) fn layout_unit_round(value: f32) -> f32 {
     (value * 64.).round() / 64.
 }
 

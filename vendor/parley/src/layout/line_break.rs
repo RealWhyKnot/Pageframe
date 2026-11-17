@@ -13,7 +13,7 @@ use parlance::BidiLevel;
 use crate::layout::data::{AlignedSubtreeOffset, run_box_metrics, tab_advance};
 use crate::layout::spacing::{EffectiveSpacing, Justification, is_word_separator};
 use crate::layout::style_metrics::{
-    BoxMetrics, InlineBoxPlacement, StyleMetrics, inline_box_placement,
+    BoxMetrics, InlineBoxPlacement, StyleMetrics, inline_box_placement, layout_unit_round,
 };
 use crate::layout::whitespace::atom_hanging_advance;
 use crate::layout::{
@@ -1735,7 +1735,7 @@ impl<'a, B: Brush> BreakLines<'a, B> {
         }
 
         let top = if quantize {
-            self.state.line_y.round() as f32
+            layout_unit_round(self.state.line_y as f32)
         } else {
             self.state.line_y as f32
         };
@@ -1748,7 +1748,7 @@ impl<'a, B: Brush> BreakLines<'a, B> {
             // ```
             // (self.state.line_y as f32 + self.state.line.box_metrics.line_height()).round()
             // ```
-            (line.metrics.baseline + line_box_extents.under).round()
+            layout_unit_round(line.metrics.baseline + line_box_extents.under)
         } else {
             line.metrics.baseline + line_box_extents.under
         };
