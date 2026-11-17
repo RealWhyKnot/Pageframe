@@ -240,10 +240,11 @@ pub(crate) fn build_inline_layout_into(
                 vertical_align: parley::VerticalAlign::BASELINE,
                 ..stylo_to_parley::style(inline_context_root_node_id, s)
             };
-            if shows_dropdown_value(nodes, inline_context_root_node_id)
-                && let Some(height) = dropdown_line_height(font_ctx, s, scale)
-            {
-                root_style.line_height = parley::LineHeight::Absolute(height);
+            if shows_dropdown_value(nodes, inline_context_root_node_id) {
+                root_style.line_height = dropdown_line_height(font_ctx, s, scale).map_or(
+                    parley::LineHeight::MetricsRelative(1.0),
+                    parley::LineHeight::Absolute,
+                );
             }
             root_style
         })

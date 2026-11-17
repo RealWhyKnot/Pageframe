@@ -225,6 +225,28 @@ fn closed_select_draws_chromes_rounded_frame_and_thin_arrow_at_2x() {
 }
 
 #[test]
+fn right_to_left_select_draws_its_arrow_on_the_left_like_chrome() {
+    let page = "<!doctype html><style>body{margin:0}</style>\
+<select dir=rtl style=\"width:100px;margin:4px\"><option>a</option></select>";
+    let (grey, width) = grey_at_double_scale(page);
+    let ink: Vec<(usize, usize)> = (12..42)
+        .flat_map(|y| (12..80).map(move |x| (x, y)))
+        .filter(|&(x, y)| grey[y * width + x] < 247)
+        .collect();
+    let columns = ink.iter().map(|point| point.0);
+    let rows = ink.iter().map(|point| point.1);
+    assert_eq!(
+        (
+            columns.clone().min(),
+            columns.max(),
+            rows.clone().min(),
+            rows.max()
+        ),
+        (Some(16), Some(33), Some(22), Some(32))
+    );
+}
+
+#[test]
 fn closed_selects_ignore_author_line_height_like_chrome() {
     let page = "<!doctype html><style>body{margin:0}</style>\
 <select id=tall style=\"line-height:40px\"><option>Option</option></select>\
