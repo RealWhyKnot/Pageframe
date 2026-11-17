@@ -178,16 +178,15 @@ fn covers_its_start(doc: &BaseDocument, owner: NodeId, is_rtl: bool) -> bool {
             &border.border_left_color,
         )
     };
-    let current_color = styles.clone_color();
-    let is_opaque = |color: &style::values::computed::Color| {
-        color
-            .resolve_to_absolute(&current_color)
-            .as_srgb_color()
-            .components[3]
-            >= 1.0
-    };
-    let has_border = !line.none_or_hidden() && width.0.to_f32_px() > 0.0 && is_opaque(color);
-    has_border || is_opaque(&styles.get_background().background_color)
+    let has_border = !line.none_or_hidden()
+        && width.0.to_f32_px() > 0.0
+        && crate::color::border_side_color(&styles, color, line).components[3] >= 1.0;
+    let background = styles
+        .get_background()
+        .background_color
+        .resolve_to_absolute(&styles.clone_color())
+        .as_srgb_color();
+    has_border || background.components[3] >= 1.0
 }
 
 fn push_spacer_holes(

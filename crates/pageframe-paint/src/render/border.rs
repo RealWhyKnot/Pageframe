@@ -5,7 +5,6 @@ use pageframe_dom::node::SpecialElementData;
 use peniko::{Color, Fill};
 use smallvec::SmallVec;
 use style::{
-    color::AbsoluteColor,
     computed_values::border_collapse::T as BorderCollapse,
     values::computed::{BorderStyle, Color as CssColor},
     values::specified::box_::{Display, DisplayInside},
@@ -19,7 +18,7 @@ mod groove;
 mod image;
 
 use crate::{
-    color::ToColorColor as _,
+    color::border_side_color,
     kurbo_css::{CssBox, Edge},
     render::{
         ElementCx,
@@ -31,7 +30,6 @@ const CHANNEL_SCALE: f32 = 255.999_98;
 const DARK_THRESHOLD: f32 = 3.0 * 32.0 * 32.0;
 const LIGHT_THRESHOLD: f32 = 3.0 * 20.0 * 20.0;
 const LIGHTENED_BLACK: f32 = 84.0 / 255.0;
-const BEVELED_CURRENT_COLOR: u8 = 238;
 
 fn byte_channels(color: Color) -> [f32; 4] {
     let [r, g, b, a] = color.components;
@@ -117,21 +115,7 @@ fn open_dash_gap(length: f64, dash: f64, gap: f64) -> f64 {
 
 impl ElementCx<'_, '_> {
     fn side_color(&self, color: &CssColor, line: BorderStyle) -> Color {
-        let beveled = matches!(
-            line,
-            BorderStyle::Inset | BorderStyle::Outset | BorderStyle::Groove | BorderStyle::Ridge
-        );
-        let in_table = matches!(
-            self.style.clone_display().inside(),
-            DisplayInside::Table | DisplayInside::TableCell
-        );
-        let current_color = if beveled && !in_table {
-            let gray = BEVELED_CURRENT_COLOR;
-            AbsoluteColor::srgb_legacy(gray, gray, gray, 1.0)
-        } else {
-            self.style.clone_color()
-        };
-        color.resolve_to_absolute(&current_color).as_srgb_color()
+        border_side_color(&self.style, color, line)
     }
 
     pub(super) fn covered_border_share(&self) -> Option<f64> {

@@ -1,7 +1,37 @@
 use color::{AlphaColor, DynamicColor, Srgb};
+use pageframe_dom::CopyStyleGetters as _;
 use style::color::AbsoluteColor;
+use style::properties::ComputedValues;
+use style::values::computed::{BorderStyle, Color as CssColor};
+use style::values::specified::box_::{DisplayInside, DisplayOutside};
 
 pub type Color = AlphaColor<Srgb>;
+
+const BEVELED_CURRENT_COLOR: u8 = 238;
+
+pub(crate) fn border_side_color(
+    style: &ComputedValues,
+    color: &CssColor,
+    line: BorderStyle,
+) -> Color {
+    let beveled = matches!(
+        line,
+        BorderStyle::Inset | BorderStyle::Outset | BorderStyle::Groove | BorderStyle::Ridge
+    );
+    let display = style.clone_display();
+    let in_table = display.outside() == DisplayOutside::TableCaption
+        || matches!(
+            display.inside(),
+            DisplayInside::Table | DisplayInside::TableCell
+        );
+    let current_color = if beveled && !in_table {
+        let gray = BEVELED_CURRENT_COLOR;
+        AbsoluteColor::srgb_legacy(gray, gray, gray, 1.0)
+    } else {
+        style.clone_color()
+    };
+    color.resolve_to_absolute(&current_color).as_srgb_color()
+}
 
 pub trait ToColorColor {
     /// Converts a color into the `AlphaColor<Srgb>` type from the `color` crate

@@ -185,6 +185,12 @@ fn beveled_borders_shade_current_color_from_light_gray_like_chrome() {
             gray(44),
             gray(212),
         ),
+        (
+            "color:gray;border:10px inset;display:table-caption",
+            gray(44),
+            gray(212),
+        ),
+        ("color:transparent;border:10px inset", gray(154), gray(238)),
     ];
     for (style, top, bottom) in cases {
         let (found_top, found_bottom) = top_and_bottom(style);
@@ -208,4 +214,12 @@ fn a_thin_groove_in_current_color_draws_light_gray() {
     assert_eq!(pixel(&buffer, 20, 0), gray(238));
     assert_eq!(pixel(&buffer, 20, 32), gray(154));
     assert_eq!(pixel(&buffer, 20, 33), gray(238));
+}
+
+#[test]
+fn an_inline_inset_border_in_current_color_draws_light_gray() {
+    let html = "<style>html,body{margin:0;background:white}</style><div style='font:20px/40px Arial;color:gray'><span style='border:10px inset'>&nbsp;&nbsp;</span></div>";
+    let mut harness = open(App::new((), html));
+    let buffer = render(&mut harness);
+    assert_eq!(pixel(&buffer, 5, 20), gray(154));
 }
