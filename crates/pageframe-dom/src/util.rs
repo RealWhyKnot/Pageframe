@@ -39,22 +39,49 @@ pub fn decode_font_bytes(bytes: &[u8]) -> Cow<'_, [u8]> {
     }
 }
 
+use parley::fontique::GenericFamily;
 #[cfg(feature = "svg")]
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
+use std::sync::LazyLock;
 #[cfg(feature = "svg")]
 use usvg::fontdb;
-#[cfg(feature = "svg")]
-pub(crate) static FONT_DB: LazyLock<Arc<fontdb::Database>> = LazyLock::new(|| {
-    use parley::fontique::{Collection, CollectionOptions, GenericFamily};
 
-    let mut db = fontdb::Database::new();
-    db.load_system_fonts();
+static GENERIC_FAMILY_NAMES: LazyLock<Vec<(GenericFamily, String)>> = LazyLock::new(|| {
+    use parley::fontique::{Collection, CollectionOptions};
+
     let mut collection = Collection::new(CollectionOptions {
         shared: false,
         system_fonts: cfg!(all(feature = "system-fonts", not(target_arch = "wasm32"))),
     });
+    [
+        GenericFamily::Serif,
+        GenericFamily::SansSerif,
+        GenericFamily::Monospace,
+        GenericFamily::Cursive,
+        GenericFamily::Fantasy,
+        GenericFamily::SystemUi,
+    ]
+    .into_iter()
+    .filter_map(|generic| {
+        let first = collection.generic_families(generic).next()?;
+        Some((generic, collection.family_name(first)?.to_owned()))
+    })
+    .collect()
+});
+
+pub(crate) fn generic_family_name(generic: GenericFamily) -> Option<&'static str> {
+    GENERIC_FAMILY_NAMES
+        .iter()
+        .find(|(candidate, _)| *candidate == generic)
+        .map(|(_, name)| name.as_str())
+}
+
+#[cfg(feature = "svg")]
+pub(crate) static FONT_DB: LazyLock<Arc<fontdb::Database>> = LazyLock::new(|| {
     type SetFamily = fn(&mut fontdb::Database, String);
 
+    let mut db = fontdb::Database::new();
+    db.load_system_fonts();
     let generics: [(GenericFamily, SetFamily); 5] = [
         (GenericFamily::Serif, fontdb::Database::set_serif_family),
         (
@@ -69,8 +96,7 @@ pub(crate) static FONT_DB: LazyLock<Arc<fontdb::Database>> = LazyLock::new(|| {
         (GenericFamily::Fantasy, fontdb::Database::set_fantasy_family),
     ];
     for (generic, set_family) in generics {
-        let first = collection.generic_families(generic).next();
-        if let Some(name) = first.and_then(|family| collection.family_name(family)) {
+        if let Some(name) = generic_family_name(generic) {
             set_family(&mut db, name.to_owned());
         }
     }

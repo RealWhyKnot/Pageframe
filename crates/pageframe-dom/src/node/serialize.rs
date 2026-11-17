@@ -353,10 +353,13 @@ fn svg_paint_values(
     let svg = style.get_inherited_svg();
     let font = style.get_font();
     [
-        ("font-family", Some(font.font_family.to_css_string())),
+        ("font-family", Some(svg_font_family(&font.font_family))),
         ("font-size", Some(font.font_size.to_css_string())),
-        ("font-style", Some(font.font_style.to_css_string())),
-        ("font-weight", Some(font.font_weight.to_css_string())),
+        (
+            "font-style",
+            Some(svg_font_style(font.font_style).to_owned()),
+        ),
+        ("font-weight", Some(svg_font_weight(font.font_weight))),
         ("fill", paint(&svg.fill)),
         ("stroke", paint(&svg.stroke)),
         ("fill-opacity", Some(svg.fill_opacity.to_css_string())),
@@ -378,4 +381,46 @@ fn svg_paint_values(
             Some(svg.stroke_dashoffset.to_css_string()),
         ),
     ]
+}
+
+fn svg_font_family(family: &style::values::computed::font::FontFamily) -> String {
+    use style::values::computed::font::{GenericFontFamily, SingleFontFamily};
+
+    family
+        .families
+        .iter()
+        .map(|single| {
+            let system_ui = matches!(
+                single,
+                SingleFontFamily::Generic(GenericFontFamily::SystemUi)
+            )
+            .then(|| crate::util::generic_family_name(parley::fontique::GenericFamily::SystemUi))
+            .flatten();
+            system_ui
+                .and_then(|name| {
+                    let mut css = String::new();
+                    cssparser::serialize_string(name, &mut css).ok()?;
+                    Some(css)
+                })
+                .unwrap_or_else(|| single.to_css_string())
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn svg_font_style(style: style::values::computed::font::FontStyle) -> &'static str {
+    use style::values::computed::font::FontStyle;
+
+    if style == FontStyle::NORMAL {
+        "normal"
+    } else if style == FontStyle::ITALIC {
+        "italic"
+    } else {
+        "oblique"
+    }
+}
+
+fn svg_font_weight(weight: style::values::computed::font::FontWeight) -> String {
+    let hundreds = (weight.value() / 100.0).round().clamp(1.0, 9.0);
+    format!("{}", hundreds * 100.0)
 }
