@@ -241,3 +241,19 @@ fn clicks_outside_the_clip_fall_through() {
     harness.click_at(30.0, 30.0);
     assert_eq!(harness.doc.state().last(), Some(&"front"));
 }
+
+#[test]
+fn clips_follow_the_unsnapped_box() {
+    let html = r#"<!DOCTYPE html><html><head><style>html,body{margin:0;background:white}div{position:absolute;top:10.5px;width:40px;height:30px;background:#36c}</style></head><body><svg width="0" height="0" style="position:absolute"><clipPath id="c" clipPathUnits="objectBoundingBox"><rect width="1" height="1"/></clipPath></svg><div style="left:4px;clip-path:border-box"></div><div style="left:60px;clip-path:url(#c)"></div></body></html>"#;
+    let mut harness = open(App::new((), html));
+    let buffer = render(&mut harness);
+    for column in [20, 80] {
+        let [solid, edge, outside] = [39, 40, 41].map(|row| pixel(&buffer, column, row));
+        assert_eq!(solid, [51, 102, 204, 255], "column {column}");
+        assert!(
+            (130..176).contains(&edge[0]) && (150..200).contains(&edge[1]),
+            "column {column}: {edge:?}"
+        );
+        assert_eq!(outside, PAGE, "column {column}");
+    }
+}

@@ -1,5 +1,5 @@
 use crate::Node;
-use kurbo::{BezPath, Point, Rect, Shape, SvgArc, Vec2};
+use kurbo::{Affine, BezPath, Point, Rect, Shape, SvgArc, Vec2};
 use pageframe_traits::node_id::NodeId;
 use style::properties::ComputedValues;
 use style::values::computed::basic_shape::{BasicShape, ClipPath};
@@ -38,16 +38,27 @@ impl Node {
         lookup: impl Fn(&str) -> Option<NodeId>,
     ) -> Option<ResolvedClipPath> {
         let style = self.primary_styles()?;
-        match style.get_clip_path() {
+        let unsnapped = self.layout_data().unsnapped;
+        let mut resolved = match style.get_clip_path() {
             ClipPath::None => return None,
-            ClipPath::Url(url) => return self.svg_clip(url, lookup),
-            _ => {}
-        }
-        ClipResolver {
-            style: &style,
-            layout: self.final_layout(),
-        }
-        .resolve()
+            ClipPath::Url(url) => self.svg_clip(url, unsnapped.size, lookup)?,
+            _ => {
+                let mut layout = *self.final_layout();
+                layout.size = unsnapped.size;
+                layout.border = unsnapped.border;
+                layout.padding = unsnapped.padding;
+                ClipResolver {
+                    style: &style,
+                    layout: &layout,
+                }
+                .resolve()?
+            }
+        };
+        resolved.path.apply_affine(Affine::translate((
+            f64::from(unsnapped.offset.x),
+            f64::from(unsnapped.offset.y),
+        )));
+        Some(resolved)
     }
 }
 

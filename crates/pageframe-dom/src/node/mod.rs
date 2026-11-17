@@ -23,6 +23,7 @@ pub use element::{
     CanvasData, DateField, DateIndicator, DocumentData, ElementData, GaugeRegion, ImageData,
     ImageFallback, ImageResourceData, LayoutData, ListItemLayout, ListItemLayoutPosition, Marker,
     MarkerShape, MarkerSymbol, RasterImageData, SpecialElementData, SpecialElementType, Status,
+    UnsnappedBox,
 };
 pub use node::*;
 pub use resizer::{OverflowControl, RESIZER_SIZE, resizer_size};

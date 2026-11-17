@@ -150,6 +150,7 @@ pub struct LayoutData {
     pub scroll_offset: crate::Point<f64>,
     pub scrollable_overflow: KurboRect,
     pub columns: Option<Box<crate::layout::multicol::ColumnLayout>>,
+    pub unsnapped: UnsnappedBox,
     /// The writing mode this node's layout algorithm ran in (the root takes it from `<body>`),
     /// recorded by the layout pass for CSSOM geometry lookups.
     #[cfg(feature = "writing-mode")]
@@ -165,10 +166,28 @@ impl LayoutData {
             scroll_offset: crate::Point::ZERO,
             scrollable_overflow: KurboRect::ZERO,
             columns: None,
+            unsnapped: UnsnappedBox::ZERO,
             #[cfg(feature = "writing-mode")]
             writing_mode: stylo_taffy::WritingMode::empty(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UnsnappedBox {
+    pub offset: taffy::Point<f32>,
+    pub size: taffy::Size<f32>,
+    pub border: taffy::Rect<f32>,
+    pub padding: taffy::Rect<f32>,
+}
+
+impl UnsnappedBox {
+    pub const ZERO: Self = Self {
+        offset: taffy::Point::<f32>::ZERO,
+        size: taffy::Size::<f32>::ZERO,
+        border: taffy::Rect::<f32>::ZERO,
+        padding: taffy::Rect::<f32>::ZERO,
+    };
 }
 
 impl Default for LayoutData {

@@ -35,6 +35,7 @@ impl Node {
     pub(crate) fn svg_clip(
         &self,
         url: &ComputedUrl,
+        size: taffy::Size<f32>,
         lookup: impl Fn(&str) -> Option<NodeId>,
     ) -> Option<ResolvedClipPath> {
         let fragment = match url {
@@ -51,7 +52,6 @@ impl Node {
             return None;
         }
 
-        let size = self.final_layout().size;
         let mut base = transform_of(clip_element);
         if clip_element.attr(local_name!("clipPathUnits")) == Some("objectBoundingBox") {
             base = Affine::scale_non_uniform(f64::from(size.width), f64::from(size.height)) * base;

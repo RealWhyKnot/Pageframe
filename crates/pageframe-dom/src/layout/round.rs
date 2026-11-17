@@ -102,6 +102,15 @@ fn round_inner(
     );
 
     tree.set_final_layout(node_id, &layout);
+    tree.node_from_id_mut(node_id).layout_data_mut().unsnapped = crate::node::UnsnappedBox {
+        offset: taffy::Point {
+            x: x - snap.round(x),
+            y: y - snap.round(y),
+        },
+        size,
+        border: unrounded.border,
+        padding: unrounded.padding,
+    };
     let offset = |start: f32, edge: f32, padding: f32, rounded_edge: f32, rounded_padding: f32| {
         start + edge + padding - (snap.round(start) + rounded_edge + rounded_padding)
     };

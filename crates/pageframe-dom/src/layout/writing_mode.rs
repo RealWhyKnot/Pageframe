@@ -321,6 +321,15 @@ impl LayoutPassState<'_> {
         // `unrounded_layout` is left in the placer's writing mode: Taffy's cache may skip re-placing
         // this node on a later layout, and only `final_layout` is read downstream.
         self.set_final_layout(node_id, &layout);
+        self.node_from_id_mut(node_id).layout_data_mut().unsnapped = crate::node::UnsnappedBox {
+            offset: Point {
+                x: pos.x - rounded_pos.x,
+                y: pos.y - rounded_pos.y,
+            },
+            size,
+            border: unrounded.border,
+            padding: unrounded.padding,
+        };
 
         let wm = self.layout_wm_of(dom_node_id(node_id));
         self.node_from_id_mut(node_id)
