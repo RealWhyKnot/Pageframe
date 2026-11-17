@@ -907,7 +907,7 @@ impl ElementData {
             Some(step) => {
                 let base = number(local_name!("min")).or(written).unwrap_or(0.0);
                 let steps = ((value / 2.0 - base / 2.0) / step * 2.0 + 0.5).floor();
-                let rounded = (base / 2.0 + steps * step / 2.0) * 2.0;
+                let rounded = (base / 2.0 + steps * (step / 2.0)) * 2.0;
                 if !rounded.is_finite() {
                     value
                 } else if rounded > maximum {

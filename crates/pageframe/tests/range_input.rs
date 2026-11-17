@@ -21,7 +21,10 @@ const VALUES: &str = "<!doctype html><input type=range value=' 30'>\
 <input type=range step=-2 value=33.3><input type=range min=-1e308 max=1e308>\
 <input type=range min=-1e308 max=1e308 value=1e308>\
 <input type=range min=-1e308 max=1e308 value=5e307 step=any>\
-<input type=range min=-1e308 max=1e308 step=1e307 value=3e307>";
+<input type=range min=-1e308 max=1e308 step=1e307 value=3e307>\
+<input type=range min=-1e308 max=1e308 step=1e308 value=6e307>\
+<input type=range min=-1e308 max=1e308 step=1e308 value=4e307>\
+<input type=range min=-1e308 max=1e308 step=1.5e308 value=1e308>";
 
 #[test]
 fn range_inputs_size_and_align_like_chrome() {
@@ -114,6 +117,9 @@ fn range_values_sanitize_like_chrome() {
         1.0,
         0.75,
         0.65,
+        1.0,
+        0.5,
+        0.75,
     ];
     assert_eq!(fractions.len(), chrome.len());
     for (index, (ours, expected)) in fractions.iter().zip(chrome).enumerate() {
