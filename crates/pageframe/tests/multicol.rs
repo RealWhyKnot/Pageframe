@@ -481,8 +481,27 @@ fn right_to_left_columns_run_from_the_right_like_chrome() {
     }
     let buffer = draw(&mut harness);
     let rules: Vec<usize> = (0..WIDTH)
-        .map(|x| usize::try_from(x).expect("test width fits in usize"))
-        .filter(|&x| pixel(&buffer, x, 50) == RED)
+        .map(|column| usize::try_from(column).expect("test width fits in usize"))
+        .filter(|&column| pixel(&buffer, column, 50) == RED)
         .collect();
     assert_eq!(rules, vec![214, 215, 324, 325, 434, 435]);
+}
+
+#[test]
+fn a_block_split_between_right_to_left_columns_reports_the_union_box() {
+    let harness = page(
+        "<div class=\"c\" style=\"direction:rtl\"><div style=\"height:20px\"></div>         <div id=\"tall\" style=\"height:40px\"></div></div>",
+    );
+    check(&harness, &[("tall", [0.0, 0.0, 210.0, 20.0])]);
+}
+
+#[test]
+fn a_right_to_left_column_scroller_scrolls_to_its_left_overflow() {
+    let mut harness = page(&format!(
+        "<div class=\"c\" style=\"direction:rtl;column-fill:auto;height:20px;         margin-left:220px;overflow:auto;scrollbar-width:none\">{}</div>",
+        paragraphs("s", &[4])
+    ));
+    assert_eq!(hit_id(&harness, 312.0, 10.0).as_deref(), Some("s0_2"));
+    harness.wheel_at(380.0, 10.0, 110.0, 0.0);
+    assert_eq!(hit_id(&harness, 312.0, 10.0).as_deref(), Some("s0_3"));
 }

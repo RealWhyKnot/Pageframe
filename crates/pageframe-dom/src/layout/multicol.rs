@@ -590,6 +590,10 @@ impl LayoutPassState<'_> {
             }
         };
         let edges = padding_border.sum_axes();
+        let is_scroll_container = {
+            let overflow = self.nodes[node_id].layout_style().overflow();
+            overflow.x.is_scroll_container() || overflow.y.is_scroll_container()
+        };
         let padding_size = padding.sum_axes();
         let padding_width = padding_size.width;
         let padding_height = padding_size.height;
@@ -705,7 +709,10 @@ impl LayoutPassState<'_> {
                 right: (columns.extent() + padding_width).max(width - border_width),
                 bottom: content_height + padding_height,
             },
-            Point { x: false, y: false },
+            Point {
+                x: columns.is_rtl && is_scroll_container,
+                y: false,
+            },
         );
         output.baselines = Baselines::NONE;
         output.top_margin = CollapsibleMarginSet::ZERO;
