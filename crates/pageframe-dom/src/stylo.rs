@@ -1133,7 +1133,42 @@ impl<'a> TElement for PageframeNode<'a> {
                 }
             }
 
-            if *name == local_name!("align") {
+            let aligns_as_embedded = is_image_input
+                || *tag == local_name!("img")
+                || *tag == local_name!("iframe")
+                || *tag == local_name!("embed")
+                || *tag == local_name!("object");
+            if *name == local_name!("align") && aligns_as_embedded {
+                use style::values::generics::box_::BaselineShiftKeyword;
+                use style::values::specified::{AlignmentBaseline, BaselineShift, Float};
+                let keyword = value.to_ascii_lowercase();
+                let float = match keyword.as_str() {
+                    "left" => Some(Float::Left),
+                    "right" => Some(Float::Right),
+                    _ => None,
+                };
+                let shift = match keyword.as_str() {
+                    "left" | "right" | "top" => Some(BaselineShiftKeyword::Top),
+                    "absbottom" => Some(BaselineShiftKeyword::Bottom),
+                    _ => None,
+                };
+                let baseline = match keyword.as_str() {
+                    "absmiddle" | "abscenter" => Some(AlignmentBaseline::Middle),
+                    "texttop" => Some(AlignmentBaseline::TextTop),
+                    _ => None,
+                };
+                if let Some(float) = float {
+                    push_style(PropertyDeclaration::Float(float));
+                }
+                if let Some(shift) = shift {
+                    push_style(PropertyDeclaration::BaselineShift(BaselineShift::Keyword(
+                        shift,
+                    )));
+                }
+                if let Some(baseline) = baseline {
+                    push_style(PropertyDeclaration::AlignmentBaseline(baseline));
+                }
+            } else if *name == local_name!("align") {
                 use style::values::specified::TextAlign;
                 let keyword = match value {
                     "left" => Some(StyloTextAlign::MozLeft),
