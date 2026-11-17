@@ -76,3 +76,40 @@ fn a_table_max_width_wraps_content_in_a_table_without_a_width() {
         ],
     );
 }
+
+#[test]
+fn auto_columns_share_spare_width_in_device_layout_units_like_chrome() {
+    let html = "<!doctype html><html><head><style>html,body{margin:0;font:14px Arial}\
+                td{padding:0}table{border-spacing:0}</style></head><body>\
+                <table style=\"width:150px\"><tr>\
+                <td id=wide>wavy lines fold here quick brown</td>\
+                <td id=narrow>mild tiny kilt wrap ruby text</td></tr></table></body></html>";
+    for (scale, factor, expected) in [
+        (1, 1.0, [5308.0 / 64.0, 4292.0 / 64.0]),
+        (2, 2.0, [10617.0 / 128.0, 8583.0 / 128.0]),
+    ] {
+        let mut harness = open(App::new((), html));
+        {
+            let mut doc = harness.base_mut();
+            let color_scheme = doc.get_viewport().color_scheme;
+            doc.set_viewport(pageframe_traits::shell::Viewport::new(
+                support::WIDTH * scale,
+                support::HEIGHT * scale,
+                factor,
+                color_scheme,
+            ));
+        }
+        harness.pump();
+        let doc = harness.base_mut();
+        let width = |id: &str| {
+            let node = doc
+                .query_selector(&format!("#{id}"))
+                .expect("valid selector")
+                .expect("the cell exists");
+            doc.get_client_bounding_rect(node)
+                .expect("the cell is laid out")
+                .width
+        };
+        assert_eq!([width("wide"), width("narrow")], expected, "scale {factor}");
+    }
+}

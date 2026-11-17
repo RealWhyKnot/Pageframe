@@ -3350,6 +3350,7 @@ dependencies = [
  "kurbo",
  "linebender_resource_handle",
  "markup5ever",
+ "num-traits",
  "objc2 0.6.5",
  "pageframe-traits",
  "parley",

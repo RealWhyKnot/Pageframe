@@ -363,6 +363,13 @@ impl ShapedText {
         });
     }
 
+    #[doc(hidden)]
+    pub fn text_item_ends(&self) -> impl Iterator<Item = (usize, f32)> + '_ {
+        self.text_items
+            .iter()
+            .map(|item| (item.last_cluster, item.remainder))
+    }
+
     fn text_item_at(&self, cluster: usize) -> Option<CeiledTextItem> {
         let index = self
             .text_items

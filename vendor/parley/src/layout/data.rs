@@ -467,9 +467,61 @@ struct ContentWidthsMeasurer {
 
     line_growth: Vec<(usize, f32)>,
     cluster_base: usize,
+
+    item_ends: Vec<(usize, f32)>,
+    running_hanging_min: f32,
+    part_start: f32,
+    snap_extra: f32,
+    last_part_start: f32,
+    last_part_extra: f32,
 }
 
 impl ContentWidthsMeasurer {
+    fn item_remainder_at(&self, cluster: usize) -> Option<f32> {
+        self.item_ends
+            .binary_search_by_key(&cluster, |&(end, _)| end)
+            .ok()
+            .and_then(|index| self.item_ends.get(index))
+            .map(|&(_, remainder)| remainder)
+    }
+
+    fn snap(&self, width: f32) -> f32 {
+        if self.item_ends.is_empty() {
+            width
+        } else {
+            (width * 64.0).ceil() / 64.0
+        }
+    }
+
+    fn close_part(&mut self) {
+        let part = self.running_min_width - self.part_start;
+        self.last_part_start = self.part_start;
+        self.last_part_extra = self.snap(part) - part;
+        self.snap_extra += self.last_part_extra;
+        self.part_start = self.running_min_width;
+    }
+
+    fn start_min_line(&mut self, indent: f32) {
+        self.running_min_width = indent;
+        self.part_start = indent;
+        self.snap_extra = 0.0;
+        self.last_part_start = indent;
+        self.last_part_extra = 0.0;
+    }
+
+    fn min_line_width(&self) -> f32 {
+        let end = self.running_min_width - self.running_hanging_min;
+        let open = end - self.part_start;
+        if open >= 0.0 {
+            return end + self.snap_extra + self.snap(open) - open;
+        }
+        let last = end - self.last_part_start;
+        if last >= 0.0 {
+            return end + self.snap_extra - self.last_part_extra + self.snap(last) - last;
+        }
+        end + self.snap_extra
+    }
+
     fn line_growth_at(&self, cluster: usize) -> f32 {
         let start = self.line_growth.partition_point(|&(grown, _)| grown < cluster);
         self.line_growth[start..]
@@ -485,6 +537,12 @@ impl ContentWidthsMeasurer {
         Self {
             line_growth: Vec::new(),
             cluster_base: 0,
+            item_ends: Vec::new(),
+            running_hanging_min: 0.,
+            part_start: first_line_indent,
+            snap_extra: 0.,
+            last_part_start: first_line_indent,
+            last_part_extra: 0.,
             min_width: 0.,
             max_width: 0.,
             running_min_width: first_line_indent,
@@ -509,10 +567,8 @@ impl ContentWidthsMeasurer {
         if !line_has_content || self.running_min_width < 0.0 {
             return;
         }
-        self.min_width = self
-            .min_width
-            .max(self.running_min_width - self.running_hanging_whitespace);
-        self.running_min_width = self.soft_indent;
+        self.min_width = self.min_width.max(self.min_line_width());
+        self.start_min_line(self.soft_indent);
     }
 
     /// Ends the current line at a forced break.
@@ -523,16 +579,15 @@ impl ContentWidthsMeasurer {
     /// [css-inline-formatting]: https://www.w3.org/TR/CSS22/visuren.html#inline-formatting
     #[inline(always)]
     fn hard_break(&mut self) {
-        self.min_width = self
-            .min_width
-            .max(self.running_min_width - self.running_hanging_whitespace);
+        self.min_width = self.min_width.max(self.min_line_width());
         if !self.hangs_conditionally {
             self.running_max_width -= self.running_hanging_whitespace;
         }
         self.max_width = self.max_width.max(self.running_max_width);
         self.running_hanging_whitespace = 0.0;
+        self.running_hanging_min = 0.0;
         self.line_has_content = false;
-        self.running_min_width = self.hard_indent;
+        self.start_min_line(self.hard_indent);
         self.running_max_width = self.hard_indent;
     }
 
@@ -544,6 +599,7 @@ impl ContentWidthsMeasurer {
             .map(|(_, growth)| (growth.cluster(), growth.extra()))
             .collect();
         self.line_growth.sort_by_key(|&(cluster, _)| cluster);
+        self.item_ends = layout_data.shaped_text.text_item_ends().collect();
         let mut items = layout_data.items.iter();
         while let Some(item) = items.next() {
             match item.kind {
@@ -680,10 +736,16 @@ impl ContentWidthsMeasurer {
                 continue;
             }
 
-            let mut advance = cluster.advance - self.line_growth_at(self.cluster_base + i);
+            let global = self.cluster_base.saturating_add(i);
+            let remainder = self.item_remainder_at(global);
+            let mut advance = cluster.advance - self.line_growth_at(global);
             let mut min_advance = None;
             if whitespace == Whitespace::Tab {
-                min_advance = Some(tab_advance(style.tab_size, run, self.running_min_width));
+                min_advance = Some(tab_advance(
+                    style.tab_size,
+                    run,
+                    self.running_min_width + self.snap_extra,
+                ));
                 advance = tab_advance(style.tab_size, run, self.running_max_width);
             } else if SPACED {
                 let owns_gap = if is_rtl {
@@ -697,7 +759,8 @@ impl ContentWidthsMeasurer {
                     advance += gap;
                 }
             }
-            self.running_min_width += min_advance.unwrap_or(advance);
+            let raw_advance = min_advance.unwrap_or(advance - remainder.unwrap_or(0.0));
+            self.running_min_width += raw_advance;
             self.running_max_width += advance;
 
             // A cluster hangs if all of its characters hang. Its first character is checked via the
@@ -716,10 +779,15 @@ impl ContentWidthsMeasurer {
                         }));
             if hangs {
                 self.running_hanging_whitespace += advance;
+                self.running_hanging_min += raw_advance;
                 self.hangs_conditionally =
                     style.white_space_collapse == WhiteSpaceCollapse::Preserve;
             } else {
                 self.running_hanging_whitespace = 0.0;
+                self.running_hanging_min = 0.0;
+            }
+            if remainder.is_some() {
+                self.close_part();
             }
         }
         self.line_has_content = empty_at != clusters.len();
@@ -733,7 +801,11 @@ impl ContentWidthsMeasurer {
         }
         // Inline boxes don't hang.
         self.running_hanging_whitespace = 0.0;
+        self.running_hanging_min = 0.0;
         self.running_min_width += inline_box.width;
+        self.part_start = self.running_min_width;
+        self.last_part_start = self.running_min_width;
+        self.last_part_extra = 0.0;
         self.running_max_width += inline_box.width;
         self.line_has_content = true;
         if wraps && followed_by_inline_content {

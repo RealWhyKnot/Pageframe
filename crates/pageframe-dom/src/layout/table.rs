@@ -1,3 +1,4 @@
+use num_traits::ToPrimitive;
 use pageframe_traits::node_id::NodeId;
 use std::{collections::HashSet, ops::Range, sync::Arc};
 use style::logical_geometry::WritingMode;
@@ -1477,18 +1478,41 @@ fn spread_rows(rows: &[TableRow], heights: &mut [f32], spare: f32, gap: f32) {
     }
 }
 
-fn share_columns(mins: &[f32], maxes: &[f32], space: f32, is_stretched: bool) -> Vec<f32> {
+fn share_columns(
+    mins: &[f32],
+    maxes: &[f32],
+    space: f32,
+    is_stretched: bool,
+    unit: f32,
+) -> Vec<f32> {
     let min_sum: f32 = mins.iter().sum();
     let max_sum: f32 = maxes.iter().sum();
     if space <= min_sum {
         return mins.to_vec();
     }
     if space < max_sum {
-        let part = (space - min_sum) / (max_sum - min_sum);
+        let distributable = space - min_sum;
+        let units = |length: f32| (f64::from(length) / f64::from(unit)).round();
+        let (spare_units, total_units) = (units(distributable), units(max_sum - min_sum));
+        let last = maxes.iter().zip(mins).rposition(|(max, min)| max > min);
+        let mut left = distributable;
         return mins
             .iter()
             .zip(maxes)
-            .map(|(min, max)| min + (max - min) * part)
+            .enumerate()
+            .map(|(index, (min, max))| {
+                if Some(index) == last {
+                    return min + left;
+                }
+                let share = if total_units > 0.0 {
+                    (spare_units * units(max - min) / total_units).floor()
+                } else {
+                    0.0
+                };
+                let delta = share.to_f32().unwrap_or(0.0) * unit;
+                left -= delta;
+                min + delta
+            })
             .collect();
     }
     let mut widths = maxes.to_vec();
@@ -1509,6 +1533,7 @@ fn column_widths(
     fixed: &[Option<f32>],
     space: f32,
     is_stretched: bool,
+    unit: f32,
 ) -> Vec<f32> {
     let mut widths = limits.mins.clone();
     let mut rest = space;
@@ -1546,7 +1571,7 @@ fn column_widths(
     let maxes: Vec<f32> = shared.iter().map(|&index| limits.maxes[index]).collect();
     for (index, width) in shared
         .iter()
-        .zip(share_columns(&mins, &maxes, rest, is_stretched))
+        .zip(share_columns(&mins, &maxes, rest, is_stretched, unit))
     {
         widths[*index] = width;
     }
@@ -1906,16 +1931,22 @@ impl TableTreeWrapper<'_, '_> {
             }
         }
 
-        let mut widths = column_widths(&limits, &fixed, space, is_stretched);
+        let scale = self.doc.viewport().scale();
+        let unit = if scale.is_finite() && scale > 0.0 {
+            1.0 / (64.0 * scale)
+        } else {
+            1.0 / 64.0
+        };
+        let mut widths = column_widths(&limits, &fixed, space, is_stretched, unit);
         if !is_stretched && let Some(fit) = percent_fit(&limits, &fixed) {
             let fit = fit.min(space);
             if fit.is_finite() && fit > widths.iter().sum::<f32>() {
-                widths = column_widths(&limits, &fixed, fit, true);
+                widths = column_widths(&limits, &fixed, fit, true, unit);
             }
         }
         let floor = self.caption_floor(inputs).max(min_outer);
         if widths.iter().sum::<f32>() + frame + gaps < floor {
-            widths = column_widths(&limits, &fixed, floor - frame - gaps, true);
+            widths = column_widths(&limits, &fixed, floor - frame - gaps, true, unit);
         }
 
         let mut style = ctx.style.clone();
@@ -2684,27 +2715,33 @@ mod tests {
     #[test]
     fn a_tight_table_keeps_its_narrowest_columns() {
         assert_eq!(
-            share_columns(&[30.0, 50.0], &[60.0, 90.0], 70.0, true),
+            share_columns(&[30.0, 50.0], &[60.0, 90.0], 70.0, true, 1.0 / 64.0),
             [30.0, 50.0]
         );
     }
 
     #[test]
     fn room_between_the_limits_goes_to_the_columns_that_can_grow() {
-        let widths = share_columns(&[40.0, 50.0, 30.0], &[40.0, 450.0, 110.0], 300.0, true);
+        let widths = share_columns(
+            &[40.0, 50.0, 30.0],
+            &[40.0, 450.0, 110.0],
+            300.0,
+            true,
+            1.0 / 64.0,
+        );
         assert!(close(&widths, &[40.0, 200.0, 60.0]), "{widths:?}");
     }
 
     #[test]
     fn spare_room_is_shared_by_widest_content() {
-        let widths = share_columns(&[10.0, 20.0], &[50.0, 150.0], 300.0, true);
+        let widths = share_columns(&[10.0, 20.0], &[50.0, 150.0], 300.0, true, 1.0 / 64.0);
         assert!(close(&widths, &[75.0, 225.0]), "{widths:?}");
     }
 
     #[test]
     fn a_table_without_a_width_stops_at_its_content() {
         assert_eq!(
-            share_columns(&[10.0, 20.0], &[50.0, 150.0], 300.0, false),
+            share_columns(&[10.0, 20.0], &[50.0, 150.0], 300.0, false, 1.0 / 64.0),
             [50.0, 150.0]
         );
     }
