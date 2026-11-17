@@ -371,10 +371,6 @@ pub(crate) fn white_space_collapse(input: stylo::WhiteSpaceCollapse) -> parley::
     }
 }
 
-/// Map the css-inline-3 `alignment-baseline` and `baseline-shift` longhands (which Stylo
-/// stores in place of the `vertical-align` shorthand) to Parley's `VerticalAlign`.
-///
-/// Percentages are resolved against the element's own `line-height`.
 pub(crate) fn tab_size(
     input: &style::values::computed::NonNegativeLengthOrNumber,
 ) -> parley::TabSize {
@@ -388,6 +384,10 @@ pub(crate) fn tab_size(
     }
 }
 
+/// Map the css-inline-3 `alignment-baseline` and `baseline-shift` longhands (which Stylo
+/// stores in place of the `vertical-align` shorthand) to Parley's `VerticalAlign`.
+///
+/// Percentages are resolved against the element's own `line-height`.
 pub(crate) fn vertical_align(style: &stylo::ComputedValues) -> parley::VerticalAlign {
     let box_styles = style.get_box();
     let alignment = match box_styles.slow_clone_alignment_baseline() {

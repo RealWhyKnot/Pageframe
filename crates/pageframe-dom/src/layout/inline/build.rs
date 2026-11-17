@@ -408,6 +408,9 @@ pub(crate) fn build_inline_layout_into(
                                 parley::StyleProperty::TextWrapMode(
                                     stylo_to_parley::text_wrap_mode(s.clone_text_wrap_mode()),
                                 ),
+                                parley::StyleProperty::TabSize(stylo_to_parley::tab_size(
+                                    &s.get_inherited_text().tab_size,
+                                )),
                             ]
                         });
                         builder.push_style_modification_span(

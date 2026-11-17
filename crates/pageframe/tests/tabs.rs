@@ -28,6 +28,18 @@ fn red_start(buffer: &[u8], row: usize) -> Option<f32> {
     })
 }
 
+fn assert_markers_start_at(rows: &[(&str, String)], chrome: &[f32]) {
+    let buffer = page(rows, "transparent");
+    for (row, ((style, text), expected)) in rows.iter().zip(chrome).enumerate() {
+        let start = red_start(&buffer, row).expect("the marker is drawn");
+        assert_eq!(
+            start.round(),
+            *expected,
+            "{text:?} with {style:?} starts at {start}"
+        );
+    }
+}
+
 #[test]
 fn tabs_reach_the_same_stops_as_chrome() {
     let rows = [
@@ -37,16 +49,22 @@ fn tabs_reach_the_same_stops_as_chrome() {
         ("text-indent:5px", format!("\t{MARK}")),
         ("tab-size:15px", format!("ab\t{MARK}")),
     ];
-    let chrome = [22.0, 67.0, 11.0, 22.0, 15.0];
-    let buffer = page(&rows, "transparent");
-    for (row, ((style, text), expected)) in rows.iter().zip(chrome).enumerate() {
-        let start = red_start(&buffer, row).expect("the marker is drawn");
-        assert_eq!(
-            start.round(),
-            expected,
-            "{text:?} with {style:?} starts at {start}"
-        );
-    }
+    assert_markers_start_at(&rows, &[22.0, 67.0, 11.0, 22.0, 15.0]);
+}
+
+#[test]
+fn contents_tab_size_and_hanging_tabs_match_chrome() {
+    let rows = [
+        (
+            "",
+            format!("<span style='display:contents;tab-size:2'>\t{MARK}</span>"),
+        ),
+        (
+            "white-space:pre-wrap;width:50px",
+            "aaaa <span style='background:red'>bbbb</span>\t".to_owned(),
+        ),
+    ];
+    assert_markers_start_at(&rows, &[6.0, 25.0]);
 }
 
 #[test]
