@@ -334,28 +334,31 @@ impl BaseDocument {
         })
     }
 
+    fn collect_lines(&self, node: &Node, content_top: f32, solids: &mut Vec<Solid>) {
+        let Some(text_layout) = node
+            .data
+            .downcast_element()
+            .and_then(|element| element.inline_layout_data.as_ref())
+        else {
+            return;
+        };
+        let scale = self.viewport.scale();
+        let lines_top = content_top + text_layout.block_offset;
+        for line in text_layout.layout.lines() {
+            let metrics = line.metrics();
+            solids.push(Solid {
+                top: lines_top + metrics.block_min_coord / scale,
+                bottom: lines_top + metrics.block_max_coord / scale,
+                is_breakable: false,
+            });
+        }
+    }
+
     fn collect_solids(&self, node_id: NodeId, top: f32, solids: &mut Vec<Solid>) {
         let node = &self.nodes[node_id];
         if node.flags.is_inline_root() {
-            let Some(text_layout) = node
-                .data
-                .downcast_element()
-                .and_then(|element| element.inline_layout_data.as_ref())
-            else {
-                return;
-            };
             let layout = node.unrounded_layout();
-            let scale = self.viewport.scale();
-            let content_top =
-                top + layout.border.top + layout.padding.top + text_layout.block_offset;
-            for line in text_layout.layout.lines() {
-                let metrics = line.metrics();
-                solids.push(Solid {
-                    top: content_top + metrics.block_min_coord / scale,
-                    bottom: content_top + metrics.block_max_coord / scale,
-                    is_breakable: false,
-                });
-            }
+            self.collect_lines(node, top + layout.border.top + layout.padding.top, solids);
             return;
         }
         let children = node.layout_children.borrow();
@@ -503,7 +506,12 @@ impl LayoutPassState<'_> {
         let flow_start = padding_border.top;
         let flow_end = (flow.size.height - padding_border.bottom).max(flow_start);
         let mut solids = Vec::new();
-        self.collect_solids(node_id, 0.0, &mut solids);
+        let node = &self.nodes[node_id];
+        if node.flags.is_inline_root() {
+            self.collect_lines(node, flow_start, &mut solids);
+        } else {
+            self.collect_solids(node_id, 0.0, &mut solids);
+        }
         solids.sort_by(|a, b| a.top.total_cmp(&b.top));
 
         let balanced = balanced_height(&solids, flow_start, flow_end, count);

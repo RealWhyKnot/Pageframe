@@ -308,3 +308,20 @@ fn column_rules_sit_between_filled_columns() {
     assert_eq!(pixel(&buffer, 50, 10), GREEN);
     assert_eq!(pixel(&buffer, 108, 10), WHITE);
 }
+
+#[test]
+fn padded_text_columns_balance_like_chrome() {
+    let harness = page(
+        "<div id=\"t\" style=\"width:301px;columns:3;column-gap:12px;font:14px Arial;\
+         padding:5px 7px;border:3px solid #ddd\">One two three four five six seven eight nine</div>\
+         <div id=\"u\" style=\"width:301px;columns:3;column-gap:12px;font:14px Arial;\
+         padding:12px 4px 2px\">One two three four five six seven eight nine ten eleven twelve thirteen fourteen</div>",
+    );
+    check(
+        &harness,
+        &[
+            ("t", [0.0, 0.0, 321.0, 48.0]),
+            ("u", [0.0, 48.0, 309.0, 62.0]),
+        ],
+    );
+}
