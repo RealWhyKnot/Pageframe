@@ -18,6 +18,10 @@ impl DeviceSnap {
     pub(crate) fn round(self, value: f32) -> f32 {
         (value * self.scale).round() / self.scale
     }
+
+    pub(crate) fn shift(self, start: f32, offset: f32) -> f32 {
+        (((start + offset) * self.scale).round() - (start * self.scale).round()) / self.scale
+    }
 }
 
 #[cfg(not(feature = "writing-mode"))]

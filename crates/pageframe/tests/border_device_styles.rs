@@ -349,3 +349,26 @@ fn a_legend_shifted_border_lands_on_whole_device_pixels_at_seven_quarters_scale(
     assert_eq!(column(10, 13..18), [white, LIME, LIME, LIME, LIME]);
     assert_eq!(column(80, 39..44), [LIME, BLUE, BLUE, BLUE, white]);
 }
+
+#[test]
+fn legend_shifts_stay_whole_device_pixels_far_down_the_page() {
+    let mut fractional = Vec::new();
+    for tenth in 0..30 {
+        let spacer = 8194.0 + f64::from(tenth) / 10.0;
+        let html = format!(
+            "<!doctype html><style>html,body{{margin:0}}fieldset{{margin:0;padding:0;width:60px;height:20px;border:2px solid blue}}legend{{padding:0;width:10px;height:16px}}</style><div style='height:{spacer}px'></div><fieldset id=f><legend></legend></fieldset>"
+        );
+        let mut harness = open(App::new((), &html));
+        render_at_ratio(&mut harness, (7, 4), WIDTH);
+        let gap = {
+            let doc = harness.base();
+            let fieldset = doc.query_selector_all("#f").expect("fieldset selector")[0];
+            doc.legend_gap(fieldset).expect("rendered legend")
+        };
+        let device = f64::from(gap.border_inset) * 1.75;
+        if (device - device.round()).abs() > 1e-4 {
+            fractional.push(format!("{spacer}: {device}"));
+        }
+    }
+    assert!(fractional.is_empty(), "{fractional:?}");
+}

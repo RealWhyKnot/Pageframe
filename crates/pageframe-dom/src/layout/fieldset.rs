@@ -91,7 +91,7 @@ impl BaseDocument {
             top += node.unrounded_layout().location.y;
             current = node.containing_block();
         }
-        snap.round(top + inset) - snap.round(top)
+        snap.shift(top, inset)
     }
 }
 
