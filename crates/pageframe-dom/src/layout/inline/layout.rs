@@ -626,7 +626,11 @@ impl LayoutPassState<'_> {
                 let is_floated = style.float().is_floated();
                 #[cfg(not(feature = "floats"))]
                 let is_floated = false;
-                if is_floated || style.position().is_out_of_flow() || node.flags.is_table_root() {
+                if is_floated
+                    || style.position().is_out_of_flow()
+                    || node.flags.is_table_root()
+                    || self.is_rendered_legend(id)
+                {
                     continue;
                 }
                 let is_block = matches!(

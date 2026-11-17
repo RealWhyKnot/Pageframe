@@ -28,6 +28,15 @@ struct FieldsetEdges {
 }
 
 impl BaseDocument {
+    pub(crate) fn is_rendered_legend(&self, node_id: NodeId) -> bool {
+        let node = &self.nodes[node_id];
+        node.data.is_element_with_tag_name(&local_name!("legend"))
+            && node
+                .layout_parent
+                .get()
+                .is_some_and(|parent| self.rendered_legend(parent) == Some(node_id))
+    }
+
     pub fn rendered_legend(&self, fieldset: NodeId) -> Option<NodeId> {
         let node = &self.nodes[fieldset];
         if !node.data.is_element_with_tag_name(&local_name!("fieldset"))

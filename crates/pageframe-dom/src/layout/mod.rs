@@ -285,6 +285,9 @@ impl LayoutPassState<'_> {
     ) -> taffy::tree::LayoutOutput {
         let inputs = self.apply_size_containment(node_id, inputs);
         let mut output = self.dispatch_child_layout(node_id, inputs, block_ctx);
+        if self.is_rendered_legend(dom_node_id(node_id)) {
+            output.baselines = taffy::Baselines::NONE;
+        }
         if inputs.known_dimensions.width.is_none()
             && self.nodes[dom_node_id(node_id)]
                 .data

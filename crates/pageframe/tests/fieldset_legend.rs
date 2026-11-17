@@ -158,3 +158,26 @@ fn legend_margins_narrow_the_space_it_wraps_in_like_chrome() {
         Vec::<String>::new()
     );
 }
+
+const LEGEND_BASELINES: &str = "<!doctype html><style>body{margin:0;background:#fff;font-size:0}\
+fieldset{margin:0;padding:0;border:2px solid #000}legend{padding:0}\
+span{display:inline-block;width:20px;height:10px}</style>\
+<div><fieldset id=b style='display:inline-block'><legend><span></span></legend>\
+<div style='height:4px'></div></fieldset><span id=t style='height:30px'></span></div>\
+<div style='height:2px'></div><div style='display:flex;align-items:baseline'>\
+<fieldset id=a><legend><span></span></legend><div><span style='height:20px'></span></div>\
+</fieldset><div id=s><span></span></div></div>";
+
+#[test]
+fn fieldset_baselines_skip_the_legend_like_chrome() {
+    let chrome = [
+        ("#b", Some(0.0), Some(14.0), 24.0, 16.0),
+        ("#t", Some(24.0), Some(0.0), 20.0, 30.0),
+        ("#a", Some(0.0), Some(0.0), 24.0, 32.0),
+        ("#s", Some(24.0), Some(20.0), 20.0, 10.0),
+    ];
+    assert_eq!(
+        layout_mismatches(LEGEND_BASELINES, &chrome),
+        Vec::<String>::new()
+    );
+}
