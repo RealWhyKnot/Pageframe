@@ -972,7 +972,7 @@ enum DecorationKind {
 
 fn decoration_top(transform: Affine, baseline: f32, offset: f32) -> f64 {
     let origin_y = transform.translation().y;
-    (f64::from(baseline - offset) + origin_y).round() - origin_y
+    crate::render::device_round(f64::from(baseline - offset) + origin_y) - origin_y
 }
 
 fn visible_spans(start: f64, end: f64, skips: &[(f64, f64)]) -> SmallVec<[(f64, f64); 4]> {

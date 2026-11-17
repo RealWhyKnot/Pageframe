@@ -11,6 +11,7 @@ mod mask;
 mod miter;
 mod outline;
 mod pixels;
+pub(crate) use pixels::device_round;
 mod projection;
 mod resizer;
 mod ring;

@@ -37,7 +37,7 @@ const NOISE_ULPS: f64 = 4.0;
 /// 1/4px, as Skia does for horizontal text (and so Chrome off Apple). On Apple, CoreGraphics
 /// also floors the device y of the baseline to a whole pixel (y up, so the baseline moves down
 /// in Vello's y-down device space). Off Apple, hinted glyphs round device y half up after
-/// truncating it to Chrome's 1/64px layout units, so float noise can't drop a baseline a pixel.
+/// truncating it to Chrome's 1/64px layout units.
 ///
 /// CoreGraphics font smoothing also dilates glyphs upwards only: stems grow by the same amount
 /// on both sides in x, but the bottom edge stays on the baseline and the top grows by twice
@@ -81,7 +81,7 @@ impl GlyphOriginSnap {
             positions_per_px: 4.0,
             round_x: 0.5,
             snap_y: None,
-            hinted_y: (hint && d != 0.0).then_some((d, f)),
+            hinted_y: (hint && d == a).then_some((d, f)),
             lift_y: 0.0,
         })
     }
@@ -617,6 +617,9 @@ mod glyph_origin_snap_tests {
         assert_eq!(device_y(110.0, 23.4), 133.0);
         assert_eq!(device_y(-110.5, -23.0), -133.0);
         let unhinted = GlyphOriginSnap::skia(Affine::translate((0.0, 110.4)), false).unwrap();
+        assert_eq!(unhinted.y(23.0), 23.0);
+        let stretched = Affine::translate((0.0, 110.4)) * Affine::scale_non_uniform(1.0, 2.0);
+        let unhinted = GlyphOriginSnap::skia(stretched, true).unwrap();
         assert_eq!(unhinted.y(23.0), 23.0);
     }
 

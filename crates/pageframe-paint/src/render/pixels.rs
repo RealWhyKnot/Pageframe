@@ -16,7 +16,7 @@ const LAYOUT_UNITS: f64 = 64.0;
 const UNIT_SLACK: f64 = 1.0 / 32.0;
 const NOISE_ULPS: f64 = 4.0;
 
-pub(super) fn device_round(value: f64) -> f64 {
+pub(crate) fn device_round(value: f64) -> f64 {
     let units = value * LAYOUT_UNITS;
     let slack = (units.abs() * NOISE_ULPS * f64::from(f32::EPSILON)).max(UNIT_SLACK);
     let truncated = (units.abs() + slack).floor().copysign(units);
