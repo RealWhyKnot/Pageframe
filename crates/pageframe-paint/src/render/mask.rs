@@ -129,7 +129,7 @@ impl ElementCx<'_, '_> {
                 None,
                 None,
             );
-            self.draw_image_layer(scene, &layer);
+            self.draw_image_layer(scene, &layer, self.box_rect(layer.clip));
             scene.pop_layer();
         }
     }

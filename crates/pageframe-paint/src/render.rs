@@ -38,7 +38,7 @@ use pageframe_dom::node::{
     ListItemLayout, ListItemLayoutPosition, Marker, MarkerShape, MarkerSymbol, NodeData,
     RasterImageData, SpecialElementData, TextBrush, TextInputData, TextNodeData,
 };
-use pageframe_dom::{BaseDocument, ElementData, HoistedPaintChild, Node, NodeId, local_name};
+use pageframe_dom::{BaseDocument, ElementData, HoistedPaintChild, Node, NodeId};
 use pageframe_traits::devtools::DevtoolSettings;
 
 use num_traits::ToPrimitive as _;
@@ -62,7 +62,6 @@ use style::computed_values::direction::T as Direction;
 use style::computed_values::float::T as StyloFloat;
 use style::computed_values::isolation::T as Isolation;
 use style::computed_values::position::T as StyloPosition;
-use style::values::generics::color::GenericColor;
 use taffy::Layout;
 
 const SPAN_GROUP_REACH: f64 = 256.0;
@@ -87,6 +86,7 @@ pub struct PageframeDomPainter<'dom, 'a> {
     pub(crate) initial_y: f64,
     /// The id of the document's root element (cached to avoid re-resolving it for every element)
     pub(crate) root_element_id: Option<NodeId>,
+    canvas_source: Option<NodeId>,
     /// Scrollbar hover/drag state, resolved once per scene like the root element
     #[cfg(feature = "scrollbars")]
     pub(crate) hovered_scrollbar: Option<pageframe_dom::node::ScrollbarRef>,
@@ -129,6 +129,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
 
         let layer_manager = LayerManager::default();
         let root_element_id = dom.try_root_element().map(|el| el.id);
+        let canvas_source = background::canvas_background_source(dom);
 
         Self {
             dom,
@@ -138,6 +139,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
             initial_x,
             initial_y,
             root_element_id,
+            canvas_source,
             #[cfg(feature = "scrollbars")]
             hovered_scrollbar: dom.hovered_scrollbar(),
             #[cfg(feature = "scrollbars")]
@@ -180,35 +182,16 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
         let bg_width = (self.width as f32).max(root_element.final_layout().size.width);
         let bg_height = (self.height as f32).max(root_element.final_layout().size.height);
 
-        let background_color = {
-            let html_styles = root_element.primary_styles();
-            let html_color = html_styles
-                .as_ref()
-                .map_or(&GenericColor::TRANSPARENT_BLACK, |s| {
-                    s.get_background_color()
-                });
-            if *html_color == GenericColor::TRANSPARENT_BLACK {
-                root_element
-                    .children
-                    .iter()
-                    .find_map(|id| {
-                        self.dom
-                            .as_ref()
-                            .get_node(*id)
-                            .filter(|node| node.data.is_element_with_tag_name(&local_name!("body")))
-                    })
-                    .and_then(|body| body.primary_styles())
-                    .map(|style| {
-                        let current_color = style.clone_color();
-                        style
-                            .get_background_color()
-                            .resolve_to_absolute(&current_color)
-                    })
-            } else {
-                let current_color = html_styles.as_ref().unwrap().clone_color();
-                Some(html_color.resolve_to_absolute(&current_color))
-            }
-        };
+        let background_color = self
+            .canvas_source
+            .and_then(|id| self.dom.as_ref().get_node(id))
+            .and_then(|source| source.primary_styles())
+            .map(|style| {
+                let current_color = style.clone_color();
+                style
+                    .get_background_color()
+                    .resolve_to_absolute(&current_color)
+            });
 
         if let Some(bg_color) = background_color {
             let bg_color = bg_color.as_srgb_color();

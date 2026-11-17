@@ -5,10 +5,11 @@ use anyrender::PaintScene;
 use kurbo::{self, Affine, BezPath, Point, Rect, Shape as _, Size, Vec2};
 use num_traits::ToPrimitive as _;
 use pageframe_dom::CopyStyleGetters;
-use pageframe_dom::NodeId;
 use pageframe_dom::node::{ImageData, ImageResourceData, SpecialElementData, SvgImageData};
+use pageframe_dom::{BaseDocument, Node, NodeId, local_name};
 use peniko::{self, BlendMode, Compose, Fill, Mix};
 use std::sync::Arc;
+use style::values::generics::color::GenericColor;
 use style::{
     properties::{
         generated::longhands::{
@@ -27,6 +28,7 @@ use style::{
         specified::{background::BackgroundRepeatKeyword, box_::DisplayInside},
     },
 };
+use taffy::Layout;
 
 #[cfg(feature = "tracing")]
 use tracing::warn;
@@ -133,6 +135,13 @@ impl<'a> ImageLayerStyles<'a> {
 
 impl ElementCx<'_, '_> {
     pub(super) fn draw_background(&self, scene: &mut impl PaintScene, outer_clipped: bool) {
+        if Some(self.node.id) == self.context.root_element_id {
+            self.draw_canvas_background(scene);
+            return;
+        }
+        if Some(self.node.id) == self.context.canvas_source {
+            return;
+        }
         self.draw_lifted_cell_tracks(scene);
         let bg_styles = &self.style.get_background();
         let image_data = &self.element.background_images;
@@ -178,13 +187,72 @@ impl ElementCx<'_, '_> {
                 None,
                 None,
                 |scene| {
-                    self.draw_image_layer(scene, &layer);
+                    self.draw_image_layer(scene, &layer, self.box_rect(layer.clip));
                 },
             );
         }
         if text_run {
             self.end_text_clip_group(scene);
         }
+    }
+
+    fn draw_canvas_background(&self, scene: &mut impl PaintScene) {
+        let Some(source) = self
+            .context
+            .canvas_source
+            .and_then(|id| self.context.dom.get_node(id))
+        else {
+            return;
+        };
+        let canvas = self.canvas_rect();
+        if source.id == self.node.id {
+            self.draw_canvas_layers(scene, canvas);
+            return;
+        }
+        let mut donor = self
+            .context
+            .element_cx(source, Layout::new(), self.transform, None);
+        donor.frame = self.frame.clone();
+        donor.draw_canvas_layers(scene, canvas);
+    }
+
+    fn draw_canvas_layers(&self, scene: &mut impl PaintScene, canvas: Rect) {
+        let bg_styles = &self.style.get_background();
+        let image_data = &self.element.background_images;
+        let clip = canvas.to_path(0.1);
+        for idx in (0..bg_styles.background_image.0.len()).rev() {
+            let layer = ImageLayerStyles::from_background(bg_styles, image_data, idx);
+            if layer_paints_nothing(&layer) {
+                continue;
+            }
+            self.context.layer_manager.maybe_with_layer(
+                scene,
+                true,
+                peniko::BlendMode::default(),
+                1.0,
+                self.transform,
+                &clip,
+                None,
+                None,
+                |scene| self.draw_image_layer(scene, &layer, canvas),
+            );
+        }
+    }
+
+    fn canvas_rect(&self) -> Rect {
+        let context = self.context;
+        let viewport = Rect::from_origin_size(
+            (context.initial_x, context.initial_y),
+            (f64::from(context.width), f64::from(context.height)),
+        );
+        let border_box = self.frame.border_box;
+        if self.transform.determinant().abs() < f64::EPSILON {
+            return border_box;
+        }
+        self.transform
+            .inverse()
+            .transform_rect_bbox(viewport)
+            .union(border_box)
     }
 
     /// Starts an isolated group for `background-clip: text` layers; layers drawn
@@ -254,7 +322,7 @@ impl ElementCx<'_, '_> {
     }
 
     /// The rect of the given CSS box model box for this element
-    fn box_rect(&self, css_box: BoxModelBox) -> Rect {
+    pub(super) fn box_rect(&self, css_box: BoxModelBox) -> Rect {
         match css_box {
             BoxModelBox::BorderBox => self.frame.border_box,
             BoxModelBox::PaddingBox => self.frame.padding_box,
@@ -263,16 +331,23 @@ impl ElementCx<'_, '_> {
     }
 
     /// Draw a single layer of a CSS image layer list (`background-image` or `mask-image`)
-    pub(super) fn draw_image_layer(&self, scene: &mut impl PaintScene, layer: &ImageLayerStyles) {
+    pub(super) fn draw_image_layer(
+        &self,
+        scene: &mut impl PaintScene,
+        layer: &ImageLayerStyles,
+        clip_rect: Rect,
+    ) {
         match layer.stylo_image {
             GenericImage::None => {
                 // Do nothing
             }
-            GenericImage::Gradient(gradient) => self.draw_gradient_layer(scene, gradient, layer),
+            GenericImage::Gradient(gradient) => {
+                self.draw_gradient_layer(scene, gradient, layer, clip_rect);
+            }
             GenericImage::Url(_) => {
-                self.draw_raster_image_layer(scene, layer);
+                self.draw_raster_image_layer(scene, layer, clip_rect);
                 #[cfg(feature = "svg")]
-                self.draw_svg_image_layer(scene, layer);
+                self.draw_svg_image_layer(scene, layer, clip_rect);
             }
             GenericImage::LightDark(_) => {
                 #[cfg(feature = "tracing")]
@@ -503,7 +578,12 @@ impl ElementCx<'_, '_> {
     }
 
     #[cfg(feature = "svg")]
-    fn draw_svg_image_layer(&self, scene: &mut impl PaintScene, layer: &ImageLayerStyles) {
+    fn draw_svg_image_layer(
+        &self,
+        scene: &mut impl PaintScene,
+        layer: &ImageLayerStyles,
+        clip_rect: Rect,
+    ) {
         let Some(bg_image) = layer.image_data else {
             return;
         };
@@ -520,11 +600,7 @@ impl ElementCx<'_, '_> {
             let (viewport_rect, transform) = self.fixed_positioning_area();
             (viewport_rect, transform, viewport_rect)
         } else {
-            (
-                self.box_rect(layer.origin),
-                self.transform,
-                self.box_rect(layer.clip),
-            )
+            (self.box_rect(layer.origin), self.transform, clip_rect)
         };
 
         // Size the SVG per the CSS default sizing algorithm
@@ -567,19 +643,15 @@ impl ElementCx<'_, '_> {
         let BackgroundRepeat(repeat_x, repeat_y) = layer.repeat;
         let horizontal = gradient_axis_tiling(
             *repeat_x,
-            origin_rect.x0,
-            origin_rect.width(),
-            clip_rect.x0,
-            clip_rect.width(),
+            (origin_rect.x0, origin_rect.width()),
+            (clip_rect.x0, clip_rect.width()),
             bg_pos.x,
             bg_size.width,
         );
         let vertical = gradient_axis_tiling(
             *repeat_y,
-            origin_rect.y0,
-            origin_rect.height(),
-            clip_rect.y0,
-            clip_rect.height(),
+            (origin_rect.y0, origin_rect.height()),
+            (clip_rect.y0, clip_rect.height()),
             bg_pos.y,
             bg_size.height,
         );
@@ -613,7 +685,12 @@ impl ElementCx<'_, '_> {
         }
     }
 
-    fn draw_raster_image_layer(&self, scene: &mut impl PaintScene, layer: &ImageLayerStyles) {
+    fn draw_raster_image_layer(
+        &self,
+        scene: &mut impl PaintScene,
+        layer: &ImageLayerStyles,
+        clip_rect: Rect,
+    ) {
         let Some(bg_image) = layer.image_data else {
             return;
         };
@@ -624,10 +701,11 @@ impl ElementCx<'_, '_> {
         let image_rendering = self.style.clone_image_rendering();
         let quality = to_image_quality(image_rendering);
 
-        let (origin_rect, base_transform) = if self.layer_is_fixed(layer) {
-            self.fixed_positioning_area()
+        let (origin_rect, base_transform, clip_rect) = if self.layer_is_fixed(layer) {
+            let (viewport_rect, transform) = self.fixed_positioning_area();
+            (viewport_rect, transform, viewport_rect)
         } else {
-            (self.box_rect(layer.origin), self.transform)
+            (self.box_rect(layer.origin), self.transform, clip_rect)
         };
 
         let image_width = image_data.width as f64;
@@ -650,8 +728,8 @@ impl ElementCx<'_, '_> {
 
         let x = raster_axis_tiling(
             *repeat_x,
-            origin_rect.x0,
-            origin_rect.width(),
+            (origin_rect.x0, origin_rect.width()),
+            (clip_rect.x0, clip_rect.width()),
             bg_pos.x,
             bg_size.width,
             image_width,
@@ -659,8 +737,8 @@ impl ElementCx<'_, '_> {
         );
         let y = raster_axis_tiling(
             *repeat_y,
-            origin_rect.y0,
-            origin_rect.height(),
+            (origin_rect.y0, origin_rect.height()),
+            (clip_rect.y0, clip_rect.height()),
             bg_pos.y,
             bg_size.height,
             image_height,
@@ -698,6 +776,7 @@ impl ElementCx<'_, '_> {
         scene: &mut impl PaintScene,
         gradient: &StyloGradient,
         layer: &ImageLayerStyles,
+        clip_rect: Rect,
     ) {
         // For a fixed layer the positioning area (the viewport) already covers
         // everything visible, so it also serves as the clip rect (no extension
@@ -706,11 +785,7 @@ impl ElementCx<'_, '_> {
             let (viewport_rect, transform) = self.fixed_positioning_area();
             (viewport_rect, transform, viewport_rect)
         } else {
-            (
-                self.box_rect(layer.origin),
-                self.transform,
-                self.box_rect(layer.clip),
-            )
+            (self.box_rect(layer.origin), self.transform, clip_rect)
         };
 
         let (bg_pos, bg_size) = compute_layer_position_and_size(
@@ -727,19 +802,15 @@ impl ElementCx<'_, '_> {
 
         let x = gradient_axis_tiling(
             *repeat_x,
-            origin_rect.x0,
-            origin_rect.width(),
-            clip_rect.x0,
-            clip_rect.width(),
+            (origin_rect.x0, origin_rect.width()),
+            (clip_rect.x0, clip_rect.width()),
             bg_pos.x,
             bg_size.width,
         );
         let y = gradient_axis_tiling(
             *repeat_y,
-            origin_rect.y0,
-            origin_rect.height(),
-            clip_rect.y0,
-            clip_rect.height(),
+            (origin_rect.y0, origin_rect.height()),
+            (clip_rect.y0, clip_rect.height()),
             bg_pos.y,
             bg_size.height,
         );
@@ -993,8 +1064,8 @@ struct AxisTiling {
 /// pre-scaled by `ratio`), while translations are in device pixels.
 fn raster_axis_tiling(
     repeat: BackgroundRepeatKeyword,
-    origin_start: f64,
-    origin_len: f64,
+    (origin_start, origin_len): (f64, f64),
+    clip: (f64, f64),
     bg_pos: f64,
     tile_len: f64,
     image_len: f64,
@@ -1004,10 +1075,11 @@ fn raster_axis_tiling(
 
     match repeat {
         Repeat | Round => {
-            let extend_len = extend(bg_pos, tile_len);
+            let (area_start, area_len) = tiled_area((origin_start, origin_len), clip);
+            let extend_len = extend((origin_start - area_start) + bg_pos, tile_len);
             AxisTiling {
-                translate: origin_start - extend_len,
-                rect_len: (origin_len + extend_len) / ratio,
+                translate: area_start - extend_len,
+                rect_len: (area_len + extend_len) / ratio,
                 count: 1,
                 stride: 0.0,
             }
@@ -1036,10 +1108,8 @@ fn raster_axis_tiling(
 /// starts from the clip box edge so the pattern covers the whole clipped area.
 fn gradient_axis_tiling(
     repeat: BackgroundRepeatKeyword,
-    origin_start: f64,
-    origin_len: f64,
-    clip_start: f64,
-    clip_len: f64,
+    (origin_start, origin_len): (f64, f64),
+    clip: (f64, f64),
     bg_pos: f64,
     tile_len: f64,
 ) -> AxisTiling {
@@ -1047,15 +1117,7 @@ fn gradient_axis_tiling(
 
     match repeat {
         Repeat | Round => {
-            // The clip and origin boxes are nested, so the clip box extends
-            // beyond the origin box iff it does so at either end
-            let clip_is_outer =
-                clip_start < origin_start || clip_start + clip_len > origin_start + origin_len;
-            let (area_start, area_len) = if clip_is_outer {
-                (clip_start, clip_len)
-            } else {
-                (origin_start, origin_len)
-            };
+            let (area_start, area_len) = tiled_area((origin_start, origin_len), clip);
             let extend_len = extend((origin_start - area_start) + bg_pos, tile_len);
             let count = ((area_len + extend_len) / tile_len).ceil() as u32;
             AxisTiling {
@@ -1080,6 +1142,19 @@ fn gradient_axis_tiling(
             count: 1,
             stride: 0.0,
         },
+    }
+}
+
+fn tiled_area(
+    (origin_start, origin_len): (f64, f64),
+    (clip_start, clip_len): (f64, f64),
+) -> (f64, f64) {
+    let clip_is_outer =
+        clip_start < origin_start || clip_start + clip_len > origin_start + origin_len;
+    if clip_is_outer {
+        (clip_start, clip_len)
+    } else {
+        (origin_start, origin_len)
     }
 }
 
@@ -1162,6 +1237,30 @@ fn layer_paints_nothing(layer: &ImageLayerStyles) -> bool {
         GenericImage::Url(_) => layer.image_data.is_none(),
         _ => false,
     }
+}
+
+pub(super) fn canvas_background_source(dom: &BaseDocument) -> Option<NodeId> {
+    let root = dom.try_root_element()?;
+    if has_background(root) || !root.data.is_element_with_tag_name(&local_name!("html")) {
+        return Some(root.id);
+    }
+    let body = root.children.iter().find_map(|id| {
+        dom.get_node(*id)
+            .filter(|node| node.data.is_element_with_tag_name(&local_name!("body")))
+    });
+    Some(body.unwrap_or(root).id)
+}
+
+fn has_background(node: &Node) -> bool {
+    node.primary_styles().is_some_and(|style| {
+        let background = style.get_background();
+        background.background_color != GenericColor::TRANSPARENT_BLACK
+            || background
+                .background_image
+                .0
+                .iter()
+                .any(|image| !matches!(image, GenericImage::None))
+    })
 }
 
 #[inline]
