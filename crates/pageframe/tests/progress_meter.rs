@@ -240,7 +240,13 @@ fn lowered_top_at_scale(scale: f32) -> f32 {
 }
 
 #[test]
-fn length_vertical_align_moves_inline_blocks_by_css_pixels_at_every_scale() {
-    assert_eq!(lowered_top_at_scale(1.0), 2.0);
-    assert_eq!(lowered_top_at_scale(2.0), 1.5);
+fn length_vertical_align_lands_on_chromes_device_pixel_at_every_scale() {
+    for (scale, chrome_top) in [(1.0, 1.796_875_f32), (2.0, 1.296_875)] {
+        let top = lowered_top_at_scale(scale);
+        assert_eq!(
+            (top * scale).round(),
+            (chrome_top * scale).round(),
+            "at {scale}x our top is {top}, Chrome's is {chrome_top}"
+        );
+    }
 }

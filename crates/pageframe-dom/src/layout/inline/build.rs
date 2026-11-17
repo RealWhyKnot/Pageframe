@@ -210,22 +210,10 @@ fn dropdown_line_height(
     computed: &ComputedValues,
     scale: f32,
 ) -> Option<f32> {
-    use style::values::computed::font::LineHeight;
-
     let font_size = computed.slow_clone_font_size().used_size().px();
-    let text_height = match computed.clone_line_height() {
-        LineHeight::Normal => {
-            let metrics = crate::font_metrics::form_control_metrics(
-                font_ctx,
-                computed.get_font(),
-                font_size,
-                scale,
-            )?;
-            (metrics.ascent.round() + metrics.descent.round()) / scale
-        }
-        LineHeight::Number(number) => font_size * number.0,
-        LineHeight::Length(length) => length.0.px(),
-    };
+    let metrics =
+        crate::font_metrics::form_control_metrics(font_ctx, computed.get_font(), font_size, scale)?;
+    let text_height = (metrics.ascent.round() + metrics.descent.round()) / scale;
     Some(text_height + 2.0 * scale.floor() / scale)
 }
 

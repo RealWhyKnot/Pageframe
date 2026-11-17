@@ -26,6 +26,7 @@ const FOCUS_RING_WIDTH: f64 = 3.0;
 enum NativeFrame {
     TextField,
     Button,
+    Dropdown,
 }
 
 impl ElementCx<'_, '_> {
@@ -46,6 +47,11 @@ impl ElementCx<'_, '_> {
         if self.element.name.local == local_name!("button") || self.element.is_button_input() {
             return Some(NativeFrame::Button);
         }
+        if self.element.name.local == local_name!("select")
+            && pageframe_dom::select_list_rows(self.element).is_none()
+        {
+            return Some(NativeFrame::Dropdown);
+        }
         None
     }
 
@@ -65,6 +71,21 @@ impl ElementCx<'_, '_> {
             (NativeFrame::TextField, true) => (DISABLED_BACKGROUND, DISABLED_BORDER),
             (NativeFrame::Button, false) => (BUTTON_FACE, BORDER),
             (NativeFrame::Button, true) => (DISABLED_BUTTON_FACE, DISABLED_BUTTON_BORDER),
+            (NativeFrame::Dropdown, _) => {
+                let current = self.style.clone_color();
+                (
+                    self.style
+                        .get_background()
+                        .background_color
+                        .resolve_to_absolute(&current)
+                        .as_srgb_color(),
+                    self.style
+                        .get_border()
+                        .border_top_color
+                        .resolve_to_absolute(&current)
+                        .as_srgb_color(),
+                )
+            }
         };
 
         let half = width / 2.0;

@@ -1,4 +1,5 @@
 use super::ElementCx;
+use super::pixels::device_space;
 use crate::color::{Color, ToColorColor as _, contrast_ratio};
 use anyrender::PaintScene;
 use kurbo::{Affine, BezPath, Cap, Join, Rect, Stroke};
@@ -6,6 +7,7 @@ use pageframe_dom::CopyStyleGetters as _;
 use pageframe_dom::{GaugeRegion, local_name};
 use peniko::Fill;
 use style::dom::TElement as _;
+use style::values::computed::Appearance;
 use style::values::generics::color::ColorOrAuto;
 
 const DEFAULT_ACCENT: Color = Color::from_rgba8(0x00, 0x75, 0xff, 0xff);
@@ -17,10 +19,8 @@ const DARK_FOREGROUND: Color = Color::from_rgba8(0x3b, 0x3b, 0x3b, 0xff);
 const MIN_FOREGROUND_CONTRAST: f32 = 3.0;
 const CHECKBOX_RADIUS: f64 = 2.0;
 const BORDER_WIDTH: f64 = 1.0;
-const ARROW_INSET: f64 = 8.0;
-const ARROW_HEIGHT: f64 = 7.0;
-const ARROW_REACH: f64 = 4.0;
-const ARROW_TOP: f64 = 1.0;
+const ARROW_BOX: f64 = 15.0;
+const ARROW_SIZE: f64 = 8.0;
 const ARROW_STROKE: f64 = 2.0;
 const SWATCH_INSET_X: f64 = 2.0;
 const SWATCH_INSET_Y: f64 = 4.0;
@@ -294,20 +294,33 @@ impl ElementCx<'_, '_> {
             .element_data()
             .and_then(pageframe_dom::select_list_rows)
             .is_some();
-        if self.node.local_name() != "select" || list {
+        if self.node.local_name() != "select"
+            || list
+            || self.style.get_box().appearance == Appearance::None
+        {
             return;
         }
-        let border_box = self.frame.border_box;
-        let padding_box = self.frame.padding_box;
-        let height = border_box.height() / self.scale;
-        let middle = padding_box.x1 / self.scale - ARROW_INSET;
-        let top = border_box.y0 / self.scale + ((height - ARROW_HEIGHT) / 2.0 + 0.5).floor();
+        let (transform, rect) = device_space(self.transform, self.frame.border_box);
+        let borders = self.frame.border_width;
+        let arrow_box = ARROW_BOX * self.scale;
+        let size = ARROW_SIZE * self.scale;
+        let width = size.trunc();
+        let height = (size / 2.0).trunc();
+        let left = if self.is_rtl() {
+            (rect.x0 + borders.x0.round() + (arrow_box - size) / 2.0).trunc()
+        } else {
+            (rect.x1 - borders.x1.round() - (arrow_box + size) / 2.0).trunc()
+        };
+        let top = rect.y0 + (rect.height() / 2.0).floor() - (height / 2.0).floor();
+        let bounds = Rect::new(left, top, left + width, top + height);
+        if bounds.intersect(rect) != bounds {
+            return;
+        }
         let mut arrow = BezPath::new();
-        arrow.move_to((middle - ARROW_REACH, top + ARROW_TOP));
-        arrow.line_to((middle, top + ARROW_TOP + ARROW_REACH));
-        arrow.line_to((middle + ARROW_REACH, top + ARROW_TOP));
+        arrow.move_to((bounds.x0, bounds.y0));
+        arrow.line_to((bounds.x0 + width / 2.0, bounds.y1));
+        arrow.line_to((bounds.x1, bounds.y0));
         let color = self.style.clone_color().as_srgb_color();
-        let transform = self.transform * Affine::scale(self.scale);
         let stroke = Stroke::new(ARROW_STROKE)
             .with_caps(Cap::Butt)
             .with_join(Join::Miter);

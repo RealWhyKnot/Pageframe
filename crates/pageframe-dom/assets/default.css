@@ -196,6 +196,7 @@ select {
     word-spacing: initial;
     line-height: initial;
     display: inline-flex;
+    appearance: auto;
     flex-direction: column;
     justify-content: center;
     box-sizing: border-box;

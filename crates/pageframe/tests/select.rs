@@ -157,6 +157,83 @@ fn oversized_options_stay_inside_a_sized_select() {
     );
 }
 
+fn grey_at_double_scale(page: &str) -> (Vec<u8>, usize) {
+    let mut harness = open(App::new((), page));
+    let scheme = harness.base().get_viewport().color_scheme;
+    let width = support::WIDTH * 2;
+    let height = support::HEIGHT * 2;
+    harness
+        .base_mut()
+        .set_viewport(pageframe_traits::shell::Viewport::new(
+            width, height, 2.0, scheme,
+        ));
+    harness.pump();
+    let mut doc = harness.base_mut();
+    let buffer = anyrender::render_to_buffer::<anyrender_vello_cpu::VelloCpuImageRenderer, _>(
+        |scene| pageframe_paint::paint_scene(scene, &mut doc, 2.0, width, height, 0, 0),
+        width,
+        height,
+    );
+    let (pixels, _) = buffer.as_chunks::<4>();
+    let grey = pixels
+        .iter()
+        .map(|rgba| {
+            let alpha = u32::from(rgba[3]);
+            let ink = u32::from(rgba[0]) + (255 - alpha);
+            u8::try_from(ink.min(255)).expect("clamped to a byte")
+        })
+        .collect();
+    (
+        grey,
+        usize::try_from(width).expect("test width fits in usize"),
+    )
+}
+
+#[test]
+fn closed_select_draws_chromes_rounded_frame_and_thin_arrow_at_2x() {
+    let page = "<!doctype html><style>body{margin:0}</style>\
+<select style=\"width:100px;margin:4px\"><option>a</option></select>";
+    let (grey, width) = grey_at_double_scale(page);
+    let at = |x: usize, y: usize| grey[y * width + x];
+    for (x, y) in [(8, 8), (9, 8), (10, 8), (8, 9), (8, 10)] {
+        assert!(at(x, y) > 240, "corner pixel {x},{y} is {}", at(x, y));
+    }
+    for (x, y) in [(11, 8), (9, 9), (8, 11)] {
+        assert!(at(x, y) < 140, "border pixel {x},{y} is {}", at(x, y));
+    }
+    let mut ink = Vec::new();
+    for y in 12..44 {
+        for x in 150..204 {
+            if at(x, y) < 247 {
+                ink.push((x, y, f32::from(255 - at(x, y)) / 255.0));
+            }
+        }
+    }
+    let left = ink.iter().map(|point| point.0).min();
+    let right = ink.iter().map(|point| point.0).max();
+    let top = ink.iter().map(|point| point.1).min();
+    let bottom = ink.iter().map(|point| point.1).max();
+    assert_eq!(
+        (left, right, top, bottom),
+        (Some(182), Some(199), Some(22), Some(32))
+    );
+    let coverage: f32 = ink.iter().map(|point| point.2).sum();
+    assert!(
+        (40.0..54.0).contains(&coverage),
+        "arrow coverage {coverage}"
+    );
+}
+
+#[test]
+fn closed_selects_ignore_author_line_height_like_chrome() {
+    let page = "<!doctype html><style>body{margin:0}</style>\
+<select id=tall style=\"line-height:40px\"><option>Option</option></select>\
+<select id=option><option style=\"line-height:40px\">Option</option></select>";
+    let harness = open(App::new((), page));
+    assert_eq!(size(&harness, "#tall"), (62.0, 19.0));
+    assert_eq!(size(&harness, "#option"), (62.0, 19.0));
+}
+
 const SCALED: &str = "<!doctype html><style>body{margin:0}</style>\
 <select id=small><option>Option</option></select>\
 <select id=large style=\"font-size:16px\"><option>Option</option></select>";
