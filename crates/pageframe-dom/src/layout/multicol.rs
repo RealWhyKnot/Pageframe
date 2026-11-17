@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use style::values::computed::CSSPixelLength;
+use style::values::computed::{CSSPixelLength, ColumnFill};
 use style::values::generics::column::GenericColumnCount;
 use style::values::generics::length::{
     GenericLengthPercentageOrAuto, GenericLengthPercentageOrNormal,
@@ -172,6 +172,7 @@ struct ColumnStyle {
     width: Option<f32>,
     gap: Option<f32>,
     font_size: f32,
+    fill: ColumnFill,
 }
 
 fn used_columns(style: &ColumnStyle, content_width: f32, gap: f32) -> (usize, f32) {
@@ -381,6 +382,7 @@ impl BaseDocument {
             width,
             gap,
             font_size: style.get_font().font_size.computed_size().px(),
+            fill: column.column_fill,
         })
     }
 
@@ -599,7 +601,7 @@ impl LayoutPassState<'_> {
         let flow = flow_layout(self, flow_inputs);
 
         let flow_start = padding_border.top;
-        let flow_end = (flow.size.height - padding_border.bottom).max(flow_start);
+        let clamped_end = (flow.size.height - padding_border.bottom).max(flow_start);
         let mut solids = Vec::new();
         let node = &self.nodes[node_id];
         if node.flags.is_inline_root() {
@@ -609,8 +611,11 @@ impl LayoutPassState<'_> {
         }
         solids.sort_by(|a, b| a.top.total_cmp(&b.top));
         relink_lines(&mut solids);
+        let flow_end = solids
+            .iter()
+            .map(|solid| solid.bottom)
+            .fold(clamped_end, f32::max);
 
-        let balanced = balanced_height(&solids, flow_start, flow_end, count);
         let fixed = inputs
             .known_dimensions
             .height
@@ -621,8 +626,23 @@ impl LayoutPassState<'_> {
         let limit = fixed.or(max_size
             .height
             .map(|height| (height - edges.height).max(0.0)));
-        let column_height = limit.map_or(balanced, |limit| balanced.min(limit));
-        let fragments = fill_columns(&solids, flow_start..flow_end, column_height, MAX_COLUMNS);
+        let (column_height, fragments) = if column_style.fill == ColumnFill::Auto {
+            let available = limit.unwrap_or(flow_end - flow_start);
+            let fragments = fill_columns(&solids, flow_start..flow_end, available, MAX_COLUMNS);
+            let used = fixed.unwrap_or_else(|| {
+                fragments
+                    .iter()
+                    .map(|fragment| fragment.flow_end - fragment.flow_start)
+                    .fold(0.0, f32::max)
+                    .min(available)
+            });
+            (used, fragments)
+        } else {
+            let balanced = balanced_height(&solids, flow_start, flow_end, count);
+            let column_height = limit.map_or(balanced, |limit| balanced.min(limit));
+            let fragments = fill_columns(&solids, flow_start..flow_end, column_height, MAX_COLUMNS);
+            (column_height, fragments)
+        };
         let content_height = fixed.unwrap_or_else(|| {
             column_height.maybe_max(min_size.height.map(|height| height - edges.height))
         });

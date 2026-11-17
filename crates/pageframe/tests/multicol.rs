@@ -368,3 +368,58 @@ fn columns_keep_orphans_and_widows_like_chrome() {
         assert_eq!(hit_id(&harness, x, y).as_deref(), Some(id), "at {x},{y}");
     }
 }
+
+#[test]
+fn auto_column_fill_fills_columns_in_order_like_chrome() {
+    let fill = "column-fill:auto";
+    let body = format!(
+        "<div id=\"v\" class=\"c\" style=\"{fill};height:80px;widows:3\">{}</div>\
+         <div id=\"p\" class=\"c\" style=\"{fill};height:80px\">{}</div>\
+         <div id=\"q\" class=\"c\" style=\"{fill};max-height:80px\">{}</div>\
+         <div id=\"w\" class=\"c\" style=\"{fill};max-height:80px\">{}</div>",
+        paragraphs("v", &[9]),
+        paragraphs("p", &[9]),
+        paragraphs("q", &[9]),
+        paragraphs("w", &[2]),
+    );
+    let harness = page(&body);
+    check(
+        &harness,
+        &[
+            ("v", [0.0, 0.0, 320.0, 80.0]),
+            ("p", [0.0, 80.0, 320.0, 80.0]),
+            ("q", [0.0, 160.0, 320.0, 80.0]),
+            ("w", [0.0, 240.0, 320.0, 40.0]),
+        ],
+    );
+    let expected = [
+        (5.0, 70.0, "v0_3"),
+        (115.0, 10.0, "v0_4"),
+        (115.0, 30.0, "v0_5"),
+        (225.0, 10.0, "v0_6"),
+        (225.0, 50.0, "v0_8"),
+        (5.0, 150.0, "p0_3"),
+        (115.0, 90.0, "p0_4"),
+        (115.0, 130.0, "p0_6"),
+        (225.0, 90.0, "p0_7"),
+        (225.0, 110.0, "p0_8"),
+        (5.0, 230.0, "q0_3"),
+        (115.0, 210.0, "q0_6"),
+        (225.0, 170.0, "q0_7"),
+        (5.0, 270.0, "w0_1"),
+    ];
+    for (left, top, id) in expected {
+        assert_eq!(
+            hit_id(&harness, left, top).as_deref(),
+            Some(id),
+            "at {left},{top}"
+        );
+    }
+
+    let unbounded = page(&format!(
+        "<div id=\"r\" class=\"c\" style=\"{fill}\">{}</div>",
+        paragraphs("r", &[9])
+    ));
+    check(&unbounded, &[("r", [0.0, 0.0, 320.0, 180.0])]);
+    assert_eq!(hit_id(&unbounded, 5.0, 170.0).as_deref(), Some("r0_8"));
+}
