@@ -310,23 +310,27 @@ fn column_rules_sit_between_filled_columns() {
 }
 
 #[test]
-fn beveled_column_rules_shade_like_collapsed_borders_in_chrome() {
+fn beveled_column_rules_shade_like_chrome() {
     let light = [212, 212, 212, 255];
     let dark = [44, 44, 44, 255];
+    let flat = [128, 128, 128, 255];
     let cases = [
-        ("inset", light, dark),
-        ("outset", dark, light),
-        ("groove", dark, light),
-        ("ridge", light, dark),
+        ("10px inset", [(17, light), (22, dark)]),
+        ("10px outset", [(17, dark), (22, light)]),
+        ("10px groove", [(17, dark), (22, light)]),
+        ("10px ridge", [(17, light), (22, dark)]),
+        ("1px inset", [(20, flat), (21, WHITE)]),
+        ("1px outset", [(20, flat), (21, WHITE)]),
     ];
-    for (style, left, right) in cases {
+    for (rule, samples) in cases {
         let mut harness = page(&format!(
-            "<div style=\"color:gray;columns:2;column-gap:10px;column-rule:10px {style};\
+            "<div style=\"color:gray;columns:2;column-gap:10px;column-rule:{rule};\
              width:40px;height:40px\"><div style=\"height:80px\"></div></div>"
         ));
         let buffer = draw(&mut harness);
-        assert_eq!(pixel(&buffer, 17, 15), left, "{style}");
-        assert_eq!(pixel(&buffer, 22, 15), right, "{style}");
+        for (across, expected) in samples {
+            assert_eq!(pixel(&buffer, across, 15), expected, "{rule} at {across}");
+        }
     }
 }
 
