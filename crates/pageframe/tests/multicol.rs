@@ -530,3 +530,60 @@ fn a_right_to_left_column_scroller_scrolls_to_its_left_overflow() {
     harness.wheel_at(380.0, 10.0, 110.0, 0.0);
     assert_eq!(hit_id(&harness, 312.0, 10.0).as_deref(), Some("s0_3"));
 }
+
+#[test]
+fn columns_round_to_device_layout_units_after_a_scale_change() {
+    let mut harness = page(
+        "<div style=\"width:101px;height:40px;column-count:3;column-gap:0;column-fill:auto\">\
+         <div id=\"one\" style=\"height:15px\"></div><div style=\"height:15px\"></div>\
+         <div style=\"height:15px\"></div><div id=\"two\" style=\"height:15px\"></div></div>",
+    );
+    for (scale, size, steps, expected) in [
+        (1.5, [3, 2], 96.0, [0.0, 3232.0, 3232.0, 3232.0]),
+        (2.0, [2, 1], 128.0, [0.0, 4309.0, 4309.0, 4309.0]),
+        (1.0, [1, 1], 64.0, [0.0, 2154.0, 2155.0, 2154.0]),
+    ] {
+        let [times, over] = size;
+        {
+            let mut doc = harness.base_mut();
+            let color_scheme = doc.get_viewport().color_scheme;
+            doc.set_viewport(pageframe_traits::shell::Viewport::new(
+                WIDTH * times / over,
+                HEIGHT * times / over,
+                scale,
+                color_scheme,
+            ));
+        }
+        harness.pump();
+        let [one_x, _, one_width, _] = rect(&harness, "one");
+        let [two_x, _, two_width, _] = rect(&harness, "two");
+        assert_eq!(
+            [one_x, one_width, two_x, two_width].map(|value| value * steps),
+            expected,
+            "scale {scale}"
+        );
+    }
+}
+
+#[test]
+fn balanced_columns_keep_a_full_column_at_twice_the_scale() {
+    let mut harness = page(
+        "<div style=\"width:360px;columns:3;column-gap:12px;font:14px Arial\">One two three \
+         four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen \
+         seventeen <span id=\"last\">eighteen</span> nineteen twenty twenty-one twenty-two \
+         twenty-three.</div>",
+    );
+    {
+        let mut doc = harness.base_mut();
+        let color_scheme = doc.get_viewport().color_scheme;
+        doc.set_viewport(pageframe_traits::shell::Viewport::new(
+            WIDTH * 2,
+            HEIGHT * 2,
+            2.0,
+            color_scheme,
+        ));
+    }
+    harness.pump();
+    let [x, _, _, _] = rect(&harness, "last");
+    assert_eq!(x, 124.0);
+}

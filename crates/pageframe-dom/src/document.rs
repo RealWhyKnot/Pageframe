@@ -1,7 +1,7 @@
 use crate::NodeTree;
 use crate::events::{DragMode, handle_dom_event};
 use crate::layout::construct::ConstructionTask;
-use crate::layout::damage::ALL_DAMAGE;
+use crate::layout::damage::{ALL_DAMAGE, ONLY_RELAYOUT};
 use crate::mutator::ViewportMut;
 use crate::net::{
     Resource, ResourceHandler, ResourceLoadResponse, StylesheetHandler, StylesheetLoader,
@@ -2370,7 +2370,9 @@ impl BaseDocument {
         if changes.contains(DeviceChanges::SCALE) {
             self.invalidate_inline_contexts();
             for (_, node) in self.nodes.iter_mut() {
-                node.insert_damage(style::selector_parser::RestyleDamage::RECALCULATE_OVERFLOW);
+                node.insert_damage(
+                    style::selector_parser::RestyleDamage::RECALCULATE_OVERFLOW | ONLY_RELAYOUT,
+                );
             }
         }
 

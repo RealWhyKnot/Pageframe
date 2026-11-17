@@ -24,7 +24,6 @@ use crate::node::{Node, SpecialElementData};
 const MAX_COLUMNS: usize = 4096;
 const BALANCE_STEPS: usize = 24;
 const EDGE: f32 = 0.01;
-const LAYOUT_UNIT: f32 = 64.0;
 const FAR: f32 = 1.0e7;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -44,12 +43,13 @@ pub struct ColumnLayout {
     pub content_width: f32,
     pub height: f32,
     pub is_rtl: bool,
+    pub steps: f32,
 }
 
 impl ColumnLayout {
     fn column_x(&self, index: usize) -> f32 {
         let count = f32::from(u16::try_from(index).unwrap_or(u16::MAX));
-        let step = (count * self.stride * LAYOUT_UNIT).round() / LAYOUT_UNIT;
+        let step = (count * self.stride * self.steps).round() / self.steps;
         if self.is_rtl {
             self.content_width - self.column_width - step
         } else {
@@ -366,7 +366,13 @@ fn fill_columns(
     }
 }
 
-fn balanced_height(solids: &[Solid], flow_start: f32, flow_end: f32, count: usize) -> f32 {
+fn balanced_height(
+    solids: &[Solid],
+    flow_start: f32,
+    flow_end: f32,
+    count: usize,
+    steps: f32,
+) -> f32 {
     let total = flow_end - flow_start;
     if total <= 0.0 {
         return 0.0;
@@ -375,7 +381,7 @@ fn balanced_height(solids: &[Solid], flow_start: f32, flow_end: f32, count: usiz
         let most = (count + 2).min(MAX_COLUMNS);
         fill_columns(solids, flow_start..flow_end, height, most).len() <= count
     };
-    let snap = |height: f32| (height * LAYOUT_UNIT - EDGE).ceil() / LAYOUT_UNIT;
+    let snap = |height: f32| (height * steps - EDGE).ceil() / steps;
     let mut low = total / f32_from(count);
     if fits(low) {
         return snap(low);
@@ -389,7 +395,7 @@ fn balanced_height(solids: &[Solid], flow_start: f32, flow_end: f32, count: usiz
             low = middle;
         }
     }
-    snap(high)
+    snap(high + EDGE)
 }
 
 impl BaseDocument {
@@ -622,7 +628,13 @@ impl LayoutPassState<'_> {
         });
         let content_width = (width - edges.width).max(0.0);
         let (count, exact_width) = used_columns(&column_style, content_width, gap);
-        let column_width = (exact_width * LAYOUT_UNIT + EDGE).floor() / LAYOUT_UNIT;
+        let scale = self.doc.viewport().scale();
+        let steps = if scale.is_finite() && scale > 0.0 {
+            64.0 * scale
+        } else {
+            64.0
+        };
+        let column_width = (exact_width * steps + EDGE).floor() / steps;
 
         let mut flow_inputs = inputs;
         flow_inputs.run_mode = RunMode::PerformLayout;
@@ -677,7 +689,7 @@ impl LayoutPassState<'_> {
             });
             (used, fragments)
         } else {
-            let balanced = balanced_height(&solids, flow_start, flow_end, count);
+            let balanced = balanced_height(&solids, flow_start, flow_end, count, steps);
             let column_height = limit.map_or(balanced, |limit| balanced.min(limit));
             let fragments = fill_columns(&solids, flow_start..flow_end, column_height, MAX_COLUMNS);
             (column_height, fragments)
@@ -695,6 +707,7 @@ impl LayoutPassState<'_> {
             content_width,
             height: column_height,
             is_rtl: column_style.is_rtl,
+            steps,
         };
 
         let mut output = flow;
