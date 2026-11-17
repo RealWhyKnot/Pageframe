@@ -2,7 +2,7 @@ mod scaled;
 mod support;
 
 use pageframe::App;
-use scaled::render_at_scale;
+use scaled::{render_at_ratio, render_at_scale};
 use support::{HEIGHT, WIDTH, open, pixel, render};
 
 const BLUE: [u8; 4] = [0, 0, 255, 255];
@@ -146,27 +146,8 @@ fn odd_groove_widths_keep_corner_halves_at_forty_five_degrees() {
 fn paint_at_seven_quarters<S: 'static>(
     harness: &mut pageframe_test_harness::Harness<pageframe::Page<S>>,
 ) -> impl Fn(usize, usize) -> [u8; 4] + use<S> {
-    let (width, height) = (WIDTH * 7 / 4, HEIGHT * 7 / 4);
-    {
-        let mut doc = harness.base_mut();
-        let color_scheme = doc.get_viewport().color_scheme;
-        doc.set_viewport(pageframe_traits::shell::Viewport::new(
-            width,
-            height,
-            1.75,
-            color_scheme,
-        ));
-    }
-    harness.pump();
-    let buffer = {
-        let mut doc = harness.base_mut();
-        anyrender::render_to_buffer::<anyrender_vello_cpu::VelloCpuImageRenderer, _>(
-            |scene| pageframe_paint::paint_scene(scene, &mut doc, 1.75, width, height, 0, 0),
-            width,
-            height,
-        )
-    };
-    let stride = usize::try_from(width).expect("test width fits in usize");
+    let buffer = render_at_ratio(harness, (7, 4), WIDTH);
+    let stride = usize::try_from(WIDTH * 7 / 4).expect("test width fits in usize");
     move |column, row| {
         let offset = (row * stride + column) * 4;
         [

@@ -7,8 +7,17 @@ use pageframe_test_harness::Harness;
 use pageframe_traits::shell::Viewport;
 
 pub(crate) fn render_at_scale<S: 'static>(harness: &mut Harness<Page<S>>, scale: u16) -> Vec<u8> {
-    let (width, height) = (WIDTH * u32::from(scale), HEIGHT * u32::from(scale));
-    let scale = f32::from(scale);
+    render_at_ratio(harness, (scale, 1), WIDTH)
+}
+
+pub(crate) fn render_at_ratio<S: 'static>(
+    harness: &mut Harness<Page<S>>,
+    (numerator, denominator): (u16, u16),
+    css_width: u32,
+) -> Vec<u8> {
+    let device = |css: u32| css * u32::from(numerator) / u32::from(denominator);
+    let (width, height) = (device(css_width), device(HEIGHT));
+    let scale = f32::from(numerator) / f32::from(denominator);
     {
         let mut doc = harness.base_mut();
         let color_scheme = doc.get_viewport().color_scheme;
