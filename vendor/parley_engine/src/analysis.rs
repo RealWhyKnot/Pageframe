@@ -636,6 +636,14 @@ pub(crate) fn analyze_text(
         .filter(|(_, config)| config.line_break == LineBreak::Anywhere)
         .map(|(range, _)| range)
         .peekable();
+    let mut break_all_iter = options
+        .line_break
+        .iter()
+        .filter(|(_, config)| {
+            config.word_break == WordBreak::BreakAll && config.line_break != LineBreak::Anywhere
+        })
+        .map(|(range, _)| range)
+        .peekable();
     let boundary_iter = text.char_indices().map(|(byte_pos, ch)| {
         // advance any stale word boundary positions
         while let Some(&w) = wb_iter.peek() {
@@ -721,6 +729,17 @@ pub(crate) fn analyze_text(
             .peek()
             .is_some_and(|range| range.contains(&byte_pos));
 
+        while break_all_iter
+            .peek()
+            .is_some_and(|range| range.end <= byte_pos)
+        {
+            _ = break_all_iter.next();
+        }
+        let keeps_break_all = is_icu_line
+            && break_all_iter
+                .peek()
+                .is_some_and(|range| range.contains(&byte_pos));
+
         let is_mandatory_linebreak = properties.is_mandatory_linebreak();
 
         // We never have a soft wrap opportunity before a mandatory break (following UAX #14 LB6),
@@ -745,7 +764,9 @@ pub(crate) fn analyze_text(
                     before: prev,
                     after: ch,
                 });
-                if let Some(forced) = forced {
+                if let Some(forced) = forced
+                    && (forced || !keeps_break_all)
+                {
                     opportunity = forced;
                 }
             }
