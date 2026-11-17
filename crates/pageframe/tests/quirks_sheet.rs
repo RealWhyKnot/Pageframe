@@ -135,7 +135,8 @@ fn quirks_mode_text_field_borders_paint_at_the_set_height() {
 
 const ALIGN_CONTENT: &str = "<!doctype html><div id='upper' align='CENTER'>a</div>\
 <div id='middle' align='middle'>b</div><p id='right' align='Right'>c</p>\
-<div id='plain'>d</div><div id='justify' align='JUSTIFY'>e</div>";
+<div id='plain'>d</div><div id='justify' align='JUSTIFY'>e</div>\
+<table id='table' align='center'><tr><td id='cell'>f</td></tr></table>";
 
 #[test]
 fn align_attributes_ignore_case_and_treat_middle_as_center() {
@@ -157,4 +158,25 @@ fn align_attributes_ignore_case_and_treat_middle_as_center() {
     assert_eq!(align("#right"), TextAlignKeyword::MozRight);
     assert_eq!(align("#plain"), TextAlignKeyword::Start);
     assert_eq!(align("#justify"), TextAlignKeyword::Justify);
+    assert_eq!(align("#table"), TextAlignKeyword::Start);
+    assert_eq!(align("#cell"), TextAlignKeyword::Start);
+    let (left, right) = {
+        let table_id = base
+            .query_selector_all("#table")
+            .expect("the selector parses")[0];
+        let table = base.get_node(table_id).expect("the node exists");
+        let parent = table
+            .parent
+            .and_then(|parent| base.get_node(parent))
+            .expect("the table has a parent");
+        let left = table.final_layout().location.x;
+        let width = table.final_layout().size.width;
+        (left, parent.final_layout().size.width - left - width)
+    };
+    drop(base);
+    assert!(left > 0.0, "the centred table starts at {left}");
+    assert!(
+        (left - right).abs() <= 1.0,
+        "the centred table has {left} on the left and {right} on the right"
+    );
 }

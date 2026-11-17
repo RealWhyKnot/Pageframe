@@ -1168,7 +1168,7 @@ impl<'a> TElement for PageframeNode<'a> {
                 if let Some(baseline) = baseline {
                     push_style(PropertyDeclaration::AlignmentBaseline(baseline));
                 }
-            } else if *name == local_name!("align") {
+            } else if *name == local_name!("align") && *tag != local_name!("table") {
                 use style::values::specified::TextAlign;
                 let keyword = match value.to_ascii_lowercase().as_str() {
                     "left" => Some(StyloTextAlign::MozLeft),

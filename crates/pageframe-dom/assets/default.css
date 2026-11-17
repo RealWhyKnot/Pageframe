@@ -576,6 +576,10 @@ table[align="right"] {
     text-align: start;
 }
 
+table[align="center"] {
+    margin-inline: auto;
+}
+
 td[nowrap],
 th[nowrap] {
     white-space: nowrap;
