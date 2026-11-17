@@ -241,8 +241,13 @@ fn snap_as_border_width(len: Au, context: &Context) -> Au {
         return len;
     }
 
-    let au_per_dev_px = context.device().app_units_per_device_pixel();
-    std::cmp::max(Au(au_per_dev_px), Au(len.0 / au_per_dev_px * au_per_dev_px))
+    let ratio = f64::from(context.device().device_pixel_ratio().get());
+    if !(ratio.is_finite() && ratio > 0.0) {
+        let au_per_dev_px = context.device().app_units_per_device_pixel();
+        return std::cmp::max(Au(au_per_dev_px), Au(len.0 / au_per_dev_px * au_per_dev_px));
+    }
+    let device_px = (len.to_f64_px() * ratio + 1e-6).floor().max(1.0);
+    Au::from_f64_px(device_px / ratio)
 }
 
 impl ToComputedValue for BorderSideWidth {

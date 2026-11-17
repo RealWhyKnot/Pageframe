@@ -3,7 +3,7 @@ mod support;
 
 use pageframe::App;
 use scaled::render_at_scale;
-use support::{WIDTH, open, pixel, render};
+use support::{HEIGHT, WIDTH, open, pixel, render};
 
 const BLUE: [u8; 4] = [0, 0, 255, 255];
 const LIME: [u8; 4] = [0, 255, 0, 255];
@@ -222,4 +222,63 @@ fn an_inline_inset_border_in_current_color_draws_light_gray() {
     let mut harness = open(App::new((), html));
     let buffer = render(&mut harness);
     assert_eq!(pixel(&buffer, 5, 20), gray(154));
+}
+
+#[test]
+fn borders_snap_to_whole_device_pixels_at_seven_quarters_scale() {
+    let mut harness = open(App::new(
+        (),
+        "<style>html,body{margin:0}div{position:absolute;left:10px;background:lime;border:0 solid blue}</style><div id='thin' style='top:10px;width:40px;height:20px;border-width:1px'></div><div id='thick' style='top:40px;width:0;height:10px;border-left-width:100px'></div>",
+    ));
+    let (width, height) = (WIDTH * 7 / 4, HEIGHT * 7 / 4);
+    {
+        let mut doc = harness.base_mut();
+        let color_scheme = doc.get_viewport().color_scheme;
+        doc.set_viewport(pageframe_traits::shell::Viewport::new(
+            width,
+            height,
+            1.75,
+            color_scheme,
+        ));
+    }
+    harness.pump();
+    let device_width = |id: &str| {
+        let doc = harness.base();
+        let node = doc
+            .query_selector_all(&format!("#{id}"))
+            .expect("box selector")[0];
+        doc.get_client_bounding_rect(node).expect("box rect").width * 1.75
+    };
+    assert!((device_width("thin") - 72.0).abs() < 1e-6);
+    assert!((device_width("thick") - 175.0).abs() < 1e-6);
+    let buffer = {
+        let mut doc = harness.base_mut();
+        anyrender::render_to_buffer::<anyrender_vello_cpu::VelloCpuImageRenderer, _>(
+            |scene| pageframe_paint::paint_scene(scene, &mut doc, 1.75, width, height, 0, 0),
+            width,
+            height,
+        )
+    };
+    let stride = usize::try_from(width).expect("test width fits in usize");
+    let at = |column: usize, row: usize| {
+        let offset = (row * stride + column) * 4;
+        [
+            buffer[offset],
+            buffer[offset + 1],
+            buffer[offset + 2],
+            buffer[offset + 3],
+        ]
+    };
+    for (column, row, expected) in [
+        (40, 18, BLUE),
+        (40, 19, LIME),
+        (18, 35, BLUE),
+        (19, 35, LIME),
+        (88, 35, LIME),
+        (89, 35, BLUE),
+        (40, 53, LIME),
+        (40, 54, BLUE),
+    ] {
+        assert_eq!(at(column, row), expected, "pixel {column},{row}");
+    }
 }

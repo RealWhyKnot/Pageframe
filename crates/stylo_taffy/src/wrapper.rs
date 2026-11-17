@@ -47,6 +47,7 @@ pub struct TaffyStyloStyle<T: Deref<Target = ComputedValues>> {
     /// Extra node-derived flags that are not part of the stylo style
     pub flags: StyleFlags,
     pub collapsed_border: Option<taffy::Rect<f32>>,
+    pub device_scale: f32,
     /// The writing mode of the algorithm laying this box out, whose inline/block axes the Taffy
     /// getters are expressed in (see [`crate::writing_mode`]). Defaults to the style's own.
     #[cfg(feature = "writing-mode")]
@@ -84,6 +85,7 @@ impl<T: Deref<Target = ComputedValues>> TaffyStyloStyle<T> {
             style,
             flags,
             collapsed_border: None,
+            device_scale: 0.0,
             #[cfg(feature = "writing-mode")]
             layout_wm,
             #[cfg(feature = "writing-mode")]
@@ -101,6 +103,7 @@ impl<T: Deref<Target = ComputedValues>> TaffyStyloStyle<T> {
             style,
             flags,
             collapsed_border: None,
+            device_scale: 0.0,
             #[cfg(feature = "writing-mode")]
             layout_wm,
             #[cfg(feature = "writing-mode")]
@@ -170,7 +173,7 @@ impl<T: Deref<Target = ComputedValues>> From<T> for TaffyStyloStyle<T> {
 // Into<taffy::Style> impl
 impl<T: Deref<Target = ComputedValues>> From<TaffyStyloStyle<T>> for taffy::Style<Atom> {
     fn from(value: TaffyStyloStyle<T>) -> Self {
-        let mut style = convert::to_taffy_style(&value.style);
+        let mut style = convert::to_taffy_style(&value.style, value.device_scale);
         value.layout_wm().transpose_style(&mut style);
         style.item_is_replaced = value.flags.contains(StyleFlags::IS_REPLACED);
         style.item_is_compressible_replaced = value
@@ -347,18 +350,22 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
             left: convert::border(
                 &border_styles.border_left_width,
                 border_styles.border_left_style,
+                self.device_scale,
             ),
             right: convert::border(
                 &border_styles.border_right_width,
                 border_styles.border_right_style,
+                self.device_scale,
             ),
             top: convert::border(
                 &border_styles.border_top_width,
                 border_styles.border_top_style,
+                self.device_scale,
             ),
             bottom: convert::border(
                 &border_styles.border_bottom_width,
                 border_styles.border_bottom_style,
+                self.device_scale,
             ),
         });
         match self.collapsed_border {

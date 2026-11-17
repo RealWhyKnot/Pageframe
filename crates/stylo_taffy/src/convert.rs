@@ -179,15 +179,23 @@ pub fn margin(val: &stylo::MarginVal) -> taffy::LengthPercentageAuto {
     }
 }
 
+pub fn device_border_px(px: f32, scale: f32) -> f32 {
+    if px <= 0.0 || !scale.is_finite() || scale <= 0.0 {
+        return px;
+    }
+    (px * scale).round().max(1.0) / scale
+}
+
 #[inline]
 pub fn border(
     width: &stylo::BorderSideWidth,
     style: stylo::BorderStyle,
+    scale: f32,
 ) -> taffy::LengthPercentage {
     if style.none_or_hidden() {
         return taffy::style_helpers::zero();
     }
-    taffy::style_helpers::length(width.0.to_f32_px())
+    taffy::style_helpers::length(device_border_px(width.0.to_f32_px(), scale))
 }
 
 pub fn is_table_cell(style: &stylo::ComputedValues) -> bool {
@@ -957,14 +965,15 @@ pub fn max_track(
 pub fn to_taffy_style_in(
     style: &stylo::ComputedValues,
     layout_wm: stylo::WritingMode,
+    scale: f32,
 ) -> taffy::Style<Atom> {
     use crate::writing_mode::WritingModeExt;
-    let mut taffy_style = to_taffy_style(style);
+    let mut taffy_style = to_taffy_style(style, scale);
     layout_wm.transpose_style(&mut taffy_style);
     taffy_style
 }
 
-pub fn to_taffy_style(style: &stylo::ComputedValues) -> taffy::Style<Atom> {
+pub fn to_taffy_style(style: &stylo::ComputedValues, scale: f32) -> taffy::Style<Atom> {
     let display = style.clone_display();
     let pos = style.get_position();
     let margin = style.get_margin();
@@ -1020,10 +1029,14 @@ pub fn to_taffy_style(style: &stylo::ComputedValues) -> taffy::Style<Atom> {
             bottom: self::length_percentage(&padding.padding_bottom.0),
         },
         border: taffy::Rect {
-            left: self::border(&border.border_left_width, border.border_left_style),
-            right: self::border(&border.border_right_width, border.border_right_style),
-            top: self::border(&border.border_top_width, border.border_top_style),
-            bottom: self::border(&border.border_bottom_width, border.border_bottom_style),
+            left: self::border(&border.border_left_width, border.border_left_style, scale),
+            right: self::border(&border.border_right_width, border.border_right_style, scale),
+            top: self::border(&border.border_top_width, border.border_top_style, scale),
+            bottom: self::border(
+                &border.border_bottom_width,
+                border.border_bottom_style,
+                scale,
+            ),
         },
 
         // Gap

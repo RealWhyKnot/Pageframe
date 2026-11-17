@@ -522,7 +522,8 @@ impl BaseDocument {
         let device = make_device(&viewport, media_type.clone(), font_ctx.clone());
         let stylist = Stylist::new(device, QuirksMode::NoQuirks);
         let snapshots = SnapshotMap::new();
-        let nodes = Box::new(NodeTree::new());
+        let mut nodes = Box::new(NodeTree::new());
+        nodes.set_device_scale(viewport.scale());
         let guard = SharedRwLock::new();
         let nodes_to_id = HashMap::new();
 
@@ -2364,6 +2365,7 @@ impl BaseDocument {
             self.font_ctx.clone(),
         ));
         self.scroll_viewport_by(0.0, 0.0); // Clamp scroll offset
+        self.nodes.set_device_scale(self.viewport.scale());
 
         // Text is shaped at a specific scale factor, so cached inline layouts
         // must be invalidated when the scale changes.

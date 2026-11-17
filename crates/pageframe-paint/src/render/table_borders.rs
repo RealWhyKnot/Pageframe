@@ -99,11 +99,11 @@ fn contest(first: Slot, second: Slot) -> Ordering {
     }
 }
 
-fn device_width(width: f64) -> f64 {
+pub(super) fn device_width(width: f64) -> f64 {
     if width <= 0.0 {
         0.0
     } else {
-        (width + 1.0e-4).floor().max(1.0)
+        width.round().max(1.0)
     }
 }
 
@@ -143,7 +143,7 @@ fn side_slot(style: &ComputedValues, side: Edge, scale: f64, order: usize) -> Sl
     };
     Slot::Line(Line {
         style: style_kind,
-        width: device_width(f64::from(width.0.to_f32_px()) * scale),
+        width: device_width(width.0.to_f64_px() * scale),
         color: color
             .resolve_to_absolute(&style.clone_color())
             .as_srgb_color(),

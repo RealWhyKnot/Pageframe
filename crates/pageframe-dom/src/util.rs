@@ -513,11 +513,12 @@ pub fn inline_clone_insets(node: &Node, basis: f32) -> Option<CloneInsets> {
     }
     let basis = CSSPixelLength::new(basis);
     let padding = style.get_padding();
+    let scale = node.tree().device_scale();
     let border_px = |width: &BorderSideWidth, line: BorderStyle| {
         if line.none_or_hidden() {
             0.0
         } else {
-            width.0.to_f32_px()
+            stylo_taffy::device_border_px(width.0.to_f32_px(), scale)
         }
     };
     let left = border_px(&border.border_left_width, border.border_left_style)

@@ -16,7 +16,8 @@ impl ElementCx<'_, '_> {
             BorderStyle::Outset => BorderStyle::Groove,
             other => other,
         };
-        let width = column.column_rule_width.0.to_f64_px() * self.scale;
+        let width =
+            super::table_borders::device_width(column.column_rule_width.0.to_f64_px() * self.scale);
         if matches!(style, BorderStyle::None | BorderStyle::Hidden) || width <= 0.0 {
             return;
         }

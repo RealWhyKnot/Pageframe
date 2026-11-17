@@ -1187,6 +1187,7 @@ impl Node {
         #[cfg(not(feature = "writing-mode"))]
         let mut style = stylo_taffy::TaffyStyloStyle::new(styles, flags);
         style.collapsed_border = collapsed_border;
+        style.device_scale = self.tree().device_scale();
         style
     }
 

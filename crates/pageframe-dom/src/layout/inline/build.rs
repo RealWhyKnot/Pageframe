@@ -86,7 +86,7 @@ struct EdgeBasis {
     has_clone: bool,
 }
 
-fn inline_edges(style: &ComputedValues, basis: &mut EdgeBasis) -> InlineEdges {
+fn inline_edges(style: &ComputedValues, basis: &mut EdgeBasis, scale: f32) -> InlineEdges {
     let basis_width = Length::new(basis.width);
     let margin = style.get_margin();
     let padding = style.get_padding();
@@ -108,7 +108,7 @@ fn inline_edges(style: &ComputedValues, basis: &mut EdgeBasis) -> InlineEdges {
         if line.none_or_hidden() {
             0.0
         } else {
-            width.0.to_f32_px()
+            stylo_taffy::device_border_px(width.0.to_f32_px(), scale)
         }
     };
     let left = (
@@ -465,7 +465,9 @@ pub(crate) fn build_inline_layout_into(
                             builder.pop_style_span();
                             text_transformer.word_break(builder);
                         } else {
-                            let edges = node.primary_styles().map(|s| inline_edges(&s, edge_basis));
+                            let edges = node
+                                .primary_styles()
+                                .map(|s| inline_edges(&s, edge_basis, node.tree().device_scale()));
                             if let Some(edges) = &edges {
                                 push_margin_spacer(
                                     builder,

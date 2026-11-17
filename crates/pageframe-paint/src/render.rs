@@ -1475,7 +1475,7 @@ impl ElementCx<'_, '_> {
             if line.none_or_hidden() {
                 0.0
             } else {
-                width.0.to_f64_px() * self.scale
+                table_borders::device_width(width.0.to_f64_px() * self.scale)
             }
         };
         let inset = |value: &style::values::computed::NonNegativeLengthPercentage| {
@@ -1527,7 +1527,9 @@ impl ElementCx<'_, '_> {
             transform * Affine::translate((left, top)),
             None,
         );
-        let outline_width = style.get_outline().outline_width.0.to_f64_px() * self.scale;
+        let outline_width = table_borders::device_width(
+            style.get_outline().outline_width.0.to_f64_px() * self.scale,
+        );
         cx.frame = CssBox::new(size.to_rect(), border, padding, outline_width, radii)
             .on_pixels(pixel_phase(cx.transform));
         cx.draw_outset_box_shadow(scene);
@@ -2547,7 +2549,8 @@ fn create_css_rect(style: &ComputedValues, layout: &Layout, scale: f64) -> CssBo
     let border_box = Rect::new(0.0, 0.0, width * scale, height * scale);
     let border = insets_from_taffy_rect(layout.border.map(|p| p as f64 * scale));
     let padding = insets_from_taffy_rect(layout.padding.map(|p| p as f64 * scale));
-    let outline_width = style.get_outline().outline_width.0.to_f64_px() * scale;
+    let outline_width =
+        table_borders::device_width(style.get_outline().outline_width.0.to_f64_px() * scale);
 
     let border_radii = corner_radii(style, border_box.size(), scale);
 

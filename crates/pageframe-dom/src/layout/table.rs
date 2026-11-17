@@ -198,8 +198,12 @@ fn table_wm(doc: &BaseDocument, table_root_node_id: NodeId) -> WritingMode {
 }
 
 /// Convert a table part's style into the table's writing mode
-fn table_taffy_style(style: &ComputedValues, table_wm: WritingMode) -> taffy::Style<Atom> {
-    stylo_taffy::to_taffy_style_in(style, table_wm)
+fn table_taffy_style(
+    style: &ComputedValues,
+    table_wm: WritingMode,
+    scale: f32,
+) -> taffy::Style<Atom> {
+    stylo_taffy::to_taffy_style_in(style, table_wm, scale)
 }
 
 fn flip_inline(rect: taffy::Rect<f32>, is_ltr: bool) -> taffy::Rect<f32> {
@@ -291,7 +295,7 @@ fn part_half_border(doc: &BaseDocument, node_id: NodeId, frame: Frame) -> taffy:
     doc.nodes[node_id]
         .primary_styles()
         .map_or(NO_BORDER, |style| {
-            let border = table_taffy_style(&style, frame.wm)
+            let border = table_taffy_style(&style, frame.wm, doc.nodes.device_scale())
                 .border
                 .resolve_or_zero(None, resolve_calc_value);
             let border = mark_hidden(border, &style, frame.wm);
@@ -570,6 +574,7 @@ pub(crate) fn build_table_context(
     let mut cursor = ColumnCursor::default();
 
     let wm = table_wm(doc, table_root_node_id);
+    let scale = doc.nodes.device_scale();
     let root_node = &mut doc.nodes[table_root_node_id];
 
     let children = std::mem::take(&mut root_node.children);
@@ -578,7 +583,7 @@ pub(crate) fn build_table_context(
         panic!("Ignoring table because it has no styles");
     };
 
-    let mut style = table_taffy_style(&stylo_styles, wm);
+    let mut style = table_taffy_style(&stylo_styles, wm, scale);
     style.item_is_table = true;
     // Use `dense` row-flow so that each cell scans the row from its
     // leftmost column for the first free track. Without `dense`,
@@ -974,6 +979,7 @@ fn collect_columns(
     columns: &mut Vec<TableColumn>,
     column_sizes: &mut Vec<TrackSizingFunction>,
 ) {
+    let scale = doc.nodes.device_scale();
     let node = &doc.nodes[node_id];
     if !node.is_element() {
         return;
@@ -1007,7 +1013,7 @@ fn collect_columns(
                 .get_inherited_box()
                 .visibility
                 == style::computed_values::visibility::T::Collapse;
-            let style = table_taffy_style(&node.primary_styles().unwrap(), wm);
+            let style = table_taffy_style(&node.primary_styles().unwrap(), wm, scale);
             let span: u16 = node
                 .attr(local_name!("span"))
                 .and_then(|val| val.parse::<u16>().ok())
@@ -1089,6 +1095,7 @@ fn collect_table_cells(
     percent_columns: &mut Vec<(usize, f32, f32)>,
     section_end: u16,
 ) {
+    let scale = doc.nodes.device_scale();
     let node = &mut doc.nodes[node_id];
 
     if !node.is_element() {
@@ -1226,7 +1233,7 @@ fn collect_table_cells(
                 .map(|v| if v == 0 { 65534 } else { v.min(65534) })
                 .unwrap_or(1)
                 .min(section_end.saturating_sub(*row).saturating_add(1));
-            let mut style = table_taffy_style(stylo_style, wm);
+            let mut style = table_taffy_style(stylo_style, wm, scale);
             style.inset = style_helpers::auto();
             let col = cursor.next_free();
 
