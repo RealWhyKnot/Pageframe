@@ -770,11 +770,15 @@ pub(crate) fn analyze_text(
         {
             _ = break_all_iter.next();
         }
-        let class = data_sources.line_break_class(ch);
+        let class = break_all_iter
+            .peek()
+            .is_some()
+            .then(|| data_sources.line_break_class(ch));
         let break_all = break_all_iter
             .peek()
             .filter(|(range, _)| range.contains(&byte_pos))
-            .map(|&(_, is_loose)| {
+            .zip(class)
+            .is_some_and(|(&(_, is_loose), class)| {
                 let loose_hyphen = is_loose
                     && matches!(ch, '\u{2010}' | '\u{2013}')
                     && prev_class.is_some_and(|before| {
@@ -790,7 +794,9 @@ pub(crate) fn analyze_text(
                     || prev_class
                         .is_some_and(|before| breaks_under_break_all(before, class, ch, is_loose))
             });
-        if class != LineBreakClass::CM {
+        if let Some(class) = class
+            && class != LineBreakClass::CM
+        {
             prev_class = Some(class);
         }
 
@@ -821,17 +827,9 @@ pub(crate) fn analyze_text(
                 if let Some(forced) = forced {
                     opportunity = forced;
                 }
-                if let Some(break_all) = break_all {
-                    opportunity = match forced {
-                        Some(true) => true,
-                        Some(false) => break_all,
-                        None => break_all || is_icu_line,
-                    };
-                }
-            } else if let Some(break_all) = break_all
-                && !is_break_anywhere
-            {
-                opportunity = opportunity || break_all;
+            }
+            if !is_break_anywhere && break_all {
+                opportunity = true;
             }
             opportunity
         };
