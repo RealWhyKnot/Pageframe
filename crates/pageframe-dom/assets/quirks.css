@@ -7,3 +7,30 @@ table {
     font-style: normal;
     text-align: start;
 }
+
+img[align="left" i] {
+    margin-right: 3px;
+}
+img[align="right" i] {
+    margin-left: 3px;
+}
+
+input:not([type=image i]), textarea {
+    box-sizing: border-box;
+}
+
+form {
+    margin-block-end: 1em;
+}
+
+li { list-style-position: inside; }
+
+li dir, li menu, li ol, li ul { list-style-position: outside; }
+
+:is(dir, menu, ol, ul) dir,
+:is(dir, menu, ol, ul) menu,
+:is(dir, menu, ol, ul) ol,
+:is(dir, menu, ol, ul) ul,
+:is(dir, menu, ol, ul) li {
+    list-style-position: unset;
+}
