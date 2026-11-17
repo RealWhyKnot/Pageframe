@@ -400,6 +400,37 @@ fn background_image_from_a_data_url_is_painted() {
     assert!(painted > 400, "only {painted} pixels painted");
 }
 
+const SQUARE_SVG: &str = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><rect width='4' height='4' fill='%23f00'/></svg>";
+const DOT_SVG: &str = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='2' height='2'><rect width='1' height='1' fill='%23f00'/></svg>";
+
+#[test]
+fn svg_background_images_tile_like_chrome() {
+    let page = format!(
+        r#"<html><body style="margin:0;background:white">
+<div style="width:30px;height:20px;background:url(&quot;{SQUARE_SVG}&quot;) repeat"></div>
+<div style="width:34px;height:10px;background:url(&quot;{SQUARE_SVG}&quot;) space"></div>
+<div style="width:120px;height:50px;background:url(&quot;{DOT_SVG}&quot;) repeat"></div>
+</body></html>"#
+    );
+    let mut harness = open(App::new((), &page));
+    let buffer = render(&mut harness);
+    let red_columns = |y: usize| {
+        (0..40)
+            .filter(|&x| pixel(&buffer, x, y) == [255, 0, 0, 255])
+            .collect::<Vec<_>>()
+    };
+    let repeat_row = vec![0, 1, 2, 3, 10, 11, 12, 13, 20, 21, 22, 23];
+    assert_eq!(red_columns(1), repeat_row);
+    assert_eq!(red_columns(12), repeat_row);
+    assert_eq!(red_columns(6), Vec::<usize>::new());
+    assert_eq!(
+        red_columns(21),
+        vec![0, 1, 2, 3, 12, 13, 14, 15, 24, 25, 26, 27]
+    );
+    assert_eq!(red_columns(78), (0..40).step_by(2).collect::<Vec<_>>());
+    assert_eq!(red_columns(79), Vec::<usize>::new());
+}
+
 #[test]
 fn an_angled_gradient_is_centred_on_the_padding_box() {
     let html = r#"<html><body style="margin:0;background:white">

@@ -3,10 +3,12 @@ use crate::color::{Color, ToColorColor};
 use crate::gradient::to_peniko_gradient;
 use anyrender::PaintScene;
 use kurbo::{self, Affine, BezPath, Point, Rect, Shape as _, Size, Vec2};
+use num_traits::ToPrimitive as _;
 use pageframe_dom::CopyStyleGetters;
 use pageframe_dom::NodeId;
-use pageframe_dom::node::{ImageData, ImageResourceData, SpecialElementData};
+use pageframe_dom::node::{ImageData, ImageResourceData, SpecialElementData, SvgImageData};
 use peniko::{self, BlendMode, Compose, Fill, Mix};
+use std::sync::Arc;
 use style::{
     properties::{
         generated::longhands::{
@@ -28,6 +30,9 @@ use style::{
 
 #[cfg(feature = "tracing")]
 use tracing::warn;
+
+const MAX_SVG_TILES: u64 = 500;
+const MAX_SVG_TILE_SIDE: u32 = 4096;
 
 /// A box from the CSS box model. Abstracts over the (structurally identical)
 /// computed value types of the `background-clip`/`background-origin` and
@@ -511,14 +516,16 @@ impl ElementCx<'_, '_> {
             return;
         }
 
-        let (origin_rect, base_transform) = if self.layer_is_fixed(layer) {
-            self.fixed_positioning_area()
+        let (origin_rect, base_transform, clip_rect) = if self.layer_is_fixed(layer) {
+            let (viewport_rect, transform) = self.fixed_positioning_area();
+            (viewport_rect, transform, viewport_rect)
         } else {
-            (self.box_rect(layer.origin), self.transform)
+            (
+                self.box_rect(layer.origin),
+                self.transform,
+                self.box_rect(layer.clip),
+            )
         };
-
-        let frame_w = (origin_rect.width() / self.scale) as f32;
-        let frame_h = (origin_rect.height() / self.scale) as f32;
 
         // Size the SVG per the CSS default sizing algorithm
         // (https://drafts.csswg.org/css-images/#default-sizing). An SVG image
@@ -533,10 +540,10 @@ impl ElementCx<'_, '_> {
         }
         .filter(|r| r.is_finite() && *r > 0.0);
 
-        let bg_size = compute_layer_size(
+        let (bg_pos, bg_size) = compute_layer_position_and_size(
             layer,
-            frame_w,
-            frame_h,
+            origin_rect.width() / self.scale,
+            origin_rect.height() / self.scale,
             BackgroundSizeComputeMode::Intrinsic {
                 width: intrinsic_width,
                 height: intrinsic_height,
@@ -544,30 +551,64 @@ impl ElementCx<'_, '_> {
             },
         );
 
-        if bg_size.width <= 0.0 || bg_size.height <= 0.0 {
+        if !(bg_size.width > 0.0 && bg_size.height > 0.0) {
             return;
         }
 
-        let viewport = super::svg_viewport_affine(
-            svg,
-            (bg_size.width * self.scale) as f32,
-            (bg_size.height * self.scale) as f32,
+        let bg_pos = (bg_pos.to_vec2() * self.scale).to_point();
+        let bg_size = bg_size * self.scale;
+        let (Some(viewport_width), Some(viewport_height)) =
+            (bg_size.width.to_f32(), bg_size.height.to_f32())
+        else {
+            return;
+        };
+        let viewport = super::svg_viewport_affine(svg, viewport_width, viewport_height);
+
+        let BackgroundRepeat(repeat_x, repeat_y) = layer.repeat;
+        let x = gradient_axis_tiling(
+            *repeat_x,
+            origin_rect.x0,
+            origin_rect.width(),
+            clip_rect.x0,
+            clip_rect.width(),
+            bg_pos.x,
+            bg_size.width,
         );
-
-        let bg_pos = compute_layer_position(
-            layer,
-            frame_w - bg_size.width as f32,
-            frame_h - bg_size.height as f32,
+        let y = gradient_axis_tiling(
+            *repeat_y,
+            origin_rect.y0,
+            origin_rect.height(),
+            clip_rect.y0,
+            clip_rect.height(),
+            bg_pos.y,
+            bg_size.height,
         );
+        if u64::from(x.count) * u64::from(y.count) <= MAX_SVG_TILES {
+            for offset in tile_offsets(&x, &y) {
+                let transform = base_transform * Affine::translate(offset) * viewport;
+                anyrender_svg::render_svg_tree(scene, &svg.tree, transform);
+            }
+            return;
+        }
 
-        let transform = base_transform
-            * kurbo::Affine::translate((
-                origin_rect.x0 + bg_pos.x * self.scale,
-                origin_rect.y0 + bg_pos.y * self.scale,
-            ))
-            * viewport;
-
-        anyrender_svg::render_svg_tree(scene, &svg.tree, transform);
+        let Some(tile) = svg_tile_image(svg, bg_size) else {
+            return;
+        };
+        let tile_rect = Rect::new(0.0, 0.0, f64::from(tile.width), f64::from(tile.height));
+        let tile_scale = Affine::scale_non_uniform(
+            bg_size.width / tile_rect.width(),
+            bg_size.height / tile_rect.height(),
+        );
+        let brush = peniko::ImageBrush::new(tile);
+        for offset in tile_offsets(&x, &y) {
+            scene.fill(
+                Fill::NonZero,
+                base_transform * Affine::translate(offset) * tile_scale,
+                brush.as_ref(),
+                None,
+                &tile_rect,
+            );
+        }
     }
 
     fn draw_raster_image_layer(&self, scene: &mut impl PaintScene, layer: &ImageLayerStyles) {
@@ -1038,6 +1079,41 @@ fn gradient_axis_tiling(
             stride: 0.0,
         },
     }
+}
+
+fn tile_offsets<'a>(x: &'a AxisTiling, y: &'a AxisTiling) -> impl Iterator<Item = Vec2> + 'a {
+    (0..y.count).flat_map(move |row| {
+        (0..x.count).map(move |column| {
+            Vec2::new(
+                x.translate + f64::from(column) * x.stride,
+                y.translate + f64::from(row) * y.stride,
+            )
+        })
+    })
+}
+
+fn svg_tile_image(svg: &SvgImageData, size: Size) -> Option<peniko::ImageData> {
+    let side = |length: f64| {
+        length
+            .ceil()
+            .to_u32()
+            .filter(|pixels| (1..=MAX_SVG_TILE_SIDE).contains(pixels))
+    };
+    let (width, height) = (side(size.width)?, side(size.height)?);
+    let viewport =
+        super::svg_viewport_affine(svg, f64::from(width).to_f32()?, f64::from(height).to_f32()?);
+    let pixels = anyrender::render_to_buffer::<anyrender_vello_cpu::VelloCpuImageRenderer, _>(
+        |tile| anyrender_svg::render_svg_tree(tile, &svg.tree, viewport),
+        width,
+        height,
+    );
+    Some(peniko::ImageData {
+        data: peniko::Blob::new(Arc::new(pixels)),
+        format: peniko::ImageFormat::Rgba8,
+        alpha_type: peniko::ImageAlphaType::AlphaPremultiplied,
+        width,
+        height,
+    })
 }
 
 fn compute_space_count_and_stride(bg_size: f64, size: f64) -> (u32, f64) {
