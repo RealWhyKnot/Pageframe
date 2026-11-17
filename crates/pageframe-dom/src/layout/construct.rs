@@ -651,6 +651,7 @@ fn collect_layout_children_with_wrap(
             if doc.nodes[container_node_id]
                 .display_style()
                 .is_some_and(|display| display.is_inline_flow())
+                && !doc.nodes[container_node_id].is_ruby_box()
                 && !classification.all_inline
                 && !classification.has_inline_level
             {
@@ -1255,7 +1256,7 @@ pub(crate) fn find_inline_layout_embedded_boxes(
                     (DisplayOutside::Inline, DisplayInside::Flow) => {
                         let tag_name = &element_data.name.local;
 
-                        if is_inline_box_element(tag_name) {
+                        if is_inline_box_element(tag_name) || node.is_ruby_box() {
                             layout_children.push(node_id);
                         } else if *tag_name == local_name!("br") {
                             node.remove_damage(CONSTRUCT_DESCENDENT | CONSTRUCT_FC | CONSTRUCT_BOX);

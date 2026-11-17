@@ -1,0 +1,130 @@
+mod scaled;
+mod support;
+
+use pageframe::{App, Page};
+use pageframe_test_harness::Harness;
+use scaled::render_at_scale;
+use support::{open, pixel, render};
+
+const PAGE: &str = "<!doctype html><style>html,body{margin:0;background:white;font:14px Arial}div{border:1px solid #999;margin:3px}</style>\
+<div>ab<ruby>x<rt>long annotation</rt></ruby>cd</div>\
+<div><ruby>base text<rt>a</rt></ruby> after</div>\
+<div><ruby><rb>A</rb><rb>B</rb><rt>1</rt><rt>2</rt></ruby></div>";
+
+fn boxes<S: 'static>(harness: &mut Harness<Page<S>>, selector: &str) -> Vec<[f64; 4]> {
+    let doc = harness.base_mut();
+    doc.query_selector_all(selector)
+        .expect("valid selector")
+        .into_iter()
+        .map(|id| {
+            let rect = doc
+                .get_client_bounding_rect(id)
+                .expect("the element has a box");
+            [rect.x, rect.y, rect.width, rect.height]
+        })
+        .collect()
+}
+
+fn inline_extents<S: 'static>(harness: &mut Harness<Page<S>>) -> Vec<[f64; 4]> {
+    boxes(harness, "ruby")
+        .into_iter()
+        .map(|[left, _, width, _]| [left, 0.0, width, 0.0])
+        .collect()
+}
+
+fn assert_boxes(found: &[[f64; 4]], chrome: &[[f64; 4]], what: &str) {
+    assert_eq!(found.len(), chrome.len(), "{what}");
+    for (found, chrome) in found.iter().zip(chrome) {
+        assert!(
+            found
+                .iter()
+                .zip(chrome)
+                .all(|(have, want)| (have - want).abs() < 0.05),
+            "{what}: {found:?}, Chrome {chrome:?}"
+        );
+    }
+}
+
+#[test]
+fn annotations_sit_above_their_bases_like_chrome() {
+    let mut harness = open(App::new((), PAGE));
+    assert_boxes(
+        &boxes(&mut harness, "div"),
+        &[
+            [3.0, 3.0, 114.0, 23.0],
+            [3.0, 29.0, 114.0, 23.0],
+            [3.0, 55.0, 114.0, 23.0],
+        ],
+        "divs at 1x",
+    );
+    assert_boxes(
+        &inline_extents(&mut harness),
+        &[
+            [19.58, 0.0, 41.88, 0.0],
+            [4.0, 0.0, 56.83, 0.0],
+            [4.0, 0.0, 22.59, 0.0],
+        ],
+        "rubies at 1x",
+    );
+    assert_boxes(
+        &boxes(&mut harness, "rt"),
+        &[
+            [16.58, 4.0, 47.88, 7.0],
+            [4.0, 30.0, 56.81, 7.0],
+            [4.0, 56.0, 18.69, 7.0],
+            [22.69, 56.0, 3.9, 7.0],
+        ],
+        "annotations at 1x",
+    );
+
+    let buffer = render(&mut harness);
+    let first_ink_after_base =
+        (50..120).find(|&across| (14..24).any(|down| pixel(&buffer, across, down)[0] < 128));
+    assert!(
+        first_ink_after_base.is_some_and(|across| (61..=63).contains(&across)),
+        "the text after the ruby starts at {first_ink_after_base:?}, Chrome 61.45"
+    );
+
+    render_at_scale(&mut harness, 2);
+    assert_boxes(
+        &inline_extents(&mut harness),
+        &[
+            [19.58, 0.0, 40.88, 0.0],
+            [4.0, 0.0, 56.82, 0.0],
+            [4.0, 0.0, 22.58, 0.0],
+        ],
+        "rubies at 2x",
+    );
+    assert_boxes(
+        &boxes(&mut harness, "div"),
+        &[
+            [3.0, 3.0, 114.0, 23.5],
+            [3.0, 29.5, 114.0, 23.5],
+            [3.0, 56.0, 114.0, 23.5],
+        ],
+        "divs at 2x",
+    );
+    assert_boxes(
+        &boxes(&mut harness, "rt"),
+        &[
+            [16.08, 3.0, 47.88, 8.0],
+            [4.0, 29.5, 56.81, 8.0],
+            [4.0, 56.0, 18.69, 8.0],
+            [22.69, 56.0, 3.9, 8.0],
+        ],
+        "annotations at 2x",
+    );
+}
+
+#[test]
+fn a_ruby_without_annotations_stays_inline() {
+    let mut harness = open(App::new(
+        (),
+        "<!doctype html><style>html,body{margin:0;font:14px Arial}</style><div><ruby>no annotation</ruby> plain</div>",
+    ));
+    assert_boxes(
+        &boxes(&mut harness, "div"),
+        &[[0.0, 0.0, 120.0, 16.0]],
+        "div",
+    );
+}

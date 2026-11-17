@@ -41,6 +41,7 @@ pub(crate) mod multicol;
 pub(crate) mod paint_tree;
 pub(crate) mod replaced;
 pub(crate) mod round;
+pub(crate) mod ruby;
 pub(crate) mod table;
 pub(crate) mod text_transform;
 #[cfg(feature = "writing-mode")]
@@ -976,6 +977,10 @@ impl LayoutPassState<'_> {
                     );
 
                     return output;
+                }
+
+                if node.is_ruby_box() {
+                    return self.compute_ruby_layout(dom_node_id(node_id), inputs);
                 }
 
                 let is_multicol = {

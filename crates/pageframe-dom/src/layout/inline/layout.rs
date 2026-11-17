@@ -944,6 +944,7 @@ impl LayoutPassState<'_> {
                 && uses_last_baseline
                 && exports_baseline
                 && !self.nodes[box_id].flags.is_inline_root()
+                && !self.nodes[box_id].is_ruby_box()
                 && self.nodes[box_id]
                     .layout_children
                     .borrow()

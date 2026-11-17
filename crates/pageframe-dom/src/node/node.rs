@@ -527,7 +527,7 @@ impl Node {
             DisplayOutside::None => false,
             DisplayOutside::Block => true,
             _ => {
-                if display.inside() == DisplayInside::Flow {
+                if display.inside() == DisplayInside::Flow && !self.is_ruby_box() {
                     self.children
                         .iter()
                         .copied()
@@ -1809,6 +1809,7 @@ impl Node {
         };
         if self.flags.is_inline_root()
             || crate::layout::replaced::is_inline_box_element(&element.name.local)
+            || self.is_ruby_box()
         {
             return false;
         }
@@ -1816,6 +1817,19 @@ impl Node {
             let display = styles.clone_display();
             display.outside() == DisplayOutside::Inline && display.inside() == DisplayInside::Flow
         })
+    }
+
+    pub fn is_ruby_box(&self) -> bool {
+        self.data.is_element_with_tag_name(&local_name!("ruby"))
+            && self.display_style().is_some_and(|display| {
+                display.outside() == DisplayOutside::Inline
+                    && display.inside() == DisplayInside::Flow
+            })
+            && self.children.iter().any(|&child_id| {
+                self.tree()[child_id]
+                    .data
+                    .is_element_with_tag_name(&local_name!("rt"))
+            })
     }
 
     /// The node whose box this node's `Layout.location` is relative to: the

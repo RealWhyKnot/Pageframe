@@ -1250,12 +1250,16 @@ rtc {
     display: ruby-text-container;
 }
 
+ruby > rt {
+    display: block;
+    text-align: center;
+}
+
 rtc,
 rt {
     white-space: nowrap;
     font-size: 50%;
     -moz-min-font-size-ratio: 50%;
-    line-height: 1;
 }
 
 @media not (-moz-platform: windows) {

@@ -66,6 +66,7 @@ fn trailing_space(nodes: &crate::NodeTree, node_id: NodeId) -> Option<bool> {
                     && display.inside() == DisplayInside::Flow);
             let is_span = is_flow
                 && !is_inline_box_element(&element_data.name.local)
+                && !node.is_ruby_box()
                 && element_data.name.local != local_name!("br");
             if !is_span {
                 return Some(false);
@@ -434,7 +435,7 @@ pub(crate) fn build_inline_layout_into(
                     (DisplayOutside::Inline, DisplayInside::Flow) => {
                         let tag_name = &element_data.name.local;
 
-                        if is_inline_box_element(tag_name) {
+                        if is_inline_box_element(tag_name) || node.is_ruby_box() {
                             if box_kind == InlineBoxKind::InFlow {
                                 text_transformer.word_break(builder);
                             }
