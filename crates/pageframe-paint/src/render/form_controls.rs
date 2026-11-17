@@ -10,6 +10,8 @@ use style::dom::TElement as _;
 use style::values::computed::Appearance;
 use style::values::generics::color::ColorOrAuto;
 
+const UNZOOM_SLACK: f64 = 1.0 / 1024.0;
+
 const DEFAULT_ACCENT: Color = Color::from_rgba8(0x00, 0x75, 0xff, 0xff);
 const BORDER: Color = Color::from_rgba8(0x76, 0x76, 0x76, 0xff);
 const DISABLED_ACCENT: Color = Color::from_rgba8(0xd1, 0xd1, 0xd1, 0xff);
@@ -75,13 +77,14 @@ impl ElementCx<'_, '_> {
         };
 
         let colors = self.control_colors();
-        let transform = self.transform * Affine::scale(self.scale);
-        let border_box = self.frame.border_box;
-        let width = (border_box.width() / self.scale).round();
-        let height = (border_box.height() / self.scale).round();
+        let (device_transform, border_box) = device_space(self.transform, self.frame.border_box);
+        let transform = device_transform * Affine::scale(self.scale);
+        let unzoomed = |length: f64| (length / self.scale + UNZOOM_SLACK).trunc();
+        let width = unzoomed(border_box.width());
+        let height = unzoomed(border_box.height());
         let side = width.min(height);
-        let x = border_box.x0 / self.scale + ((width - side) / 2.0).trunc();
-        let y = border_box.y0 / self.scale + ((height - side) / 2.0).trunc();
+        let x = border_box.x0 / self.scale + (width - side) / 2.0;
+        let y = border_box.y0 / self.scale + (height - side) / 2.0;
         let rect = Rect::new(x, y, x + side, y + side);
 
         if side <= 2.0 {

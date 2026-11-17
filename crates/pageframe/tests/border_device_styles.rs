@@ -439,3 +439,25 @@ fn border_spans_stay_whole_device_pixels_far_down_the_page() {
     }
     assert!(fractional.is_empty(), "{fractional:?}");
 }
+
+#[test]
+fn a_checkbox_on_uneven_device_pixels_paints_whole_css_units_at_seven_quarters_scale() {
+    let mut harness = open(App::new(
+        (),
+        "<!doctype html><style>html,body{margin:0;background:white}input{position:absolute;margin:0}</style><input type=checkbox checked style='left:37.142857px;top:63.142857px'>",
+    ));
+    let buffer = render_at_ratio(&mut harness, (7, 4), 640);
+    let red = |column: usize, row: usize| device_pixel(&buffer, 1120, column, row)[0];
+    assert_eq!(
+        (
+            red(65, 121) > 160,
+            red(66, 121) < 64,
+            red(86, 121) < 64,
+            red(87, 121) > 160,
+            red(75, 131) < 64,
+            red(75, 132) > 160,
+        ),
+        (true, true, true, true, true, true),
+        "Chrome paints a 21px square from 65.875,111 for a 23x22 snapped box"
+    );
+}
