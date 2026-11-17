@@ -161,7 +161,7 @@ pub(crate) fn resolve_style_metrics<B: Brush>(
                 // Rounded once from the accumulated offset (not per level) so the total error
                 // stays within half a pixel.
                 metrics.baseline_offset = if quantize {
-                    metrics.exact_baseline_offset.round()
+                    layout_unit_round(metrics.exact_baseline_offset)
                 } else {
                     metrics.exact_baseline_offset
                 };
@@ -257,7 +257,7 @@ impl StyleMetrics {
         Self {
             ascent: box_metrics.ascent,
             descent: box_metrics.descent,
-            x_height: if quantize { x_height.round() } else { x_height },
+            x_height,
             over: box_metrics.over,
             under: box_metrics.under,
             baseline_offset: 0.,
@@ -288,11 +288,19 @@ pub(crate) fn shift_from_parent(
     let shift = match align.shift {
         BaselineShift::Length(length) => length,
         // Constants as used by WebKit and Blink.
-        BaselineShift::Sub => -(parent.font_size / 5.),
-        BaselineShift::Super => parent.font_size / 3.,
+        BaselineShift::Sub => -(layout_unit_floor(parent.font_size / 5.) + 1.),
+        BaselineShift::Super => layout_unit_floor(parent.font_size / 3.) + 1.,
         BaselineShift::Top | BaselineShift::Bottom => 0.,
     };
     alignment + shift
+}
+
+fn layout_unit_floor(value: f32) -> f32 {
+    (value * 64.).floor() / 64.
+}
+
+fn layout_unit_round(value: f32) -> f32 {
+    (value * 64.).round() / 64.
 }
 
 /// Where an in-flow [`InlineBox`] sits relative to the baseline of the independent aligned
@@ -333,7 +341,7 @@ pub(crate) fn inline_box_placement(
     InlineBoxPlacement {
         aligned_subtree_root: parent.aligned_subtree_root,
         baseline_offset: if quantize {
-            baseline_offset.round()
+            layout_unit_round(baseline_offset)
         } else {
             baseline_offset
         },

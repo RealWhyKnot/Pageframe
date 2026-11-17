@@ -165,8 +165,10 @@ fn alignment_baseline_and_baseline_shift_compose() {
     let m = metrics(&layout);
     // `vertical-align: text-top -4px` is `text-top` lowered by 4px ...
     assert!((m[2].baseline_offset - (m[1].baseline_offset - 4.)).abs() < 1e-4);
-    // ... and `text-top super` is `text-top` raised by a third of the parent font size.
-    assert!((m[3].baseline_offset - (m[1].baseline_offset + m[0].font_size / 3.)).abs() < 1e-4);
+    // ... and `text-top super` is `text-top` raised by a third of the parent font size plus one
+    // pixel, the third cut to Blink's 1/64px layout unit.
+    let superscript_shift = (m[0].font_size / 3. * 64.).floor() / 64. + 1.;
+    assert!((m[3].baseline_offset - (m[1].baseline_offset + superscript_shift)).abs() < 1e-4);
 }
 
 #[test]
