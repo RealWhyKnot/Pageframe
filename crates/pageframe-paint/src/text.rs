@@ -822,7 +822,7 @@ fn draw_decoration_line(
             let origin = transform.translation();
             let start = (x + origin.x).trunc() - origin.x;
             let end = (x + w + origin.x).trunc() - origin.x;
-            let length = end - start;
+            let length = (x + w + origin.x).trunc() - (x + origin.x).trunc();
             let mut middle = (top + origin.y + (thickness / 2.0).max(0.5)).floor() - origin.y;
             if whole % 2.0 == 1.0 {
                 middle += 0.5;
@@ -847,7 +847,7 @@ fn draw_decoration_line(
                         });
                         centre += step;
                     }
-                } else {
+                } else if step.is_infinite() {
                     let capsule = RoundedRect::new(
                         first - radius,
                         middle - radius,

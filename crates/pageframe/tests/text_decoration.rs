@@ -265,13 +265,26 @@ fn thick_dotted_underlines_are_round_dots_like_chrome() {
 }
 
 #[test]
-fn short_thick_dotted_underlines_fit_two_dots_or_a_capsule_like_chrome() {
+fn short_thick_dotted_underlines_draw_one_dot_two_dots_or_a_capsule_like_chrome() {
     let short = |spacing: i32| {
         format!(
             "<div style=\"font:40px/50px Arial;white-space:pre;letter-spacing:{spacing}px;\
              text-decoration:underline dotted black;text-decoration-skip-ink:none\">|</div>"
         )
     };
+    let dot_edge: &[u8] = &[86, 216, 216, 86, 0, 0, 0, 0, 0];
+    let dot_middle: &[u8] = &[216, 255, 255, 216, 0, 0, 0, 0, 0];
+    assert_ink_near(
+        &ink_rows(&short(-3), 0..9),
+        &[
+            (41, dot_edge),
+            (42, dot_middle),
+            (43, dot_middle),
+            (44, dot_edge),
+        ],
+        20,
+        "a line shorter than two dots",
+    );
     let capsule_edge: &[u8] = &[86, 216, 255, 255, 255, 255, 216, 86, 0];
     let capsule_middle: &[u8] = &[216, 255, 255, 255, 255, 255, 255, 216, 0];
     assert_ink_near(
