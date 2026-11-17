@@ -770,7 +770,13 @@ impl DocumentMutator<'_> {
                     | local_name!("span")
                     | local_name!("open")
                     | local_name!("placeholder")
-            );
+            )
+            || (matches!(
+                *attr,
+                local_name!("disabled") | local_name!("readonly") | local_name!("step")
+            ) && node.element_data().is_some_and(|element| {
+                matches!(element.special_data, SpecialElementData::DateField(_))
+            }));
         // A table's `cellpadding` is a presentational hint on its cells, not on the table.
         let restyles_cells = *attr == local_name!("cellpadding")
             && node.data.is_element_with_tag_name(&local_name!("table"));
