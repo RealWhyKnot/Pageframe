@@ -414,9 +414,9 @@ fn svg_background_images_tile_like_chrome() {
     );
     let mut harness = open(App::new((), &page));
     let buffer = render(&mut harness);
-    let red_columns = |y: usize| {
+    let red_columns = |row: usize| {
         (0..40)
-            .filter(|&x| pixel(&buffer, x, y) == [255, 0, 0, 255])
+            .filter(|&column| pixel(&buffer, column, row) == [255, 0, 0, 255])
             .collect::<Vec<_>>()
     };
     let repeat_row = vec![0, 1, 2, 3, 10, 11, 12, 13, 20, 21, 22, 23];

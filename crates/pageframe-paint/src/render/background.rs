@@ -565,7 +565,7 @@ impl ElementCx<'_, '_> {
         let viewport = super::svg_viewport_affine(svg, viewport_width, viewport_height);
 
         let BackgroundRepeat(repeat_x, repeat_y) = layer.repeat;
-        let x = gradient_axis_tiling(
+        let horizontal = gradient_axis_tiling(
             *repeat_x,
             origin_rect.x0,
             origin_rect.width(),
@@ -574,7 +574,7 @@ impl ElementCx<'_, '_> {
             bg_pos.x,
             bg_size.width,
         );
-        let y = gradient_axis_tiling(
+        let vertical = gradient_axis_tiling(
             *repeat_y,
             origin_rect.y0,
             origin_rect.height(),
@@ -583,8 +583,8 @@ impl ElementCx<'_, '_> {
             bg_pos.y,
             bg_size.height,
         );
-        if u64::from(x.count) * u64::from(y.count) <= MAX_SVG_TILES {
-            for offset in tile_offsets(&x, &y) {
+        if u64::from(horizontal.count) * u64::from(vertical.count) <= MAX_SVG_TILES {
+            for offset in tile_offsets(&horizontal, &vertical) {
                 let transform = base_transform * Affine::translate(offset) * viewport;
                 anyrender_svg::render_svg_tree(scene, &svg.tree, transform);
             }
@@ -594,20 +594,22 @@ impl ElementCx<'_, '_> {
         let Some(tile) = svg_tile_image(svg, bg_size) else {
             return;
         };
-        let tile_rect = Rect::new(0.0, 0.0, f64::from(tile.width), f64::from(tile.height));
         let tile_scale = Affine::scale_non_uniform(
-            bg_size.width / tile_rect.width(),
-            bg_size.height / tile_rect.height(),
+            bg_size.width / f64::from(tile.width),
+            bg_size.height / f64::from(tile.height),
         );
-        let brush = peniko::ImageBrush::new(tile);
-        for offset in tile_offsets(&x, &y) {
-            scene.fill(
-                Fill::NonZero,
-                base_transform * Affine::translate(offset) * tile_scale,
-                brush.as_ref(),
-                None,
-                &tile_rect,
-            );
+        let brush = peniko::ImageBrush::new(tile).with_extend(peniko::Extend::Repeat);
+        let columns = tile_runs(&horizontal);
+        for row in tile_runs(&vertical) {
+            for column in &columns {
+                scene.fill(
+                    Fill::NonZero,
+                    base_transform * Affine::translate((column.start, row.start)),
+                    brush.as_ref(),
+                    Some(tile_scale),
+                    &Rect::new(0.0, 0.0, column.length, row.length),
+                );
+            }
         }
     }
 
@@ -1081,15 +1083,39 @@ fn gradient_axis_tiling(
     }
 }
 
-fn tile_offsets<'a>(x: &'a AxisTiling, y: &'a AxisTiling) -> impl Iterator<Item = Vec2> + 'a {
-    (0..y.count).flat_map(move |row| {
-        (0..x.count).map(move |column| {
+fn tile_offsets<'a>(
+    horizontal: &'a AxisTiling,
+    vertical: &'a AxisTiling,
+) -> impl Iterator<Item = Vec2> + 'a {
+    (0..vertical.count).flat_map(move |row| {
+        (0..horizontal.count).map(move |column| {
             Vec2::new(
-                x.translate + f64::from(column) * x.stride,
-                y.translate + f64::from(row) * y.stride,
+                horizontal.translate + f64::from(column) * horizontal.stride,
+                vertical.translate + f64::from(row) * vertical.stride,
             )
         })
     })
+}
+
+struct TileRun {
+    start: f64,
+    length: f64,
+}
+
+fn tile_runs(axis: &AxisTiling) -> Vec<TileRun> {
+    if axis.count <= 1 || (axis.stride - axis.rect_len).abs() < 1e-6 {
+        let gaps = f64::from(axis.count.saturating_sub(1));
+        return vec![TileRun {
+            start: axis.translate,
+            length: axis.rect_len + axis.stride * gaps,
+        }];
+    }
+    (0..axis.count)
+        .map(|index| TileRun {
+            start: axis.translate + f64::from(index) * axis.stride,
+            length: axis.rect_len,
+        })
+        .collect()
 }
 
 fn svg_tile_image(svg: &SvgImageData, size: Size) -> Option<peniko::ImageData> {
