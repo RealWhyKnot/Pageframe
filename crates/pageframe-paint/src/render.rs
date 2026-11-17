@@ -4,6 +4,7 @@ mod border;
 mod box_shadow;
 mod broken_image;
 mod clip_path;
+mod column_rule;
 mod date_field;
 mod form_controls;
 mod mask;
@@ -892,6 +893,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                         });
                 }
                 if let Some(columns) = body.node.columns() {
+                    cx.draw_column_rules(scene, columns);
                     let base = cx.transform;
                     let last = columns.fragments.len().saturating_sub(1);
                     let origin = base.translation().y;

@@ -281,3 +281,30 @@ fn many_blocks_in_one_pixel_columns_lay_out_quickly() {
     let container = rect(&harness, "c");
     assert!(container[3] >= 20.0, "{container:?}");
 }
+
+#[test]
+fn column_rules_sit_between_filled_columns() {
+    let mut harness = page(&format!(
+        "<div class=\"c\" style=\"column-rule:4px solid #f00\">{}</div>\
+         <div style=\"margin-top:20px;width:301px;columns:3;column-gap:12px;\
+         font:14px Arial;color:#fff;column-rule:3px solid #f00\">\
+         One two three four five six seven eight nine</div>",
+        blocks(6)
+    ));
+    let buffer = draw(&mut harness);
+    let row = |y: usize| -> Vec<usize> {
+        (0..WIDTH)
+            .map(|x| usize::try_from(x).expect("test width fits in usize"))
+            .filter(|&x| pixel(&buffer, x, y) == RED)
+            .collect()
+    };
+    let both = vec![103, 104, 105, 106, 213, 214, 215, 216];
+    assert_eq!(row(0), both);
+    assert_eq!(row(39), both);
+    assert_eq!(row(40), Vec::<usize>::new());
+    assert_eq!(row(60), vec![97, 98, 99]);
+    assert_eq!(row(91), vec![97, 98, 99]);
+    assert_eq!(row(92), Vec::<usize>::new());
+    assert_eq!(pixel(&buffer, 50, 10), GREEN);
+    assert_eq!(pixel(&buffer, 108, 10), WHITE);
+}
