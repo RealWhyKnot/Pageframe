@@ -121,7 +121,7 @@ fn a_parent_underline_skips_a_child_span_padding() {
     assert_eq!(padded.len(), plain.len());
 }
 
-fn wavy_ink(thickness: u32) -> Vec<Vec<u8>> {
+fn wavy_ink(thickness: &str) -> Vec<Vec<u8>> {
     let buffer = draw(&format!(
         "<div style=\"font:16px Arial;white-space:pre;text-decoration:underline wavy black \
          {thickness}px;text-decoration-skip-ink:none\">|                    |</div>"
@@ -137,7 +137,7 @@ fn wavy_ink(thickness: u32) -> Vec<Vec<u8>> {
 
 #[test]
 fn wavy_underlines_repeat_and_sit_where_chrome_draws_them() {
-    for (thickness, period, rows) in [(1, 7, 15..=19), (3, 15, 16..=24)] {
+    for (thickness, period, rows) in [("1", 7, 15..=19), ("1.5", 11, 15..=21), ("3", 15, 16..=24)] {
         let ink = wavy_ink(thickness);
         for x in 20..40 {
             let drift = ink[x]
@@ -163,7 +163,7 @@ fn wavy_underlines_repeat_and_sit_where_chrome_draws_them() {
 
 #[test]
 fn one_pixel_wavy_underlines_are_hairlines_like_chrome() {
-    let ink = wavy_ink(1);
+    let ink = wavy_ink("1");
     let total: u32 = (20..62)
         .flat_map(|x| ink[x].iter().map(|value| u32::from(*value)))
         .sum();
@@ -172,4 +172,135 @@ fn one_pixel_wavy_underlines_are_hairlines_like_chrome() {
         (0.85..1.15).contains(&per_column),
         "a 1px wave carries {per_column} px of ink per column"
     );
+}
+
+fn ink_rows(body: &str, columns: std::ops::Range<usize>) -> Vec<(usize, Vec<u8>)> {
+    let buffer = draw(body);
+    (0..60)
+        .map(|y| {
+            let ink: Vec<u8> = columns
+                .clone()
+                .map(|x| 255 - pixel(&buffer, x, y)[0])
+                .collect();
+            (y, ink)
+        })
+        .filter(|(_, ink)| ink.iter().any(|value| *value > 0))
+        .collect()
+}
+
+fn assert_ink_near(
+    found: &[(usize, Vec<u8>)],
+    chrome: &[(usize, &[u8])],
+    tolerance: u8,
+    what: &str,
+) {
+    let found_rows: Vec<usize> = found.iter().map(|(y, _)| *y).collect();
+    let chrome_rows: Vec<usize> = chrome.iter().map(|(y, _)| *y).collect();
+    assert_eq!(found_rows, chrome_rows, "{what} rows");
+    for ((y, ink), (_, expected)) in found.iter().zip(chrome) {
+        for (x, (value, wanted)) in ink.iter().zip(expected.iter()).enumerate() {
+            assert!(
+                value.abs_diff(*wanted) <= tolerance,
+                "{what} at column {x} row {y}: {value}, Chrome {wanted}"
+            );
+        }
+    }
+}
+
+fn decorated(font: &str, decoration: &str, spaces: usize) -> String {
+    let text = format!("|{}|", " ".repeat(spaces));
+    format!(
+        "<div style=\"font:{font} Arial;white-space:pre;text-decoration:{decoration};\
+         text-decoration-skip-ink:none\">{text}</div>"
+    )
+}
+
+#[test]
+fn dashed_underlines_cover_quarter_pixel_rows_like_chrome() {
+    let found = ink_rows(&decorated("16px", "underline dashed black", 20), 4..28);
+    let chrome: &[u8] = &[
+        192, 190, 0, 0, 0, 0, 171, 192, 192, 192, 192, 192, 21, 0, 0, 0, 150, 192, 192, 192, 192,
+        192, 42, 0,
+    ];
+    assert_ink_near(&found, &[(14, chrome), (15, chrome)], 2, "1.6px dashes");
+}
+
+#[test]
+fn dotted_underlines_are_square_dots_like_chrome() {
+    let found = ink_rows(&decorated("16px", "underline dotted black", 20), 4..28);
+    let chrome: &[u8] = &[
+        205, 205, 0, 0, 205, 205, 0, 0, 205, 205, 0, 0, 205, 205, 0, 0, 205, 205, 0, 0, 205, 205,
+        0, 0,
+    ];
+    assert_ink_near(&found, &[(14, chrome), (15, chrome)], 2, "1.6px dots");
+}
+
+#[test]
+fn thick_dotted_underlines_are_round_dots_like_chrome() {
+    let found = ink_rows(&decorated("40px", "underline dotted black", 8), 0..24);
+    let edge: &[u8] = &[
+        84, 216, 216, 84, 0, 0, 0, 0, 72, 208, 224, 95, 0, 0, 0, 0, 61, 203, 228, 106, 0, 0, 0, 0,
+    ];
+    let middle: &[u8] = &[
+        213, 255, 255, 213, 0, 0, 0, 0, 196, 255, 255, 231, 1, 0, 0, 0, 179, 255, 255, 242, 6, 0,
+        0, 0,
+    ];
+    assert_ink_near(
+        &found,
+        &[(38, edge), (39, middle), (40, middle), (41, edge)],
+        24,
+        "4px dots",
+    );
+}
+
+#[test]
+fn fractional_decoration_thickness_rounds_to_whole_pixels_like_chrome() {
+    let found = ink_rows(
+        &(decorated("16px", "underline black 1.5px", 8)
+            + &decorated("16px", "underline black 1.25px", 8)),
+        4..20,
+    );
+    let full: &[u8] = &[255; 16];
+    assert_ink_near(
+        &found,
+        &[(15, full), (16, full), (33, full)],
+        0,
+        "1.5px and 1.25px lines",
+    );
+}
+
+fn inked_rows(body: &str) -> (Option<usize>, Option<usize>) {
+    let rows: Vec<usize> = ink_rows(body, 20..60)
+        .into_iter()
+        .filter(|(_, ink)| ink.iter().any(|value| *value > 12))
+        .map(|(y, _)| y)
+        .collect();
+    (rows.first().copied(), rows.last().copied())
+}
+
+#[test]
+fn waves_sit_where_chrome_draws_them_for_every_line_kind() {
+    let spacer = "<div style=\"height:10px\"></div>";
+    for (body, rows, what) in [
+        (
+            decorated("13px", "underline wavy black", 20),
+            (13, 17),
+            "13px underline",
+        ),
+        (
+            format!(
+                "{spacer}{}",
+                decorated("16px", "overline wavy black 2px", 20)
+            ),
+            (2, 8),
+            "2px overline",
+        ),
+        (
+            decorated("16px", "line-through wavy black 2px", 20),
+            (5, 11),
+            "2px line-through",
+        ),
+    ] {
+        assert_eq!(inked_rows(&body), (Some(rows.0), Some(rows.1)), "{what}");
+    }
 }

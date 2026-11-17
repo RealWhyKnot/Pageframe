@@ -728,7 +728,9 @@ fn decoration_thickness(
 ) -> f64 {
     match thickness {
         GenericTextDecorationLength::LengthPercentage(lp) => {
-            lp.resolve(Length::new(css_font_size as f32)).px() as f64 * scale
+            (lp.resolve(Length::new(css_font_size as f32)).px() as f64 * scale)
+                .round()
+                .max(1.0)
         }
         GenericTextDecorationLength::FromFont => f64::from(metric_size),
         GenericTextDecorationLength::Auto => (css_font_size / 10.0).max(1.0) * scale,
@@ -752,7 +754,7 @@ fn draw_decoration_line(
     size: f32,
     brush: &anyrender::Paint,
     kind: DecorationKind,
-    exact_size: f64,
+    thickness: f64,
     deco_style: TextDecorationStyle,
     inset_start: f64,
     inset_end: f64,
@@ -777,7 +779,7 @@ fn draw_decoration_line(
                 TextDecorationStyle::Dotted | TextDecorationStyle::Dashed
             ));
     if is_clipped {
-        let reach = (4.0 * size).max(6.0 * exact_size) + scale + 2.0;
+        let reach = (4.0 * size).max(6.0 * thickness) + scale + 2.0;
         let mut clip = BezPath::new();
         for &(start, end) in &spans {
             clip.extend(Rect::new(start, y - reach, end, y + reach).path_elements(0.1));
@@ -814,40 +816,67 @@ fn draw_decoration_line(
                 }
             }
         }
-        // Round dots (diameter = line thickness) spaced one dot apart.
-        TextDecorationStyle::Dotted => {
-            let radius = size / 2.0;
-            let step = 2.0 * size;
-            let mut cx = x + radius;
-            while cx <= x + w - radius {
-                let dot = Circle::new((cx, y), radius);
-                scene.fill(Fill::NonZero, transform, brush, None, &dot);
-                cx += step;
+        TextDecorationStyle::Dotted | TextDecorationStyle::Dashed => {
+            let dotted = matches!(deco_style, TextDecorationStyle::Dotted);
+            let thickness = thickness.max(1.0);
+            let whole = thickness.round();
+            let origin = transform.translation();
+            let start = (x + origin.x).trunc() - origin.x;
+            let end = (x + w + origin.x).trunc() - origin.x;
+            let length = end - start;
+            let mut middle = (top + origin.y + (thickness / 2.0).max(0.5)).floor() - origin.y;
+            if whole % 2.0 == 1.0 {
+                middle += 0.5;
             }
-        }
-        // Dashes as filled rectangles. Dash/gap lengths are relative to the
-        // thickness (matching Blink): thinner lines use proportionally longer
-        // dashes and gaps so they don't read as dotted or solid.
-        TextDecorationStyle::Dashed => {
-            let (dash_ratio, gap_ratio) = if size >= 3.0 { (2.0, 1.0) } else { (3.0, 2.0) };
-            let dash = size * dash_ratio;
-            let nominal_gap = size * gap_ratio;
-            // Nudge the gap so a whole number of dashes fits the run evenly.
-            let gap = if w > 2.0 * dash {
-                select_best_dash_gap(w, dash, nominal_gap)
+            let quarter = |value: f64| ((value + origin.y) * 4.0).round() / 4.0 - origin.y;
+            if dotted && whole > 3.0 {
+                let first = start + whole / 2.0;
+                let last = end - whole / 2.0;
+                let step = select_best_dash_gap(length, whole, whole) + whole - 0.01;
+                let mut dots = BezPath::new();
+                let mut centre = first;
+                while centre <= last || centre == first {
+                    let circle = Circle::new((centre, middle), thickness / 2.0);
+                    kurbo::flatten(circle.path_elements(0.01), 0.01, |element| {
+                        dots.push(element)
+                    });
+                    centre += step;
+                }
+                scene.fill(Fill::NonZero, transform, brush, None, &dots);
             } else {
-                nominal_gap
-            };
-            let mut dx = x;
-            while dx < x + w {
-                let end = (dx + dash).min(x + w);
-                let rect = Rect::new(dx, y - size / 2.0, end, y + size / 2.0);
-                scene.fill(Fill::NonZero, transform, brush, None, &rect);
-                dx += dash + gap;
+                let (dash, gap) = match (dotted, whole >= 3.0) {
+                    (true, _) => (whole, whole),
+                    (false, true) => (2.0 * whole, whole),
+                    (false, false) => (3.0 * whole, 2.0 * whole),
+                };
+                let (dash, gap) = if length <= 2.0 * dash {
+                    (length, 0.0)
+                } else if length <= 2.0 * dash + gap {
+                    let squeeze = length / (2.0 * dash + gap);
+                    (dash * squeeze, gap * squeeze)
+                } else if dotted {
+                    (dash, gap)
+                } else {
+                    (dash, select_best_dash_gap(length, dash, gap))
+                };
+                let (upper, lower) = if dotted {
+                    (middle - thickness / 2.0, middle + thickness / 2.0)
+                } else {
+                    (
+                        quarter(middle - thickness / 2.0),
+                        quarter(middle + thickness / 2.0),
+                    )
+                };
+                let mut from = start;
+                while from < end && dash > 0.0 {
+                    let rect = Rect::new(from, upper, (from + dash).min(end), lower);
+                    scene.fill(Fill::NonZero, transform, brush, None, &rect);
+                    from += dash + gap;
+                }
             }
         }
         TextDecorationStyle::Wavy => {
-            let thickness = exact_size.max(1.0);
+            let thickness = thickness.max(1.0);
             let wavelength = 1.0 + 2.0 * (2.0 * thickness + 0.5).round();
             let control = 0.5 + (3.0 * thickness + 0.5).round();
             let shift = match kind {
