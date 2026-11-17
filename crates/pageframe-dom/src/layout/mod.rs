@@ -115,6 +115,10 @@ pub(crate) struct LayoutPassState<'doc> {
 
 const SCROLLBAR_WIDTH: f32 = 15.0;
 const COLOR_SWATCH_INSET: f32 = 4.0;
+const SLIDER_SIZE: taffy::Size<f32> = taffy::Size {
+    width: 129.0,
+    height: 16.0,
+};
 
 struct FormControlSizing {
     avg_char_width: f32,
@@ -539,6 +543,17 @@ impl LayoutPassState<'_> {
                                         height: min_size,
                                     }
                                 },
+                            );
+                            output.baselines.first = Some(output.size.height);
+                            output.baselines.last = Some(output.size.height);
+                            return output;
+                        }
+                        Some("range") => {
+                            let mut output = compute_leaf_layout(
+                                inputs,
+                                &node.layout_style(),
+                                resolve_calc_value,
+                                |_known_size, _available_space| SLIDER_SIZE,
                             );
                             output.baselines.first = Some(output.size.height);
                             output.baselines.last = Some(output.size.height);

@@ -116,6 +116,17 @@ input[type="color" i]:disabled {
     background-color: #eeeeee;
 }
 
+input[type="range" i] {
+    padding: initial;
+    border: initial;
+    margin: 2px;
+    color: #101010;
+}
+
+input[type="range" i]:disabled {
+    background-color: initial;
+}
+
 input,
 select,
 button,

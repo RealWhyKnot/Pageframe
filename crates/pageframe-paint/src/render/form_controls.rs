@@ -25,6 +25,14 @@ const ARROW_STROKE: f64 = 2.0;
 const SWATCH_INSET_X: f64 = 2.0;
 const SWATCH_INSET_Y: f64 = 4.0;
 const SWATCH_BORDER: Color = Color::from_rgba8(0x77, 0x77, 0x77, 0xff);
+const SLIDER_TRACK_THICKNESS: f64 = 8.0;
+const SLIDER_THUMB_SIZE: f64 = 16.0;
+const THUMB_INSET: f64 = 0.5;
+const TRACK_FILL: Color = Color::from_rgba8(0xef, 0xef, 0xef, 0xff);
+const TRACK_BORDER: Color = Color::from_rgba8(0x76, 0x76, 0x76, 0x80);
+const DISABLED_SLIDER: Color = Color::from_rgba8(0xcb, 0xcb, 0xcb, 0xff);
+const DISABLED_TRACK_FILL: Color = Color::from_rgba8(0xfa, 0xfa, 0xfa, 0xff);
+const DISABLED_TRACK_BORDER: Color = Color::from_rgba8(0x76, 0x76, 0x76, 0x4d);
 
 struct ControlColors {
     accent: Color,
@@ -39,9 +47,10 @@ impl ElementCx<'_, '_> {
         if self.node.local_name() != "input" {
             return;
         }
-        if self.element.input_type().as_deref() == Some("color") {
-            self.draw_color_swatch(scene);
-            return;
+        match self.element.input_type().as_deref() {
+            Some("color") => return self.draw_color_swatch(scene),
+            Some("range") => return self.draw_range(scene),
+            _ => {}
         }
         let Some(checked) = self.element.checkbox_input_checked() else {
             return;
@@ -96,6 +105,68 @@ impl ElementCx<'_, '_> {
         if inner.width() > 0.0 && inner.height() > 0.0 {
             scene.fill(Fill::NonZero, self.transform, fill, None, &inner);
         }
+    }
+
+    fn draw_range(&self, scene: &mut impl PaintScene) {
+        let (track_fill, value_fill, track_border) =
+            if self.node.attr(local_name!("disabled")).is_some() {
+                (DISABLED_TRACK_FILL, DISABLED_SLIDER, DISABLED_TRACK_BORDER)
+            } else {
+                (TRACK_FILL, self.control_colors().accent, TRACK_BORDER)
+            };
+        let border_box = self.frame.border_box;
+        let content = self.frame.content_box;
+        let half_track = SLIDER_TRACK_THICKNESS * self.scale / 2.0;
+        let center = border_box.center().y;
+        let track = Rect::new(
+            border_box.x0,
+            border_box.y0.max(center - half_track),
+            border_box.x1,
+            border_box.y1.min(center + half_track),
+        );
+        let thumb_size = SLIDER_THUMB_SIZE * self.scale;
+        let fraction = self.element.range_input_fraction();
+        let thumb_left = content.x0 + ((content.width() - thumb_size).max(0.0) * fraction).round();
+        let thumb_top = content.y0 + ((content.height() - thumb_size) / 2.0).round();
+
+        let radius = track.height().min(track.width()) / 2.0;
+        let shape = Rect::new(track.x0 + 1.0, track.y0, track.x1 - 1.0, track.y1);
+        scene.fill(
+            Fill::NonZero,
+            self.transform,
+            track_fill,
+            None,
+            &shape.to_rounded_rect(radius),
+        );
+        let value_end = thumb_left + half_track;
+        let value_clip = Rect::new(track.x0, track.y0, value_end, track.y1);
+        scene.push_clip_layer(Fill::NonZero, self.transform, &value_clip);
+        scene.fill(
+            Fill::NonZero,
+            self.transform,
+            value_fill,
+            None,
+            &shape.to_rounded_rect(radius),
+        );
+        scene.pop_layer();
+        let border_width = self.scale.floor().max(BORDER_WIDTH);
+        let outline = shape.inset(-border_width / 2.0).to_rounded_rect(radius);
+        scene.stroke(
+            &Stroke::new(border_width),
+            self.transform,
+            track_border,
+            None,
+            &outline,
+        );
+
+        let thumb = Rect::new(
+            thumb_left,
+            thumb_top,
+            thumb_left + thumb_size,
+            thumb_top + thumb_size,
+        );
+        let thumb = thumb.inset(-THUMB_INSET).to_ellipse();
+        scene.fill(Fill::NonZero, self.transform, value_fill, None, &thumb);
     }
 
     pub(super) fn draw_select_arrow(&self, scene: &mut impl PaintScene) {

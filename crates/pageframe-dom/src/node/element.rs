@@ -882,6 +882,44 @@ impl ElementData {
         })
     }
 
+    pub fn range_input_fraction(&self) -> f64 {
+        let number = |name: LocalName| self.attr(name).and_then(parse_html_float);
+        let minimum = number(local_name!("min")).unwrap_or(0.0);
+        let maximum = number(local_name!("max")).unwrap_or(100.0).max(minimum);
+        let span = maximum - minimum;
+        if span <= 0.0 {
+            return 0.0;
+        }
+        let written = number(local_name!("value"));
+        let value = written
+            .unwrap_or(minimum + span / 2.0)
+            .clamp(minimum, maximum);
+        let step = match self.attr(local_name!("step")) {
+            Some(step) if step.eq_ignore_ascii_case("any") => None,
+            Some(step) => Some(
+                parse_html_float(step)
+                    .filter(|step| *step > 0.0)
+                    .unwrap_or(1.0),
+            ),
+            None => Some(1.0),
+        };
+        let value = match step {
+            Some(step) => {
+                let base = number(local_name!("min")).or(written).unwrap_or(0.0);
+                let rounded = base + ((value - base) / step + 0.5).floor() * step;
+                if rounded > maximum {
+                    rounded - step
+                } else if rounded < minimum {
+                    rounded + step
+                } else {
+                    rounded
+                }
+            }
+            None => value,
+        };
+        ((value - minimum) / span).clamp(0.0, 1.0)
+    }
+
     pub(crate) fn is_button_input(&self) -> bool {
         self.name.local == local_name!("input")
             && matches!(
@@ -1102,6 +1140,17 @@ mod file_data {
 }
 #[cfg(feature = "file-input")]
 pub use file_data::FileData;
+
+fn parse_html_float(text: &str) -> Option<f64> {
+    let valid = !text.starts_with('+')
+        && !text.ends_with('.')
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'.' | b'-' | b'+' | b'e' | b'E'));
+    text.parse::<f64>()
+        .ok()
+        .filter(|number| valid && number.is_finite())
+}
 
 #[cfg(test)]
 mod tests {
