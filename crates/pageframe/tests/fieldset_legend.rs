@@ -139,3 +139,22 @@ fn fieldset_shadow_follows_the_border_under_the_legend_like_chrome() {
         ],
     );
 }
+
+const MARGIN_LEGEND: &str = "<!doctype html><style>body{margin:0;background:#fff}\
+fieldset{margin:0;padding:0;border:2px solid #000;width:100px;display:inline-block;\
+vertical-align:top}legend{font-size:0;padding:0;margin:0 30px}\
+legend span{display:inline-block;width:30px;height:10px}</style>\
+<fieldset id=f><legend id=l><span></span><span></span><span></span></legend>\
+<div style='height:4px'></div></fieldset>";
+
+#[test]
+fn legend_margins_narrow_the_space_it_wraps_in_like_chrome() {
+    let chrome = [
+        ("#f", Some(0.0), Some(0.0), 104.0, 36.0),
+        ("#l", Some(32.0), Some(0.0), 40.0, 30.0),
+    ];
+    assert_eq!(
+        layout_mismatches(MARGIN_LEGEND, &chrome),
+        Vec::<String>::new()
+    );
+}
