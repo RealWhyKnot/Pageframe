@@ -1178,6 +1178,11 @@ impl<'a, B: Brush> BreakLines<'a, B> {
         let line_indent = self.resolve_indent();
 
         let max_advance = max_advance - line_indent;
+        let fit_advance = if self.layout.data.quantize {
+            max_advance + 1.0 / 64.0
+        } else {
+            max_advance
+        };
 
         // Iterate over remaining runs in the Layout
         let item_count = self.layout.data.items.len();
@@ -1213,14 +1218,14 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                     // Compute the x position of the content being currently processed
                     let next_x = self.state.line.x + width_contribution;
 
-                    let box_will_be_appended = next_x <= max_advance || self.state.line.x == 0.0;
+                    let box_will_be_appended = next_x <= fit_advance || self.state.line.x == 0.0;
                     if height_contribution > self.state.line_max_height && box_will_be_appended {
                         return self.max_height_break_data(height_contribution);
                     }
 
                     // If the box fits on the current line (or we are at the start of the current line)
                     // then simply move on to the next item
-                    if next_x <= max_advance || self.state.line.text_wrap_mode != TextWrapMode::Wrap
+                    if next_x <= fit_advance || self.state.line.text_wrap_mode != TextWrapMode::Wrap
                     {
                         self.append_layout_inline_box(item.index, next_x);
 
@@ -1327,7 +1332,7 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                         // If the content fits (the x position does NOT exceed max_advance)
                         //
                         // We simply append the atom to the current line
-                        if next_x <= max_advance {
+                        if next_x <= fit_advance {
                             if max_height_exceeded {
                                 return self.max_height_break_data(line_height);
                             }
@@ -1355,7 +1360,7 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                                 spacing,
                                 item.bidi_level.is_rtl(),
                             );
-                            if all_hang || next_x - hanging <= max_advance {
+                            if all_hang || next_x - hanging <= fit_advance {
                                 if max_height_exceeded {
                                     return self.max_height_break_data(line_height);
                                 }
