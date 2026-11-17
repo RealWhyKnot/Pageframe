@@ -331,6 +331,16 @@ input[type="button"] {
     display: inline-block;
 }
 
+input:disabled,
+textarea:disabled {
+    color: rgb(84, 84, 84);
+}
+
+button:disabled,
+input:is([type="submit" i], [type="reset" i], [type="button" i]):disabled {
+    color: rgba(16, 16, 16, 0.3);
+}
+
 /* Button-flavored inputs clip their contents to the border box and never
  * produce a scrolling mechanism. This matches the UA stylesheet mandated by
  * the HTML standard (https://html.spec.whatwg.org/#form-controls) and prevents

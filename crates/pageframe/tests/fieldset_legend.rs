@@ -236,3 +236,35 @@ fn a_disabled_fieldset_disables_its_controls_outside_the_first_legend_like_chrom
     harness.base_mut().mutate().insert_nodes_before(i2, &[i5]);
     assert_eq!(disabled_ids(&harness), ["f3", "f4", "b4"]);
 }
+
+#[test]
+fn disabled_fields_and_buttons_grey_their_text_like_chrome() {
+    let harness = open(App::new((), DISABLED));
+    let base = harness.base();
+    let color = |selector: &str| {
+        let id = base
+            .query_selector_all(selector)
+            .expect("the selector parses")[0];
+        let styles = base
+            .get_node(id)
+            .expect("the node exists")
+            .primary_styles()
+            .expect("the control is styled");
+        let color = styles.get_inherited_text().color;
+        let channels = [
+            color.components.0,
+            color.components.1,
+            color.components.2,
+            color.alpha,
+        ];
+        channels.map(|channel| (channel * 255.0).round())
+    };
+    let field = [84.0, 84.0, 84.0, 255.0];
+    let button = [16.0, 16.0, 16.0, 77.0];
+    assert_eq!(color("#i1"), field);
+    assert_eq!(color("#t1"), field);
+    assert_eq!(color("#b1"), button);
+    assert_eq!(color("#b4"), button);
+    assert_eq!(color("#i2"), [0.0, 0.0, 0.0, 255.0]);
+    drop(base);
+}
