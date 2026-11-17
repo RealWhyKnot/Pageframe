@@ -120,3 +120,56 @@ fn a_parent_underline_skips_a_child_span_padding() {
     assert_eq!(padded.first(), Some(&10));
     assert_eq!(padded.len(), plain.len());
 }
+
+fn wavy_ink(thickness: u32) -> Vec<Vec<u8>> {
+    let buffer = draw(&format!(
+        "<div style=\"font:16px Arial;white-space:pre;text-decoration:underline wavy black \
+         {thickness}px;text-decoration-skip-ink:none\">|                    |</div>"
+    ));
+    (0..support::WIDTH)
+        .map(|x| {
+            (0..40)
+                .map(|y| 255 - pixel(&buffer, usize::try_from(x).expect("fits"), y)[0])
+                .collect()
+        })
+        .collect()
+}
+
+#[test]
+fn wavy_underlines_repeat_and_sit_where_chrome_draws_them() {
+    for (thickness, period, rows) in [(1, 7, 15..=19), (3, 15, 16..=24)] {
+        let ink = wavy_ink(thickness);
+        for x in 20..40 {
+            let drift = ink[x]
+                .iter()
+                .zip(&ink[x + period])
+                .map(|(here, there)| here.abs_diff(*there))
+                .max();
+            assert!(
+                drift <= Some(2),
+                "{thickness}px wave doesn't repeat every {period}px at column {x}"
+            );
+        }
+        let inked: Vec<usize> = (0..40)
+            .filter(|&y| (20..60).any(|x| ink[x][y] > 12))
+            .collect();
+        assert_eq!(
+            (inked.first(), inked.last()),
+            (Some(rows.start()), Some(rows.end())),
+            "{thickness}px wave rows"
+        );
+    }
+}
+
+#[test]
+fn one_pixel_wavy_underlines_are_hairlines_like_chrome() {
+    let ink = wavy_ink(1);
+    let total: u32 = (20..62)
+        .flat_map(|x| ink[x].iter().map(|value| u32::from(*value)))
+        .sum();
+    let per_column = f64::from(total) / 255.0 / 42.0;
+    assert!(
+        (0.85..1.15).contains(&per_column),
+        "a 1px wave carries {per_column} px of ink per column"
+    );
+}

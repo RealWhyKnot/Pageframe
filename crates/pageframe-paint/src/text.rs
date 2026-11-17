@@ -1,5 +1,5 @@
 use anyrender::PaintScene;
-use kurbo::{Affine, BezPath, Cap, Circle, Rect, Shape as _, Stroke, Vec2};
+use kurbo::{Affine, BezPath, Cap, Circle, PathEl, Point, Rect, Shape as _, Stroke, Vec2};
 use num_traits::ToPrimitive;
 use pageframe_dom::CopyStyleGetters;
 use pageframe_dom::{BaseDocument, NodeId, node::TextBrush, util::ToColorColor};
@@ -740,9 +740,6 @@ fn decoration_thickness(
 /// relative to it (`y = baseline - offset + size / 2`, growing downward). Geometry is built
 /// explicitly (rather than relying on backend dash support) so it renders consistently
 /// across renderers.
-///
-/// `double_dir` points away from the text (`+1` = down, `-1` = up) and is used to place the
-/// second line of a `double` decoration.
 #[allow(clippy::too_many_arguments)]
 fn draw_decoration_line(
     scene: &mut impl PaintScene,
@@ -754,7 +751,8 @@ fn draw_decoration_line(
     offset: f32,
     size: f32,
     brush: &anyrender::Paint,
-    double_dir: f64,
+    kind: DecorationKind,
+    exact_size: f64,
     deco_style: TextDecorationStyle,
     inset_start: f64,
     inset_end: f64,
@@ -772,13 +770,14 @@ fn draw_decoration_line(
     let y = top + size / 2.0;
     let butt_stroke = Stroke::new(size).with_caps(Cap::Butt);
     let spans = visible_spans(x, x + w, skips);
-    let is_clipped = !skips.is_empty()
-        && matches!(
-            deco_style,
-            TextDecorationStyle::Dotted | TextDecorationStyle::Dashed | TextDecorationStyle::Wavy
-        );
+    let is_clipped = matches!(deco_style, TextDecorationStyle::Wavy)
+        || (!skips.is_empty()
+            && matches!(
+                deco_style,
+                TextDecorationStyle::Dotted | TextDecorationStyle::Dashed
+            ));
     if is_clipped {
-        let reach = 4.0 * size + scale;
+        let reach = (4.0 * size).max(6.0 * exact_size) + scale + 2.0;
         let mut clip = BezPath::new();
         for &(start, end) in &spans {
             clip.extend(Rect::new(start, y - reach, end, y + reach).path_elements(0.1));
@@ -803,7 +802,12 @@ fn draw_decoration_line(
         // overline).
         TextDecorationStyle::Double => {
             let one_css_px = scale;
-            for cy in [y, y + double_dir * (size + one_css_px)] {
+            let away = if matches!(kind, DecorationKind::Overline) {
+                -1.0
+            } else {
+                1.0
+            };
+            for cy in [y, y + away * (size + one_css_px)] {
                 for &(start, end) in &spans {
                     let line = kurbo::Line::new((start, cy), (end, cy));
                     scene.stroke(&butt_stroke, transform, brush, None, &line);
@@ -842,34 +846,83 @@ fn draw_decoration_line(
                 dx += dash + gap;
             }
         }
-        // A squiggle built from alternating quadratic Béziers.
         TextDecorationStyle::Wavy => {
-            let amplitude = size;
-            let half_wave = (2.0 * size).max(1.0);
+            let thickness = exact_size.max(1.0);
+            let wavelength = 1.0 + 2.0 * (2.0 * thickness + 0.5).round();
+            let control = 0.5 + (3.0 * thickness + 0.5).round();
+            let shift = match kind {
+                DecorationKind::Underline => thickness + 1.0,
+                DecorationKind::Overline => -(thickness + 1.0),
+                DecorationKind::LineThrough => 0.0,
+            };
+            let origin_y = transform.translation().y;
+            let middle = (top + origin_y + shift - 0.5).ceil() - origin_y + 0.5;
+            let mut start = x - wavelength;
             let mut path = BezPath::new();
-            path.move_to((x, y));
-            let mut px = x;
-            let mut up = true;
-            while px < x + w {
-                let nx = (px + half_wave).min(x + w);
-                // A quad Bézier reaches half the control-point offset at its
-                // midpoint, so use `2 * amplitude` to hit the target peak.
-                let ctrl_y = if up {
-                    y - 2.0 * amplitude
-                } else {
-                    y + 2.0 * amplitude
-                };
-                path.quad_to(((px + nx) / 2.0, ctrl_y), (nx, y));
-                px = nx;
-                up = !up;
+            path.move_to((start, middle));
+            while start < x + w + wavelength {
+                let half = start + wavelength / 2.0;
+                path.curve_to(
+                    (half, middle + control),
+                    (half, middle - control),
+                    (start + wavelength, middle),
+                );
+                start += wavelength;
             }
-            let stroke = Stroke::new(size).with_caps(Cap::Round);
-            scene.stroke(&stroke, transform, brush, None, &path);
+            if thickness <= 1.0 {
+                scene.fill(Fill::NonZero, transform, brush, None, &hairline(&path));
+            } else {
+                let stroke = Stroke::new(thickness).with_caps(Cap::Butt);
+                scene.stroke(&stroke, transform, brush, None, &path);
+            }
         }
     }
     if is_clipped {
         scene.pop_layer();
     }
+}
+
+fn hairline(path: &BezPath) -> BezPath {
+    let mut ribbon = BezPath::new();
+    let mut previous: Option<Point> = None;
+    kurbo::flatten(path, 0.05, |element| match element {
+        PathEl::MoveTo(point) => previous = Some(point),
+        PathEl::LineTo(point) => {
+            if let Some(from) = previous {
+                let delta = point - from;
+                let (start, end, half) = if delta.x.abs() >= delta.y.abs() {
+                    let (start, end) = if from.x <= point.x {
+                        (from, point)
+                    } else {
+                        (point, from)
+                    };
+                    (start, end, Vec2::new(0.0, 0.5))
+                } else {
+                    let (start, end) = if from.y <= point.y {
+                        (from, point)
+                    } else {
+                        (point, from)
+                    };
+                    (start, end, Vec2::new(-0.5, 0.0))
+                };
+                ribbon.move_to(start - half);
+                ribbon.line_to(end - half);
+                ribbon.line_to(end + half);
+                ribbon.line_to(start + half);
+                ribbon.close_path();
+            }
+            previous = Some(point);
+        }
+        _ => {}
+    });
+    ribbon
+}
+
+#[derive(Clone, Copy)]
+enum DecorationKind {
+    Underline,
+    Overline,
+    LineThrough,
 }
 
 fn decoration_top(transform: Affine, baseline: f32, offset: f32) -> f64 {
@@ -1232,7 +1285,8 @@ fn flush_line_decorations(
                 offset,
                 size,
                 &brush,
-                1.0,
+                DecorationKind::Underline,
+                ink_thickness,
                 deco.style,
                 inset_start,
                 inset_end,
@@ -1271,7 +1325,8 @@ fn flush_line_decorations(
                 offset,
                 size,
                 &brush,
-                -1.0,
+                DecorationKind::Overline,
+                ink_thickness,
                 deco.style,
                 inset_start,
                 inset_end,
@@ -1315,7 +1370,8 @@ fn flush_line_decorations(
                 offset,
                 size,
                 &brush,
-                1.0,
+                DecorationKind::LineThrough,
+                2.0 * half_thickness,
                 deco.style,
                 inset_start,
                 inset_end,
