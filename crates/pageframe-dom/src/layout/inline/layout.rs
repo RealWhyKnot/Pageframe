@@ -109,6 +109,9 @@ struct PendingFloat {
 const FIT_TOLERANCE: f32 = 0.001;
 
 #[cfg(feature = "floats")]
+const LINE_FIT_EPSILON: f32 = 1.0 / 64.0;
+
+#[cfg(feature = "floats")]
 const BALANCE_MAX_LINES: usize = 6;
 
 #[cfg(feature = "floats")]
@@ -436,7 +439,7 @@ fn retry_line_slot(
     let line_height = ((line.line_y_end - line.line_y_start) / scale as f64) as f32;
     let advance = (line.metrics.advance - line.metrics.hanging_advance) / scale;
 
-    if wraps && advance > slot.width + FIT_TOLERANCE {
+    if wraps && advance > slot.width + FIT_TOLERANCE + LINE_FIT_EPSILON / scale {
         let next_slot =
             block_ctx.find_content_slot(line_y, line_height, Clear::None, Some(segment_id));
         if next_slot.segment_id.is_some() {
