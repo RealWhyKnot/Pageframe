@@ -2363,8 +2363,8 @@ impl ElementCx<'_, '_> {
             _ => return,
         };
         {
-            let width = self.frame.content_box.width() as u32;
-            let height = self.frame.content_box.height() as u32;
+            let width = whole_px_extent(self.frame.content_box.width());
+            let height = whole_px_extent(self.frame.content_box.height());
             let x = self.frame.content_box.origin().x;
             let y = self.frame.content_box.origin().y;
 
@@ -2436,8 +2436,8 @@ impl ElementCx<'_, '_> {
     fn draw_sub_document(&self, scene: &mut impl PaintScene) {
         if let Some(sub_doc) = self.element.sub_doc_data().map(|doc| doc.inner()) {
             let scale = self.scale;
-            let width = self.frame.content_box.width() as u32;
-            let height = self.frame.content_box.height() as u32;
+            let width = whole_px_extent(self.frame.content_box.width());
+            let height = whole_px_extent(self.frame.content_box.height());
 
             // TODO: Support arbitrary transforms of subdocuments
             let translation = self.transform.translation();
@@ -2481,6 +2481,19 @@ impl<'dom, 'a> std::ops::Deref for ElementCx<'dom, 'a> {
     fn deref(&self) -> &Self::Target {
         self.context
     }
+}
+
+fn whole_device_px(width: f64) -> f64 {
+    let whole = width.round();
+    if (width - whole).abs() < 1e-3 {
+        whole
+    } else {
+        width
+    }
+}
+
+fn whole_px_extent(length: f64) -> u32 {
+    whole_device_px(length).floor().to_u32().unwrap_or(0)
 }
 
 fn insets_from_taffy_rect(input: taffy::Rect<f64>) -> Insets {
@@ -2547,7 +2560,11 @@ fn create_css_rect(style: &ComputedValues, layout: &Layout, scale: f64) -> CssBo
     let width: f64 = layout.size.width as f64;
     let height: f64 = layout.size.height as f64;
     let border_box = Rect::new(0.0, 0.0, width * scale, height * scale);
-    let border = insets_from_taffy_rect(layout.border.map(|p| p as f64 * scale));
+    let border = insets_from_taffy_rect(
+        layout
+            .border
+            .map(|width| whole_device_px(f64::from(width) * scale)),
+    );
     let padding = insets_from_taffy_rect(layout.padding.map(|p| p as f64 * scale));
     let outline_width =
         table_borders::device_width(style.get_outline().outline_width.0.to_f64_px() * scale);

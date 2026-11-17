@@ -143,6 +143,65 @@ fn odd_groove_widths_keep_corner_halves_at_forty_five_degrees() {
     }
 }
 
+fn paint_at_seven_quarters<S: 'static>(
+    harness: &mut pageframe_test_harness::Harness<pageframe::Page<S>>,
+) -> impl Fn(usize, usize) -> [u8; 4] + use<S> {
+    let (width, height) = (WIDTH * 7 / 4, HEIGHT * 7 / 4);
+    {
+        let mut doc = harness.base_mut();
+        let color_scheme = doc.get_viewport().color_scheme;
+        doc.set_viewport(pageframe_traits::shell::Viewport::new(
+            width,
+            height,
+            1.75,
+            color_scheme,
+        ));
+    }
+    harness.pump();
+    let buffer = {
+        let mut doc = harness.base_mut();
+        anyrender::render_to_buffer::<anyrender_vello_cpu::VelloCpuImageRenderer, _>(
+            |scene| pageframe_paint::paint_scene(scene, &mut doc, 1.75, width, height, 0, 0),
+            width,
+            height,
+        )
+    };
+    let stride = usize::try_from(width).expect("test width fits in usize");
+    move |column, row| {
+        let offset = (row * stride + column) * 4;
+        [
+            buffer[offset],
+            buffer[offset + 1],
+            buffer[offset + 2],
+            buffer[offset + 3],
+        ]
+    }
+}
+
+#[test]
+fn odd_device_groove_widths_split_on_whole_pixels_at_seven_quarters_scale() {
+    let mut harness = open(App::new(
+        (),
+        "<style>html,body{margin:0}div{position:absolute;left:8px;top:8px;width:40px;height:20px;background:lime;border:2px groove blue}</style><div></div>",
+    ));
+    let at = paint_at_seven_quarters(&mut harness);
+    let sides = [
+        [at(50, 14), at(50, 15), at(50, 16)],
+        [at(14, 35), at(15, 35), at(16, 35)],
+        [at(50, 52), at(50, 53), at(50, 54)],
+        [at(87, 35), at(88, 35), at(89, 35)],
+    ];
+    let [dark, _, light] = sides[0];
+    assert_ne!(dark, light);
+    for side in sides {
+        assert_eq!(side, [dark, dark, light]);
+    }
+    assert_eq!(at(50, 17), LIME);
+    assert_eq!(at(50, 51), LIME);
+    assert_eq!(at(90, 35), [0, 0, 0, 0]);
+    assert_eq!(at(50, 55), [0, 0, 0, 0]);
+}
+
 fn top_and_bottom(style: &str) -> ([u8; 4], [u8; 4]) {
     let html = format!(
         "<style>html,body{{margin:0;background:white}}div{{box-sizing:border-box;width:40px;height:40px}}</style><div style='{style}'></div>"
@@ -230,18 +289,7 @@ fn borders_snap_to_whole_device_pixels_at_seven_quarters_scale() {
         (),
         "<style>html,body{margin:0}div{position:absolute;left:10px;background:lime;border:0 solid blue}</style><div id='thin' style='top:10px;width:40px;height:20px;border-width:1px'></div><div id='thick' style='top:40px;width:0;height:10px;border-left-width:100px'></div>",
     ));
-    let (width, height) = (WIDTH * 7 / 4, HEIGHT * 7 / 4);
-    {
-        let mut doc = harness.base_mut();
-        let color_scheme = doc.get_viewport().color_scheme;
-        doc.set_viewport(pageframe_traits::shell::Viewport::new(
-            width,
-            height,
-            1.75,
-            color_scheme,
-        ));
-    }
-    harness.pump();
+    let at = paint_at_seven_quarters(&mut harness);
     let device_width = |id: &str| {
         let doc = harness.base();
         let node = doc
@@ -251,24 +299,6 @@ fn borders_snap_to_whole_device_pixels_at_seven_quarters_scale() {
     };
     assert!((device_width("thin") - 72.0).abs() < 1e-6);
     assert!((device_width("thick") - 175.0).abs() < 1e-6);
-    let buffer = {
-        let mut doc = harness.base_mut();
-        anyrender::render_to_buffer::<anyrender_vello_cpu::VelloCpuImageRenderer, _>(
-            |scene| pageframe_paint::paint_scene(scene, &mut doc, 1.75, width, height, 0, 0),
-            width,
-            height,
-        )
-    };
-    let stride = usize::try_from(width).expect("test width fits in usize");
-    let at = |column: usize, row: usize| {
-        let offset = (row * stride + column) * 4;
-        [
-            buffer[offset],
-            buffer[offset + 1],
-            buffer[offset + 2],
-            buffer[offset + 3],
-        ]
-    };
     for (column, row, expected) in [
         (40, 18, BLUE),
         (40, 19, LIME),
