@@ -3,6 +3,9 @@ use super::LayoutPassState;
 #[cfg(not(feature = "writing-mode"))]
 use taffy::{NodeId, Rect, RoundTree, ScrollableOverflow, TraversePartialTree};
 
+const LAYOUT_UNITS: f32 = 64.0;
+const UNIT_SLACK: f32 = 1.0 / 32.0;
+
 #[derive(Clone, Copy)]
 pub(crate) struct DeviceSnap {
     scale: f32,
@@ -16,11 +19,15 @@ impl DeviceSnap {
     }
 
     pub(crate) fn round(self, value: f32) -> f32 {
-        (value * self.scale).round() / self.scale
+        self.device(value) / self.scale
     }
 
     pub(crate) fn shift(self, start: f32, offset: f32) -> f32 {
-        (((start + offset) * self.scale).round() - (start * self.scale).round()) / self.scale
+        (self.device(start + offset) - self.device(start)) / self.scale
+    }
+
+    fn device(self, value: f32) -> f32 {
+        ((value * self.scale * LAYOUT_UNITS + UNIT_SLACK).floor() / LAYOUT_UNITS).round()
     }
 }
 

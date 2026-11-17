@@ -372,3 +372,41 @@ fn legend_shifts_stay_whole_device_pixels_far_down_the_page() {
     }
     assert!(fractional.is_empty(), "{fractional:?}");
 }
+
+fn device_pixel(buffer: &[u8], stride: usize, column: usize, row: usize) -> [u8; 4] {
+    let offset = (row * stride + column) * 4;
+    [
+        buffer[offset],
+        buffer[offset + 1],
+        buffer[offset + 2],
+        buffer[offset + 3],
+    ]
+}
+
+#[test]
+fn a_half_device_pixel_box_edge_rounds_up_at_seven_quarters_scale() {
+    let mut harness = open(App::new(
+        (),
+        "<!doctype html><style>html,body{margin:0;background:white;font:14px Arial}input,button{margin:3px}</style><input value='text'><input type=checkbox checked><input type=range value=30><button>Button</button>",
+    ));
+    let buffer = render_at_ratio(&mut harness, (7, 4), 640);
+    let blank = |row: usize| device_pixel(&buffer, 1120, 100, row) == [255, 255, 255, 255];
+    assert_eq!(
+        (blank(7), blank(8), blank(43), blank(44)),
+        (true, false, false, true)
+    );
+}
+
+#[test]
+fn a_box_on_half_a_layout_unit_keeps_chromes_column_at_double_scale() {
+    let mut harness = open(App::new(
+        (),
+        "<!doctype html><style>html,body{margin:0;background:white;font:14px Arial}</style><details open><summary>Open details</summary>Inside details</details><details><summary>Closed details</summary>hidden</details><dialog open>Open dialog</dialog>",
+    ));
+    let buffer = render_at_ratio(&mut harness, (2, 1), 640);
+    let ink = |column: usize| device_pixel(&buffer, 1280, column, 130) == [0, 0, 0, 255];
+    assert_eq!(
+        (ink(529), ink(530), ink(535), ink(536)),
+        (false, true, true, false)
+    );
+}
