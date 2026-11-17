@@ -11,7 +11,11 @@ use crate::render::{ElementCx, pixel_phase};
 impl ElementCx<'_, '_> {
     pub(crate) fn draw_column_rules(&self, scene: &mut impl PaintScene, columns: &ColumnLayout) {
         let column = self.style.get_column();
-        let style = column.column_rule_style;
+        let style = match column.column_rule_style {
+            BorderStyle::Inset => BorderStyle::Ridge,
+            BorderStyle::Outset => BorderStyle::Groove,
+            other => other,
+        };
         let width = column.column_rule_width.0.to_f64_px() * self.scale;
         if matches!(style, BorderStyle::None | BorderStyle::Hidden) || width <= 0.0 {
             return;

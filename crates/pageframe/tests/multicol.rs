@@ -310,6 +310,27 @@ fn column_rules_sit_between_filled_columns() {
 }
 
 #[test]
+fn beveled_column_rules_shade_like_collapsed_borders_in_chrome() {
+    let light = [212, 212, 212, 255];
+    let dark = [44, 44, 44, 255];
+    let cases = [
+        ("inset", light, dark),
+        ("outset", dark, light),
+        ("groove", dark, light),
+        ("ridge", light, dark),
+    ];
+    for (style, left, right) in cases {
+        let mut harness = page(&format!(
+            "<div style=\"color:gray;columns:2;column-gap:10px;column-rule:10px {style};\
+             width:40px;height:40px\"><div style=\"height:80px\"></div></div>"
+        ));
+        let buffer = draw(&mut harness);
+        assert_eq!(pixel(&buffer, 17, 15), left, "{style}");
+        assert_eq!(pixel(&buffer, 22, 15), right, "{style}");
+    }
+}
+
+#[test]
 fn padded_text_columns_balance_like_chrome() {
     let harness = page(
         "<div id=\"t\" style=\"width:301px;columns:3;column-gap:12px;font:14px Arial;\
