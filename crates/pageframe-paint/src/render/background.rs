@@ -33,8 +33,8 @@ use taffy::Layout;
 #[cfg(feature = "tracing")]
 use tracing::warn;
 
-const MAX_SVG_TILES: u64 = 500;
-const MAX_SVG_TILE_SIDE: u32 = 4096;
+const MAX_TILES: u64 = 500;
+const MAX_TILE_SIDE: u32 = 4096;
 
 /// A box from the CSS box model. Abstracts over the (structurally identical)
 /// computed value types of the `background-clip`/`background-origin` and
@@ -196,7 +196,7 @@ impl ElementCx<'_, '_> {
         }
     }
 
-    fn draw_canvas_background(&self, scene: &mut impl PaintScene) {
+    pub(super) fn draw_canvas_background(&self, scene: &mut impl PaintScene) {
         let Some(source) = self
             .context
             .canvas_source
@@ -655,7 +655,7 @@ impl ElementCx<'_, '_> {
             bg_pos.y,
             bg_size.height,
         );
-        if u64::from(horizontal.count) * u64::from(vertical.count) <= MAX_SVG_TILES {
+        if u64::from(horizontal.count) * u64::from(vertical.count) <= MAX_TILES {
             for offset in tile_offsets(&horizontal, &vertical) {
                 let transform = base_transform * Affine::translate(offset) * viewport;
                 anyrender_svg::render_svg_tree(scene, &svg.tree, transform);
@@ -663,25 +663,8 @@ impl ElementCx<'_, '_> {
             return;
         }
 
-        let Some(tile) = svg_tile_image(svg, bg_size) else {
-            return;
-        };
-        let tile_scale = Affine::scale_non_uniform(
-            bg_size.width / f64::from(tile.width),
-            bg_size.height / f64::from(tile.height),
-        );
-        let brush = peniko::ImageBrush::new(tile).with_extend(peniko::Extend::Repeat);
-        let columns = tile_runs(&horizontal);
-        for row in tile_runs(&vertical) {
-            for column in &columns {
-                scene.fill(
-                    Fill::NonZero,
-                    base_transform * Affine::translate((column.start, row.start)),
-                    brush.as_ref(),
-                    Some(tile_scale),
-                    &Rect::new(0.0, 0.0, column.length, row.length),
-                );
-            }
+        if let Some(tile) = svg_tile_image(svg, bg_size) {
+            fill_repeated_tile(scene, base_transform, tile, bg_size, &horizontal, &vertical);
         }
     }
 
@@ -815,16 +798,20 @@ impl ElementCx<'_, '_> {
             bg_size.height,
         );
 
-        // FIXME: https://wpt.live/css/css-backgrounds/background-size/background-size-near-zero-gradient.html
-        if x.count as u64 * y.count as u64 > 500 {
-            return;
-        }
-
         let tile_rect = Rect::new(0.0, 0.0, x.rect_len, y.rect_len);
         let current_color = self.style.clone_color();
 
         let (gradient, gradient_transform) =
             to_peniko_gradient(gradient, tile_rect, self.scale, &current_color);
+
+        if u64::from(x.count) * u64::from(y.count) > MAX_TILES {
+            if let Some(tile) = gradient_tile_image(&gradient, gradient_transform, tile_rect.size())
+            {
+                fill_repeated_tile(scene, base_transform, tile, tile_rect.size(), &x, &y);
+            }
+            return;
+        }
+
         let brush = anyrender::Paint::Gradient(&gradient);
 
         let transform = base_transform.then_translate(Vec2 {
@@ -1193,14 +1180,78 @@ fn tile_runs(axis: &AxisTiling) -> Vec<TileRun> {
         .collect()
 }
 
+fn fill_repeated_tile(
+    scene: &mut impl PaintScene,
+    base_transform: Affine,
+    tile: peniko::ImageData,
+    tile_size: Size,
+    horizontal: &AxisTiling,
+    vertical: &AxisTiling,
+) {
+    let tile_scale = Affine::scale_non_uniform(
+        tile_size.width / f64::from(tile.width),
+        tile_size.height / f64::from(tile.height),
+    );
+    let brush = peniko::ImageBrush::new(tile).with_extend(peniko::Extend::Repeat);
+    let columns = tile_runs(horizontal);
+    for row in tile_runs(vertical) {
+        for column in &columns {
+            scene.fill(
+                Fill::NonZero,
+                base_transform * Affine::translate((column.start, row.start)),
+                brush.as_ref(),
+                Some(tile_scale),
+                &Rect::new(0.0, 0.0, column.length, row.length),
+            );
+        }
+    }
+}
+
+fn tile_side(length: f64) -> Option<u32> {
+    length
+        .ceil()
+        .to_u32()
+        .filter(|pixels| (1..=MAX_TILE_SIDE).contains(pixels))
+}
+
+fn tile_image(pixels: Vec<u8>, width: u32, height: u32) -> peniko::ImageData {
+    peniko::ImageData {
+        data: peniko::Blob::new(Arc::new(pixels)),
+        format: peniko::ImageFormat::Rgba8,
+        alpha_type: peniko::ImageAlphaType::AlphaPremultiplied,
+        width,
+        height,
+    }
+}
+
+fn gradient_tile_image(
+    gradient: &peniko::Gradient,
+    gradient_transform: Option<Affine>,
+    size: Size,
+) -> Option<peniko::ImageData> {
+    let (width, height) = (tile_side(size.width)?, tile_side(size.height)?);
+    let fit = Affine::scale_non_uniform(
+        f64::from(width) / size.width,
+        f64::from(height) / size.height,
+    );
+    let pixels = anyrender::render_to_buffer::<anyrender_vello_cpu::VelloCpuImageRenderer, _>(
+        |tile| {
+            tile.fill(
+                Fill::NonZero,
+                fit,
+                anyrender::Paint::Gradient(gradient),
+                gradient_transform,
+                &size.to_rect(),
+            );
+        },
+        width,
+        height,
+    );
+    Some(tile_image(pixels, width, height))
+}
+
 fn svg_tile_image(svg: &SvgImageData, size: Size) -> Option<peniko::ImageData> {
-    let side = |length: f64| {
-        length
-            .ceil()
-            .to_u32()
-            .filter(|pixels| (1..=MAX_SVG_TILE_SIDE).contains(pixels))
-    };
-    let (width, height) = (side(size.width)?, side(size.height)?);
+    let (width, height) = (tile_side(size.width)?, tile_side(size.height)?);
     let viewport =
         super::svg_viewport_affine(svg, f64::from(width).to_f32()?, f64::from(height).to_f32()?);
     let pixels = anyrender::render_to_buffer::<anyrender_vello_cpu::VelloCpuImageRenderer, _>(
@@ -1208,13 +1259,7 @@ fn svg_tile_image(svg: &SvgImageData, size: Size) -> Option<peniko::ImageData> {
         width,
         height,
     );
-    Some(peniko::ImageData {
-        data: peniko::Blob::new(Arc::new(pixels)),
-        format: peniko::ImageFormat::Rgba8,
-        alpha_type: peniko::ImageAlphaType::AlphaPremultiplied,
-        width,
-        height,
-    })
+    Some(tile_image(pixels, width, height))
 }
 
 fn compute_space_count_and_stride(bg_size: f64, size: f64) -> (u32, f64) {
@@ -1245,8 +1290,10 @@ pub(super) fn canvas_background_source(dom: &BaseDocument) -> Option<NodeId> {
         return Some(root.id);
     }
     let body = root.children.iter().find_map(|id| {
-        dom.get_node(*id)
-            .filter(|node| node.data.is_element_with_tag_name(&local_name!("body")))
+        dom.get_node(*id).filter(|node| {
+            node.data.is_element_with_tag_name(&local_name!("body"))
+                && !matches!(node.taffy_display(), taffy::Display::None)
+        })
     });
     Some(body.unwrap_or(root).id)
 }

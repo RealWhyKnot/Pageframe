@@ -106,3 +106,53 @@ background:url({TILE}) 1px 1px\"></div>"
         ],
     );
 }
+
+#[test]
+fn small_root_tiles_still_cover_the_canvas_like_chrome() {
+    let html = page(
+        "background:linear-gradient(90deg,rgb(204,0,0) 50%,rgb(0,102,204) 50%) 0 0/4px 4px",
+        "margin:0",
+        BLOCK,
+    );
+    check(
+        &html,
+        &[
+            (1, 1, [204, 0, 0]),
+            (2, 1, [0, 102, 204]),
+            (3, 70, [0, 102, 204]),
+            (100, 75, [204, 0, 0]),
+            (117, 60, [204, 0, 0]),
+            (118, 60, [0, 102, 204]),
+        ],
+    );
+}
+
+#[test]
+fn hidden_bodies_give_the_canvas_nothing_like_chrome() {
+    let html = page(
+        "",
+        "display:none;background:rgb(255,0,0) linear-gradient(rgb(0,102,204),rgb(0,102,204)) no-repeat 0 0/50px 50px",
+        BLOCK,
+    );
+    check(
+        &html,
+        &[(10, 10, [255, 255, 255]), (60, 10, [255, 255, 255])],
+    );
+}
+
+#[test]
+fn invisible_roots_still_paint_the_canvas_like_chrome() {
+    let html = page(
+        "visibility:hidden;background:rgb(255,255,0) linear-gradient(rgb(0,102,204),rgb(0,102,204)) no-repeat 0 0/50px 50px",
+        "margin:0",
+        BLOCK,
+    );
+    check(
+        &html,
+        &[
+            (10, 10, [0, 102, 204]),
+            (60, 10, [255, 255, 0]),
+            (100, 70, [255, 255, 0]),
+        ],
+    );
+}

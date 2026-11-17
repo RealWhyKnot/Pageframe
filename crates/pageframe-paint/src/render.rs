@@ -455,6 +455,11 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
 
         // Hide elements with a visibility style other than visible
         if styles.get_inherited_box().visibility != StyloVisibility::Visible {
+            if self.root_element_id == Some(node_id) {
+                let transform = self.node_transform(node, parent_style_transform);
+                self.element_cx(node, *node.final_layout(), transform, None)
+                    .draw_canvas_background(scene);
+            }
             if styles.clone_display().inside() == DisplayInside::TableCell
                 && styles.get_inherited_box().visibility == StyloVisibility::Collapse
             {
