@@ -3,6 +3,7 @@ mod support;
 use pageframe::App;
 use style::computed_values::list_style_position::T as ListStylePosition;
 use style::values::computed::Float;
+use style::values::specified::TextAlignKeyword;
 use support::{open, pixel, render};
 
 const CONTENT: &str = "<style>html,body{margin:0;font:16px Arial}\
@@ -23,6 +24,7 @@ struct Measured {
     button: (f32, f32),
     form_margin_bottom: f32,
     left: (f32, f32, f32),
+    right_x: f32,
     right_margin_left: f32,
     right_float: Float,
     plain_margin_left: f32,
@@ -60,6 +62,7 @@ fn measure(standards: bool) -> Measured {
         button: size("#button"),
         form_margin_bottom: after.location.y - (form.location.y + form.size.height),
         left: (left.location.x, left.location.y, left.margin.right),
+        right_x: node("#right").final_layout().location.x,
         right_margin_left: node("#right").final_layout().margin.left,
         right_float: node("#right")
             .primary_styles()
@@ -93,11 +96,13 @@ fn quirks_mode_forms_keep_a_bottom_margin() {
 fn aligned_images_float_with_quirks_side_margins() {
     let quirks = measure(false);
     assert_eq!(quirks.left, (0.0, 0.0, 3.0));
+    assert_eq!(quirks.right_x, 110.0);
     assert_eq!(quirks.right_margin_left, 3.0);
     assert_eq!(quirks.right_float, Float::Right);
     assert_eq!(quirks.plain_margin_left, 0.0);
     let standards = measure(true);
     assert_eq!(standards.left, (0.0, 0.0, 0.0));
+    assert_eq!(standards.right_x, 110.0);
     assert_eq!(standards.right_margin_left, 0.0);
     assert_eq!(standards.right_float, Float::Right);
 }
@@ -126,4 +131,29 @@ fn input_bottom_border(standards: bool) -> Vec<bool> {
 fn quirks_mode_text_field_borders_paint_at_the_set_height() {
     assert_eq!(input_bottom_border(false), [true, false, false]);
     assert_eq!(input_bottom_border(true), [false, false, true]);
+}
+
+const ALIGN_CONTENT: &str = "<!doctype html><div id='upper' align='CENTER'>a</div>\
+<div id='middle' align='middle'>b</div><p id='right' align='Right'>c</p>\
+<div id='plain'>d</div>";
+
+#[test]
+fn align_attributes_ignore_case_and_treat_middle_as_center() {
+    let harness = open(App::new((), ALIGN_CONTENT));
+    let base = harness.base();
+    let align = |selector: &str| {
+        let id = base
+            .query_selector_all(selector)
+            .expect("the selector parses")[0];
+        base.get_node(id)
+            .expect("the node exists")
+            .primary_styles()
+            .expect("the element is styled")
+            .get_inherited_text()
+            .text_align
+    };
+    assert_eq!(align("#upper"), TextAlignKeyword::MozCenter);
+    assert_eq!(align("#middle"), TextAlignKeyword::MozCenter);
+    assert_eq!(align("#right"), TextAlignKeyword::MozRight);
+    assert_eq!(align("#plain"), TextAlignKeyword::Start);
 }

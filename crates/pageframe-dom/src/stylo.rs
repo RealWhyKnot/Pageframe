@@ -1170,10 +1170,10 @@ impl<'a> TElement for PageframeNode<'a> {
                 }
             } else if *name == local_name!("align") {
                 use style::values::specified::TextAlign;
-                let keyword = match value {
+                let keyword = match value.to_ascii_lowercase().as_str() {
                     "left" => Some(StyloTextAlign::MozLeft),
                     "right" => Some(StyloTextAlign::MozRight),
-                    "center" => Some(StyloTextAlign::MozCenter),
+                    "center" | "middle" => Some(StyloTextAlign::MozCenter),
                     _ => None,
                 };
 
