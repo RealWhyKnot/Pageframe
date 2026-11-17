@@ -29,6 +29,19 @@ legend span{display:inline-block;width:20px;height:10px}</style>\
 
 const DISABLED: &str = "<!doctype html><fieldset id=f1 disabled><legend><button id=lb></button></legend><input id=i1><button id=b1></button><select id=s1></select><textarea id=t1></textarea></fieldset><fieldset id=f2><input id=i2><fieldset id=f3 disabled><legend><input id=i3></legend><legend><input id=i4></legend><input id=i5></fieldset></fieldset><fieldset id=f4 disabled><div><legend><button id=b4></button></legend></div></fieldset>";
 
+const KEYWORD_MIN_WIDTHS: &str = "<!doctype html><style>body{margin:0;background:#fff}\
+div,fieldset{margin:0}.s{display:inline-block;width:30px;height:10px}</style><body>\
+<div id=a style='width:100px;min-width:min-content'><div style='width:200px;height:10px'></div></div>\
+<div id=b style='width:50px;min-width:max-content;font-size:0'><span class=s></span> \
+<span class=s></span> <span class=s></span></div>\
+<div style='width:120px;font-size:0'><span id=h style='display:inline-block;width:40px;\
+min-width:min-content'><span style='display:inline-block;width:90px;height:8px;\
+vertical-align:top'></span></span></div>\
+<fieldset id=g style='width:150px;margin:4px;padding:0;font-size:0'><fieldset id=gi \
+style='width:200px;margin:0 4px;padding:0;height:10px'></fieldset></fieldset>\
+<div id=w style='width:60px'><div id=c style='min-width:max-content;font-size:0'>\
+<span class=s style='width:40px'></span> <span class=s style='width:40px'></span></div></div>";
+
 type Expected = (&'static str, Option<f32>, Option<f32>, f32, f32);
 
 fn layout_mismatches(page: &'static str, chrome: &[Expected]) -> Vec<String> {
@@ -184,6 +197,20 @@ fn fieldset_baselines_skip_the_legend_like_chrome() {
         layout_mismatches(LEGEND_BASELINES, &chrome),
         Vec::<String>::new()
     );
+}
+
+#[test]
+fn content_keyword_min_widths_widen_boxes_like_chrome() {
+    let chrome = [
+        ("#a", Some(0.0), Some(0.0), 200.0, 10.0),
+        ("#b", Some(0.0), Some(10.0), 90.0, 10.0),
+        ("#h", Some(0.0), Some(0.0), 90.0, 8.0),
+        ("#g", Some(4.0), Some(32.0), 216.0, 18.0),
+        ("#gi", Some(6.0), Some(2.0), 204.0, 14.0),
+        ("#c", Some(0.0), Some(0.0), 80.0, 10.0),
+    ];
+    let mismatches = layout_mismatches(KEYWORD_MIN_WIDTHS, &chrome);
+    assert!(mismatches.is_empty(), "{mismatches:#?}");
 }
 
 fn disabled_ids(harness: &Harness<Page<()>>) -> Vec<String> {

@@ -16,15 +16,15 @@ use style::Atom;
 use style::values::computed::CSSPixelLength;
 use style::values::computed::length_percentage::CalcLengthPercentage;
 use style::values::computed::{Contain, ContainerType};
-use style::values::generics::length::GenericMaxSize;
+use style::values::generics::length::{GenericMaxSize, GenericSize};
 use stylo_taffy::CopyStyleGetters;
 use stylo_taffy::TaffyStyloStyle;
 use taffy::{
     AxisStaticEdge, AxisStaticPosition, BlockContext, CoreStyle as _, DetailedLayoutInfo,
-    FlexDirection, LayoutContainingBlock, LayoutPartialTree, MaybeMath as _, NodeId, OofCandidate,
-    ResolveOrZero, RoundTree, RunMode, TraversePartialTree, TraverseTree, compute_block_layout,
-    compute_cached_layout, compute_flexbox_layout, compute_grid_layout, compute_leaf_layout,
-    compute_oof_layout, prelude::*,
+    FlexDirection, FloatInsets, LayoutContainingBlock, LayoutPartialTree, MaybeMath as _, NodeId,
+    OofCandidate, ResolveOrZero, RoundTree, RunMode, TraversePartialTree, TraverseTree,
+    compute_block_layout, compute_cached_layout, compute_flexbox_layout, compute_grid_layout,
+    compute_leaf_layout, compute_oof_layout, prelude::*,
 };
 
 pub(crate) mod construct;
@@ -284,7 +284,10 @@ impl LayoutPassState<'_> {
         block_ctx: Option<&mut BlockContext<'_>>,
     ) -> taffy::tree::LayoutOutput {
         let inputs = self.apply_size_containment(node_id, inputs);
-        let mut output = self.dispatch_child_layout(node_id, inputs, block_ctx);
+        let mut output = match self.keyword_min_width(node_id, &inputs) {
+            Some(floor) => self.dispatch_with_floor(node_id, inputs, block_ctx, floor),
+            None => self.dispatch_child_layout(node_id, inputs, block_ctx),
+        };
         if self.is_rendered_legend(dom_node_id(node_id)) {
             output.baselines = taffy::Baselines::NONE;
         }
@@ -339,6 +342,45 @@ impl LayoutPassState<'_> {
         };
         let line = layout.lines().next()?;
         Some(line.metrics().line_height / layout.scale())
+    }
+
+    fn keyword_min_width(
+        &mut self,
+        node_id: NodeId,
+        inputs: &taffy::tree::LayoutInput,
+    ) -> Option<f32> {
+        if inputs.sizing_mode == taffy::SizingMode::ContentSize {
+            return None;
+        }
+        let node = &self.nodes[dom_node_id(node_id)];
+        let style = node.primary_styles()?;
+        #[cfg(feature = "writing-mode")]
+        let inline_is_width = !style.writing_mode.is_vertical() && !self.layout_wm.is_vertical();
+        #[cfg(not(feature = "writing-mode"))]
+        let inline_is_width = !style.writing_mode.is_vertical();
+        if !inline_is_width {
+            return None;
+        }
+        let available = match style.get_position().min_width {
+            GenericSize::MinContent => AvailableSpace::MinContent,
+            GenericSize::MaxContent => AvailableSpace::MaxContent,
+            _ => return None,
+        };
+        drop(style);
+        let measure = taffy::tree::LayoutInput {
+            run_mode: RunMode::ComputeSize,
+            sizing_mode: taffy::SizingMode::ContentSize,
+            axis: taffy::RequestedAxis::Horizontal,
+            known_dimensions: taffy::Size::NONE,
+            available_space: taffy::Size {
+                width: available,
+                height: AvailableSpace::MaxContent,
+            },
+            vertical_margins_are_collapsible: taffy::Line::FALSE,
+            ..*inputs
+        };
+        let measured = self.compute_child_layout_in_current_wm(node_id, measure, None);
+        Some(measured.size.width)
     }
 
     fn apply_size_containment(
@@ -408,6 +450,57 @@ impl LayoutPassState<'_> {
         #[cfg(not(feature = "writing-mode"))]
         {
             node.layout_style()
+        }
+    }
+
+    fn dispatch_with_floor(
+        &mut self,
+        node_id: NodeId,
+        inputs: taffy::tree::LayoutInput,
+        block_ctx: Option<&mut BlockContext<'_>>,
+        floor: f32,
+    ) -> taffy::tree::LayoutOutput {
+        let mut block_ctx = block_ctx;
+        let raised = raise_known_width(inputs, floor);
+        let output = self.dispatch_widened(
+            node_id,
+            raised,
+            block_ctx.as_deref_mut(),
+            inputs.known_dimensions.width,
+        );
+        if output.size.width >= floor {
+            return output;
+        }
+        self.dispatch_widened(
+            node_id,
+            with_known_width(inputs, floor),
+            block_ctx,
+            Some(output.size.width),
+        )
+    }
+
+    fn dispatch_widened(
+        &mut self,
+        node_id: NodeId,
+        inputs: taffy::tree::LayoutInput,
+        block_ctx: Option<&mut BlockContext<'_>>,
+        assumed_width: Option<f32>,
+    ) -> taffy::tree::LayoutOutput {
+        let extra = inputs
+            .known_dimensions
+            .width
+            .zip(assumed_width)
+            .map(|(width, assumed)| width - assumed)
+            .filter(|&extra| extra > 0.0);
+        match (block_ctx, extra) {
+            (Some(block_ctx), Some(extra)) => {
+                let mut widened = block_ctx.sub_context(0.0, FloatInsets::new(0.0, -extra));
+                let output = self.dispatch_child_layout(node_id, inputs, Some(&mut widened));
+                let contribution = float_contribution(&widened);
+                add_float_contribution(block_ctx, contribution);
+                output
+            }
+            (block_ctx, _) => self.dispatch_child_layout(node_id, inputs, block_ctx),
         }
     }
 
@@ -1327,3 +1420,38 @@ impl Iterator for RefCellChildIter<'_> {
         })
     }
 }
+
+fn raise_known_width(inputs: taffy::tree::LayoutInput, floor: f32) -> taffy::tree::LayoutInput {
+    match inputs.known_dimensions.width {
+        Some(width) if width < floor => with_known_width(inputs, floor),
+        _ => inputs,
+    }
+}
+
+fn with_known_width(inputs: taffy::tree::LayoutInput, width: f32) -> taffy::tree::LayoutInput {
+    taffy::tree::LayoutInput {
+        known_dimensions: taffy::Size {
+            width: Some(width),
+            ..inputs.known_dimensions
+        },
+        ..inputs
+    }
+}
+
+#[cfg(feature = "floats")]
+fn float_contribution(block_ctx: &BlockContext<'_>) -> f32 {
+    block_ctx.floated_content_height_contribution()
+}
+
+#[cfg(not(feature = "floats"))]
+fn float_contribution(_block_ctx: &BlockContext<'_>) -> f32 {
+    f32::NEG_INFINITY
+}
+
+#[cfg(feature = "floats")]
+fn add_float_contribution(block_ctx: &mut BlockContext<'_>, contribution: f32) {
+    block_ctx.add_child_floated_content_height_contribution(contribution);
+}
+
+#[cfg(not(feature = "floats"))]
+fn add_float_contribution(_block_ctx: &mut BlockContext<'_>, _contribution: f32) {}
