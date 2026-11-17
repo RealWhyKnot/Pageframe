@@ -241,6 +241,27 @@ impl ShapedText {
         &self.shaped_clusters
     }
 
+    #[doc(hidden)]
+    pub fn set_cluster_advance(&mut self, index: usize, advance: f32) {
+        let Some(cluster) = self.shaped_clusters.get_mut(index) else {
+            return;
+        };
+        let change = advance - cluster.advance;
+        cluster.advance = advance;
+        if !cluster.has_inline_glyph() {
+            let glyphs = usize::try_from(cluster.glyph_offset).unwrap_or(usize::MAX);
+            let count = usize::from(cluster.glyph_len());
+            if let Some(last) = glyphs
+                .checked_add(count)
+                .and_then(|end| end.checked_sub(1))
+                .and_then(|last| self.glyphs.get_mut(last))
+                .filter(|_| count > 0)
+            {
+                last.advance += change;
+            }
+        }
+    }
+
     /// The shaped glyphs.
     ///
     /// [`ShapedRun::glyphs_range`] indexes into this.
@@ -867,7 +888,11 @@ fn dwrite_metrics(
     use skrifa::raw::tables::os2::SelectionFlags;
 
     let os2 = font_ref.os2().ok()?;
-    if os2.fs_selection().contains(SelectionFlags::USE_TYPO_METRICS) || metrics.units_per_em == 0 {
+    if os2
+        .fs_selection()
+        .contains(SelectionFlags::USE_TYPO_METRICS)
+        || metrics.units_per_em == 0
+    {
         return None;
     }
     let ascent = f32::from(os2.us_win_ascent());

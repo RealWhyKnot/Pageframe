@@ -408,7 +408,7 @@ impl<'a, 'b, B: Brush> parley_engine::FontSelector for FontSelector<'a, 'b, B> {
             let coverage = cluster.calculate_coverage(
                 |ch| {
                     charmap
-                        .map(ch)
+                        .map(if ch == '\t' { ' ' } else { ch })
                         .map(|g| {
                             // Any non-zero value indicates the existence of a glyph.
                             g != 0

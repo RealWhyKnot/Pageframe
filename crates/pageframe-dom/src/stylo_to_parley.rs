@@ -375,6 +375,19 @@ pub(crate) fn white_space_collapse(input: stylo::WhiteSpaceCollapse) -> parley::
 /// stores in place of the `vertical-align` shorthand) to Parley's `VerticalAlign`.
 ///
 /// Percentages are resolved against the element's own `line-height`.
+pub(crate) fn tab_size(
+    input: &style::values::computed::NonNegativeLengthOrNumber,
+) -> parley::TabSize {
+    match input {
+        style::values::generics::length::GenericLengthOrNumber::Number(count) => {
+            parley::TabSize::Spaces(count.0)
+        }
+        style::values::generics::length::GenericLengthOrNumber::Length(length) => {
+            parley::TabSize::Length(length.0.px())
+        }
+    }
+}
+
 pub(crate) fn vertical_align(style: &stylo::ComputedValues) -> parley::VerticalAlign {
     let box_styles = style.get_box();
     let alignment = match box_styles.slow_clone_alignment_baseline() {
@@ -530,6 +543,7 @@ pub(crate) fn style(
         letter_spacing,
         text_wrap_mode,
         white_space_collapse: white_space_collapse(itext_styles.white_space_collapse),
+        tab_size: tab_size(&itext_styles.tab_size),
         overflow_wrap,
         word_break,
         line_break,

@@ -43,6 +43,34 @@ pub enum WhiteSpaceCollapse {
     BreakSpaces,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TabSize {
+    Spaces(f32),
+    Length(f32),
+}
+
+impl Default for TabSize {
+    fn default() -> Self {
+        Self::Spaces(8.0)
+    }
+}
+
+impl TabSize {
+    pub(crate) fn scale(self, scale: f32) -> Self {
+        match self {
+            Self::Spaces(count) => Self::Spaces(count),
+            Self::Length(length) => Self::Length(length * scale),
+        }
+    }
+
+    pub(crate) fn stop(self, space: f32, spacing: f32) -> f32 {
+        match self {
+            Self::Spaces(count) => count * (space + spacing),
+            Self::Length(length) => length,
+        }
+    }
+}
+
 /// The height that this text takes up. The default is `MetricsRelative(1.0)`, which is the given
 /// font's preferred line height.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -277,6 +305,7 @@ pub enum StyleProperty<'a, B: Brush> {
     TextWrapMode(TextWrapMode),
     /// Whitespace collapsing and hanging behavior.
     WhiteSpaceCollapse(WhiteSpaceCollapse),
+    TabSize(TabSize),
 }
 
 /// Unresolved styles.
@@ -334,6 +363,7 @@ pub struct TextStyle<'family, 'settings, B: Brush> {
     pub text_wrap_mode: TextWrapMode,
     /// Whitespace collapsing and hanging behavior.
     pub white_space_collapse: WhiteSpaceCollapse,
+    pub tab_size: TabSize,
 }
 
 impl<B: Brush> Default for TextStyle<'static, 'static, B> {
@@ -365,6 +395,7 @@ impl<B: Brush> Default for TextStyle<'static, 'static, B> {
             overflow_wrap: OverflowWrap::default(),
             text_wrap_mode: TextWrapMode::default(),
             white_space_collapse: WhiteSpaceCollapse::default(),
+            tab_size: TabSize::default(),
         }
     }
 }

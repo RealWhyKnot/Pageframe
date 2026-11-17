@@ -68,6 +68,7 @@ pub struct Style<B: Brush> {
     pub(crate) text_wrap_mode: TextWrapMode,
     /// Per-cluster whitespace collapsing and hanging behavior.
     pub(crate) white_space_collapse: WhiteSpaceCollapse,
+    pub(crate) tab_size: crate::TabSize,
     /// The locale of the text, if any.
     ///
     /// This is useful for consumers exposing the text to assistive technologies,

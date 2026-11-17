@@ -1162,6 +1162,7 @@ fn configure_editor(
     styles.insert(StyleProperty::WhiteSpaceCollapse(
         parley_style.white_space_collapse,
     ));
+    styles.insert(StyleProperty::TabSize(parley_style.tab_size));
     styles.insert(StyleProperty::Brush(parley_style.brush));
     editor.set_alignment(alignment);
     editor.set_base_direction(base_direction);

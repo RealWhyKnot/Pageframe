@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use core_maths::CoreFloat;
 use parlance::BidiLevel;
 
-use crate::layout::data::{AlignedSubtreeOffset, run_box_metrics};
+use crate::layout::data::{AlignedSubtreeOffset, run_box_metrics, tab_advance};
 use crate::layout::spacing::{EffectiveSpacing, Justification, is_word_separator};
 use crate::layout::style_metrics::{
     BoxMetrics, InlineBoxPlacement, StyleMetrics, inline_box_placement,
@@ -890,6 +890,7 @@ pub struct BreakLines<'a, B: Brush> {
     state: BreakerState,
     prev_state: Option<BreakerState>,
     done: bool,
+    tab_advances: Vec<(usize, f32)>,
 }
 
 impl<'a, B: Brush> BreakLines<'a, B> {
@@ -907,6 +908,7 @@ impl<'a, B: Brush> BreakLines<'a, B> {
             state: BreakerState::default(),
             prev_state: None,
             done: false,
+            tab_advances: Vec::new(),
         };
         this.reset_line();
         this
@@ -990,6 +992,12 @@ impl<'a, B: Brush> BreakLines<'a, B> {
         max_advance: f32,
         line_indent: f32,
     ) -> Option<YieldData> {
+        for (cluster, advance) in self.tab_advances.drain(..) {
+            self.layout
+                .data
+                .shaped_text
+                .set_cluster_advance(cluster, advance);
+        }
         commit_line(
             self.layout,
             &mut self.lines,
@@ -1273,7 +1281,20 @@ impl<'a, B: Brush> BreakLines<'a, B> {
 
                         // Breaking an atom requires reshaping, which we don't do here, so it is
                         // consumed as a whole (this includes all clusters of a ligature).
-                        let advance = spacing.atom_advance(&atom);
+                        let advance = if whitespace == Whitespace::Tab {
+                            let tab = tab_advance(
+                                style.tab_size,
+                                run.data,
+                                line_indent + self.state.line.x,
+                            );
+                            self.tab_advances.push((
+                                atom.shaped_clusters_range().start as usize,
+                                tab - spacing.gaps(&atom).total(),
+                            ));
+                            tab
+                        } else {
+                            spacing.atom_advance(&atom)
+                        };
 
                         // Compute the x position of the content being currently processed
                         let next_x = self.state.line.x + advance;

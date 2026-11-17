@@ -44,6 +44,21 @@ pub(crate) struct RunData {
     /// This can happen when ligatures span across styles, or (awkwardly) if a style changes within
     /// a grapheme.
     pub(crate) has_mixed_style_atoms: bool,
+    pub(crate) tab_space: f32,
+}
+
+pub(crate) fn tab_advance(tab_size: crate::TabSize, run: &RunData, position: f32) -> f32 {
+    let space = run.tab_space;
+    let stop = tab_size.stop(space, run.spacing.letter + run.spacing.word);
+    if stop <= 0.0 {
+        return run.spacing.letter;
+    }
+    let advance = stop - position % stop;
+    if advance < space / 2.0 {
+        advance + stop
+    } else {
+        advance
+    }
 }
 
 /// The metrics of a run's box. This differs from the style-derived box by taking into account any
@@ -366,6 +381,13 @@ impl<B: Brush> LayoutData<B> {
             })
         };
 
+        let tab_space = self
+            .shaped_text
+            .run_slice(shaped_run_idx as u32)
+            .shaped_clusters()
+            .iter()
+            .find(|cluster| cluster.whitespace() == Whitespace::Tab)
+            .map_or(0.0, |cluster| cluster.advance);
         let font = &self.shaped_text.fonts()[shaped_run.font_index];
         let run = RunData {
             font_attrs: fontique::Attributes {
@@ -378,6 +400,7 @@ impl<B: Brush> LayoutData<B> {
             spacing,
             run_box,
             has_mixed_style_atoms,
+            tab_space,
         };
 
         self.runs.push(run);
@@ -503,7 +526,7 @@ impl ContentWidthsMeasurer {
             match item.kind {
                 LayoutItemKind::TextRun => {
                     let slice = layout_data.shaped_text.run_slice(item.index as u32);
-                    let run_spacing = layout_data.runs[item.index].spacing;
+                    let run = &layout_data.runs[item.index];
                     // Trailing whitespace can only hang if it ends up at the line's end edge after
                     // bidi reordering. We don't currently apply UAX #9 L1 (resetting trailing
                     // whitespace to paragraph level), so only logically-last items that match the
@@ -511,11 +534,11 @@ impl ContentWidthsMeasurer {
                     let can_hang = item.bidi_level == layout_data.base_level;
                     let is_rtl = item.bidi_level.is_rtl();
 
-                    if run_spacing.is_zero() {
+                    if run.spacing.is_zero() {
                         self.measure_text_run::<B, false>(
                             &layout_data.styles,
                             slice,
-                            run_spacing,
+                            run,
                             can_hang,
                             is_rtl,
                         );
@@ -523,7 +546,7 @@ impl ContentWidthsMeasurer {
                         self.measure_text_run::<B, true>(
                             &layout_data.styles,
                             slice,
-                            run_spacing,
+                            run,
                             can_hang,
                             is_rtl,
                         );
@@ -586,7 +609,7 @@ impl ContentWidthsMeasurer {
         &mut self,
         styles: &[Style<B>],
         slice: ShapedSlice<'_>,
-        spacing: Spacing,
+        run: &RunData,
         can_hang: bool,
         is_rtl: bool,
     ) {
@@ -620,7 +643,7 @@ impl ContentWidthsMeasurer {
                     continue;
                 }
                 if SPACED {
-                    gap = spacing.gaps(whitespace).after;
+                    gap = run.spacing.gaps(whitespace).after;
                 }
             } else if skip_atom {
                 // The next line starts after the whole newline atom.
@@ -629,7 +652,11 @@ impl ContentWidthsMeasurer {
             }
 
             let mut advance = cluster.advance;
-            if SPACED {
+            let mut min_advance = None;
+            if whitespace == Whitespace::Tab {
+                min_advance = Some(tab_advance(style.tab_size, run, self.running_min_width));
+                advance = tab_advance(style.tab_size, run, self.running_max_width);
+            } else if SPACED {
                 let owns_gap = if is_rtl {
                     is_atom_start
                 } else {
@@ -641,7 +668,7 @@ impl ContentWidthsMeasurer {
                     advance += gap;
                 }
             }
-            self.running_min_width += advance;
+            self.running_min_width += min_advance.unwrap_or(advance);
             self.running_max_width += advance;
 
             // A cluster hangs if all of its characters hang. Its first character is checked via the
