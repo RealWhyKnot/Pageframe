@@ -47,8 +47,8 @@ fn color_inputs_paint_a_swatch_of_their_value() {
         ((4, 31), [239, 239, 239]),
         ((25, 47), [0, 0, 0]),
     ];
-    for ((x, y), expected) in samples {
-        let [red, green, blue, _] = pixel(&buffer, x, y);
-        assert_eq!([red, green, blue], expected, "pixel at ({x}, {y})");
+    for ((column, row), expected) in samples {
+        let [red, green, blue, _] = pixel(&buffer, column, row);
+        assert_eq!([red, green, blue], expected, "pixel at ({column}, {row})");
     }
 }
