@@ -542,7 +542,11 @@ impl LineBoxMetrics {
     /// Add an inline box with `vertical-align: top | bottom`, which only constrains the line
     /// box's height.
     fn add_line_relative_inline_box(&mut self, align: VerticalAlign, height: f32, quantize: bool) {
-        let height = if quantize { height.round() } else { height };
+        let height = if quantize {
+            layout_unit_round(height)
+        } else {
+            height
+        };
         if height > 0. {
             self.has_content = true;
         }
@@ -1710,7 +1714,11 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                 BaselineShift::Bottom => extents.under - line_box_extents.under,
                 _ => line_box_extents.over - extents.over,
             };
-            let offset = if quantize { offset.round() } else { offset };
+            let offset = if quantize {
+                layout_unit_round(offset)
+            } else {
+                offset
+            };
             offsets.push(AlignedSubtreeOffset {
                 root: subtree.root,
                 baseline_offset: offset,
@@ -1742,13 +1750,7 @@ impl<'a, B: Brush> BreakLines<'a, B> {
         line.metrics.baseline = top + line_box_extents.over;
         line.metrics.block_min_coord = top;
         line.metrics.block_max_coord = if quantize {
-            // TODO: perhaps this should be something like the following, to ensure quantized line
-            // boxes tile exactly without gaps or overlap. However, that would cause some
-            // line height asserts to fail in the tests.
-            // ```
-            // (self.state.line_y as f32 + self.state.line.box_metrics.line_height()).round()
-            // ```
-            layout_unit_round(line.metrics.baseline + line_box_extents.under)
+            layout_unit_round((self.state.line_y + f64::from(line.metrics.line_height)) as f32)
         } else {
             line.metrics.baseline + line_box_extents.under
         };

@@ -29,7 +29,7 @@ fn heights_and_tops<S: 'static>(harness: &mut Harness<Page<S>>) -> Vec<[f64; 2]>
         .collect()
 }
 
-fn assert_close(found: &[[f64; 2]], chrome: &[[f64; 2]], what: &str) {
+fn assert_close<const N: usize>(found: &[[f64; N]], chrome: &[[f64; N]], what: &str) {
     assert_eq!(found.len(), chrome.len(), "{what}");
     for (found, chrome) in found.iter().zip(chrome) {
         assert!(
@@ -102,24 +102,39 @@ fn a_line_on_a_half_device_pixel_paints_half_up_at_seven_quarters_scale() {
     assert_eq!((ink(132), ink(133), ink(134)), (true, true, false));
 }
 
+fn tops_of<S: 'static>(harness: &mut Harness<Page<S>>, selectors: [&str; 3]) -> [f64; 3] {
+    selectors.map(|selector| {
+        let doc = harness.base_mut();
+        let id = doc
+            .query_selector(selector)
+            .expect("valid selector")
+            .expect("the element exists");
+        doc.get_client_bounding_rect(id)
+            .expect("the element has a box")
+            .y
+    })
+}
+
 #[test]
-fn a_line_ending_on_a_quarter_device_pixel_keeps_it_at_seven_quarters_scale() {
+fn lines_keep_fractional_layout_units_at_one_and_seven_quarters_scale() {
     let mut harness = open(App::new(
         (),
-        "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}input{margin:3px}</style><input value=text><input type=range value=30><br><input id=next type=color>",
+        "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}input{margin:3px}\
+span{display:inline-block;width:5px;height:5px}</style><input value=text><input type=range value=30><br>\
+<input id=second type=color><br>x<span id=raised style=\"vertical-align:1.3px\"></span><span></span>\
+<span style=\"vertical-align:top;height:30.3px\"></span><br><input id=last type=color>",
     ));
+    let selectors = ["#second", "#raised", "#last"];
+    render_at_ratio(&mut harness, (1, 1), 640);
+    assert_close(
+        &[tops_of(&mut harness, selectors)],
+        &[[31.0, 67.703125, 94.296875]],
+        "a top-aligned 30.3px box keeps its fraction at 1x",
+    );
     render_at_ratio(&mut harness, (7, 4), 640);
-    let doc = harness.base_mut();
-    let next = doc
-        .query_selector("#next")
-        .expect("valid selector")
-        .expect("the color input exists");
-    let top = doc
-        .get_client_bounding_rect(next)
-        .expect("the color input has a box")
-        .y;
-    assert!(
-        (top - 31.142858).abs() < 0.001,
-        "Chrome starts the second line at 49.25 device px, found {top}"
+    assert_close(
+        &[tops_of(&mut harness, selectors)],
+        &[[31.142858, 67.419647, 94.437508]],
+        "Chrome keeps line tops in 1/64 device px at 1.75x",
     );
 }
