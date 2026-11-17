@@ -1493,7 +1493,22 @@ fn share_columns(
     if space < max_sum {
         let distributable = space - min_sum;
         let units = |length: f32| (f64::from(length) / f64::from(unit)).round();
-        let (spare_units, total_units) = (units(distributable), units(max_sum - min_sum));
+        let total_units: f64 = mins
+            .iter()
+            .zip(maxes)
+            .map(|(min, max)| units(max - min))
+            .sum();
+        if total_units <= 0.0 {
+            let part = distributable / (max_sum - min_sum);
+            return mins
+                .iter()
+                .zip(maxes)
+                .map(|(min, max)| min + (max - min) * part)
+                .collect();
+        }
+        let spare_units = (f64::from(distributable) / f64::from(unit) + 0.01)
+            .floor()
+            .min(total_units);
         let last = maxes.iter().zip(mins).rposition(|(max, min)| max > min);
         let mut left = distributable;
         return mins
@@ -1502,13 +1517,9 @@ fn share_columns(
             .enumerate()
             .map(|(index, (min, max))| {
                 if Some(index) == last {
-                    return min + left;
+                    return min + left.max(0.0);
                 }
-                let share = if total_units > 0.0 {
-                    (spare_units * units(max - min) / total_units).floor()
-                } else {
-                    0.0
-                };
+                let share = (spare_units * units(max - min) / total_units).floor();
                 let delta = share.to_f32().unwrap_or(0.0) * unit;
                 left -= delta;
                 min + delta
@@ -2743,6 +2754,21 @@ mod tests {
         assert_eq!(
             share_columns(&[10.0, 20.0], &[50.0, 150.0], 300.0, false, 1.0 / 64.0),
             [50.0, 150.0]
+        );
+    }
+
+    #[test]
+    fn off_grid_columns_share_exactly_the_spare_width() {
+        let widths = share_columns(&[0.0, 0.0, 0.0], &[0.8, 0.8, 0.8], 1.6, true, 1.0);
+        assert!(widths.iter().all(|width| *width >= 0.0), "{widths:?}");
+        assert!(
+            (widths.iter().sum::<f32>() - 1.6).abs() < 1e-5,
+            "{widths:?}"
+        );
+        let widths = share_columns(&[0.0, 0.0], &[0.4, 0.4], 0.7, true, 1.0);
+        assert!(
+            widths.iter().all(|width| (width - 0.35).abs() < 1e-5),
+            "{widths:?}"
         );
     }
 }
