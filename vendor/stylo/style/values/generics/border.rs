@@ -134,7 +134,6 @@ impl<L: Zero> Zero for BorderCornerRadius<L> {
     SpecifiedValueInfo,
     ToAnimatedValue,
     ToAnimatedZero,
-    ToComputedValue,
     ToCss,
     ToResolvedValue,
     ToShmem,

@@ -8,7 +8,9 @@ use crate::Zero;
 use crate::derives::*;
 use crate::parser::{Parse, ParserContext};
 use crate::typed_om::{ToTyped, TypedValue};
+use crate::values::computed::NonNegativeLength as ComputedNonNegativeLength;
 use crate::values::computed::border::BorderSideWidth as ComputedBorderSideWidth;
+use crate::values::computed::border::BorderSpacing as ComputedBorderSpacing;
 use crate::values::computed::{Context, ToComputedValue};
 use crate::values::generics::border::{
     GenericBorderCornerRadius, GenericBorderImageSideWidth, GenericBorderImageSlice,
@@ -350,6 +352,36 @@ impl Parse for BorderSpacing {
             NonNegativeLength::parse_quirky(context, input, AllowQuirks::Yes)
         })
         .map(GenericBorderSpacing)
+    }
+}
+
+fn snap_border_spacing(px: f32, context: &Context) -> f32 {
+    let ratio = context.device().device_pixel_ratio().get();
+    if !(ratio.is_finite() && ratio > 0.0) {
+        return px;
+    }
+    (px * ratio + 1e-4).floor().max(0.0) / ratio
+}
+
+impl ToComputedValue for BorderSpacing {
+    type ComputedValue = ComputedBorderSpacing;
+
+    #[inline]
+    fn to_computed_value(&self, context: &Context) -> Self::ComputedValue {
+        let width = self.0.width().to_computed_value(context).0.px();
+        let height = self.0.height().to_computed_value(context).0.px();
+        GenericBorderSpacing(Size2D::new(
+            ComputedNonNegativeLength::new(snap_border_spacing(width, context)),
+            ComputedNonNegativeLength::new(snap_border_spacing(height, context)),
+        ))
+    }
+
+    #[inline]
+    fn from_computed_value(computed: &Self::ComputedValue) -> Self {
+        GenericBorderSpacing(Size2D::new(
+            ToComputedValue::from_computed_value(computed.0.width()),
+            ToComputedValue::from_computed_value(computed.0.height()),
+        ))
     }
 }
 

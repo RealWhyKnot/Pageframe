@@ -10,6 +10,8 @@ mod heights;
 mod nested;
 #[path = "tables_cases/rows.rs"]
 mod rows;
+#[path = "tables_cases/spacing.rs"]
+mod spacing;
 #[path = "tables_cases/spans.rs"]
 mod spans;
 #[path = "tables_cases/widths.rs"]
