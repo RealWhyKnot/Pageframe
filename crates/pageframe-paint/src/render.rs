@@ -104,6 +104,8 @@ pub struct PageframeDomPainter<'dom, 'a> {
     pub(crate) custom_widget_scenes: &'a CustomWidgetSceneMap,
     pub(crate) backdrop_stop: Option<NodeId>,
     pub(crate) backdrop_reached: Cell<bool>,
+    backdrop_root: Option<NodeId>,
+    backdrop_started: Cell<bool>,
     backdrop_depth: usize,
     backdrops: Rc<RefCell<HashMap<NodeId, Option<backdrop::Backdrop>>>>,
 }
@@ -148,6 +150,8 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
             custom_widget_scenes,
             backdrop_stop: None,
             backdrop_reached: Cell::new(false),
+            backdrop_root: None,
+            backdrop_started: Cell::new(true),
             backdrop_depth: 0,
             backdrops: Rc::default(),
         }
@@ -438,6 +442,10 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
         if self.backdrop_reached.get() {
             return;
         }
+        let is_backdrop_root = self.backdrop_root == Some(node_id);
+        if is_backdrop_root {
+            self.backdrop_started.set(true);
+        }
         let node = &self.dom.as_ref().tree()[node_id];
 
         // Early return if the element is hidden
@@ -480,13 +488,18 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
         if opacity == 0.0 {
             return;
         }
+        let opacity = if is_backdrop_root { 1.0 } else { opacity };
         let has_opacity = opacity < 1.0;
         let row_opacity =
             node.row_opacity() * node.removed_cell_opacity() * node.skipped_ancestor_opacity();
         if row_opacity == 0.0 {
             return;
         }
-        let filters = pixel_filters(&effects.filter.0, &styles.clone_color(), self.scale);
+        let filters = if is_backdrop_root {
+            Vec::new()
+        } else {
+            pixel_filters(&effects.filter.0, &styles.clone_color(), self.scale)
+        };
 
         let should_clip = self.should_clip_node(node, &styles);
         let is_text_input = node
@@ -596,7 +609,11 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
         };
 
         // Compute clip-path (if any) and wrap all rendering in a clip layer
-        let clip_path_shape = self.dom.clip_path_of(node);
+        let clip_path_shape = if is_backdrop_root {
+            None
+        } else {
+            self.dom.clip_path_of(node)
+        };
         let has_clip_path = clip_path_shape.is_some();
         let clip_fill = if clip_path_shape.as_ref().is_some_and(|clip| clip.evenodd) {
             Fill::EvenOdd
@@ -639,7 +656,11 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
 
         // Use the viewport in scene coordinates so outlines, shadows and overflowing
         // descendants are not clipped to the element's border box.
-        let blend = convert_blend_mode(effects.mix_blend_mode);
+        let blend = if is_backdrop_root {
+            BlendMode::default()
+        } else {
+            convert_blend_mode(effects.mix_blend_mode)
+        };
         let isolate = styles.get_box().isolation == Isolation::Isolate;
         let blend_layer_pushed = self.layer_manager.maybe_push_layer(
             scene,
@@ -692,7 +713,11 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
         if filters.is_empty() && !has_clip_path && paints_own_box {
             cx.draw_box_shadow_under_legend(scene);
         }
-        let backdrop = self.backdrop(node, &styles, &cx, own_transform.is_some());
+        let backdrop = if is_backdrop_root {
+            None
+        } else {
+            self.backdrop(node, &styles, &cx, own_transform.is_some())
+        };
 
         self.layer_manager.maybe_with_clip_layer(
             scene,
@@ -701,7 +726,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
             cx.transform,
             &clip_path_for_layer,
             |scene| {
-                let mask_layer_pushed = cx.maybe_push_css_mask_layer(scene);
+                let mask_layer_pushed = !is_backdrop_root && cx.maybe_push_css_mask_layer(scene);
                 let unscrolled_transform = cx.transform;
 
                 if filters.is_empty() {

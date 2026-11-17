@@ -178,3 +178,34 @@ fn thin_backdrops_mirror_their_content_over_and_over() {
         check(&buffer, column, row, chrome);
     }
 }
+
+#[test]
+fn backdrops_under_a_backdrop_root_see_only_its_content_like_chrome() {
+    let root = |left: u32, top: u32, effect: &str| {
+        format!(
+            "<div style=\"position:absolute;left:{left}px;top:{top}px;width:60px;height:40px;{effect}\">\
+<div style=\"position:absolute;left:5px;top:5px;width:25px;height:25px;background:rgb(0,102,204)\"></div>\
+<div style=\"position:absolute;left:15px;top:15px;width:40px;height:20px;backdrop-filter:invert(1)\"></div></div>"
+        )
+    };
+    let html = format!(
+        "<html><body style=\"margin:0;background:rgb(204,0,0)\">{}{}{}{}</body></html>",
+        root(0, 0, "opacity:0.7"),
+        root(60, 0, "filter:brightness(1);background:rgb(0,204,0)"),
+        root(0, 40, "clip-path:inset(0)"),
+        root(60, 40, "backdrop-filter:grayscale(1)"),
+    );
+    let buffer = render(&mut open(App::new((), &html)));
+    for (column, row, chrome) in [
+        (22, 22, [240, 106, 35]),
+        (45, 25, [204, 0, 0]),
+        (82, 22, [255, 153, 51]),
+        (105, 25, [255, 51, 255]),
+        (22, 62, [255, 153, 51]),
+        (45, 65, [204, 0, 0]),
+        (82, 62, [255, 153, 51]),
+        (105, 65, [43, 43, 43]),
+    ] {
+        check(&buffer, column, row, chrome);
+    }
+}

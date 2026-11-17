@@ -11,7 +11,7 @@ use style::values::computed::image::Image;
 use super::{ElementCx, PageframeDomPainter};
 use crate::blend::convert_blend_mode;
 use crate::filters::{filtered_backdrop, pixel_filters};
-use pageframe_dom::{CopyStyleGetters as _, Node};
+use pageframe_dom::{CopyStyleGetters as _, Node, NodeId};
 
 const MAX_DEPTH: usize = 8;
 
@@ -23,21 +23,23 @@ pub(super) struct Backdrop {
 
 struct Cutoff<'c> {
     scene: Scene,
+    started: &'c Cell<bool>,
     reached: &'c Cell<bool>,
     open: usize,
 }
 
 impl<'c> Cutoff<'c> {
-    fn new(reached: &'c Cell<bool>) -> Self {
+    fn new(started: &'c Cell<bool>, reached: &'c Cell<bool>) -> Self {
         Self {
             scene: Scene::new(),
+            started,
             reached,
             open: 0,
         }
     }
 
     fn live(&self) -> bool {
-        !self.reached.get()
+        self.started.get() && !self.reached.get()
     }
 
     fn finish(mut self) -> Scene {
@@ -170,16 +172,14 @@ impl PageframeDomPainter<'_, '_> {
         projected: bool,
     ) -> Option<Backdrop> {
         let backdrop_filter = &styles.get_effects().backdrop_filter.0;
-        if backdrop_filter.is_empty()
-            || self.backdrop_depth >= MAX_DEPTH
-            || self.has_backdrop_root_ancestor(node)
-        {
+        if backdrop_filter.is_empty() || self.backdrop_depth >= MAX_DEPTH {
             return None;
         }
         if let Some(cached) = self.backdrops.borrow().get(&node.id) {
             return cached.clone();
         }
-        let backdrop = self.paint_backdrop(node, styles, cx, projected);
+        let root = self.backdrop_root_ancestor(node);
+        let backdrop = self.paint_backdrop(node, root, styles, cx, projected);
         self.backdrops
             .borrow_mut()
             .insert(node.id, backdrop.clone());
@@ -189,6 +189,7 @@ impl PageframeDomPainter<'_, '_> {
     fn paint_backdrop(
         &self,
         node: &Node,
+        root: Option<NodeId>,
         styles: &ComputedValues,
         cx: &ElementCx<'_, '_>,
         projected: bool,
@@ -220,20 +221,20 @@ impl PageframeDomPainter<'_, '_> {
         painter.backdrop_stop = Some(node.id);
         painter.backdrop_depth = self.backdrop_depth + 1;
         painter.backdrops = Rc::clone(&self.backdrops);
-        let mut cutoff = Cutoff::new(&painter.backdrop_reached);
+        painter.backdrop_root = root;
+        painter.backdrop_started.set(root.is_none());
+        let mut cutoff = Cutoff::new(&painter.backdrop_started, &painter.backdrop_reached);
         painter.paint_scene(&mut cutoff);
         let recording = cutoff.finish();
         let (image, area) = filtered_backdrop(recording, area, &filters)?;
         Some(Backdrop { image, area })
     }
 
-    fn has_backdrop_root_ancestor(&self, node: &Node) -> bool {
+    fn backdrop_root_ancestor(&self, node: &Node) -> Option<NodeId> {
         let tree = self.dom.as_ref().tree();
         let mut parent = node.parent;
         while let Some(id) = parent {
-            let Some(ancestor) = tree.get(id) else {
-                return false;
-            };
+            let ancestor = tree.get(id)?;
             if let Some(style) = ancestor.primary_styles() {
                 let effects = style.get_effects();
                 let masked = style
@@ -249,12 +250,12 @@ impl PageframeDomPainter<'_, '_> {
                     || masked
                     || self.dom.clip_path_of(ancestor).is_some()
                 {
-                    return true;
+                    return Some(id);
                 }
             }
             parent = ancestor.parent;
         }
-        false
+        None
     }
 
     pub(super) fn draw_backdrop(
