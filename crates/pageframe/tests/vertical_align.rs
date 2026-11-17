@@ -49,9 +49,10 @@ fn sub_sup_and_middle_shift_lines_like_chrome() {
     let lowest_sub_ink = (0..22)
         .rev()
         .find(|&down| (12..30).any(|across| pixel(&buffer, across, down)[0] < 128));
-    assert!(
-        lowest_sub_ink.is_some_and(|down| (19..=20).contains(&down)),
-        "the subscript ink ends on row {lowest_sub_ink:?}, Chrome's baseline is at 20.45"
+    assert_eq!(
+        lowest_sub_ink,
+        Some(19),
+        "Chrome's subscript baseline is at 20.45, so its ink ends on row 19"
     );
     assert_close(
         &heights_and_tops(&mut harness),
