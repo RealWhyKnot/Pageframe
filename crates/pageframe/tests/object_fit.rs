@@ -79,6 +79,28 @@ fn a_cover_image_fills_its_whole_content_box_at_seven_quarters_scale() {
 }
 
 #[test]
+fn a_fitted_image_snaps_from_its_unsnapped_box_at_seven_quarters_scale() {
+    let html = format!(
+        "<!doctype html><style>html,body{{margin:0;background:white}}img{{width:100px;height:60px;border:1px solid #000;margin:3px;object-fit:none;object-position:10px 0}}</style><img src=\"{WIDE}\"><img src=\"{WIDE}\">"
+    );
+    let buffer = render_at_ratio(&mut open(App::new((), &html)), (7, 4), 640);
+    let at = |column: usize, row: usize| {
+        let offset = (row * 1120 + column) * 4;
+        buffer[offset..offset + 4].to_vec()
+    };
+    let red = vec![255, 0, 0, 255];
+    let blue = vec![0, 0, 255, 255];
+    assert_eq!(at(210, 20), WHITE.to_vec());
+    assert_eq!(at(211, 20), red);
+    assert_eq!(at(280, 20), blue);
+    assert_eq!(at(281, 20), WHITE.to_vec());
+    assert_eq!(at(230, 5), vec![0, 0, 0, 255]);
+    assert_eq!(at(230, 6), red);
+    assert_eq!(at(230, 40), red);
+    assert_eq!(at(230, 41), WHITE.to_vec());
+}
+
+#[test]
 fn scale_down_contains_images_larger_than_the_box_at_1x_and_2x() {
     assert_eq!(painted_size(BIG_SVG, "scale-down"), (100, 50));
     assert_eq!(painted_size_at_scale_two(BIG_SVG, "scale-down"), (200, 100));

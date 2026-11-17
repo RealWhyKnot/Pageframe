@@ -2397,11 +2397,30 @@ impl ElementCx<'_, '_> {
             let y_offset = object_position.vertical.resolve(
                 CSSPixelLength::new(container_size.height - paint_size.height) / self.scale as f32,
             ) * self.scale as f32;
-            let x = x + x_offset.px() as f64;
-            let y = y + y_offset.px() as f64;
+            let layout = self.node.final_layout();
+            let unsnapped = self.node.layout_data().unsnapped;
+            let drift = |offset: f32, border: f32, padding: f32, snapped: f32| {
+                f64::from(offset + border + padding - snapped) * self.scale
+            };
+            let x =
+                x + drift(
+                    unsnapped.offset.x,
+                    unsnapped.border.left,
+                    unsnapped.padding.left,
+                    layout.border.left + layout.padding.left,
+                ) + f64::from(x_offset.px());
+            let y =
+                y + drift(
+                    unsnapped.offset.y,
+                    unsnapped.border.top,
+                    unsnapped.padding.top,
+                    layout.border.top + layout.padding.top,
+                ) + f64::from(y_offset.px());
+            let (x, width) = snap_span(x, f64::from(paint_size.width));
+            let (y, height) = snap_span(y, f64::from(paint_size.height));
 
-            let x_scale = f64::from(paint_size.width) / f64::from(image.width);
-            let y_scale = f64::from(paint_size.height) / f64::from(image.height);
+            let x_scale = width / f64::from(image.width);
+            let y_scale = height / f64::from(image.height);
             let transform = self
                 .transform
                 .pre_translate(Vec2 { x, y })
@@ -2492,6 +2511,11 @@ fn whole_device_px(width: f64) -> f64 {
     } else {
         width
     }
+}
+
+fn snap_span(start: f64, length: f64) -> (f64, f64) {
+    let snapped = start.round();
+    (snapped, (start + length).round() - snapped)
 }
 
 fn whole_px_extent(length: f64) -> u32 {
