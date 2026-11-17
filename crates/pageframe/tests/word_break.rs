@@ -1,6 +1,8 @@
+mod scaled;
 mod support;
 
 use pageframe::App;
+use scaled::render_at_scale;
 use support::{open, pixel, render};
 
 const BREAK_ALL: &str = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}\
@@ -88,4 +90,51 @@ fn break_all_text_stays_inside_its_box() {
         .filter(|&(column, row)| pixel(&buffer, column, row)[0] < 200)
         .collect();
     assert_eq!(spill.first(), None, "ink right of the boxes");
+}
+
+const BOUNDARY: &str = "<!doctype html><style>html,body{margin:0}\
+.boxes{font-size:0}.boxes span{display:inline-block;width:11px;height:5px;background:#f00}\
+section{display:flow-root;font:10px/10px Consolas,monospace}\
+b{float:left;width:10px;height:30px;background:#00f}</style>\
+<div id=fits class=boxes style='width:21.99px'><span></span><span></span></div>\
+<div id=wraps class=boxes style='width:21.98px'><span></span><span></span></div>\
+<section style='width:calc(4ch + 10px)'><b></b><div id=beside>abcd abcd</div></section>\
+<section style='width:calc(4ch + 9.98px)'><b></b><div id=below>abcd abcd</div></section>";
+
+#[test]
+fn lines_fit_one_layout_unit_past_their_box_like_chrome() {
+    let mut harness = open(App::new((), BOUNDARY));
+    let heights = ["#fits", "#wraps", "#beside", "#below"].map(|selector| {
+        let doc = harness.base_mut();
+        let id = doc
+            .query_selector(selector)
+            .expect("valid selector")
+            .expect("the div exists");
+        doc.get_client_bounding_rect(id)
+            .map(|rect| rect.height)
+            .expect("the div has a box")
+    });
+    assert_eq!(heights, [5.0, 10.0, 20.0, 50.0]);
+}
+
+const DEVICE_BOUNDARY: &str = "<!doctype html><style>html,body{margin:0}\
+div{font-size:0}span{display:inline-block;width:11px;height:5px;background:#f00}</style>\
+<div id=fits style='width:21.995px'><span></span><span></span></div>\
+<div id=wraps style='width:21.99px'><span></span><span></span></div>";
+
+#[test]
+fn the_fit_epsilon_is_one_device_layout_unit_at_2x() {
+    let mut harness = open(App::new((), DEVICE_BOUNDARY));
+    render_at_scale(&mut harness, 2);
+    let heights = ["#fits", "#wraps"].map(|selector| {
+        let doc = harness.base_mut();
+        let id = doc
+            .query_selector(selector)
+            .expect("valid selector")
+            .expect("the div exists");
+        doc.get_client_bounding_rect(id)
+            .map(|rect| rect.height)
+            .expect("the div has a box")
+    });
+    assert_eq!(heights, [5.0, 10.0]);
 }
