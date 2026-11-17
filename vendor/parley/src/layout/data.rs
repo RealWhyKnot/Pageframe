@@ -472,8 +472,7 @@ struct ContentWidthsMeasurer {
     running_hanging_min: f32,
     part_start: f32,
     snap_extra: f32,
-    last_part_start: f32,
-    last_part_extra: f32,
+    closed_parts: Vec<(f32, f32)>,
 }
 
 impl ContentWidthsMeasurer {
@@ -495,9 +494,9 @@ impl ContentWidthsMeasurer {
 
     fn close_part(&mut self) {
         let part = self.running_min_width - self.part_start;
-        self.last_part_start = self.part_start;
-        self.last_part_extra = self.snap(part) - part;
-        self.snap_extra += self.last_part_extra;
+        let extra = self.snap(part) - part;
+        self.closed_parts.push((self.part_start, extra));
+        self.snap_extra += extra;
         self.part_start = self.running_min_width;
     }
 
@@ -505,8 +504,7 @@ impl ContentWidthsMeasurer {
         self.running_min_width = indent;
         self.part_start = indent;
         self.snap_extra = 0.0;
-        self.last_part_start = indent;
-        self.last_part_extra = 0.0;
+        self.closed_parts.clear();
     }
 
     fn min_line_width(&self) -> f32 {
@@ -515,11 +513,15 @@ impl ContentWidthsMeasurer {
         if open >= 0.0 {
             return end + self.snap_extra + self.snap(open) - open;
         }
-        let last = end - self.last_part_start;
-        if last >= 0.0 {
-            return end + self.snap_extra - self.last_part_extra + self.snap(last) - last;
+        let mut extra = self.snap_extra;
+        for &(start, part_extra) in self.closed_parts.iter().rev() {
+            extra -= part_extra;
+            let part = end - start;
+            if part >= 0.0 {
+                return end + extra + self.snap(part) - part;
+            }
         }
-        end + self.snap_extra
+        end + extra
     }
 
     fn line_growth_at(&self, cluster: usize) -> f32 {
@@ -541,8 +543,7 @@ impl ContentWidthsMeasurer {
             running_hanging_min: 0.,
             part_start: first_line_indent,
             snap_extra: 0.,
-            last_part_start: first_line_indent,
-            last_part_extra: 0.,
+            closed_parts: Vec::new(),
             min_width: 0.,
             max_width: 0.,
             running_min_width: first_line_indent,
@@ -804,8 +805,6 @@ impl ContentWidthsMeasurer {
         self.running_hanging_min = 0.0;
         self.running_min_width += inline_box.width;
         self.part_start = self.running_min_width;
-        self.last_part_start = self.running_min_width;
-        self.last_part_extra = 0.0;
         self.running_max_width += inline_box.width;
         self.line_has_content = true;
         if wraps && followed_by_inline_content {

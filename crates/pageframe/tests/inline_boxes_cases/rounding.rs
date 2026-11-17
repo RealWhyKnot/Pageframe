@@ -102,3 +102,34 @@ fn wrapped_text_rounds_each_line_up_like_chrome() {
         [1943.0, 2391.0, 1743.0, 1077.0, 956.0]
     );
 }
+
+#[test]
+fn trailing_spaces_split_across_spans_keep_the_min_content_width() {
+    let html = "<!doctype html><html><head><style>html,body{margin:0;font:14px Arial}\
+                div{width:min-content;white-space:pre-wrap}</style></head><body>\
+                <div id=two>wavy quick <b> </b>x</div>\
+                <div id=three>wavy quick<i> </i><b> </b>x</div></body></html>";
+    let mut harness = open(App::new((), html));
+    {
+        let mut doc = harness.base_mut();
+        let color_scheme = doc.get_viewport().color_scheme;
+        doc.set_viewport(pageframe_traits::shell::Viewport::new(
+            support::WIDTH * 3 / 2,
+            support::HEIGHT * 3 / 2,
+            1.5,
+            color_scheme,
+        ));
+    }
+    harness.pump();
+    let doc = harness.base_mut();
+    let width = |id: &str| {
+        let node = doc
+            .query_selector(&format!("#{id}"))
+            .expect("valid selector")
+            .expect("the box exists");
+        doc.get_client_bounding_rect(node)
+            .expect("the box is laid out")
+            .width
+    };
+    assert_eq!(width("three"), width("two"));
+}
