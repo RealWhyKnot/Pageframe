@@ -923,6 +923,66 @@ impl ElementData {
         ((value / 2.0 - minimum / 2.0) / half_span).clamp(0.0, 1.0)
     }
 
+    pub fn progress_position(&self) -> Option<f64> {
+        self.attr(local_name!("value"))?;
+        let number = |name: LocalName| self.attr(name).and_then(parse_html_float_prefix);
+        let maximum = number(local_name!("max"))
+            .filter(|maximum| *maximum > 0.0)
+            .unwrap_or(1.0);
+        let value = number(local_name!("value"))
+            .filter(|value| *value > 0.0)
+            .unwrap_or(0.0)
+            .min(maximum);
+        Some(value / maximum)
+    }
+
+    pub fn meter_gauge(&self) -> (f64, GaugeRegion) {
+        let number = |name: LocalName| self.attr(name).and_then(parse_html_float_prefix);
+        let minimum = number(local_name!("min")).unwrap_or(0.0);
+        let maximum = number(local_name!("max"))
+            .unwrap_or_else(|| minimum.max(1.0))
+            .max(minimum);
+        let value = number(local_name!("value"))
+            .unwrap_or(0.0)
+            .clamp(minimum, maximum);
+        let low = number(local_name!("low"))
+            .unwrap_or(minimum)
+            .clamp(minimum, maximum);
+        let high = number(local_name!("high"))
+            .unwrap_or(maximum)
+            .clamp(low, maximum);
+        let optimum = number(local_name!("optimum"))
+            .unwrap_or_else(|| (minimum + maximum) / 2.0)
+            .clamp(minimum, maximum);
+        let region = if optimum < low {
+            if value <= low {
+                GaugeRegion::Optimum
+            } else if value <= high {
+                GaugeRegion::Suboptimum
+            } else {
+                GaugeRegion::EvenLessGood
+            }
+        } else if high < optimum {
+            if high <= value {
+                GaugeRegion::Optimum
+            } else if low <= value {
+                GaugeRegion::Suboptimum
+            } else {
+                GaugeRegion::EvenLessGood
+            }
+        } else if low <= value && value <= high {
+            GaugeRegion::Optimum
+        } else {
+            GaugeRegion::Suboptimum
+        };
+        let ratio = if maximum <= minimum {
+            0.0
+        } else {
+            (value - minimum) / (maximum - minimum)
+        };
+        (ratio, region)
+    }
+
     pub(crate) fn is_button_input(&self) -> bool {
         self.name.local == local_name!("input")
             && matches!(
@@ -1144,6 +1204,13 @@ mod file_data {
 #[cfg(feature = "file-input")]
 pub use file_data::FileData;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GaugeRegion {
+    Optimum,
+    Suboptimum,
+    EvenLessGood,
+}
+
 fn parse_html_float(text: &str) -> Option<f64> {
     let valid = !text.starts_with('+')
         && !text.ends_with('.')
@@ -1153,6 +1220,42 @@ fn parse_html_float(text: &str) -> Option<f64> {
     text.parse::<f64>()
         .ok()
         .filter(|number| valid && number.is_finite())
+}
+
+fn parse_html_float_prefix(text: &str) -> Option<f64> {
+    let text = text.trim_start_matches(['\t', '\n', '\x0c', '\r', ' ']);
+    let bytes = text.as_bytes();
+    let digits_from = |start: usize| {
+        bytes[start..]
+            .iter()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count()
+    };
+    let sign = usize::from(matches!(bytes.first(), Some(b'-' | b'+')));
+    let whole = digits_from(sign);
+    let mut end = sign + whole;
+    let fraction = if bytes.get(end) == Some(&b'.') {
+        digits_from(end + 1)
+    } else {
+        0
+    };
+    if whole == 0 && fraction == 0 {
+        return None;
+    }
+    if fraction > 0 {
+        end += 1 + fraction;
+    }
+    if matches!(bytes.get(end), Some(b'e' | b'E')) {
+        let exponent_sign = usize::from(matches!(bytes.get(end + 1), Some(b'-' | b'+')));
+        let exponent = digits_from(end + 1 + exponent_sign);
+        if exponent > 0 {
+            end += 1 + exponent_sign + exponent;
+        }
+    }
+    text[..end]
+        .parse::<f64>()
+        .ok()
+        .filter(|number| number.is_finite())
 }
 
 #[cfg(test)]

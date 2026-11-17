@@ -3,7 +3,7 @@ use crate::color::{Color, ToColorColor as _, contrast_ratio};
 use anyrender::PaintScene;
 use kurbo::{Affine, BezPath, Cap, Join, Rect, Stroke};
 use pageframe_dom::CopyStyleGetters as _;
-use pageframe_dom::local_name;
+use pageframe_dom::{GaugeRegion, local_name};
 use peniko::Fill;
 use style::dom::TElement as _;
 use style::values::generics::color::ColorOrAuto;
@@ -33,6 +33,13 @@ const TRACK_BORDER: Color = Color::from_rgba8(0x76, 0x76, 0x76, 0x80);
 const DISABLED_SLIDER: Color = Color::from_rgba8(0xcb, 0xcb, 0xcb, 0xff);
 const DISABLED_TRACK_FILL: Color = Color::from_rgba8(0xfa, 0xfa, 0xfa, 0xff);
 const DISABLED_TRACK_BORDER: Color = Color::from_rgba8(0x76, 0x76, 0x76, 0x4d);
+const PROGRESS_RADIUS: f64 = 40.0;
+const PROGRESS_ACTIVITY_BLOCKS: f64 = 5.0;
+const METER_RADIUS: f64 = 20.0;
+const METER_BORDER: Color = Color::from_rgba8(0x76, 0x76, 0x76, 0x4d);
+const METER_OPTIMUM: Color = Color::from_rgba8(0x10, 0x7c, 0x10, 0xff);
+const METER_SUBOPTIMUM: Color = Color::from_rgba8(0xff, 0xb9, 0x00, 0xff);
+const METER_EVEN_LESS_GOOD: Color = Color::from_rgba8(0xd8, 0x3b, 0x01, 0xff);
 
 struct ControlColors {
     accent: Color,
@@ -44,8 +51,11 @@ struct ControlColors {
 
 impl ElementCx<'_, '_> {
     pub(super) fn draw_input(&self, scene: &mut impl PaintScene) {
-        if self.node.local_name() != "input" {
-            return;
+        match self.node.local_name().as_ref() {
+            "input" => {}
+            "progress" => return self.draw_progress(scene),
+            "meter" => return self.draw_meter(scene),
+            _ => return,
         }
         match self.element.input_type().as_deref() {
             Some("color") => return self.draw_color_swatch(scene),
@@ -167,6 +177,113 @@ impl ElementCx<'_, '_> {
         );
         let thumb = thumb.inset(-THUMB_INSET).to_ellipse();
         scene.fill(Fill::NonZero, self.transform, value_fill, None, &thumb);
+    }
+
+    fn draw_progress(&self, scene: &mut impl PaintScene) {
+        let rect = self.frame.border_box.round();
+        if rect.width() <= 0.0 || rect.height() <= 0.0 {
+            return;
+        }
+        let half_track = rect.height() * SLIDER_TRACK_THICKNESS / SLIDER_THUMB_SIZE / 2.0;
+        let center = rect.center().y;
+        let track = Rect::new(
+            rect.x0,
+            rect.y0.max(center - half_track),
+            rect.x1,
+            rect.y1.min(center + half_track),
+        );
+        let radius = PROGRESS_RADIUS
+            .min(track.width() / 2.0)
+            .min(track.height() / 2.0);
+        let shape = track.to_rounded_rect(radius);
+        scene.fill(Fill::NonZero, self.transform, TRACK_FILL, None, &shape);
+        let accent = self.control_colors().accent;
+        let position = self.element.progress_position();
+        let length = match position {
+            Some(position) => (rect.width() * position).trunc(),
+            None => (rect.width() / PROGRESS_ACTIVITY_BLOCKS).trunc(),
+        };
+        let length = if length > 0.0 { length.max(2.0) } else { 0.0 };
+        let value = Rect::new(track.x0, track.y0, track.x0 + length, track.y1);
+        if position.is_some() {
+            scene.push_clip_layer(Fill::NonZero, self.transform, &shape);
+            scene.fill(Fill::NonZero, self.transform, accent, None, &value);
+            scene.pop_layer();
+        } else if length < rect.width() {
+            let value_radius = PROGRESS_RADIUS
+                .min(value.width() / 2.0)
+                .min(value.height() / 2.0);
+            let value = value.to_rounded_rect(value_radius);
+            scene.fill(Fill::NonZero, self.transform, accent, None, &value);
+        }
+        let border_width = self.scale.floor().max(BORDER_WIDTH);
+        let outline = track.inset(-border_width / 2.0).to_rounded_rect(radius);
+        if position.is_some() {
+            scene.push_clip_layer(Fill::NonZero, self.transform, &shape);
+        }
+        scene.stroke(
+            &Stroke::new(border_width),
+            self.transform,
+            TRACK_BORDER,
+            None,
+            &outline,
+        );
+        if position.is_some() {
+            scene.pop_layer();
+        }
+    }
+
+    fn draw_meter(&self, scene: &mut impl PaintScene) {
+        let content = self.frame.content_box;
+        let quarter = content.height() / 4.0;
+        let bar = Rect::new(
+            content.x0,
+            content.y0 + quarter,
+            content.x1,
+            content.y1 - quarter,
+        )
+        .round();
+        if bar.width() <= 0.0 || bar.height() <= 0.0 {
+            return;
+        }
+        let border = BORDER_WIDTH * self.scale;
+        let radius = METER_RADIUS * self.scale;
+        let fit = (bar.width() / (2.0 * radius))
+            .min(bar.height() / (2.0 * radius))
+            .min(1.0);
+        let outer_radius = radius * fit;
+        scene.fill(
+            Fill::NonZero,
+            self.transform,
+            TRACK_FILL,
+            None,
+            &bar.to_rounded_rect(outer_radius),
+        );
+        let ring = bar
+            .inset(-border / 2.0)
+            .to_rounded_rect((outer_radius - border / 2.0).max(0.0));
+        scene.stroke(
+            &Stroke::new(border),
+            self.transform,
+            METER_BORDER,
+            None,
+            &ring,
+        );
+        let (ratio, region) = self.element.meter_gauge();
+        let fill = match region {
+            GaugeRegion::Optimum => METER_OPTIMUM,
+            GaugeRegion::Suboptimum => METER_SUBOPTIMUM,
+            GaugeRegion::EvenLessGood => METER_EVEN_LESS_GOOD,
+        };
+        let inner = bar.inset(-border);
+        if inner.width() > 0.0 && inner.height() > 0.0 {
+            let inner_shape = inner.to_rounded_rect((outer_radius - border).max(0.0));
+            let value_end = (inner.x0 + inner.width() * ratio).round();
+            let value = Rect::new(inner.x0, inner.y0, value_end, inner.y1);
+            scene.push_clip_layer(Fill::NonZero, self.transform, &inner_shape);
+            scene.fill(Fill::NonZero, self.transform, fill, None, &value);
+            scene.pop_layer();
+        }
     }
 
     pub(super) fn draw_select_arrow(&self, scene: &mut impl PaintScene) {

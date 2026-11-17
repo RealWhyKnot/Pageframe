@@ -516,6 +516,18 @@ impl LayoutPassState<'_> {
                     return output;
                 }
 
+                if matches!(element_data.name.local.as_ref(), "progress" | "meter") {
+                    let mut output = compute_leaf_layout(
+                        inputs,
+                        &node.layout_style(),
+                        resolve_calc_value,
+                        |_known_size, _available_space| taffy::Size::ZERO,
+                    );
+                    output.baselines.first = Some(output.size.height);
+                    output.baselines.last = Some(output.size.height);
+                    return output;
+                }
+
                 if *element_data.name.local == *"input" {
                     match element_data.input_type().as_deref() {
                         // if the input type is hidden, hide it

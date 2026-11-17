@@ -504,6 +504,13 @@ fn collect_layout_children_with_wrap(
             }
         }
 
+        if matches!(tag_name, "progress" | "meter") {
+            doc.iter_subtree_mut(container_node_id, |id: NodeId, doc: &mut BaseDocument| {
+                doc.nodes[id].remove_damage(CONSTRUCT_BOX | CONSTRUCT_DESCENDENT | CONSTRUCT_FC);
+            });
+            return;
+        }
+
         #[cfg(feature = "svg")]
         if matches!(tag_name, "svg") {
             let outer_html = doc.get_node(container_node_id).unwrap().svg_source();
