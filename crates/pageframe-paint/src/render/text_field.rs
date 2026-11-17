@@ -69,9 +69,8 @@ impl ElementCx<'_, '_> {
 
         let half = width / 2.0;
         if matches!(kind, NativeFrame::Button) {
-            let centre_radius = BORDER_RADIUS * self.scale;
-            let outer = RoundedRect::from_rect(rect, centre_radius + half);
-            let inner = RoundedRect::from_rect(rect.inset(-width), (centre_radius - half).max(0.0));
+            let outer = RoundedRect::from_rect(rect, radius + half);
+            let inner = RoundedRect::from_rect(rect.inset(-width), (radius - half).max(0.0));
             scene.fill(Fill::NonZero, transform, background, None, &inner);
             let mut ring = outer.to_path(0.1);
             ring.extend(inner.to_path(0.1));
