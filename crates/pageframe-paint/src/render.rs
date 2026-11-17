@@ -1446,8 +1446,8 @@ impl ElementCx<'_, '_> {
         fragment: &crate::text::InlineFragment,
     ) {
         let origin = transform.translation();
-        let snap_x = |value: f64| (value + origin.x).round() - origin.x;
-        let snap_y = |value: f64| (value + origin.y).round() - origin.y;
+        let snap_x = |value: f64| pixels::device_round(value + origin.x) - origin.x;
+        let snap_y = |value: f64| pixels::device_round(value + origin.y) - origin.y;
         let rect = fragment.rect;
         let node = self.context.dom.get_node(fragment.node_id);
         let Some((node, style)) = node

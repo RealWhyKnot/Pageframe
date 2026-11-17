@@ -24,6 +24,10 @@ fn supports_glyph_caching(transform: Affine, glyph_transform: Option<Affine>) ->
     b == 0.0 && c == 0.0 && a == d && a > 0.0
 }
 
+const LAYOUT_UNITS_PER_PX: f64 = 64.0;
+const UNIT_SLACK: f64 = 1.0 / 32.0;
+const NOISE_ULPS: f64 = 4.0;
+
 /// Snaps glyph origins to the horizontal subpixel grid of the platform's native text renderer.
 ///
 /// CoreGraphics (and so Safari and other native Apple text) floors each glyph origin's device x
@@ -32,7 +36,8 @@ fn supports_glyph_caching(transform: Affine, glyph_transform: Option<Affine>) ->
 /// this, stems land up to 1/2px away from native ones. Elsewhere, x is rounded to the nearest
 /// 1/4px, as Skia does for horizontal text (and so Chrome off Apple). On Apple, CoreGraphics
 /// also floors the device y of the baseline to a whole pixel (y up, so the baseline moves down
-/// in Vello's y-down device space); off Apple, y is not snapped.
+/// in Vello's y-down device space). Off Apple, hinted glyphs round device y half up after
+/// truncating it to Chrome's 1/64px layout units, so float noise can't drop a baseline a pixel.
 ///
 /// CoreGraphics font smoothing also dilates glyphs upwards only: stems grow by the same amount
 /// on both sides in x, but the bottom edge stays on the baseline and the top grows by twice
@@ -47,20 +52,26 @@ pub(crate) struct GlyphOriginSnap {
     round_x: f64,
     /// The transform's y scale and offset when device y is snapped, as on Apple.
     snap_y: Option<(f64, f64)>,
+    hinted_y: Option<(f64, f64)>,
     lift_y: f64,
 }
 
 impl GlyphOriginSnap {
-    pub(crate) fn new(transform: Affine, font_size: f32, embolden: kurbo::Vec2) -> Option<Self> {
+    pub(crate) fn new(
+        transform: Affine,
+        font_size: f32,
+        embolden: kurbo::Vec2,
+        hint: bool,
+    ) -> Option<Self> {
         if cfg!(any(target_os = "macos", target_os = "ios")) {
             Self::core_graphics(transform, font_size, embolden)
         } else {
-            Self::skia(transform)
+            Self::skia(transform, hint)
         }
     }
 
-    fn skia(transform: Affine) -> Option<Self> {
-        let [a, b, c, _, e, _] = transform.as_coeffs();
+    fn skia(transform: Affine, hint: bool) -> Option<Self> {
+        let [a, b, c, d, e, f] = transform.as_coeffs();
         if b != 0.0 || c != 0.0 || a <= 0.0 {
             return None;
         }
@@ -70,6 +81,7 @@ impl GlyphOriginSnap {
             positions_per_px: 4.0,
             round_x: 0.5,
             snap_y: None,
+            hinted_y: (hint && d != 0.0).then_some((d, f)),
             lift_y: 0.0,
         })
     }
@@ -87,6 +99,7 @@ impl GlyphOriginSnap {
             positions_per_px: (100.0 / (3.0 * ppem)).ceil().min(5.0),
             round_x: 0.0,
             snap_y: Some((d, f)),
+            hinted_y: None,
             // glifo scales the embolden amount with the transform, so it is in user units.
             lift_y: embolden.y * d.signum(),
         })
@@ -105,6 +118,13 @@ impl GlyphOriginSnap {
             // CoreGraphics tolerates about 1/1000 device px before moving to the next pixel.
             let snapped = (scale_y * y + offset_y - 1.0 / 1024.0).ceil();
             y = (snapped - offset_y) / scale_y;
+        }
+        if let Some((scale_y, offset_y)) = self.hinted_y {
+            let units = (scale_y * y + offset_y) * LAYOUT_UNITS_PER_PX;
+            let slack = (units.abs() * NOISE_ULPS * f64::from(f32::EPSILON)).max(UNIT_SLACK);
+            let truncated = (units.abs() + slack).floor().copysign(units);
+            let whole = ((truncated + LAYOUT_UNITS_PER_PX / 2.0) / LAYOUT_UNITS_PER_PX).floor();
+            y = (whole - offset_y) / scale_y;
         }
         (y - self.lift_y) as f32
     }
@@ -305,7 +325,7 @@ impl PaintScene for VelloCpuScenePainter {
 
         let glyph_caching =
             self.glyph_caching && supports_glyph_caching(transform, glyph_transform);
-        let snap = GlyphOriginSnap::new(transform, font_size, embolden);
+        let snap = GlyphOriginSnap::new(transform, font_size, embolden, hint);
         let style: StyleRef<'a> = style.into();
         match style {
             StyleRef::Fill(fill) => {
@@ -555,7 +575,7 @@ mod glyph_origin_snap_tests {
     #[test]
     fn rounds_device_x_to_quarter_px_for_skia() {
         let device_x = |transform: Affine, x: f32| {
-            let snap = GlyphOriginSnap::skia(transform).unwrap();
+            let snap = GlyphOriginSnap::skia(transform, false).unwrap();
             transform.as_coeffs()[0] * snap.x(x) as f64 + transform.as_coeffs()[4]
         };
         assert_eq!(device_x(Affine::IDENTITY, 10.1), 10.0);
@@ -563,7 +583,7 @@ mod glyph_origin_snap_tests {
         assert_eq!(device_x(Affine::IDENTITY, 10.9), 11.0);
         let transform = Affine::translate((3.0, 0.0)) * Affine::scale(2.0);
         assert_eq!(device_x(transform, 5.2), 13.5);
-        assert!(GlyphOriginSnap::skia(Affine::rotate(0.5)).is_none());
+        assert!(GlyphOriginSnap::skia(Affine::rotate(0.5), true).is_none());
     }
 
     #[test]
@@ -580,8 +600,24 @@ mod glyph_origin_snap_tests {
         assert!((device_y(Affine::scale(1.5), 7.0) - 11.0).abs() < 1e-6);
         let transform = Affine::translate((0.0, 0.25)) * Affine::scale(2.0);
         assert!((device_y(transform, 5.0) - 11.0).abs() < 1e-6);
-        let snap = GlyphOriginSnap::skia(Affine::IDENTITY).unwrap();
+        let snap = GlyphOriginSnap::skia(Affine::IDENTITY, false).unwrap();
         assert_eq!(snap.y(10.3), 10.3);
+    }
+
+    #[test]
+    fn rounds_hinted_device_y_from_whole_layout_units_for_skia() {
+        let device_y = |offset: f64, y: f32| {
+            let transform = Affine::translate((0.0, offset));
+            let snap = GlyphOriginSnap::skia(transform, true).unwrap();
+            (f64::from(snap.y(y)) + offset).round()
+        };
+        assert_eq!(device_y(110.499_999_046_325_68, 23.0), 134.0);
+        assert_eq!(device_y(110.5, 23.0), 134.0);
+        assert_eq!(device_y(110.48, 23.0), 133.0);
+        assert_eq!(device_y(110.0, 23.4), 133.0);
+        assert_eq!(device_y(-110.5, -23.0), -133.0);
+        let unhinted = GlyphOriginSnap::skia(Affine::translate((0.0, 110.4)), false).unwrap();
+        assert_eq!(unhinted.y(23.0), 23.0);
     }
 
     #[test]

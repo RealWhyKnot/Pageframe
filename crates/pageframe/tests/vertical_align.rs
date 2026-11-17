@@ -3,7 +3,7 @@ mod support;
 
 use pageframe::{App, Page};
 use pageframe_test_harness::Harness;
-use scaled::render_at_scale;
+use scaled::{render_at_ratio, render_at_scale};
 use support::{open, pixel, render};
 
 const PAGE: &str = "<!doctype html><style>html,body{margin:0;background:white;font:14px Arial}div{margin-bottom:4px}\
@@ -80,4 +80,24 @@ fn sub_sup_and_middle_shift_lines_like_chrome() {
         ],
         "lines at 2x",
     );
+}
+
+#[test]
+fn a_line_on_a_half_device_pixel_paints_half_up_at_seven_quarters_scale() {
+    let mut harness = open(App::new(
+        (),
+        "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}</style><details open><summary>Open details</summary>Inside details</details><details><summary>Closed details</summary>hidden</details><dialog open>Open dialog</dialog><hr><mark>mark</mark> <kbd>kbd</kbd> <code>code</code> <abbr title=x>abbr</abbr> <small>small</small>",
+    ));
+    let buffer = render_at_ratio(&mut harness, (7, 4), 640);
+    let at = |column: usize, row: usize| {
+        let start = (row * 1120 + column) * 4;
+        [buffer[start], buffer[start + 1], buffer[start + 2]]
+    };
+    let marked = |row: usize| at(10, row) == [255, 255, 0];
+    assert_eq!(
+        (marked(111), marked(112), marked(138), marked(139)),
+        (false, true, true, false)
+    );
+    let ink = |row: usize| at(175, row).iter().all(|&channel| channel < 80);
+    assert_eq!((ink(132), ink(133), ink(134)), (true, true, false));
 }
