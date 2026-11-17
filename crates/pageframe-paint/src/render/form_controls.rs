@@ -22,6 +22,9 @@ const ARROW_HEIGHT: f64 = 7.0;
 const ARROW_REACH: f64 = 4.0;
 const ARROW_TOP: f64 = 1.0;
 const ARROW_STROKE: f64 = 2.0;
+const SWATCH_INSET_X: f64 = 2.0;
+const SWATCH_INSET_Y: f64 = 4.0;
+const SWATCH_BORDER: Color = Color::from_rgba8(0x77, 0x77, 0x77, 0xff);
 
 struct ControlColors {
     accent: Color,
@@ -34,6 +37,10 @@ struct ControlColors {
 impl ElementCx<'_, '_> {
     pub(super) fn draw_input(&self, scene: &mut impl PaintScene) {
         if self.node.local_name() != "input" {
+            return;
+        }
+        if self.element.input_type().as_deref() == Some("color") {
+            self.draw_color_swatch(scene);
             return;
         }
         let Some(checked) = self.element.checkbox_input_checked() else {
@@ -64,6 +71,30 @@ impl ElementCx<'_, '_> {
             draw_checkbox(scene, transform, rect, checked, &colors);
         } else {
             draw_radio(scene, transform, rect, checked, &colors);
+        }
+    }
+
+    fn draw_color_swatch(&self, scene: &mut impl PaintScene) {
+        let content = self.frame.content_box;
+        let (inset_x, inset_y) = (SWATCH_INSET_X * self.scale, SWATCH_INSET_Y * self.scale);
+        let outer = Rect::new(
+            content.x0 + inset_x,
+            content.y0 + inset_y,
+            content.x1 - inset_x,
+            content.y1 - inset_y,
+        );
+        if outer.width() <= 0.0 || outer.height() <= 0.0 {
+            return;
+        }
+        let fill = self
+            .node
+            .attr(local_name!("value"))
+            .and_then(simple_color)
+            .unwrap_or(Color::BLACK);
+        scene.fill(Fill::NonZero, self.transform, SWATCH_BORDER, None, &outer);
+        let inner = outer.inset(-BORDER_WIDTH * self.scale);
+        if inner.width() > 0.0 && inner.height() > 0.0 {
+            scene.fill(Fill::NonZero, self.transform, fill, None, &inner);
         }
     }
 
@@ -195,4 +226,18 @@ fn draw_radio(
         let dot = rect.inset(-rect.width() * 0.2).to_ellipse();
         scene.fill(Fill::NonZero, transform, colors.accent, None, &dot);
     }
+}
+
+fn simple_color(value: &str) -> Option<Color> {
+    let hex = value.strip_prefix('#')?;
+    if hex.len() != 6 || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    let channel = |start: usize| u8::from_str_radix(&hex[start..start + 2], 16).ok();
+    Some(Color::from_rgba8(
+        channel(0)?,
+        channel(2)?,
+        channel(4)?,
+        0xff,
+    ))
 }

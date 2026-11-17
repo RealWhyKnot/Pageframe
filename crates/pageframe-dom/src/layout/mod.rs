@@ -114,6 +114,7 @@ pub(crate) struct LayoutPassState<'doc> {
 }
 
 const SCROLLBAR_WIDTH: f32 = 15.0;
+const COLOR_SWATCH_INSET: f32 = 4.0;
 
 struct FormControlSizing {
     avg_char_width: f32,
@@ -541,6 +542,28 @@ impl LayoutPassState<'_> {
                             );
                             output.baselines.first = Some(output.size.height);
                             output.baselines.last = Some(output.size.height);
+                            return output;
+                        }
+                        Some("color") => {
+                            let style = node.layout_style();
+                            let mut output = compute_leaf_layout(
+                                inputs,
+                                &style,
+                                resolve_calc_value,
+                                |_known_size, _available_space| taffy::Size::ZERO,
+                            );
+                            let bottom_inset = style
+                                .border()
+                                .bottom
+                                .resolve_or_zero(inputs.parent_size.width, resolve_calc_value)
+                                + style
+                                    .padding()
+                                    .bottom
+                                    .resolve_or_zero(inputs.parent_size.width, resolve_calc_value);
+                            let baseline =
+                                (output.size.height - bottom_inset - COLOR_SWATCH_INSET).max(0.0);
+                            output.baselines.first = Some(baseline);
+                            output.baselines.last = Some(baseline);
                             return output;
                         }
                         None
