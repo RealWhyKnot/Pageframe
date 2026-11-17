@@ -2602,12 +2602,13 @@ impl BaseDocument {
         self.get_node(node_id)?;
         let (pos, layout) = self.physical_unrounded_geometry(node_id);
         let size = layout.size;
+        let scale = self.viewport().scale_f64();
 
         Some(BoundingRect {
-            x: snap_to_layout_unit(pos.x as f64 - self.viewport_scroll().x),
-            y: snap_to_layout_unit(pos.y as f64 - self.viewport_scroll().y),
-            width: snap_to_layout_unit(size.width as f64),
-            height: snap_to_layout_unit(size.height as f64),
+            x: snap_to_layout_unit(pos.x as f64 - self.viewport_scroll().x, scale),
+            y: snap_to_layout_unit(pos.y as f64 - self.viewport_scroll().y, scale),
+            width: snap_to_layout_unit(size.width as f64, scale),
+            height: snap_to_layout_unit(size.height as f64, scale),
         })
     }
 
@@ -2705,22 +2706,23 @@ impl BaseDocument {
         let in_columns =
             self.has_column_ancestor(root_id) || self.nodes[root_id].columns().is_some();
         let scroll = self.viewport_scroll();
+        let scale = self.viewport().scale_f64();
 
         Some(fragments.map(move |rect| {
             if in_columns {
                 let (pos, size) = self.column_mapped_line_box(root_id, rect);
                 return BoundingRect {
-                    x: snap_to_layout_unit(f64::from(pos.x) - scroll.x),
-                    y: snap_to_layout_unit(f64::from(pos.y) - scroll.y),
-                    width: snap_to_layout_unit(f64::from(size.width)),
-                    height: snap_to_layout_unit(f64::from(size.height)),
+                    x: snap_to_layout_unit(f64::from(pos.x) - scroll.x, scale),
+                    y: snap_to_layout_unit(f64::from(pos.y) - scroll.y, scale),
+                    width: snap_to_layout_unit(f64::from(size.width), scale),
+                    height: snap_to_layout_unit(f64::from(size.height), scale),
                 };
             }
             BoundingRect {
-                x: snap_to_layout_unit(origin_x + rect.left as f64),
-                y: snap_to_layout_unit(origin_y + rect.top as f64),
-                width: snap_to_layout_unit((rect.right - rect.left) as f64),
-                height: snap_to_layout_unit((rect.bottom - rect.top) as f64),
+                x: snap_to_layout_unit(origin_x + rect.left as f64, scale),
+                y: snap_to_layout_unit(origin_y + rect.top as f64, scale),
+                width: snap_to_layout_unit((rect.right - rect.left) as f64, scale),
+                height: snap_to_layout_unit((rect.bottom - rect.top) as f64, scale),
             }
         }))
     }
@@ -3127,11 +3129,17 @@ impl BoundingRect {
     }
 }
 
-/// Snap a CSSOM geometry value to a 1/64px grid (the precision of Blink's `LayoutUnit`).
-/// Layout values are accumulated in `f32`, so e.g. seven `55/7`-wide flex items would
-/// otherwise end at `55.0000005` and appear to overflow their 55px container.
-fn snap_to_layout_unit(value: f64) -> f64 {
-    (value * 64.0).round() / 64.0
+/// Snap a CSSOM geometry value to a 1/64 device pixel grid (the precision of Blink's
+/// `LayoutUnit`, which lays out in device pixels). Layout values are accumulated in `f32`, so
+/// e.g. seven `55/7`-wide flex items would otherwise end at `55.0000005` and appear to overflow
+/// their 55px container.
+fn snap_to_layout_unit(value: f64, scale: f64) -> f64 {
+    let steps = if scale.is_finite() && scale > 0.0 {
+        64.0 * scale
+    } else {
+        64.0
+    };
+    (value * steps).round() / steps
 }
 
 fn is_style_image(msg: &DocumentEvent) -> bool {

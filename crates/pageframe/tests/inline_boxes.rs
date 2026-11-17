@@ -552,6 +552,43 @@ fn text_before_an_inline_block_rounds_up_like_chrome() {
 }
 
 #[test]
+fn client_rects_snap_to_device_pixel_sixty_fourths_like_chrome() {
+    let html = "<html><head><style>html,body{margin:0;background:white;font:14px Arial}\
+                div{width:400px}.ib{display:inline-block;width:40px;height:30px;margin:2px}\
+                </style></head><body>\
+                <div>a <span id=one class=ib></span></div>\
+                <div>Emoji \u{1F600}\u{1F44D} <span id=two class=ib></span></div>\
+                <div><b>a</b><i>b</i> <span id=three class=ib></span></div></body></html>";
+    let mut harness = open(App::new((), html));
+    {
+        let mut doc = harness.base_mut();
+        let color_scheme = doc.get_viewport().color_scheme;
+        doc.set_viewport(pageframe_traits::shell::Viewport::new(
+            support::WIDTH * 3 / 2,
+            support::HEIGHT * 3 / 2,
+            1.5,
+            color_scheme,
+        ));
+    }
+    harness.pump();
+    let doc = harness.base_mut();
+    let corner = |id: &str| {
+        let node = doc
+            .query_selector(&format!("#{id}"))
+            .expect("valid selector")
+            .expect("the box exists");
+        let rect = doc
+            .get_client_bounding_rect(node)
+            .expect("the box is laid out");
+        [rect.x, rect.y]
+    };
+    assert_eq!(
+        [corner("one"), corner("two"), corner("three")].concat(),
+        [1313.0, 192.0, 7991.0, 3776.0, 2062.0, 7360.0].map(|steps: f64| steps / 96.0)
+    );
+}
+
+#[test]
 fn wrapped_text_rounds_each_line_up_like_chrome() {
     let html = "<html><head><style>html,body{margin:0;background:white;font:14px Arial}\
                 .ib{display:inline-block;width:10px;height:10px}\
