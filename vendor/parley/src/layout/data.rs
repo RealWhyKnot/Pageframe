@@ -256,6 +256,7 @@ pub(crate) struct LayoutData<B: Brush> {
     /// Whether a line gets the root strut only once it holds text (the quirks mode line height
     /// rule). Span boxes then also stay off lines where they hold no text.
     pub(crate) strut_needs_text: bool,
+    pub(crate) split_item_ceils: Vec<(usize, parley_engine::ClusterGrowth)>,
 }
 
 impl<B: Brush> Default for LayoutData<B> {
@@ -283,6 +284,7 @@ impl<B: Brush> Default for LayoutData<B> {
             indent_options: IndentOptions::default(),
             empty_boxes_open_lines: false,
             strut_needs_text: false,
+            split_item_ceils: Vec::new(),
         }
     }
 }
@@ -301,6 +303,7 @@ impl<B: Brush> LayoutData<B> {
         self.indent_options = IndentOptions::default();
         self.empty_boxes_open_lines = false;
         self.strut_needs_text = false;
+        self.split_item_ceils.clear();
         self.styles.clear();
         self.style_metrics.clear();
         self.inline_boxes.clear();

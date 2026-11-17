@@ -158,6 +158,24 @@ pub struct ShapedText {
     normalized_coords: Vec<NormalizedCoord>,
 }
 
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ClusterGrowth {
+    cluster: usize,
+    cluster_advance: f32,
+    last_glyph: Option<(usize, f32)>,
+    run: usize,
+    run_advance: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TextItem {
+    style_index: u16,
+    total: f32,
+    last_cluster: usize,
+    run: usize,
+}
+
 impl ShapedText {
     /// Create a reusable [`ShapedText`].
     pub fn new() -> Self {
@@ -259,6 +277,138 @@ impl ShapedText {
             {
                 last.advance += change;
             }
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn ceil_text_item_advances(&mut self, steps_per_unit: f32, item_starts: &[bool]) {
+        let mut item: Option<TextItem> = None;
+        for run_index in 0..self.runs.len() {
+            if item_starts.get(run_index).copied().unwrap_or(true)
+                && let Some(done) = item.take()
+            {
+                self.ceil_text_item(done, steps_per_unit);
+            }
+            let range = self.runs[run_index].shaped_clusters_range.clone();
+            let start = usize::try_from(range.start).unwrap_or(usize::MAX);
+            let end = usize::try_from(range.end)
+                .unwrap_or(usize::MAX)
+                .min(self.shaped_clusters.len());
+            for cluster_index in start..end {
+                let cluster = self.shaped_clusters[cluster_index];
+                match &mut item {
+                    Some(current) if current.style_index == cluster.style_index => {
+                        current.total += cluster.advance;
+                        current.last_cluster = cluster_index;
+                        current.run = run_index;
+                    }
+                    _ => {
+                        if let Some(done) = item.take() {
+                            self.ceil_text_item(done, steps_per_unit);
+                        }
+                        item = Some(TextItem {
+                            style_index: cluster.style_index,
+                            total: cluster.advance,
+                            last_cluster: cluster_index,
+                            run: run_index,
+                        });
+                    }
+                }
+            }
+        }
+        if let Some(done) = item {
+            self.ceil_text_item(done, steps_per_unit);
+        }
+    }
+
+    fn ceil_text_item(&mut self, item: TextItem, steps_per_unit: f32) {
+        let remainder = (item.total * steps_per_unit).ceil() / steps_per_unit - item.total;
+        if remainder > 0.0 {
+            let advance = self.shaped_clusters[item.last_cluster].advance + remainder;
+            self.set_cluster_advance(item.last_cluster, advance);
+            self.runs[item.run].advance += remainder;
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn ceil_line_end_of_split_item(
+        &mut self,
+        line_clusters: Range<u32>,
+        steps_per_unit: f32,
+    ) -> Option<(ClusterGrowth, f32)> {
+        let run = self
+            .runs
+            .get(
+                self.runs
+                    .partition_point(|run| run.shaped_clusters_range.end <= line_clusters.end),
+            )
+            .filter(|run| run.shaped_clusters_range.start < line_clusters.end)?;
+        let floor = usize::try_from(run.shaped_clusters_range.start.max(line_clusters.start)).ok()?;
+        let end = usize::try_from(line_clusters.end).ok()?;
+        let next_style = self.shaped_clusters.get(end)?.style_index;
+        let last = (floor..end)
+            .rev()
+            .find(|&index| self.shaped_clusters[index].whitespace() == Whitespace::None)?;
+        let style_index = self.shaped_clusters[last].style_index;
+        if next_style != style_index {
+            return None;
+        }
+        let first = (floor..last)
+            .rev()
+            .take_while(|&index| self.shaped_clusters[index].style_index == style_index)
+            .last()
+            .unwrap_or(last);
+        let width: f32 = self.shaped_clusters[first..=last]
+            .iter()
+            .map(|cluster| cluster.advance)
+            .sum();
+        let remainder = (width * steps_per_unit).ceil() / steps_per_unit - width;
+        if remainder <= 0.0 {
+            return None;
+        }
+        Some((self.grow_cluster(last, remainder)?, remainder))
+    }
+
+    #[doc(hidden)]
+    pub fn grow_cluster(&mut self, index: usize, extra: f32) -> Option<ClusterGrowth> {
+        let cluster = *self.shaped_clusters.get(index)?;
+        let cluster_number = u32::try_from(index).ok()?;
+        let run = self
+            .runs
+            .partition_point(|run| run.shaped_clusters_range.end <= cluster_number);
+        let run_advance = self.runs.get(run)?.advance;
+        let glyph_count = usize::from(cluster.glyph_len());
+        let last_glyph = (!cluster.has_inline_glyph() && glyph_count > 0)
+            .then(|| {
+                usize::try_from(cluster.glyph_offset)
+                    .ok()?
+                    .checked_add(glyph_count - 1)
+            })
+            .flatten()
+            .and_then(|glyph| Some((glyph, self.glyphs.get(glyph)?.advance)));
+        self.set_cluster_advance(index, cluster.advance + extra);
+        self.runs[run].advance += extra;
+        Some(ClusterGrowth {
+            cluster: index,
+            cluster_advance: cluster.advance,
+            last_glyph,
+            run,
+            run_advance,
+        })
+    }
+
+    #[doc(hidden)]
+    pub fn undo_cluster_growth(&mut self, growth: ClusterGrowth) {
+        if let Some(cluster) = self.shaped_clusters.get_mut(growth.cluster) {
+            cluster.advance = growth.cluster_advance;
+        }
+        if let Some((glyph, advance)) = growth.last_glyph
+            && let Some(slot) = self.glyphs.get_mut(glyph)
+        {
+            slot.advance = advance;
+        }
+        if let Some(run) = self.runs.get_mut(growth.run) {
+            run.advance = growth.run_advance;
         }
     }
 

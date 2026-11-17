@@ -525,3 +525,28 @@ fn a_span_background_covers_a_preserved_space_that_hangs() {
         assert!(width("white-space:pre-wrap") >= width("") + 5, "{dir}");
     }
 }
+
+#[test]
+fn text_before_an_inline_block_rounds_up_like_chrome() {
+    let html = "<html><head><style>html,body{margin:0;background:white;font:14px Arial}\
+                div{width:400px}.ib{display:inline-block;width:40px;height:30px;margin:2px}</style></head><body>\
+                <div>a <span id=one class=ib></span> b <span id=two class=ib></span> c</div>\
+                <div>Emoji \u{1F600}\u{1F44D} <span id=three class=ib></span></div>\
+                <div><b>a</b><i>b</i> <span id=four class=ib></span></div></body></html>";
+    let mut harness = open(App::new((), html));
+    render(&mut harness);
+    let doc = harness.base_mut();
+    let left = |id: &str| {
+        let node = doc
+            .query_selector(&format!("#{id}"))
+            .expect("valid selector")
+            .expect("the box exists");
+        doc.get_client_bounding_rect(node)
+            .expect("the box is laid out")
+            .x
+    };
+    assert_eq!(
+        [left("one"), left("two"), left("three"), left("four")],
+        [13.6875, 73.265_625, 83.234_375, 21.484_375]
+    );
+}

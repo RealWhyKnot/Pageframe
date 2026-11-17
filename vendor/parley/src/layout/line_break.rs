@@ -895,6 +895,9 @@ pub struct BreakLines<'a, B: Brush> {
 
 impl<'a, B: Brush> BreakLines<'a, B> {
     pub(crate) fn new(layout: &'a mut Layout<B>) -> Self {
+        for (_, growth) in layout.data.split_item_ceils.drain(..).rev() {
+            layout.data.shaped_text.undo_cluster_growth(growth);
+        }
         layout.data.width = 0.;
         layout.data.height = 0.;
         let mut lines = LineLayout::default();
@@ -998,6 +1001,22 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                 .shaped_text
                 .set_cluster_advance(cluster, advance);
         }
+        if self.layout.data.quantize
+            && self.state.line.items.end > self.state.line.items.start
+            && self.layout.data.items[self.state.line.items.end - 1].kind
+                == LayoutItemKind::TextRun
+            && let Some((growth, remainder)) = self
+                .layout
+                .data
+                .shaped_text
+                .ceil_line_end_of_split_item(self.state.line.clusters.clone(), 64.0)
+        {
+            self.state.line.x += remainder;
+            self.layout
+                .data
+                .split_item_ceils
+                .push((self.lines.lines.len(), growth));
+        }
         commit_line(
             self.layout,
             &mut self.lines,
@@ -1095,6 +1114,12 @@ impl<'a, B: Brush> BreakLines<'a, B> {
 
     /// Reverts the to an externally saved state.
     pub fn revert_to(&mut self, state: BreakerState) {
+        while let Some(&(line, growth)) = self.layout.data.split_item_ceils.last()
+            && line >= state.lines
+        {
+            self.layout.data.shaped_text.undo_cluster_growth(growth);
+            self.layout.data.split_item_ceils.pop();
+        }
         self.state = state;
         self.lines.truncate(self.state.lines);
         self.lines.line_items.truncate(self.state.items);

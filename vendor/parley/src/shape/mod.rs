@@ -189,6 +189,30 @@ pub(crate) fn shape_text<'a, B: Brush>(
         font_selector,
         &mut layout.data.shaped_text,
     );
+    if layout.data.quantize {
+        let runs = layout.data.shaped_text.runs();
+        let item_starts: Vec<bool> = runs
+            .iter()
+            .enumerate()
+            .map(|(index, run)| {
+                index
+                    .checked_sub(1)
+                    .and_then(|previous| runs.get(previous))
+                    .is_none_or(|previous| {
+                        previous.bidi_level != run.bidi_level
+                            || inline_boxes
+                                .binary_search_by_key(&run.range.byte_range.start, |layout_box| {
+                                    layout_box.inline_box.index
+                                })
+                                .is_ok()
+                    })
+            })
+            .collect();
+        layout
+            .data
+            .shaped_text
+            .ceil_text_item_advances(64.0, &item_starts);
+    }
 
     let mut inline_box_iter = inline_boxes
         .iter()
