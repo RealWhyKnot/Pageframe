@@ -23,7 +23,7 @@ pub(crate) fn handle_key_or_input_event<F: FnMut(DomEvent)>(
         && !event.modifiers.contains(ACTION_MOD)
         && let Some(select) = doc
             .focus_node_id
-            .filter(|&id| id == target && doc.is_select(id))
+            .filter(|&id| id == target && doc.is_select(id) && !doc.nodes[id].is_disabled())
     {
         let handled = doc.select_key(select, &event.key, &mut dispatch_event);
         if handled && event.key != Key::Named(NamedKey::Tab) {

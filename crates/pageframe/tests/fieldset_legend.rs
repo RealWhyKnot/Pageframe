@@ -1,6 +1,6 @@
 mod support;
 
-use pageframe::{App, Page};
+use pageframe::{App, Key, NamedKey, Page};
 use pageframe_dom::{QualName, local_name, ns};
 use pageframe_test_harness::Harness;
 use support::{open, pixel, render};
@@ -285,5 +285,27 @@ fn a_field_disabled_by_its_fieldset_stops_taking_keys() {
     assert_eq!(
         harness.doc.ui().select("#field").value().as_deref(),
         Some("ab")
+    );
+}
+
+#[test]
+fn a_select_disabled_by_its_fieldset_ignores_arrow_keys() {
+    let mut harness = open(App::new(
+        (),
+        "<fieldset id=set><select id=choice><option>One<option>Two</select></fieldset>",
+    ));
+    harness.click("#choice");
+    harness.press(Key::Named(NamedKey::Escape));
+    let set = first(&harness, "#set");
+    harness.base_mut().mutate().set_attribute(
+        set,
+        QualName::new(None, ns!(), local_name!("disabled")),
+        "",
+    );
+    harness.press(Key::Named(NamedKey::ArrowDown));
+    harness.pump();
+    assert_eq!(
+        harness.doc.ui().select("#choice").value().as_deref(),
+        Some("One")
     );
 }
