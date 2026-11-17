@@ -119,6 +119,13 @@ pub(crate) struct FormControlMetrics {
     pub(crate) descent: f32,
 }
 
+impl FormControlMetrics {
+    pub(crate) fn normal_baseline(&self) -> f32 {
+        let ascent = self.ascent.round();
+        ascent + ((self.normal_line_height - ascent - self.descent.round()) / 2.0).floor()
+    }
+}
+
 pub(crate) fn form_control_metrics(
     font_ctx: &mut FontContext,
     font_styles: &FontStyles,

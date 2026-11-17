@@ -416,13 +416,7 @@ fn line_metrics(
         LineHeight::Length(value) => value.0.px(),
     };
     let baseline = match styles.clone_line_height() {
-        LineHeight::Normal => {
-            (metrics.ascent.round()
-                + ((metrics.normal_line_height - metrics.ascent.round() - metrics.descent.round())
-                    / 2.0)
-                    .floor())
-                / scale
-        }
+        LineHeight::Normal => metrics.normal_baseline() / scale,
         _ => (line_height - ascent - descent) / 2.0 + ascent,
     };
     Some((line_height, baseline))

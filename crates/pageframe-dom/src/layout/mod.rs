@@ -169,12 +169,16 @@ impl<'doc> LayoutPassState<'doc> {
             LineHeight::Number(num) => font_size * num.0,
             LineHeight::Length(value) => value.0.px(),
         };
+        let baseline = match style.clone_line_height() {
+            LineHeight::Normal => metrics.normal_baseline() / scale,
+            _ => (line_height - ascent - descent) / 2.0 + ascent,
+        };
         Some(FormControlSizing {
             avg_char_width: metrics.avg_char_width,
             max_char_width: metrics.max_char_width,
             scale,
             line_height,
-            baseline: (line_height - ascent - descent) / 2.0 + ascent,
+            baseline,
         })
     }
 
