@@ -38,6 +38,9 @@ impl Node {
         lookup: impl Fn(&str) -> Option<NodeId>,
     ) -> Option<ResolvedClipPath> {
         let style = self.primary_styles()?;
+        if matches!(style.get_clip_path(), ClipPath::None) {
+            return None;
+        }
         let unsnapped = self.layout_data().unsnapped;
         let mut resolved = match style.get_clip_path() {
             ClipPath::None => return None,
