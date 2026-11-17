@@ -119,7 +119,7 @@ impl BaseDocument {
         let usable = self.focus_node_id == Some(popup.select)
             && node.flags.is_in_document()
             && self.is_select(popup.select)
-            && node.attr(local_name!("disabled")).is_none();
+            && !node.is_disabled();
         if !usable {
             return None;
         }

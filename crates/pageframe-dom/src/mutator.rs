@@ -75,6 +75,7 @@ pub struct DocumentMutator<'doc> {
     style_nodes: HashSet<NodeId>,
     form_nodes: HashSet<NodeId>,
     picked_options: Vec<NodeId>,
+    disabled_roots: Vec<NodeId>,
     changed_options: Vec<NodeId>,
     changed_selects: HashSet<NodeId>,
     selects_changed: bool,
@@ -112,6 +113,7 @@ impl DocumentMutator<'_> {
             style_nodes: HashSet::new(),
             form_nodes: HashSet::new(),
             picked_options: Vec::new(),
+            disabled_roots: Vec::new(),
             changed_options: Vec::new(),
             changed_selects: HashSet::new(),
             selects_changed: false,
@@ -427,7 +429,7 @@ impl DocumentMutator<'_> {
         }
 
         if *attr == local_name!("disabled") && element.can_be_disabled() {
-            node.disable();
+            self.disabled_roots.push(node_id);
             return;
         }
 
@@ -568,7 +570,7 @@ impl DocumentMutator<'_> {
         let attr = &name.local;
 
         if *attr == local_name!("disabled") && element.can_be_disabled() {
-            node.enable();
+            self.disabled_roots.push(node_id);
             return;
         }
 
@@ -651,6 +653,7 @@ impl DocumentMutator<'_> {
 
         // Update child_idx values
         if let Some(parent_id) = node.parent.take() {
+            self.queue_disabled_refresh(node_id, parent_id);
             self.mutations_occurred |= node_is_in_document;
             let parent = &mut self.doc.nodes[parent_id];
             parent.insert_damage(ALL_DAMAGE);
@@ -688,6 +691,17 @@ impl DocumentMutator<'_> {
 
         // Update child_idx values
         if let Some(parent_id) = node.as_ref().and_then(|node| node.parent) {
+            let was_legend = node
+                .as_ref()
+                .is_some_and(|node| node.data.is_element_with_tag_name(&local_name!("legend")));
+            let parent = &mut self.doc.nodes[parent_id];
+            if was_legend
+                && parent
+                    .data
+                    .is_element_with_tag_name(&local_name!("fieldset"))
+            {
+                self.disabled_roots.push(parent_id);
+            }
             let parent = &mut self.doc.nodes[parent_id];
             parent.insert_damage(ALL_DAMAGE);
             let parent_is_in_doc = parent.flags.is_in_document();
@@ -945,6 +959,7 @@ impl DocumentMutator<'_> {
             let Some(old_parent_id) = child.parent.take() else {
                 continue;
             };
+            self.queue_disabled_refresh(child_id, old_parent_id);
 
             let old_parent = &mut self.doc.nodes[old_parent_id];
             old_parent.insert_damage(ALL_DAMAGE);
@@ -981,6 +996,7 @@ impl DocumentMutator<'_> {
             if new_parent_is_in_document && child.primary_styles().is_some() {
                 child.set_restyle_hint(RestyleHint::restyle_subtree());
             }
+            self.queue_disabled_refresh(child_id, parent_id);
 
             if new_parent_is_in_document {
                 devtools!(
@@ -1190,6 +1206,12 @@ impl DocumentMutator<'_> {
 
 impl<'doc> DocumentMutator<'doc> {
     pub fn flush(&mut self) {
+        for root in mem::take(&mut self.disabled_roots) {
+            if self.doc.get_node(root).is_some() {
+                self.doc.refresh_disabled(root);
+            }
+        }
+
         if self.recompute_is_animating {
             self.doc.has_canvas = self.doc.compute_has_canvas();
         }
@@ -1339,6 +1361,19 @@ impl<'doc> DocumentMutator<'doc> {
         });
 
         self.flush_eager_ops();
+    }
+
+    fn queue_disabled_refresh(&mut self, node_id: NodeId, parent_id: NodeId) {
+        self.disabled_roots.push(node_id);
+        let is_legend = self.doc.nodes[node_id]
+            .data
+            .is_element_with_tag_name(&local_name!("legend"));
+        let in_fieldset = self.doc.nodes[parent_id]
+            .data
+            .is_element_with_tag_name(&local_name!("fieldset"));
+        if is_legend && in_fieldset {
+            self.disabled_roots.push(parent_id);
+        }
     }
 
     fn process_removed_subtree(&mut self, node_id: NodeId) {

@@ -121,12 +121,11 @@ impl ElementCx<'_, '_> {
     }
 
     fn draw_range(&self, scene: &mut impl PaintScene) {
-        let (track_fill, value_fill, track_border) =
-            if self.node.attr(local_name!("disabled")).is_some() {
-                (DISABLED_TRACK_FILL, DISABLED_SLIDER, DISABLED_TRACK_BORDER)
-            } else {
-                (TRACK_FILL, self.control_colors().accent, TRACK_BORDER)
-            };
+        let (track_fill, value_fill, track_border) = if self.node.is_disabled() {
+            (DISABLED_TRACK_FILL, DISABLED_SLIDER, DISABLED_TRACK_BORDER)
+        } else {
+            (TRACK_FILL, self.control_colors().accent, TRACK_BORDER)
+        };
         let border_box = self.frame.border_box;
         let content = self.frame.content_box;
         let half_track = SLIDER_TRACK_THICKNESS * self.scale / 2.0;
@@ -316,7 +315,7 @@ impl ElementCx<'_, '_> {
     }
 
     fn control_colors(&self) -> ControlColors {
-        if self.node.attr(local_name!("disabled")).is_some() {
+        if self.node.is_disabled() {
             return ControlColors {
                 accent: DISABLED_ACCENT,
                 border: DISABLED_ACCENT,

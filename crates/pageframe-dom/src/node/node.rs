@@ -833,28 +833,8 @@ impl Node {
             .is_some_and(|data| data.element_state.contains(ElementState::ACTIVE))
     }
 
-    // Marks the node as disabled if it can be.
-    // It does not disable any children which should be disabled as well (relevant for the `select` element).
-    pub fn disable(&mut self) {
-        if let Some(data) = self.element_data_mut() {
-            if data.can_be_disabled() {
-                data.element_state.insert(ElementState::DISABLED);
-                data.element_state.remove(ElementState::ENABLED);
-            }
-        }
-        self.mark_ancestors_dirty();
-    }
-
-    // Marks the node as enabled if it can be.
-    // It does not enable any children which should be enabled as well (relevant for the `select` element).
-    pub fn enable(&mut self) {
-        if let Some(data) = self.element_data_mut() {
-            if data.can_be_disabled() {
-                data.element_state.insert(ElementState::ENABLED);
-                data.element_state.remove(ElementState::DISABLED);
-            }
-        }
-        self.mark_ancestors_dirty();
+    pub fn is_disabled(&self) -> bool {
+        self.element_data().is_some_and(ElementData::is_disabled)
     }
 
     pub fn subdoc(&self) -> Option<&dyn Document> {

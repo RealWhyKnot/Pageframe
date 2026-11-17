@@ -75,7 +75,7 @@ impl BaseDocument {
         dispatch_event: &mut dyn FnMut(DomEvent),
     ) -> Option<NodeId> {
         let select = self.option_select(option)?;
-        let disabled = self.nodes[select].attr(local_name!("disabled")).is_some();
+        let disabled = self.nodes[select].is_disabled();
         if disabled || !self.select_is_list(select) {
             return None;
         }

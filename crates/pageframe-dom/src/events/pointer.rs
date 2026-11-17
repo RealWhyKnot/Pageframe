@@ -341,8 +341,7 @@ pub(crate) fn handle_pointermove<F: FnMut(DomEvent)>(
         return changed;
     };
 
-    let disabled = el.attr(local_name!("disabled")).is_some();
-    if disabled {
+    if el.is_disabled() {
         return changed;
     }
 
@@ -474,7 +473,7 @@ pub(crate) fn handle_pointerdown(
     let click_target = {
         let node = &doc.nodes[actual_target];
         match node.data.downcast_element() {
-            Some(el) if el.has_attr(local_name!("disabled")) => ClickTarget::Disabled,
+            Some(el) if el.is_disabled() => ClickTarget::Disabled,
             Some(el) => {
                 if let SpecialElementData::TextInput(ref text_input_data) = el.special_data {
                     let mut content_box_offset = taffy::Point {
@@ -663,8 +662,7 @@ pub(crate) fn handle_click(
                 continue;
             };
 
-            let disabled = el.attr(local_name!("disabled")).is_some();
-            if disabled {
+            if el.is_disabled() {
                 break 'matched true;
             }
 

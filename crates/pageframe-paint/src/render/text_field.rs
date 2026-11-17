@@ -4,8 +4,8 @@ use super::ring::ring_path;
 use crate::color::{Color, ToColorColor as _};
 use anyrender::PaintScene;
 use kurbo::{Rect, RoundedRectRadii};
+use pageframe_dom::CopyStyleGetters;
 use pageframe_dom::node::SpecialElementData;
-use pageframe_dom::{CopyStyleGetters, local_name};
 use peniko::Fill;
 use style::computed_value_flags::ComputedValueFlags;
 use style::values::computed::{Appearance, OutlineStyle};
@@ -33,7 +33,7 @@ impl ElementCx<'_, '_> {
         let (transform, rect) = device_space(self.transform, self.frame.border_box);
         let width = zoomed_width(BORDER_WIDTH, self.scale);
         let radius = native_radius(self.scale);
-        let (background, border) = if self.node.attr(local_name!("disabled")).is_some() {
+        let (background, border) = if self.node.is_disabled() {
             (DISABLED_BACKGROUND, DISABLED_BORDER)
         } else {
             (Color::WHITE, BORDER)

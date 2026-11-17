@@ -475,7 +475,6 @@ impl ElementData {
             layout_data: None,
             transform: None,
         };
-        data.flush_is_focussable();
         data.flush_link_state();
 
         // Mirror the `checked` attribute into the element state so that `:checked`
@@ -503,6 +502,7 @@ impl ElementData {
                 });
         }
 
+        data.flush_is_focussable();
         data.flush_open_state();
 
         data
@@ -528,7 +528,11 @@ impl ElementData {
     }
 
     pub fn can_be_disabled(&self) -> bool {
-        local_names!("button", "input", "select", "textarea").contains(&self.name.local)
+        local_names!("button", "fieldset", "input", "select", "textarea").contains(&self.name.local)
+    }
+
+    pub fn is_disabled(&self) -> bool {
+        self.element_state.contains(ElementState::DISABLED)
     }
 
     pub fn has_collapsed_border(&self) -> bool {
@@ -692,7 +696,7 @@ impl ElementData {
     }
 
     pub fn flush_is_focussable(&mut self) {
-        let disabled: bool = self.attr_parsed(local_name!("disabled")).unwrap_or(false);
+        let disabled = self.is_disabled();
         let tabindex: Option<i32> = self.attr_parsed(local_name!("tabindex"));
         let contains_sub_document: bool = self.sub_doc_data().is_some();
 

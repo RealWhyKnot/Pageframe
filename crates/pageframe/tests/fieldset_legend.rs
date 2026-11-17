@@ -1,6 +1,8 @@
 mod support;
 
-use pageframe::App;
+use pageframe::{App, Page};
+use pageframe_dom::{QualName, local_name, ns};
+use pageframe_test_harness::Harness;
 use support::{open, pixel, render};
 
 const FIELDSETS: &str = "<!doctype html><style>body{margin:0;background:#fff}\
@@ -24,6 +26,8 @@ legend span{display:inline-block;width:20px;height:10px}</style>\
 <span></span></legend><div style='height:10px'></div></fieldset>\
 <div style='display:flex'><fieldset id=c><legend id=cl><span></span></legend>\
 <div id=cc style='height:6px;width:40px'></div></fieldset></div>";
+
+const DISABLED: &str = "<!doctype html><fieldset id=f1 disabled><legend><button id=lb></button></legend><input id=i1><button id=b1></button><select id=s1></select><textarea id=t1></textarea></fieldset><fieldset id=f2><input id=i2><fieldset id=f3 disabled><legend><input id=i3></legend><legend><input id=i4></legend><input id=i5></fieldset></fieldset><fieldset id=f4 disabled><div><legend><button id=b4></button></legend></div></fieldset>";
 
 type Expected = (&'static str, Option<f32>, Option<f32>, f32, f32);
 
@@ -180,4 +184,55 @@ fn fieldset_baselines_skip_the_legend_like_chrome() {
         layout_mismatches(LEGEND_BASELINES, &chrome),
         Vec::<String>::new()
     );
+}
+
+fn disabled_ids(harness: &Harness<Page<()>>) -> Vec<String> {
+    let base = harness.base();
+    base.query_selector_all(":disabled")
+        .expect("the selector parses")
+        .into_iter()
+        .filter_map(|id| {
+            let node = base.get_node(id)?;
+            node.attr(local_name!("id")).map(str::to_owned)
+        })
+        .collect()
+}
+
+fn first(harness: &Harness<Page<()>>, selector: &str) -> pageframe::NodeId {
+    harness
+        .base()
+        .query_selector_all(selector)
+        .expect("the selector parses")[0]
+}
+
+#[test]
+fn a_disabled_fieldset_disables_its_controls_outside_the_first_legend_like_chrome() {
+    let mut harness = open(App::new((), DISABLED));
+    assert_eq!(
+        disabled_ids(&harness),
+        ["f1", "i1", "b1", "s1", "t1", "f3", "i4", "i5", "f4", "b4"]
+    );
+    let disabled = QualName::new(None, ns!(), local_name!("disabled"));
+    let f1 = first(&harness, "#f1");
+    harness
+        .base_mut()
+        .mutate()
+        .clear_attribute(f1, disabled.clone());
+    let f2 = first(&harness, "#f2");
+    harness
+        .base_mut()
+        .mutate()
+        .set_attribute(f2, disabled.clone(), "");
+    assert_eq!(
+        disabled_ids(&harness),
+        ["f2", "i2", "f3", "i3", "i4", "i5", "f4", "b4"]
+    );
+    harness.base_mut().mutate().clear_attribute(f2, disabled);
+    let legend = first(&harness, "#f3 > legend");
+    harness.base_mut().mutate().remove_node(legend);
+    assert_eq!(disabled_ids(&harness), ["f3", "i5", "f4", "b4"]);
+    let i5 = first(&harness, "#i5");
+    let i2 = first(&harness, "#i2");
+    harness.base_mut().mutate().insert_nodes_before(i2, &[i5]);
+    assert_eq!(disabled_ids(&harness), ["f3", "f4", "b4"]);
 }

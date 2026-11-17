@@ -230,7 +230,7 @@ fn construct_entry_list(doc: &BaseDocument, form_id: NodeId, submitter_id: NodeI
         //   field is an input element whose type attribute is in the Radio Button state and whose checkedness is false,
         //  then continue.
         if datalist_ancestor(doc, node.id)
-            || element.attr(local_name!("disabled")).is_some()
+            || element.is_disabled()
             || (element.name.local == local_name!("button") && node.id != submitter_id)
             || element.name.local == local_name!("input")
                 && ((matches!(element_type.as_deref(), Some("checkbox" | "radio"))
