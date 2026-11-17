@@ -851,7 +851,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
         body: &EffectBody<'_>,
     ) {
         let unscrolled_transform = cx.transform;
-        let hidden = cx.style.get_inherited_box().visibility != StyloVisibility::Visible;
+        let hidden = cx.is_hidden();
         let native_frame = cx.has_native_frame();
         let mut other_box = cx.decoration_box();
         if let Some(other) = &mut other_box {
@@ -990,7 +990,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                             |scene| {
                                 cx.draw_float_children(scene, cx.transform, body.child_clip_rect);
                                 cx.draw_inline_layout(scene, content_position);
-                                if index == 0 && !hidden {
+                                if index == 0 {
                                     cx.draw_marker(scene, content_position);
                                 }
                                 cx.draw_children(
@@ -1007,9 +1007,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                 }
                 cx.draw_float_children(scene, cx.transform, body.child_clip_rect);
                 cx.draw_inline_layout(scene, content_position);
-                if !hidden {
-                    cx.draw_marker(scene, content_position);
-                }
+                cx.draw_marker(scene, content_position);
                 cx.draw_children(scene, cx.transform, body.child_clip_rect, flush_from);
             },
         );
@@ -1154,6 +1152,10 @@ struct OwnBox {
 }
 
 impl ElementCx<'_, '_> {
+    pub(crate) fn is_hidden(&self) -> bool {
+        self.style.get_inherited_box().visibility != StyloVisibility::Visible
+    }
+
     fn decoration_box(&self) -> Option<OwnBox> {
         match self.context.dom.legend_gap(self.node.id) {
             Some(gap) => self.inset_box(gap.border_inset, 0.0),
@@ -1777,7 +1779,7 @@ impl ElementCx<'_, '_> {
     }
 
     fn draw_marker(&self, scene: &mut impl PaintScene, pos: Point) {
-        let Some(list_item) = self.list_item else {
+        let Some(list_item) = self.list_item.filter(|_| !self.is_hidden()) else {
             return;
         };
         let subpixel_offset = list_item.content_box_subpixel_offset;

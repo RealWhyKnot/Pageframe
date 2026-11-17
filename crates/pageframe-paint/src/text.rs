@@ -1417,6 +1417,8 @@ pub(crate) fn stroke_text<'a>(
                     has_text = true;
                 }
                 if is_invisible(doc, glyph_run.style().brush.id) {
+                    let left = f64::from(glyph_run.offset());
+                    holes.push((left, left + f64::from(glyph_run.advance())));
                     continue;
                 }
                 let font = run.font();

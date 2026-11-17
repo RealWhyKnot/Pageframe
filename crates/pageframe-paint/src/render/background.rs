@@ -16,6 +16,7 @@ use style::{
             background_attachment::single_value::computed_value::T as StyloBackgroundAttachment,
             background_clip::single_value::computed_value::T as StyloBackgroundClip,
             background_origin::single_value::computed_value::T as StyloBackgroundOrigin,
+            visibility::computed_value::T as Visibility,
         },
         style_structs::{Background, SVG},
     },
@@ -506,12 +507,13 @@ impl ElementCx<'_, '_> {
             if colors.peek().is_none() {
                 continue;
             }
-            let is_lifted = self
-                .context
-                .dom
-                .get_node(cell.node_id)
-                .is_some_and(pageframe_dom::Node::is_in_lifted_row);
-            if is_lifted {
+            let Some(cell_node) = self.context.dom.get_node(cell.node_id) else {
+                continue;
+            };
+            let is_hidden = cell_node
+                .primary_styles()
+                .is_some_and(|style| style.get_inherited_box().visibility != Visibility::Visible);
+            if cell_node.is_in_lifted_row() || is_hidden {
                 continue;
             }
             let Some(rect) = cell_rect(cell.node_id) else {

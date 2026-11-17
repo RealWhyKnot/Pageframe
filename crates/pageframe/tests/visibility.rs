@@ -58,3 +58,47 @@ fn hidden_boxes_still_fade_visible_children_like_chrome() {
     );
     assert_eq!(on_white(&buffer, 2, 2), [255, 255, 255]);
 }
+
+const PARTS: &str = "<!doctype html><style>html,body{margin:0}td{padding:0;width:30px;height:14px}</style>\
+<table style=\"visibility:hidden;border-collapse:collapse\"><tr style=\"background:#f00\">\
+<td style=\"visibility:visible;border:3px solid #00f\"></td><td style=\"border:3px solid #00f\"></td></tr></table>\
+<ul style=\"margin:0;padding-left:30px\"><li style=\"visibility:hidden;color:#00f\">\
+<span style=\"visibility:visible;color:#0f0\">x</span></li></ul>";
+
+const UNDERLINE: &str = "<!doctype html><style>html,body{margin:0}</style>\
+<p style=\"margin:0;font:16px/20px sans-serif\">\
+<span style=\"text-decoration:underline;text-decoration-color:#f00\">a <span style=\"visibility:hidden\">mmmm</span> b</span></p>";
+
+#[test]
+fn hidden_tables_and_list_items_keep_their_parts_hidden_like_chrome() {
+    let buffer = render(&mut open(App::new((), PARTS)));
+    let height = usize::try_from(HEIGHT).expect("the height fits");
+    let blue = count(&buffer, 0..height, |[r, g, b]| b > 200 && r < 80 && g < 80);
+    assert_eq!(blue, 0, "no collapsed borders and no marker");
+    assert_eq!(on_white(&buffer, 15, 10), [255, 0, 0]);
+    assert_eq!(on_white(&buffer, 50, 10), [255, 255, 255]);
+}
+
+#[test]
+fn underlines_skip_hidden_text_like_chrome() {
+    let buffer = render(&mut open(App::new((), UNDERLINE)));
+    let width = usize::try_from(WIDTH).expect("the width fits");
+    let height = usize::try_from(HEIGHT).expect("the height fits");
+    let red_columns: Vec<usize> = (0..width)
+        .filter(|&x| {
+            (0..height).any(|y| {
+                let [r, g, b] = on_white(&buffer, x, y);
+                r > 200 && g < 80 && b < 80
+            })
+        })
+        .collect();
+    let widest_gap = red_columns
+        .windows(2)
+        .map(|pair| pair[1] - pair[0])
+        .max()
+        .unwrap_or(0);
+    assert!(
+        widest_gap > 20,
+        "the underline breaks under the hidden word, widest gap {widest_gap}"
+    );
+}

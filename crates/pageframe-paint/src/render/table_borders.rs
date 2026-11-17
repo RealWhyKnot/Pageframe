@@ -956,7 +956,7 @@ impl ElementCx<'_, '_> {
     }
 
     pub(crate) fn paint_table_borders(&self, scene: &mut impl PaintScene) {
-        if !self.is_table_root() {
+        if !self.is_table_root() || self.is_hidden() {
             return;
         }
         let Some(edges) = self.table_edges(self.node.id) else {
