@@ -13,7 +13,7 @@ use style::computed_values::position::T as Position;
 use style::parser::ParserContext;
 use style::properties::declaration_block::{Importance, parse_style_attribute};
 use style::properties::{
-    ComputedValues, NonCustomPropertyId, PropertyDeclaration, PropertyDeclarationBlock,
+    ComputedValues, LonghandId, NonCustomPropertyId, PropertyDeclaration, PropertyDeclarationBlock,
     PropertyDeclarationId, PropertyId, ShorthandId, SourcePropertyDeclaration,
     parse_one_declaration_into,
 };
@@ -25,6 +25,7 @@ use style::values::computed::length::CSSPixelLength;
 use style::values::computed::{GridTemplateAreas, GridTemplateComponent, LengthPercentage};
 use style::values::generics::position::{Inset as GenericInset, PreferredRatio};
 use style::values::resolved;
+use style::values::specified::BorderSideWidth;
 use style::values::specified::box_::{DisplayInside, DisplayOutside};
 use style_traits::{CssStringWriter, ParsingMode, ToCss};
 use stylo_taffy::CopyStyleGetters;
@@ -396,6 +397,13 @@ impl BaseDocument {
         // Used lengths are serialized unzoomed, like computed lengths
         let zoom = styles.effective_zoom.value();
         let format_used_px = |px: f32| format_px(px / zoom);
+        let scale = self.nodes.device_scale();
+        if let Err(PropertyDeclarationId::Longhand(longhand)) = property_id.as_shorthand()
+            && let Some(px) =
+                line_width_px(styles, longhand.to_physical(styles.writing_mode), scale)
+        {
+            return format_px(px);
+        }
 
         // Layout-dependent "used value" special cases
         match property_name {
@@ -658,19 +666,6 @@ impl BaseDocument {
             // `min-width: auto` / `min-height: auto` resolve to `auto` only for
             // boxes with a preferred aspect ratio and for flex and grid items;
             // otherwise (including when no box is generated) they resolve to `0px`
-            "border-top-width" | "border-right-width" | "border-bottom-width"
-            | "border-left-width" | "outline-width" | "column-rule-width" => {
-                let width = match property_name {
-                    "border-top-width" => styles.get_border().border_top_width.0,
-                    "border-right-width" => styles.get_border().border_right_width.0,
-                    "border-bottom-width" => styles.get_border().border_bottom_width.0,
-                    "border-left-width" => styles.get_border().border_left_width.0,
-                    "outline-width" => styles.get_outline().outline_width.0,
-                    _ => styles.get_column().column_rule_width.0,
-                };
-                let scale = self.nodes.device_scale();
-                return format_used_px(stylo_taffy::device_border_px(width.to_f32_px(), scale));
-            }
             "min-width" | "min-height" => {
                 let pos_styles = styles.get_position();
                 let is_auto = if property_name == "min-width" {
@@ -712,7 +707,7 @@ impl BaseDocument {
         // General case: serialize the stylo computed value
         let css = match property_id.as_shorthand() {
             // Serialize shorthands from the resolved values of their longhands
-            Ok(shorthand) => serialize_resolved_shorthand(styles, shorthand),
+            Ok(shorthand) => serialize_resolved_shorthand(styles, shorthand, scale),
             Err(declaration_id) => styles.computed_value_to_string(declaration_id),
         };
         canonicalize_computed_alignment(property_name, css)
@@ -761,7 +756,47 @@ fn serialize_sides(sides: &[String]) -> String {
 /// its longhands and re-serializing them as the shorthand (as
 /// `getComputedStyle()` does for shorthands). Returns an empty string if the
 /// longhand values cannot be represented as the shorthand.
-fn serialize_resolved_shorthand(styles: &ComputedValues, shorthand: ShorthandId) -> String {
+fn line_width_px(styles: &ComputedValues, longhand: LonghandId, scale: f32) -> Option<f32> {
+    let border = styles.get_border();
+    let (width, style) = match longhand {
+        LonghandId::BorderTopWidth => (border.border_top_width.0, Some(border.border_top_style)),
+        LonghandId::BorderRightWidth => {
+            (border.border_right_width.0, Some(border.border_right_style))
+        }
+        LonghandId::BorderBottomWidth => (
+            border.border_bottom_width.0,
+            Some(border.border_bottom_style),
+        ),
+        LonghandId::BorderLeftWidth => (border.border_left_width.0, Some(border.border_left_style)),
+        LonghandId::OutlineWidth => (styles.get_outline().outline_width.0, None),
+        LonghandId::ColumnRuleWidth => (styles.get_column().column_rule_width.0, None),
+        _ => return None,
+    };
+    if style.is_some_and(|style| style.none_or_hidden()) {
+        return Some(0.0);
+    }
+    let zoom = styles.effective_zoom.value();
+    Some(stylo_taffy::device_border_px(width.to_f32_px(), scale) / zoom)
+}
+
+fn line_width_declaration(longhand: LonghandId, px: f32) -> Option<PropertyDeclaration> {
+    let width = BorderSideWidth::from_px(px);
+    Some(match longhand {
+        LonghandId::BorderTopWidth => PropertyDeclaration::BorderTopWidth(width),
+        LonghandId::BorderRightWidth => PropertyDeclaration::BorderRightWidth(width),
+        LonghandId::BorderBottomWidth => PropertyDeclaration::BorderBottomWidth(width),
+        LonghandId::BorderLeftWidth => PropertyDeclaration::BorderLeftWidth(width),
+        LonghandId::OutlineWidth => PropertyDeclaration::OutlineWidth(width),
+        LonghandId::ColumnRuleWidth => PropertyDeclaration::ColumnRuleWidth(width),
+        _ => return None,
+    })
+}
+
+fn serialize_resolved_shorthand(
+    styles: &ComputedValues,
+    shorthand: ShorthandId,
+    scale: f32,
+) -> String {
     // `all` cannot be serialized from longhands
     if shorthand == ShorthandId::All {
         return String::new();
@@ -770,6 +805,11 @@ fn serialize_resolved_shorthand(styles: &ComputedValues, shorthand: ShorthandId)
     let declarations: Vec<PropertyDeclaration> = shorthand
         .longhands()
         .map(|longhand| {
+            if let Some(declaration) = line_width_px(styles, longhand, scale)
+                .and_then(|px| line_width_declaration(longhand, px))
+            {
+                return declaration;
+            }
             let mut context = resolved::Context {
                 style: styles,
                 for_property: PropertyId::NonCustom(longhand.into()),

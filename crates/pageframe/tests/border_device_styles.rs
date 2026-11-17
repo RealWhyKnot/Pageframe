@@ -287,7 +287,7 @@ fn borders_snap_to_whole_device_pixels_at_seven_quarters_scale() {
 fn computed_border_widths_report_whole_device_pixels_at_seven_quarters_scale() {
     let mut harness = open(App::new(
         (),
-        "<style>div{border:solid #000;width:10px;height:10px;outline:3px solid red;columns:2;column-rule:solid 2px}</style><div id='one' style='border-width:1px'></div><div id='two' style='border-width:2px'></div>",
+        "<style>div{border:solid #000;width:10px;height:10px;outline:3px solid red;columns:2;column-rule:solid 2px}</style><div id='one' style='border-width:1px'></div><div id='two' style='border-width:2px'></div><div id='zoomed' style='border-width:1px;zoom:2'></div><div id='none' style='border:5px none;outline:4px none'></div><div id='hidden' style='border:3px hidden'></div>",
     ));
     {
         let mut doc = harness.base_mut();
@@ -313,4 +313,12 @@ fn computed_border_widths_report_whole_device_pixels_at_seven_quarters_scale() {
     assert_eq!(value("two", "border-right-width"), "1.71429px");
     assert_eq!(value("one", "outline-width"), "2.85714px");
     assert_eq!(value("two", "column-rule-width"), "1.71429px");
+    assert_eq!(value("one", "border-block-start-width"), "0.571429px");
+    assert_eq!(value("zoomed", "border-top-width"), "0.857143px");
+    assert_eq!(value("none", "border-top-width"), "0px");
+    assert_eq!(value("hidden", "border-left-width"), "0px");
+    assert_eq!(value("none", "outline-width"), "4px");
+    assert_eq!(value("one", "border-width"), "0.571429px");
+    assert_eq!(value("two", "border-top"), "1.71429px solid rgb(0, 0, 0)");
+    assert_eq!(value("one", "outline"), "rgb(255, 0, 0) solid 2.85714px");
 }
