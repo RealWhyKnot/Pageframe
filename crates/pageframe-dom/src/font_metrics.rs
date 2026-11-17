@@ -56,6 +56,61 @@ fn find_font_for(
     font
 }
 
+pub(crate) fn text_advances(
+    font_ctx: &mut FontContext,
+    font_styles: &FontStyles,
+    font_size: f32,
+    texts: &[&str],
+) -> Vec<f32> {
+    use skrifa::instance::{LocationRef, Size};
+    use skrifa::metrics::{GlyphMetrics, Metrics};
+
+    let variations = stylo_to_parley::font_variations(font_styles, font_size);
+    let mut query = query_for_font_styles(font_ctx, font_styles);
+    let mut fonts: Vec<(char, Option<parley::fontique::QueryFont>)> = Vec::new();
+    texts
+        .iter()
+        .map(|text| {
+            text.chars()
+                .map(|ch| {
+                    let font = match fonts.iter().find(|(known, _)| *known == ch) {
+                        Some((_, font)) => font.clone(),
+                        None => {
+                            let font = find_font_for(&mut query, ch);
+                            fonts.push((ch, font.clone()));
+                            font
+                        }
+                    };
+                    let Some(font) = font else {
+                        return 0.0;
+                    };
+                    let Ok(font_ref) = skrifa::FontRef::from_index(font.blob.as_ref(), font.index)
+                    else {
+                        return 0.0;
+                    };
+                    let location = font_ref.axes().location(variations.iter().map(|variation| {
+                        (
+                            skrifa::Tag::from_be_bytes(variation.tag.to_bytes()),
+                            variation.value,
+                        )
+                    }));
+                    let location_ref = LocationRef::from(&location);
+                    let units_per_em =
+                        Metrics::new(&font_ref, Size::unscaled(), location_ref).units_per_em;
+                    let advance = Charmap::new(&font_ref).map(ch).and_then(|glyph_id| {
+                        GlyphMetrics::new(&font_ref, Size::unscaled(), location_ref)
+                            .advance_width(glyph_id)
+                    });
+                    match (advance, units_per_em) {
+                        (Some(advance), 1..) => advance * font_size / f32::from(units_per_em),
+                        _ => 0.0,
+                    }
+                })
+                .sum()
+        })
+        .collect()
+}
+
 pub(crate) struct FormControlMetrics {
     pub(crate) avg_char_width: f32,
     pub(crate) max_char_width: f32,

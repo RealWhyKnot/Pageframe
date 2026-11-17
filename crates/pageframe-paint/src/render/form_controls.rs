@@ -60,6 +60,9 @@ impl ElementCx<'_, '_> {
         match self.element.input_type().as_deref() {
             Some("color") => return self.draw_color_swatch(scene),
             Some("range") => return self.draw_range(scene),
+            Some("date" | "time" | "datetime-local" | "month" | "week") => {
+                return self.draw_date_field(scene);
+            }
             _ => {}
         }
         let Some(checked) = self.element.checkbox_input_checked() else {

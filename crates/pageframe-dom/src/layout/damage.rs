@@ -511,6 +511,7 @@ impl BaseDocument {
             if matches!(
                 element.special_data,
                 crate::node::SpecialElementData::ImageFallback(_)
+                    | crate::node::SpecialElementData::DateField(_)
             ) {
                 node.insert_damage(ALL_DAMAGE);
             } else if element.inline_layout_data.is_some() {

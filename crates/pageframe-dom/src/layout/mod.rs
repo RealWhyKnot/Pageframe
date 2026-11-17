@@ -30,6 +30,7 @@ use taffy::{
 pub(crate) mod construct;
 pub(crate) mod counter_style;
 pub(crate) mod damage;
+pub(crate) mod date_field;
 pub(crate) mod fieldset;
 pub(crate) mod generated_content;
 pub(crate) mod image_fallback;
@@ -561,6 +562,9 @@ impl LayoutPassState<'_> {
                             output.baselines.first = Some(output.size.height);
                             output.baselines.last = Some(output.size.height);
                             return output;
+                        }
+                        Some("date" | "time" | "datetime-local" | "month" | "week") => {
+                            return date_field::layout(node, inputs);
                         }
                         Some("range") => {
                             let mut output = compute_leaf_layout(

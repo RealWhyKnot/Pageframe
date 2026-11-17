@@ -501,6 +501,12 @@ fn collect_layout_children_with_wrap(
             } else if matches!(type_attr, Some("checkbox" | "radio")) {
                 create_checkbox_input(doc, container_node_id);
                 return;
+            } else if matches!(
+                type_attr,
+                Some("date" | "time" | "datetime-local" | "month" | "week")
+            ) {
+                super::date_field::prepare(doc, container_node_id);
+                return;
             }
         }
 

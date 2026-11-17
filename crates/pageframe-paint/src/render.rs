@@ -4,6 +4,7 @@ mod border;
 mod box_shadow;
 mod broken_image;
 mod clip_path;
+mod date_field;
 mod form_controls;
 mod mask;
 mod miter;

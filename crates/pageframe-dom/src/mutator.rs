@@ -1397,7 +1397,7 @@ impl<'doc> DocumentMutator<'doc> {
                 }
                 SpecialElementData::TableRoot(_) => {}
                 SpecialElementData::TextInput(_) => {}
-                SpecialElementData::CheckboxInput(_) => {}
+                SpecialElementData::CheckboxInput(_) | SpecialElementData::DateField(_) => {}
                 #[cfg(feature = "file-input")]
                 SpecialElementData::FileInput(_) => {}
                 SpecialElementData::None => {}

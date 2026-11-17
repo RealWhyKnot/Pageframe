@@ -160,6 +160,17 @@ textarea {
     font-family: monospace;
 }
 
+input:is([type="date" i], [type="datetime-local" i], [type="month" i], [type="time" i], [type="week" i]) {
+    padding: 0;
+    padding-inline-start: 1px;
+    font-family: monospace;
+    white-space: pre;
+}
+
+input:is([type="date" i], [type="datetime-local" i], [type="month" i], [type="time" i], [type="week" i]):disabled {
+    color: #545454;
+}
+
 /* https://html.spec.whatwg.org/multipage/rendering.html#form-controls */
 input,
 button,

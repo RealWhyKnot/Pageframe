@@ -385,6 +385,7 @@ pub enum SpecialElementData {
     /// An \<img\> element's image data
     Image(Box<ImageData>),
     ImageFallback(Box<ImageFallback>),
+    DateField(Box<DateField>),
     /// A \<canvas\> element's custom paint source
     Canvas(CanvasData),
     /// Pre-computed table layout data
@@ -410,6 +411,7 @@ impl Clone for SpecialElementData {
             Self::Stylesheet(data) => Self::Stylesheet(data.clone()),
             Self::Image(data) => Self::Image(data.clone()),
             Self::ImageFallback(data) => Self::ImageFallback(data.clone()),
+            Self::DateField(data) => Self::DateField(data.clone()),
             Self::Canvas(data) => Self::Canvas(data.clone()),
             Self::TableRoot(data) => Self::TableRoot(data.clone()),
             Self::TextInput(data) => Self::TextInput(data.clone()),
@@ -1031,6 +1033,45 @@ pub struct ImageFallback {
     pub inset: f32,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct DateField {
+    pub layout: TextLayout,
+    pub edit_width: f32,
+    pub line_height: f32,
+    pub baseline: f32,
+    pub indicator: DateIndicator,
+}
+
+impl DateField {
+    pub const FIELD_PADDING: f32 = 1.0;
+
+    pub fn edit_height(&self) -> f32 {
+        self.line_height + Self::FIELD_PADDING * 2.0
+    }
+
+    pub fn content_height(&self) -> f32 {
+        self.edit_height()
+            .max(self.indicator.size + self.indicator.padding * 2.0)
+    }
+
+    pub fn indicator_width(&self) -> f32 {
+        self.indicator.size + self.indicator.padding * 2.0 + self.indicator.margin
+    }
+
+    pub fn baseline_in(&self, content_height: f32) -> f32 {
+        (content_height - self.edit_height()) / 2.0 + Self::FIELD_PADDING + self.baseline
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct DateIndicator {
+    pub clock: bool,
+    pub visible: bool,
+    pub size: f32,
+    pub padding: f32,
+    pub margin: f32,
+}
+
 #[derive(Debug, Clone)]
 pub enum ImageData {
     Raster(RasterImageData),
@@ -1085,6 +1126,7 @@ impl std::fmt::Debug for SpecialElementData {
                 ImageData::None => f.write_str("NodeSpecificData::Image(None)"),
             },
             SpecialElementData::ImageFallback(_) => f.write_str("ImageFallback"),
+            SpecialElementData::DateField(_) => f.write_str("DateField"),
             SpecialElementData::Canvas(_) => f.write_str("NodeSpecificData::Canvas"),
             SpecialElementData::TableRoot(_) => f.write_str("NodeSpecificData::TableRoot"),
             SpecialElementData::TextInput(_) => f.write_str("NodeSpecificData::TextInput"),

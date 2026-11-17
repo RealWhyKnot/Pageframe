@@ -4,6 +4,7 @@ use super::ring::ring_path;
 use crate::color::{Color, ToColorColor as _};
 use anyrender::PaintScene;
 use kurbo::{Rect, RoundedRectRadii};
+use pageframe_dom::node::SpecialElementData;
 use pageframe_dom::{CopyStyleGetters, local_name};
 use peniko::Fill;
 use style::computed_value_flags::ComputedValueFlags;
@@ -19,7 +20,8 @@ const FOCUS_RING_WIDTH: f64 = 3.0;
 
 impl ElementCx<'_, '_> {
     pub(super) fn has_native_text_field(&self) -> bool {
-        self.text_input.is_some()
+        (self.text_input.is_some()
+            || matches!(self.element.special_data, SpecialElementData::DateField(_)))
             && self.style.get_box().appearance != Appearance::None
             && !self
                 .style
