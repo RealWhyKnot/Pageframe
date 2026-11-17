@@ -410,3 +410,32 @@ fn a_box_on_half_a_layout_unit_keeps_chromes_column_at_double_scale() {
         (false, true, true, false)
     );
 }
+
+#[test]
+fn border_spans_stay_whole_device_pixels_far_down_the_page() {
+    let mut fractional = Vec::new();
+    for tenth in 0..40 {
+        let spacer = 16384.0 + f64::from(tenth) / 10.0;
+        let html = format!(
+            "<!doctype html><style>html,body{{margin:0}}#b{{width:40px;height:20px;border:2px solid blue}}</style><div style='height:{spacer}px'></div><div id=b></div>"
+        );
+        let mut harness = open(App::new((), &html));
+        render_at_ratio(&mut harness, (7, 4), WIDTH);
+        let layout = {
+            let doc = harness.base();
+            let id = doc.query_selector_all("#b").expect("box selector")[0];
+            *doc.get_node(id).expect("box node").final_layout()
+        };
+        for (name, length) in [
+            ("top", layout.border.top),
+            ("bottom", layout.border.bottom),
+            ("height", layout.size.height),
+        ] {
+            let device = f64::from(length) * 1.75;
+            if (device - device.round()).abs() > 1e-4 {
+                fractional.push(format!("{spacer} {name}: {device}"));
+            }
+        }
+    }
+    assert!(fractional.is_empty(), "{fractional:?}");
+}

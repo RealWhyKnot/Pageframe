@@ -23,7 +23,11 @@ impl DeviceSnap {
     }
 
     pub(crate) fn shift(self, start: f32, offset: f32) -> f32 {
-        (self.device(start + offset) - self.device(start)) / self.scale
+        self.between(start, start + offset)
+    }
+
+    fn between(self, from: f32, to: f32) -> f32 {
+        (self.device(to) - self.device(from)) / self.scale
     }
 
     fn device(self, value: f32) -> f32 {
@@ -33,19 +37,15 @@ impl DeviceSnap {
 
 #[cfg(not(feature = "writing-mode"))]
 impl DeviceSnap {
-    fn span(self, start: f32, length: f32) -> f32 {
-        self.round(start + length) - self.round(start)
-    }
-
     fn inset_from_end(self, start: f32, size: f32, inset: f32) -> f32 {
-        self.round(start + size) - self.round(start + size - inset)
+        self.between(start + size - inset, start + size)
     }
 
     fn edges(self, x: f32, y: f32, size: taffy::Size<f32>, rect: Rect<f32>) -> Rect<f32> {
         Rect {
-            left: self.span(x, rect.left),
+            left: self.shift(x, rect.left),
             right: self.inset_from_end(x, size.width, rect.right),
-            top: self.span(y, rect.top),
+            top: self.shift(y, rect.top),
             bottom: self.inset_from_end(y, size.height, rect.bottom),
         }
     }
@@ -70,17 +70,17 @@ fn round_inner(
     let size = unrounded.size;
 
     let mut layout = unrounded;
-    layout.location.x = snap.round(x) - snap.round(parent_x);
-    layout.location.y = snap.round(y) - snap.round(parent_y);
-    layout.size.width = snap.span(x, size.width);
-    layout.size.height = snap.span(y, size.height);
+    layout.location.x = snap.between(parent_x, x);
+    layout.location.y = snap.between(parent_y, y);
+    layout.size.width = snap.shift(x, size.width);
+    layout.size.height = snap.shift(y, size.height);
     layout.scrollbar_size = unrounded.scrollbar_size.map(|length| snap.round(length));
     layout.border = snap.edges(x, y, size, unrounded.border);
     layout.padding = snap.edges(x, y, size, unrounded.padding);
 
     let overflow = unrounded.scrollable_overflow_rect.rect();
     let overflow_edge = |offset: f32, edge: f32| {
-        let rounded = snap.span(offset, edge);
+        let rounded = snap.shift(offset, edge);
         if rounded == 0.0 {
             rounded.copysign(edge)
         } else {
