@@ -142,3 +142,70 @@ fn odd_groove_widths_keep_corner_halves_at_forty_five_degrees() {
         assert_eq!(pixel(&buffer, horizontal, vertical), [0, 0, blue, 255]);
     }
 }
+
+fn top_and_bottom(style: &str) -> ([u8; 4], [u8; 4]) {
+    let html = format!(
+        "<style>html,body{{margin:0;background:white}}div{{box-sizing:border-box;width:40px;height:40px}}</style><div style='{style}'></div>"
+    );
+    let mut harness = open(App::new((), &html));
+    let buffer = render(&mut harness);
+    (pixel(&buffer, 20, 2), pixel(&buffer, 20, 37))
+}
+
+fn gray(level: u8) -> [u8; 4] {
+    [level, level, level, 255]
+}
+
+#[test]
+fn beveled_borders_shade_current_color_from_light_gray_like_chrome() {
+    let cases = [
+        ("color:gray;border:10px inset", gray(154), gray(238)),
+        ("color:red;border:10px inset", gray(154), gray(238)),
+        ("color:gray;border:10px outset", gray(238), gray(154)),
+        ("color:gray;border:10px groove", gray(154), gray(238)),
+        (
+            "color:gray;border:10px inset color-mix(in srgb, currentcolor, white)",
+            gray(162),
+            gray(247),
+        ),
+        ("color:gray;border:10px inset black", gray(84), gray(168)),
+        ("color:gray;border:10px solid", gray(128), gray(128)),
+        (
+            "color:gray;outline:10px inset;outline-offset:-10px",
+            gray(44),
+            gray(212),
+        ),
+        (
+            "color:gray;border:10px inset;display:table",
+            gray(44),
+            gray(212),
+        ),
+        (
+            "color:gray;border:10px inset;display:table-cell",
+            gray(44),
+            gray(212),
+        ),
+    ];
+    for (style, top, bottom) in cases {
+        let (found_top, found_bottom) = top_and_bottom(style);
+        for (found, expected) in [(found_top, top), (found_bottom, bottom)] {
+            assert!(
+                found
+                    .iter()
+                    .zip(expected)
+                    .all(|(have, want)| have.abs_diff(want) <= 1),
+                "{style}: {found:?} vs {expected:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_thin_groove_in_current_color_draws_light_gray() {
+    let html = "<style>html,body{margin:0;background:white}</style><div style='color:gray;width:40px;height:30px;border:1px groove'></div><hr style='margin:0'>";
+    let mut harness = open(App::new((), html));
+    let buffer = render(&mut harness);
+    assert_eq!(pixel(&buffer, 20, 0), gray(238));
+    assert_eq!(pixel(&buffer, 20, 32), gray(154));
+    assert_eq!(pixel(&buffer, 20, 33), gray(238));
+}

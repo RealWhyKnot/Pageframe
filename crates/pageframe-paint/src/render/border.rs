@@ -5,8 +5,9 @@ use pageframe_dom::node::SpecialElementData;
 use peniko::{Color, Fill};
 use smallvec::SmallVec;
 use style::{
+    color::AbsoluteColor,
     computed_values::border_collapse::T as BorderCollapse,
-    values::computed::BorderStyle,
+    values::computed::{BorderStyle, Color as CssColor},
     values::specified::box_::{Display, DisplayInside},
 };
 
@@ -30,6 +31,7 @@ const CHANNEL_SCALE: f32 = 255.999_98;
 const DARK_THRESHOLD: f32 = 3.0 * 32.0 * 32.0;
 const LIGHT_THRESHOLD: f32 = 3.0 * 20.0 * 20.0;
 const LIGHTENED_BLACK: f32 = 84.0 / 255.0;
+const BEVELED_CURRENT_COLOR: u8 = 238;
 
 fn byte_channels(color: Color) -> [f32; 4] {
     let [r, g, b, a] = color.components;
@@ -114,12 +116,29 @@ fn open_dash_gap(length: f64, dash: f64, gap: f64) -> f64 {
 }
 
 impl ElementCx<'_, '_> {
+    fn side_color(&self, color: &CssColor, line: BorderStyle) -> Color {
+        let beveled = matches!(
+            line,
+            BorderStyle::Inset | BorderStyle::Outset | BorderStyle::Groove | BorderStyle::Ridge
+        );
+        let in_table = matches!(
+            self.style.clone_display().inside(),
+            DisplayInside::Table | DisplayInside::TableCell
+        );
+        let current_color = if beveled && !in_table {
+            let gray = BEVELED_CURRENT_COLOR;
+            AbsoluteColor::srgb_legacy(gray, gray, gray, 1.0)
+        } else {
+            self.style.clone_color()
+        };
+        color.resolve_to_absolute(&current_color).as_srgb_color()
+    }
+
     pub(super) fn covered_border_share(&self) -> Option<f64> {
         if self.style.clone_display() == Display::Inline || !self.frame.has_border_radius() {
             return None;
         }
         let border = self.style.get_border();
-        let current_color = self.style.clone_color();
         let width = self.frame.border_width;
         let sides = [
             (border.border_top_style, &border.border_top_color, width.y0),
@@ -145,7 +164,7 @@ impl ElementCx<'_, '_> {
                 line,
                 BorderStyle::None | BorderStyle::Hidden | BorderStyle::Dotted | BorderStyle::Dashed
             );
-            let color = color.resolve_to_absolute(&current_color).as_srgb_color();
+            let color = self.side_color(color, line);
             if is_broken || width <= 0.0 || color.components[3] < 1.0 {
                 return None;
             }
@@ -163,7 +182,6 @@ impl ElementCx<'_, '_> {
         }
         let style = &*self.style;
         let border = style.get_border();
-        let current_color = style.clone_color();
 
         // Fast path: a uniform-width, single-color solid border whose corners are
         // all circular arcs (equal x and y radius — sharp rectangles, ordinary
@@ -176,6 +194,13 @@ impl ElementCx<'_, '_> {
         // A full ellipse (`border-radius: 50%` on a non-square box) has the same
         // seam problem but no rounded-rect representation, so it is stroked as an
         // ellipse.
+        let colors = [
+            (&border.border_top_color, border.border_top_style),
+            (&border.border_right_color, border.border_right_style),
+            (&border.border_bottom_color, border.border_bottom_style),
+            (&border.border_left_color, border.border_left_style),
+        ]
+        .map(|(color, line)| self.side_color(color, line));
         let widths = self.frame.border_width;
         let styles = [
             (border.border_top_style, widths.y0),
@@ -186,17 +211,8 @@ impl ElementCx<'_, '_> {
         .map(|(style, width)| groove::effective_style(style, width));
         let all_solid = styles.iter().all(|style| *style == BorderStyle::Solid);
         if all_solid {
-            let color = border
-                .border_top_color
-                .resolve_to_absolute(&current_color)
-                .as_srgb_color();
-            let same_color = [
-                &border.border_right_color,
-                &border.border_bottom_color,
-                &border.border_left_color,
-            ]
-            .iter()
-            .all(|c| c.resolve_to_absolute(&current_color).as_srgb_color() == color);
+            let color = colors[0];
+            let same_color = colors.iter().all(|side| *side == color);
             let bw = self.frame.border_width;
             let uniform_width = bw.x0 == bw.y0 && bw.x0 == bw.x1 && bw.x0 == bw.y1 && bw.x0 > 0.0;
             if same_color && uniform_width && color.components[3] > 0.0 {
@@ -251,13 +267,6 @@ impl ElementCx<'_, '_> {
             }
         }
 
-        let colors = [
-            &border.border_top_color,
-            &border.border_right_color,
-            &border.border_bottom_color,
-            &border.border_left_color,
-        ]
-        .map(|color| color.resolve_to_absolute(&current_color).as_srgb_color());
         self.draw_sides(scene, styles, colors, outer_clipped);
     }
 
