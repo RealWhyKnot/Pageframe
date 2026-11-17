@@ -268,3 +268,22 @@ fn disabled_fields_and_buttons_grey_their_text_like_chrome() {
     assert_eq!(color("#i2"), [0.0, 0.0, 0.0, 255.0]);
     drop(base);
 }
+
+#[test]
+fn a_field_disabled_by_its_fieldset_stops_taking_keys() {
+    let mut harness = open(App::new((), "<fieldset id=set><input id=field></fieldset>"));
+    harness.click("#field");
+    harness.type_text("ab");
+    let set = first(&harness, "#set");
+    harness.base_mut().mutate().set_attribute(
+        set,
+        QualName::new(None, ns!(), local_name!("disabled")),
+        "",
+    );
+    harness.type_text("cd");
+    harness.pump();
+    assert_eq!(
+        harness.doc.ui().select("#field").value().as_deref(),
+        Some("ab")
+    );
+}

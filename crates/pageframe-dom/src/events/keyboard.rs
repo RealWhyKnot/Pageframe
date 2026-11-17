@@ -81,6 +81,9 @@ pub(crate) fn handle_key_or_input_event<F: FnMut(DomEvent)>(
         let Some(element_data) = node.element_data_mut() else {
             return;
         };
+        if element_data.is_disabled() {
+            return;
+        }
 
         if let Some(input_data) = element_data.text_input_data_mut() {
             let generated_event = match event {
