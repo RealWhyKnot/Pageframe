@@ -29,6 +29,14 @@ input{position:absolute;left:4px;width:100px;height:30px;font:13px sans-serif;bo
 <input class="big" style="top:42px" placeholder="Hxg">
 </body></html>"#;
 
+const AREA_SIZES: &str = r#"<!DOCTYPE html><html><head><style>
+body{margin:0;background:white}
+textarea{position:absolute;left:4px;top:2px;width:100px;height:60px;font:13px sans-serif;border:1px solid black;resize:none}
+textarea::placeholder{font-size:20px}
+</style></head><body>
+<textarea placeholder="Hxg"></textarea>
+</body></html>"#;
+
 const DYNAMIC: &str = r#"<html><head><style>
 body{margin:0;background:white}
 input{position:absolute;left:4px;width:100px;font:13px sans-serif;border:1px solid black}
@@ -176,6 +184,23 @@ fn focus_restyles_the_placeholder() {
     harness.pump();
     let red = ink(&render(&mut harness), 1, 32, 44).red;
     assert!(red > 20, "focused placeholder has {red} red pixels");
+    harness.click("#late");
+    harness.pump();
+    let blurred = ink(&render(&mut harness), 1, 32, 44);
+    assert_eq!(blurred.red, 0, "blurred placeholder keeps the focus colour");
+    assert_eq!(blurred.darkest, 117, "blurred placeholder ink");
+}
+
+#[test]
+fn textarea_placeholders_use_their_own_font_size() {
+    for scale in [1_u16, 2] {
+        let rows = ink(&draw(AREA_SIZES, scale), scale, 4, 60).inked_rows;
+        let span = (
+            rows.first().copied().unwrap_or_default(),
+            rows.last().copied().unwrap_or_default(),
+        );
+        assert_eq!(span, (8, 26), "textarea placeholder rows at {scale}x");
+    }
 }
 
 #[test]

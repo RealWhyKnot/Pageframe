@@ -1600,6 +1600,7 @@ impl ElementCx<'_, '_> {
                 let value_baseline = input_data
                     .editor
                     .try_layout()
+                    .filter(|_| !input_data.is_multiline)
                     .and_then(|value| value.lines().next())
                     .map(|line| line.metrics().baseline);
                 let own_baseline = layout.lines().next().map(|line| line.metrics().baseline);

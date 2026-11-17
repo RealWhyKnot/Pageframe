@@ -1100,19 +1100,26 @@ pub(crate) fn refresh_placeholder_styles(doc: &mut BaseDocument) {
         let Some(current) = placeholder_computed_style(doc, host) else {
             continue;
         };
-        if placeholder_text_changed(&stored, &current) {
-            let node = &mut doc.nodes[host];
+        let node = &mut doc.nodes[host];
+        if placeholder_layout_changed(&stored, &current) {
             node.insert_damage(ALL_DAMAGE);
             node.mark_damaged();
+        } else if stored.clone_color() != current.clone_color()
+            && let Some(placeholder) = node
+                .element_data_mut()
+                .and_then(|element| element.text_input_data_mut())
+                .and_then(|input| input.placeholder.as_mut())
+        {
+            placeholder.style = current;
         }
     }
 }
 
-fn placeholder_text_changed(old: &ComputedValues, new: &ComputedValues) -> bool {
-    old.clone_color() != new.clone_color()
-        || old.get_font() != new.get_font()
+fn placeholder_layout_changed(old: &ComputedValues, new: &ComputedValues) -> bool {
+    old.get_font() != new.get_font()
         || old.get_inherited_text() != new.get_inherited_text()
         || old.get_text() != new.get_text()
+        || old.get_box() != new.get_box()
 }
 
 fn configure_editor(
