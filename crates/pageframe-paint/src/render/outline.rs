@@ -23,7 +23,7 @@ impl ElementCx<'_, '_> {
         {
             return;
         }
-        let offset = (outline.outline_offset.to_f64_px() * self.scale).trunc();
+        let offset = (outline.outline_offset.to_f64_px() * self.scale).round();
         if style == BorderStyle::Solid {
             let path = self.frame.outline(offset);
             scene.fill(Fill::EvenOdd, self.transform, color, None, &path);

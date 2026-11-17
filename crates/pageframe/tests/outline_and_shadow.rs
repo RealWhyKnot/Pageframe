@@ -2,7 +2,7 @@ mod scaled;
 mod support;
 
 use pageframe::App;
-use scaled::render_at_scale;
+use scaled::{render_at_ratio, render_at_scale};
 use support::{open, pixel, render};
 
 fn page(style: &str) -> Vec<u8> {
@@ -34,6 +34,33 @@ fn an_outline_offset_leaves_a_gap() {
     assert!(is_white(pixel(&buffer, 11, 24)), "gap starts");
     assert!(is_white(pixel(&buffer, 13, 24)), "gap ends");
     assert!(is_lime(pixel(&buffer, 14, 24)), "the box");
+}
+
+#[test]
+fn an_outline_offset_keeps_whole_device_pixels_at_one_and_seven_quarters_scale() {
+    let html = "<!DOCTYPE html><html><head><style>html,body{margin:0;background:white}</style></head><body><div style='position:absolute;left:128px;top:16px;width:80px;height:40px;background:lime;outline:3px solid blue;outline-offset:5px'></div></body></html>";
+    let mut harness = open(App::new((), html));
+    let buffer = render_at_ratio(&mut harness, (7, 4), 640);
+    let at = |column: usize, row: usize| {
+        let start = (row * 1120 + column) * 4;
+        [
+            buffer[start],
+            buffer[start + 1],
+            buffer[start + 2],
+            buffer[start + 3],
+        ]
+    };
+    assert!(is_white(at(210, 62)), "outside the left edge");
+    assert!(is_blue(at(211, 62)), "outer left outline pixel");
+    assert!(is_blue(at(215, 62)), "inner left outline pixel");
+    assert!(is_white(at(216, 62)), "left gap starts");
+    assert!(is_white(at(223, 62)), "left gap ends");
+    assert!(is_lime(at(224, 62)), "the box");
+    assert!(is_blue(at(376, 62)), "outer right outline pixel");
+    assert!(is_white(at(377, 62)), "outside the right edge");
+    assert!(is_blue(at(300, 15)), "outer top outline pixel");
+    assert!(is_white(at(300, 20)), "top gap starts");
+    assert!(is_lime(at(300, 28)), "the box top");
 }
 
 #[test]

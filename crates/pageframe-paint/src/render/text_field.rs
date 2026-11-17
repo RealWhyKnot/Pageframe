@@ -143,7 +143,7 @@ impl ElementCx<'_, '_> {
         let outer_width = stroke_width / 3.0 * 2.0;
         let inner_width = stroke_width / 3.0;
 
-        let outline_offset = (outline.outline_offset.to_f64_px() * self.scale).trunc();
+        let outline_offset = (outline.outline_offset.to_f64_px() * self.scale).round();
         let max_inside = zoomed_width(BORDER_WIDTH, self.scale);
         let borders = self.frame.border_width;
         let min_border = borders.x0.min(borders.y0).min(borders.x1).min(borders.y1);
