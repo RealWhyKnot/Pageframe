@@ -70,10 +70,11 @@ pub(crate) fn layout(node: &mut Node, mut inputs: LayoutInput) -> LayoutOutput {
         0.0
     };
     let inset = fallback.inset * 2.0;
+    let max_content = fallback.layout.content_widths().max;
     let natural = if fallback.loading {
         0.0
     } else {
-        fallback.layout.content_widths().max / scale
+        max_content / scale
     };
     let pb = style
         .padding()
@@ -95,10 +96,11 @@ pub(crate) fn layout(node: &mut Node, mut inputs: LayoutInput) -> LayoutOutput {
                 natural.min(available.width.into_option().unwrap_or(natural))
             }
         });
-        fallback
-            .layout
-            .layout
-            .break_all_lines(Some(((width - inset).max(0.0)) * scale));
+        fallback.layout.layout.break_all_lines(Some(line_width(
+            (width - inset).max(0.0),
+            scale,
+            max_content,
+        )));
         let height = known.height.unwrap_or_else(|| {
             if square {
                 width
@@ -116,7 +118,7 @@ pub(crate) fn layout(node: &mut Node, mut inputs: LayoutInput) -> LayoutOutput {
     fallback
         .layout
         .layout
-        .break_all_lines(Some(content_width * scale));
+        .break_all_lines(Some(line_width(content_width, scale, max_content)));
     fallback
         .layout
         .layout
@@ -138,6 +140,17 @@ pub(crate) fn layout(node: &mut Node, mut inputs: LayoutInput) -> LayoutOutput {
         element.special_data = SpecialElementData::ImageFallback(fallback);
     }
     output
+}
+
+fn line_width(css_width: f32, scale: f32, max_content: f32) -> f32 {
+    let device = css_width * scale;
+    let fit = device.max(max_content);
+    let rounding_error = fit.abs() * 8.0 * f32::EPSILON;
+    if (max_content - device).abs() <= rounding_error {
+        fit + rounding_error
+    } else {
+        device
+    }
 }
 
 pub(crate) fn prepare(doc: &mut crate::BaseDocument, node_id: crate::NodeId) {

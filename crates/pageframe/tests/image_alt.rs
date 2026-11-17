@@ -1,6 +1,8 @@
+mod scaled;
 mod support;
 
 use pageframe::App;
+use scaled::{render_at_ratio, render_at_scale};
 use support::{open, pixel, render};
 
 fn size(attributes: &str) -> (f32, f32) {
@@ -257,35 +259,7 @@ fn alt_text_grows_with_the_viewport_scale() {
         "<!doctype html><style>html,body{margin:0;background:white;font:16px/20px Arial}</style><img id='image' alt='Hello' src='data:,bad'>",
     ));
     let before = dark_pixels(&render(&mut harness));
-    let scheme = harness.base().get_viewport().color_scheme;
-    harness
-        .base_mut()
-        .set_viewport(pageframe_traits::shell::Viewport::new(
-            support::WIDTH * 2,
-            support::HEIGHT * 2,
-            2.0,
-            scheme,
-        ));
-    harness.pump();
-    let mut doc = harness.base_mut();
-    let after = dark_pixels(&anyrender::render_to_buffer::<
-        anyrender_vello_cpu::VelloCpuImageRenderer,
-        _,
-    >(
-        |scene| {
-            pageframe_paint::paint_scene(
-                scene,
-                &mut doc,
-                2.0,
-                support::WIDTH * 2,
-                support::HEIGHT * 2,
-                0,
-                0,
-            );
-        },
-        support::WIDTH * 2,
-        support::HEIGHT * 2,
-    ));
+    let after = dark_pixels(&render_at_scale(&mut harness, 2));
     assert!(before > 20, "{before}");
     assert!(after > before * 3, "{before} {after}");
 }
@@ -580,4 +554,31 @@ fn a_framed_fallback_sits_on_its_content_edge() {
     assert_eq!(line_and_box("", &with_alt), (44.0, 25.0));
     let without_alt = format!("{marker}<img src='data:,bad' {style}>");
     assert_eq!(line_and_box("<!doctype html>", &without_alt), (44.0, 25.0));
+}
+
+#[test]
+fn unsized_alt_text_stays_on_one_line_at_seven_quarters_scale() {
+    let words = [
+        "broken", "image", "alt", "text", "missing", "photo", "of", "a", "cat",
+    ];
+    let mut wrapped = Vec::new();
+    for count in 2..=words.len() {
+        for start in 0..=words.len() - count {
+            let alt = words[start..start + count].join(" ");
+            let html = format!(
+                "<!doctype html><style>html,body{{margin:0;background:white;font:16px/20px Arial}}</style><img id='image' src='data:,bad' alt='{alt}'>"
+            );
+            let mut harness = open(App::new((), &html));
+            render_at_ratio(&mut harness, (7, 4), support::WIDTH * 5);
+            let height = {
+                let doc = harness.base();
+                let id = doc.query_selector_all("#image").expect("selector")[0];
+                doc.get_node(id).expect("node").final_layout().size.height
+            };
+            if (height - 20.0).abs() > 0.5 {
+                wrapped.push(format!("{alt}: {height}"));
+            }
+        }
+    }
+    assert!(wrapped.is_empty(), "{wrapped:?}");
 }
