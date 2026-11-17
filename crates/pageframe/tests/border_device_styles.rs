@@ -282,3 +282,35 @@ fn borders_snap_to_whole_device_pixels_at_seven_quarters_scale() {
         assert_eq!(at(column, row), expected, "pixel {column},{row}");
     }
 }
+
+#[test]
+fn computed_border_widths_report_whole_device_pixels_at_seven_quarters_scale() {
+    let mut harness = open(App::new(
+        (),
+        "<style>div{border:solid #000;width:10px;height:10px;outline:3px solid red;columns:2;column-rule:solid 2px}</style><div id='one' style='border-width:1px'></div><div id='two' style='border-width:2px'></div>",
+    ));
+    {
+        let mut doc = harness.base_mut();
+        let color_scheme = doc.get_viewport().color_scheme;
+        doc.set_viewport(pageframe_traits::shell::Viewport::new(
+            WIDTH * 7 / 4,
+            HEIGHT * 7 / 4,
+            1.75,
+            color_scheme,
+        ));
+    }
+    harness.pump();
+    let doc = harness.base();
+    let value = |id: &str, property: &str| {
+        let node = doc
+            .query_selector_all(&format!("#{id}"))
+            .expect("box selector")[0];
+        doc.resolved_style_value(node, property)
+    };
+    assert_eq!(value("one", "border-top-width"), "0.571429px");
+    assert_eq!(value("one", "border-left-width"), "0.571429px");
+    assert_eq!(value("two", "border-bottom-width"), "1.71429px");
+    assert_eq!(value("two", "border-right-width"), "1.71429px");
+    assert_eq!(value("one", "outline-width"), "2.85714px");
+    assert_eq!(value("two", "column-rule-width"), "1.71429px");
+}

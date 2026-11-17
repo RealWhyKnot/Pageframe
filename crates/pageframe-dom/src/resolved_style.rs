@@ -658,6 +658,19 @@ impl BaseDocument {
             // `min-width: auto` / `min-height: auto` resolve to `auto` only for
             // boxes with a preferred aspect ratio and for flex and grid items;
             // otherwise (including when no box is generated) they resolve to `0px`
+            "border-top-width" | "border-right-width" | "border-bottom-width"
+            | "border-left-width" | "outline-width" | "column-rule-width" => {
+                let width = match property_name {
+                    "border-top-width" => styles.get_border().border_top_width.0,
+                    "border-right-width" => styles.get_border().border_right_width.0,
+                    "border-bottom-width" => styles.get_border().border_bottom_width.0,
+                    "border-left-width" => styles.get_border().border_left_width.0,
+                    "outline-width" => styles.get_outline().outline_width.0,
+                    _ => styles.get_column().column_rule_width.0,
+                };
+                let scale = self.nodes.device_scale();
+                return format_used_px(stylo_taffy::device_border_px(width.to_f32_px(), scale));
+            }
             "min-width" | "min-height" => {
                 let pos_styles = styles.get_position();
                 let is_auto = if property_name == "min-width" {
