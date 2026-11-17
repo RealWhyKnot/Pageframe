@@ -124,7 +124,8 @@ fn unusual_rubies_match_chrome() {
 <div>ab<ruby id=hidden>base<rt style=\"display:none\">long annotation</rt></ruby>cd</div>\
 <div>\n  <ruby id=blank>x<rt>long annotation</rt></ruby> after</div>\
 <div><ruby id=floated style=\"float:left\">base<rt id=floated-rt>annotation</rt></ruby>text</div>\
-<div dir=rtl><ruby><rb id=wide>AAA</rb><rt>1</rt><rb id=narrow>B</rb><rt>2</rt></ruby></div>",
+<div dir=rtl><ruby><rb id=wide>AAA</rb><rt>1</rt><rb id=narrow>B</rb><rt>2</rt></ruby></div>\
+<div dir=rtl>ab<ruby>x<rt id=rtl-rt>long annotation</rt></ruby>cd</div>",
     ));
     assert_boxes(
         &boxes(&mut harness, "div"),
@@ -133,6 +134,7 @@ fn unusual_rubies_match_chrome() {
             [3.0, 24.0, 202.0, 23.0],
             [3.0, 50.0, 202.0, 18.0],
             [3.0, 71.0, 202.0, 23.0],
+            [3.0, 97.0, 202.0, 23.0],
         ],
         "divs",
     );
@@ -146,11 +148,12 @@ fn unusual_rubies_match_chrome() {
         "rubies",
     );
     assert_boxes(
-        &boxes(&mut harness, "#floated-rt, #wide, #narrow"),
+        &boxes(&mut harness, "#floated-rt, #wide, #narrow, #rtl-rt"),
         &[
             [4.0, 51.0, 32.7, 7.0],
             [175.98, 77.0, 28.02, 16.0],
-            [166.66, 77.0, 9.34, 16.0],
+            [166.64, 77.0, 9.34, 16.0],
+            [144.31, 98.0, 47.89, 7.0],
         ],
         "annotation and bases",
     );

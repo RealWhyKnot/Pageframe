@@ -1,6 +1,7 @@
 use markup5ever::local_name;
 use pageframe_traits::node_id::NodeId;
 use style::computed_values::direction::T as Direction;
+use style::computed_values::white_space_collapse::T as WhiteSpaceCollapse;
 use style::values::specified::box_::DisplayOutside;
 use stylo_taffy::CopyStyleGetters as _;
 use taffy::{
@@ -134,8 +135,17 @@ impl LayoutPassState<'_> {
         let Some(index) = siblings.iter().position(|&sibling| sibling == ruby) else {
             return (None, None);
         };
+        let collapses_spaces = self.nodes[parent].primary_styles().is_some_and(|style| {
+            style.clone_white_space_collapse() == WhiteSpaceCollapse::Collapse
+        });
         let is_blank = |sibling: NodeId| match &self.nodes[sibling].data {
-            NodeData::Text(text) => text.content.trim().is_empty(),
+            NodeData::Text(text) => {
+                collapses_spaces
+                    && text
+                        .content
+                        .chars()
+                        .all(|character| matches!(character, ' ' | '\t' | '\n' | '\r' | '\x0c'))
+            }
             _ => false,
         };
         let previous = index
