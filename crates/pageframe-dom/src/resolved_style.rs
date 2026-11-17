@@ -398,11 +398,21 @@ impl BaseDocument {
         let zoom = styles.effective_zoom.value();
         let format_used_px = |px: f32| format_px(px / zoom);
         let scale = self.nodes.device_scale();
-        if let Err(PropertyDeclarationId::Longhand(longhand)) = property_id.as_shorthand()
-            && let Some(px) =
-                line_width_px(styles, longhand.to_physical(styles.writing_mode), scale)
-        {
-            return format_px(px);
+        if let Err(PropertyDeclarationId::Longhand(longhand)) = property_id.as_shorthand() {
+            let physical = longhand.to_physical(styles.writing_mode);
+            let is_border_width = matches!(
+                physical,
+                LonghandId::BorderTopWidth
+                    | LonghandId::BorderRightWidth
+                    | LonghandId::BorderBottomWidth
+                    | LonghandId::BorderLeftWidth
+            );
+            if is_border_width && has_layout_box && node.is_native_toggle() {
+                return format_px(0.0);
+            }
+            if let Some(px) = line_width_px(styles, physical, scale) {
+                return format_px(px);
+            }
         }
 
         // Layout-dependent "used value" special cases

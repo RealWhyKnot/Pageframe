@@ -1149,6 +1149,14 @@ impl Node {
     /// Panics if the node has no computed styles: layout always runs after
     /// styling, and the only unstyled nodes (text, comments, descendants of
     /// `display: none`) are never queried by Taffy.
+    pub(crate) fn is_native_toggle(&self) -> bool {
+        self.element_data()
+            .is_some_and(|el| el.checkbox_input_checked().is_some())
+            && self
+                .primary_styles()
+                .is_some_and(|style| style.get_box().appearance != Appearance::None)
+    }
+
     pub fn layout_style(&self) -> stylo_taffy::TaffyStyloStyle<ComputedStyleRef<'_>> {
         let styles = self
             .try_stylo_element_data()
@@ -1166,9 +1174,7 @@ impl Node {
             if el.name.local == local_name!("button") {
                 flags |= stylo_taffy::StyleFlags::IS_BUTTON;
             }
-            if el.checkbox_input_checked().is_some()
-                && styles.get_box().appearance != Appearance::None
-            {
+            if self.is_native_toggle() {
                 flags |= stylo_taffy::StyleFlags::IS_NATIVE_TOGGLE;
             }
             if el.is_button_input() {

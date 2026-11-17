@@ -566,6 +566,21 @@ fn native_checkbox_and_radio_ignore_author_padding_and_border() {
             (26.0, 26.0)
         ]
     );
+    let computed = [
+        ("#bordered", "border-top-width"),
+        ("#bordered", "border-left-width"),
+        ("#padded", "padding-left"),
+        ("#roomy", "padding-top"),
+    ]
+    .map(|(selector, property)| {
+        let doc = harness.base();
+        let id = doc
+            .query_selector(selector)
+            .expect("valid selector")
+            .expect("the input exists");
+        doc.resolved_style_value(id, property)
+    });
+    assert_eq!(computed, ["0px", "0px", "0px", "0px"]);
     let red = buffer
         .as_chunks::<4>()
         .0
