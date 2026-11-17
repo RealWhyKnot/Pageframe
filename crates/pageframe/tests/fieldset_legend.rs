@@ -40,7 +40,10 @@ vertical-align:top'></span></span></div>\
 <fieldset id=g style='width:150px;margin:4px;padding:0;font-size:0'><fieldset id=gi \
 style='width:200px;margin:0 4px;padding:0;height:10px'></fieldset></fieldset>\
 <div id=w style='width:60px'><div id=c style='min-width:max-content;font-size:0'>\
-<span class=s style='width:40px'></span> <span class=s style='width:40px'></span></div></div>";
+<span class=s style='width:40px'></span> <span class=s style='width:40px'></span></div></div>\
+<div style='position:relative;width:60px;height:20px'><div id=s style='position:absolute;\
+font-size:0'><div id=sc style='min-width:max-content'><span class=s style='width:40px'></span> \
+<span class=s style='width:40px'></span></div></div></div>";
 
 type Expected = (&'static str, Option<f32>, Option<f32>, f32, f32);
 
@@ -208,6 +211,8 @@ fn content_keyword_min_widths_widen_boxes_like_chrome() {
         ("#g", Some(4.0), Some(32.0), 216.0, 18.0),
         ("#gi", Some(6.0), Some(2.0), 204.0, 14.0),
         ("#c", Some(0.0), Some(0.0), 80.0, 10.0),
+        ("#s", Some(0.0), Some(0.0), 80.0, 10.0),
+        ("#sc", Some(0.0), Some(0.0), 80.0, 10.0),
     ];
     let mismatches = layout_mismatches(KEYWORD_MIN_WIDTHS, &chrome);
     assert!(mismatches.is_empty(), "{mismatches:#?}");

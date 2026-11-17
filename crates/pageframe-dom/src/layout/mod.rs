@@ -460,48 +460,32 @@ impl LayoutPassState<'_> {
         block_ctx: Option<&mut BlockContext<'_>>,
         floor: f32,
     ) -> taffy::tree::LayoutOutput {
-        let mut block_ctx = block_ctx;
-        let raised = raise_known_width(inputs, floor);
-        let output = self.dispatch_widened(
-            node_id,
-            raised,
-            block_ctx.as_deref_mut(),
-            inputs.known_dimensions.width,
-        );
-        if output.size.width >= floor {
-            return output;
-        }
-        self.dispatch_widened(
-            node_id,
-            with_known_width(inputs, floor),
-            block_ctx,
-            Some(output.size.width),
-        )
-    }
-
-    fn dispatch_widened(
-        &mut self,
-        node_id: NodeId,
-        inputs: taffy::tree::LayoutInput,
-        block_ctx: Option<&mut BlockContext<'_>>,
-        assumed_width: Option<f32>,
-    ) -> taffy::tree::LayoutOutput {
-        let extra = inputs
-            .known_dimensions
-            .width
-            .zip(assumed_width)
-            .map(|(width, assumed)| width - assumed)
-            .filter(|&extra| extra > 0.0);
-        match (block_ctx, extra) {
-            (Some(block_ctx), Some(extra)) => {
-                let mut widened = block_ctx.sub_context(0.0, FloatInsets::new(0.0, -extra));
-                let output = self.dispatch_child_layout(node_id, inputs, Some(&mut widened));
-                let contribution = float_contribution(&widened);
-                add_float_contribution(block_ctx, contribution);
-                output
+        let assumed_width = match inputs.known_dimensions.width {
+            Some(width) => width,
+            None => {
+                let measure = taffy::tree::LayoutInput {
+                    run_mode: RunMode::ComputeSize,
+                    axis: taffy::RequestedAxis::Horizontal,
+                    ..inputs
+                };
+                self.dispatch_child_layout(node_id, measure, None)
+                    .size
+                    .width
             }
-            (block_ctx, _) => self.dispatch_child_layout(node_id, inputs, block_ctx),
+        };
+        if assumed_width >= floor {
+            return self.dispatch_child_layout(node_id, inputs, block_ctx);
         }
+        let inputs = with_known_width(inputs, floor);
+        let Some(block_ctx) = block_ctx else {
+            return self.dispatch_child_layout(node_id, inputs, None);
+        };
+        let extra = floor - assumed_width;
+        let mut widened = block_ctx.sub_context(0.0, FloatInsets::new(0.0, -extra));
+        let output = self.dispatch_child_layout(node_id, inputs, Some(&mut widened));
+        let contribution = float_contribution(&widened);
+        add_float_contribution(block_ctx, contribution);
+        output
     }
 
     fn dispatch_child_layout(
@@ -1418,13 +1402,6 @@ impl Iterator for RefCellChildIter<'_> {
             self.idx += 1;
             taffy_node_id(*id)
         })
-    }
-}
-
-fn raise_known_width(inputs: taffy::tree::LayoutInput, floor: f32) -> taffy::tree::LayoutInput {
-    match inputs.known_dimensions.width {
-        Some(width) if width < floor => with_known_width(inputs, floor),
-        _ => inputs,
     }
 }
 
