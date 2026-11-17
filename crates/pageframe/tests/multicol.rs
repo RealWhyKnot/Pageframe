@@ -325,3 +325,46 @@ fn padded_text_columns_balance_like_chrome() {
         ],
     );
 }
+
+fn paragraphs(prefix: &str, sizes: &[usize]) -> String {
+    sizes
+        .iter()
+        .enumerate()
+        .map(|(paragraph, &size)| {
+            let words: Vec<String> = (0..size)
+                .map(|line| format!("<span id=\"{prefix}{paragraph}_{line}\">w{line}</span>"))
+                .collect();
+            format!("<p>{}</p>", words.join("<br>"))
+        })
+        .collect()
+}
+
+#[test]
+fn columns_keep_orphans_and_widows_like_chrome() {
+    let body = format!(
+        "<div class=\"c\">{}</div><div class=\"c\" style=\"column-count:2\">{}</div>\
+         <div class=\"c\">{}</div><div class=\"c\" style=\"widows:1;orphans:1\">{}</div>",
+        paragraphs("a", &[7]),
+        paragraphs("d", &[4, 1]),
+        paragraphs("j", &[2, 2, 2, 1]),
+        paragraphs("n", &[7]),
+    );
+    let harness = page(&body);
+    let expected = [
+        (115.0, 10.0, "a0_3"),
+        (115.0, 30.0, "a0_4"),
+        (225.0, 10.0, "a0_5"),
+        (225.0, 30.0, "a0_6"),
+        (5.0, 90.0, "d0_1"),
+        (170.0, 70.0, "d0_2"),
+        (170.0, 110.0, "d1_0"),
+        (115.0, 130.0, "j1_0"),
+        (225.0, 130.0, "j2_0"),
+        (225.0, 170.0, "j3_0"),
+        (115.0, 230.0, "n0_5"),
+        (225.0, 190.0, "n0_6"),
+    ];
+    for (x, y, id) in expected {
+        assert_eq!(hit_id(&harness, x, y).as_deref(), Some(id), "at {x},{y}");
+    }
+}

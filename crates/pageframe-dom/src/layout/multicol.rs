@@ -154,6 +154,17 @@ struct Solid {
     top: f32,
     bottom: f32,
     is_breakable: bool,
+    line: Option<LineSlot>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LineSlot {
+    group: usize,
+    first: usize,
+    index: usize,
+    count: usize,
+    orphans: usize,
+    widows: usize,
 }
 
 struct ColumnStyle {
@@ -183,6 +194,18 @@ fn used_columns(style: &ColumnStyle, content_width: f32, gap: f32) -> (usize, f3
     (count, width)
 }
 
+fn relink_lines(solids: &mut [Solid]) {
+    for (position, solid) in solids.iter_mut().enumerate() {
+        if let Some(line) = solid.line.as_mut() {
+            line.first = position.saturating_sub(line.index);
+        }
+    }
+}
+
+fn line_minimum(value: i32) -> usize {
+    usize::try_from(value).unwrap_or(1).max(1)
+}
+
 fn f32_from(count: usize) -> f32 {
     f32::from(u16::try_from(count).unwrap_or(u16::MAX))
 }
@@ -196,7 +219,7 @@ fn break_before(solids: &[Solid], start: f32, limit: f32) -> f32 {
         end = solid.top;
     }
     if end > start + EDGE {
-        return end;
+        return honour_orphans_and_widows(solids, start, end);
     }
     solids
         .iter()
@@ -205,6 +228,60 @@ fn break_before(solids: &[Solid], start: f32, limit: f32) -> f32 {
         })
         .map(|solid| solid.bottom)
         .fold(limit.max(start + 1.0), f32::max)
+}
+
+fn honour_orphans_and_widows(solids: &[Solid], start: f32, end: f32) -> f32 {
+    let Some(slot) = solids
+        .iter()
+        .filter(|solid| solid.top >= end - EDGE)
+        .min_by(|left, right| {
+            left.top
+                .total_cmp(&right.top)
+                .then_with(|| right.line.is_some().cmp(&left.line.is_some()))
+        })
+        .and_then(|solid| solid.line)
+    else {
+        return end;
+    };
+    let line_top = |index: usize| {
+        solids
+            .get(slot.first + index)
+            .filter(|solid| {
+                solid
+                    .line
+                    .is_some_and(|line| line.group == slot.group && line.index == index)
+            })
+            .map_or(end, |solid| solid.top)
+    };
+    let first_here = (0..slot.index)
+        .find(|&index| line_top(index) >= start - EDGE)
+        .unwrap_or(slot.index);
+    let fitted = slot.index - first_here;
+    if fitted == 0 {
+        return end;
+    }
+    let minimum = if first_here == 0 {
+        slot.orphans
+    } else {
+        slot.orphans.max(slot.widows)
+    };
+    if fitted < minimum {
+        let before = line_top(0);
+        return if first_here == 0 && before > start + EDGE {
+            before
+        } else {
+            end
+        };
+    }
+    let remaining = slot.count - first_here;
+    if remaining - fitted >= slot.widows {
+        return end;
+    }
+    let kept = remaining
+        .saturating_sub(slot.widows)
+        .max(remaining.min(slot.orphans));
+    let top = line_top(first_here + kept);
+    if top > start + EDGE { top } else { end }
 }
 
 fn next_start(solids: &[Solid], end: f32, flow_end: f32) -> f32 {
@@ -342,14 +419,28 @@ impl BaseDocument {
         else {
             return;
         };
+        let (orphans, widows) = node.primary_styles().map_or((2, 2), |style| {
+            let text = style.get_inherited_text();
+            (line_minimum(text.orphans), line_minimum(text.widows))
+        });
         let scale = self.viewport.scale();
         let lines_top = content_top + text_layout.block_offset;
-        for line in text_layout.layout.lines() {
+        let group = solids.len();
+        let count = text_layout.layout.lines().count();
+        for (index, line) in text_layout.layout.lines().enumerate() {
             let metrics = line.metrics();
             solids.push(Solid {
                 top: lines_top + metrics.block_min_coord / scale,
                 bottom: lines_top + metrics.block_max_coord / scale,
                 is_breakable: false,
+                line: Some(LineSlot {
+                    group,
+                    first: group,
+                    index,
+                    count,
+                    orphans,
+                    widows,
+                }),
             });
         }
     }
@@ -378,6 +469,7 @@ impl BaseDocument {
                     top: child_top,
                     bottom: child_bottom,
                     is_breakable: false,
+                    line: None,
                 });
                 continue;
             }
@@ -388,6 +480,7 @@ impl BaseDocument {
                     top: child_top,
                     bottom: inner_top,
                     is_breakable: true,
+                    line: None,
                 });
             }
             let before = solids.len();
@@ -397,6 +490,7 @@ impl BaseDocument {
                     top: inner_top,
                     bottom: inner_bottom,
                     is_breakable: true,
+                    line: None,
                 });
             }
             if child_bottom > inner_bottom {
@@ -404,6 +498,7 @@ impl BaseDocument {
                     top: inner_bottom,
                     bottom: child_bottom,
                     is_breakable: true,
+                    line: None,
                 });
             }
         }
@@ -513,6 +608,7 @@ impl LayoutPassState<'_> {
             self.collect_solids(node_id, 0.0, &mut solids);
         }
         solids.sort_by(|a, b| a.top.total_cmp(&b.top));
+        relink_lines(&mut solids);
 
         let balanced = balanced_height(&solids, flow_start, flow_end, count);
         let fixed = inputs
