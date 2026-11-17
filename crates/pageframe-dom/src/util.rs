@@ -45,8 +45,35 @@ use std::sync::{Arc, LazyLock};
 use usvg::fontdb;
 #[cfg(feature = "svg")]
 pub(crate) static FONT_DB: LazyLock<Arc<fontdb::Database>> = LazyLock::new(|| {
+    use parley::fontique::{Collection, CollectionOptions, GenericFamily};
+
     let mut db = fontdb::Database::new();
     db.load_system_fonts();
+    let mut collection = Collection::new(CollectionOptions {
+        shared: false,
+        system_fonts: cfg!(all(feature = "system-fonts", not(target_arch = "wasm32"))),
+    });
+    type SetFamily = fn(&mut fontdb::Database, String);
+
+    let generics: [(GenericFamily, SetFamily); 5] = [
+        (GenericFamily::Serif, fontdb::Database::set_serif_family),
+        (
+            GenericFamily::SansSerif,
+            fontdb::Database::set_sans_serif_family,
+        ),
+        (
+            GenericFamily::Monospace,
+            fontdb::Database::set_monospace_family,
+        ),
+        (GenericFamily::Cursive, fontdb::Database::set_cursive_family),
+        (GenericFamily::Fantasy, fontdb::Database::set_fantasy_family),
+    ];
+    for (generic, set_family) in generics {
+        let first = collection.generic_families(generic).next();
+        if let Some(name) = first.and_then(|family| collection.family_name(family)) {
+            set_family(&mut db, name.to_owned());
+        }
+    }
     Arc::new(db)
 });
 

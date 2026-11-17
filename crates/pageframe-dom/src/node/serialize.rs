@@ -311,7 +311,7 @@ fn svg_paint_css(
 
 fn svg_paint_values(
     style: &style::properties::ComputedValues,
-) -> [(&'static str, Option<String>); 11] {
+) -> [(&'static str, Option<String>); 15] {
     use style::values::computed::url::ComputedUrl;
     use style::values::generics::svg::{SVGPaintFallback, SVGPaintKind};
 
@@ -351,7 +351,12 @@ fn svg_paint_values(
     };
 
     let svg = style.get_inherited_svg();
+    let font = style.get_font();
     [
+        ("font-family", Some(font.font_family.to_css_string())),
+        ("font-size", Some(font.font_size.to_css_string())),
+        ("font-style", Some(font.font_style.to_css_string())),
+        ("font-weight", Some(font.font_weight.to_css_string())),
         ("fill", paint(&svg.fill)),
         ("stroke", paint(&svg.stroke)),
         ("fill-opacity", Some(svg.fill_opacity.to_css_string())),
