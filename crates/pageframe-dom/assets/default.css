@@ -322,11 +322,12 @@ button,
 input[type="submit"],
 input[type="reset"],
 input[type="button"] {
-    border: 1px solid #999;
-    border-radius: 1px;
-    padding: 2px 7px;
+    appearance: auto;
+    border: 2px outset black;
+    padding: 1px 6px;
     color: black;
-    background-color: #EFEFEF;
+    background-color: rgb(240, 240, 240);
+    box-sizing: border-box;
     text-align: center;
     display: inline-block;
 }
@@ -339,6 +340,8 @@ textarea:disabled {
 button:disabled,
 input:is([type="submit" i], [type="reset" i], [type="button" i]):disabled {
     color: rgba(16, 16, 16, 0.3);
+    border-color: rgba(118, 118, 118, 0.3);
+    background-color: rgba(239, 239, 239, 0.3);
 }
 
 /* Button-flavored inputs clip their contents to the border box and never

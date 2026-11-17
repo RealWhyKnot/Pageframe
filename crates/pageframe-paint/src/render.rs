@@ -813,7 +813,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
         body: &EffectBody<'_>,
     ) {
         let unscrolled_transform = cx.transform;
-        let native_text_field = cx.has_native_text_field();
+        let native_frame = cx.has_native_frame();
         let mut other_box = cx.decoration_box();
         if let Some(other) = &mut other_box {
             cx.swap_box(other);
@@ -823,8 +823,8 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
             cx.begin_dashed_background(scene);
         }
         if body.paints_own_box {
-            if native_text_field {
-                cx.draw_native_text_field(scene);
+            if native_frame {
+                cx.draw_native_frame(scene);
             } else {
                 cx.draw_background(scene, outer_clipped);
             }
@@ -837,7 +837,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
         if let Some(other) = &mut other_box {
             cx.swap_box(other);
         }
-        if body.paints_own_box && !native_text_field && !cx.has_collapsed_borders() {
+        if body.paints_own_box && !native_frame && !cx.has_collapsed_borders() {
             let legend_clipped = cx.clip_out_legend(scene);
             cx.draw_border(scene, outer_clipped);
             if legend_clipped {

@@ -3,8 +3,9 @@ use super::pixels::{Pixels, Span, device_space, fill_pixels};
 use super::ring::ring_path;
 use crate::color::{Color, ToColorColor as _};
 use anyrender::PaintScene;
-use kurbo::{Rect, RoundedRectRadii};
+use kurbo::{Rect, RoundedRect, RoundedRectRadii, Shape as _};
 use pageframe_dom::CopyStyleGetters;
+use pageframe_dom::local_name;
 use pageframe_dom::node::SpecialElementData;
 use peniko::Fill;
 use style::computed_value_flags::ComputedValueFlags;
@@ -13,33 +14,71 @@ use style::values::computed::{Appearance, OutlineStyle};
 const BORDER: Color = Color::from_rgba8(0x76, 0x76, 0x76, 0xff);
 const DISABLED_BORDER: Color = Color::from_rgba8(0x76, 0x76, 0x76, 79);
 const DISABLED_BACKGROUND: Color = Color::from_rgba8(0xf8, 0xf8, 0xf8, 0xff);
+const BUTTON_FACE: Color = Color::from_rgba8(0xef, 0xef, 0xef, 0xff);
+const DISABLED_BUTTON_FACE: Color = Color::from_rgba8(216, 216, 216, 112);
+const DISABLED_BUTTON_BORDER: Color = Color::from_rgba8(153, 153, 153, 117);
 const FOCUS_RING_OUTER: Color = Color::WHITE;
 const BORDER_WIDTH: f64 = 1.0;
 const BORDER_RADIUS: f64 = 2.0;
 const FOCUS_RING_WIDTH: f64 = 3.0;
 
+#[derive(Clone, Copy)]
+enum NativeFrame {
+    TextField,
+    Button,
+}
+
 impl ElementCx<'_, '_> {
-    pub(super) fn has_native_text_field(&self) -> bool {
-        (self.text_input.is_some()
-            || matches!(self.element.special_data, SpecialElementData::DateField(_)))
-            && self.style.get_box().appearance != Appearance::None
-            && !self
+    fn native_frame(&self) -> Option<NativeFrame> {
+        if self.style.get_box().appearance == Appearance::None
+            || self
                 .style
                 .flags
                 .contains(ComputedValueFlags::HAS_AUTHOR_OR_USER_SPECIFIED_BORDER_BACKGROUND)
+        {
+            return None;
+        }
+        if self.text_input.is_some()
+            || matches!(self.element.special_data, SpecialElementData::DateField(_))
+        {
+            return Some(NativeFrame::TextField);
+        }
+        if self.element.name.local == local_name!("button") || self.element.is_button_input() {
+            return Some(NativeFrame::Button);
+        }
+        None
     }
 
-    pub(super) fn draw_native_text_field(&self, scene: &mut impl PaintScene) {
+    pub(super) fn has_native_frame(&self) -> bool {
+        self.native_frame().is_some()
+    }
+
+    pub(super) fn draw_native_frame(&self, scene: &mut impl PaintScene) {
+        let Some(kind) = self.native_frame() else {
+            return;
+        };
         let (transform, rect) = device_space(self.transform, self.frame.border_box);
         let width = zoomed_width(BORDER_WIDTH, self.scale);
         let radius = native_radius(self.scale);
-        let (background, border) = if self.node.is_disabled() {
-            (DISABLED_BACKGROUND, DISABLED_BORDER)
-        } else {
-            (Color::WHITE, BORDER)
+        let (background, border) = match (kind, self.node.is_disabled()) {
+            (NativeFrame::TextField, false) => (Color::WHITE, BORDER),
+            (NativeFrame::TextField, true) => (DISABLED_BACKGROUND, DISABLED_BORDER),
+            (NativeFrame::Button, false) => (BUTTON_FACE, BORDER),
+            (NativeFrame::Button, true) => (DISABLED_BUTTON_FACE, DISABLED_BUTTON_BORDER),
         };
 
         let half = width / 2.0;
+        if matches!(kind, NativeFrame::Button) {
+            let centre_radius = BORDER_RADIUS * self.scale;
+            let outer = RoundedRect::from_rect(rect, centre_radius + half);
+            let inner = RoundedRect::from_rect(rect.inset(-width), (centre_radius - half).max(0.0));
+            scene.fill(Fill::NonZero, transform, background, None, &inner);
+            let mut ring = outer.to_path(0.1);
+            ring.extend(inner.to_path(0.1));
+            scene.fill(Fill::EvenOdd, transform, border, None, &ring);
+            return;
+        }
+
         let centre = rect.inset(-half);
         let inner = rect.inset(-width);
         let inner_radius = (radius - half).max(0.0);
@@ -132,7 +171,7 @@ impl ElementCx<'_, '_> {
                 grow(radii.bottom_left.x),
             );
         }
-        if self.has_native_text_field() {
+        if self.has_native_frame() {
             return RoundedRectRadii::from_single_radius(native_radius(self.scale));
         }
         RoundedRectRadii::from_single_radius(stroke_width)

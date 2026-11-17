@@ -989,7 +989,7 @@ impl ElementData {
         (ratio, region)
     }
 
-    pub(crate) fn is_button_input(&self) -> bool {
+    pub fn is_button_input(&self) -> bool {
         self.name.local == local_name!("input")
             && matches!(
                 self.input_type().as_deref(),

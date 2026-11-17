@@ -12,7 +12,7 @@ impl ElementCx<'_, '_> {
     pub(crate) fn clips_dashed_background(&self) -> bool {
         if !self.frame.has_border_radius()
             || Some(self.node.id) == self.context.root_element_id
-            || self.has_native_text_field()
+            || self.has_native_frame()
             || self.has_collapsed_borders()
         {
             return false;
