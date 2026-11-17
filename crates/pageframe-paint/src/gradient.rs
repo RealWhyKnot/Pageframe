@@ -233,6 +233,20 @@ fn blink_lch(color: DynamicColor) -> Option<BlinkLch> {
     }
 }
 
+fn blink_resolved_hue(color: DynamicColor, neighbour: DynamicColor) -> DynamicColor {
+    let Some(own) = blink_lch(color).filter(|own| own.hue_is_none) else {
+        return color;
+    };
+    let Some(other) = blink_lch(neighbour) else {
+        return color;
+    };
+    DynamicColor {
+        cs: ColorSpaceTag::Oklch,
+        flags: Flags::default(),
+        components: [own.lightness, own.chroma, other.hue, color.components[3]],
+    }
+}
+
 fn chrome_oklch_stop(color: DynamicColor, neighbour: DynamicColor) -> Option<DynamicColor> {
     let own = blink_lch(color)?;
     if !own.hue_is_none && own.chroma > NEAR_ACHROMATIC_CHROMA {
@@ -663,11 +677,16 @@ fn resolve_color_stops<T>(
                     gradient.stops.push(peniko::ColorStop { color, offset });
                 } else {
                     let mid_point = (hint - last_stop.offset) / (offset - last_stop.offset);
-                    let ramp = last_stop.color.interpolate(
-                        color,
-                        gradient.interpolation_cs,
-                        gradient.hue_direction,
-                    );
+                    let (from, to) = if gradient.interpolation_cs == ColorSpaceTag::Oklch {
+                        (
+                            blink_resolved_hue(last_stop.color, color),
+                            blink_resolved_hue(color, last_stop.color),
+                        )
+                    } else {
+                        (last_stop.color, color)
+                    };
+                    let ramp =
+                        from.interpolate(to, gradient.interpolation_cs, gradient.hue_direction);
                     let mut interpolate_stop = |cur_offset: f32| {
                         let relative_offset =
                             (cur_offset - last_stop.offset) / (offset - last_stop.offset);
