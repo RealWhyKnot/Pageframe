@@ -16,17 +16,21 @@ fn draw(body: &str) -> Vec<u8> {
     render(&mut harness)
 }
 
-fn column(buffer: &[u8], x: usize) -> Vec<(usize, [u8; 4])> {
+fn column(buffer: &[u8], across: usize) -> Vec<(usize, [u8; 4])> {
     (0..60)
-        .map(|y| (y, pixel(buffer, x, y)))
+        .map(|down| (down, pixel(buffer, across, down)))
         .filter(|(_, colour)| *colour != WHITE)
         .collect()
 }
 
 fn red_columns(buffer: &[u8]) -> Vec<usize> {
-    let row = (0..60).find(|y| (0..80).any(|x| pixel(buffer, x, *y) == RED));
-    row.map(|y| (0..80).filter(|x| pixel(buffer, *x, y) == RED).collect())
-        .unwrap_or_default()
+    let row = (0..60).find(|down| (0..80).any(|across| pixel(buffer, across, *down) == RED));
+    row.map(|down| {
+        (0..80)
+            .filter(|across| pixel(buffer, *across, down) == RED)
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 #[test]
@@ -37,7 +41,10 @@ fn decoration_lines_fill_whole_pixel_rows() {
                 "<div style=\"margin-top:0.4px;font-size:{size}px;line-height:50px;\
                  text-decoration:{line} red\">aaa</div>"
             ));
-            let colours: Vec<[u8; 4]> = column(&buffer, 4).iter().map(|(_, c)| *c).collect();
+            let colours: Vec<[u8; 4]> = column(&buffer, 4)
+                .iter()
+                .map(|(_, colour)| *colour)
+                .collect();
             assert_eq!(colours, vec![RED; rows], "{line} at {size}px");
         }
     }
@@ -50,19 +57,23 @@ fn an_underline_starts_half_its_thickness_below_the_baseline() {
             "<div style=\"font-size:{size}px;line-height:50px;text-decoration:underline red\">aaa             <span style=\"display:inline-block;width:6px;height:5px;background:blue\"></span></div>"
         ));
         let block: Vec<usize> = (0..120)
-            .filter(|x| column(&buffer, *x).iter().any(|(_, c)| *c == BLUE))
+            .filter(|across| {
+                column(&buffer, *across)
+                    .iter()
+                    .any(|(_, colour)| *colour == BLUE)
+            })
             .collect();
-        let x = *block.get(2).expect("the inline-block is painted");
-        let last_blue = column(&buffer, x)
+        let across = *block.get(2).expect("the inline-block is painted");
+        let last_blue = column(&buffer, across)
             .iter()
-            .filter(|(_, c)| *c == BLUE)
-            .map(|(y, _)| *y)
+            .filter(|(_, colour)| *colour == BLUE)
+            .map(|(down, _)| *down)
             .max();
         let first_red = column(&buffer, 4)
             .iter()
-            .find(|(_, c)| *c == RED)
-            .map(|(y, _)| *y);
-        assert_eq!(first_red, last_blue.map(|y| y + 1 + gap), "{size}px");
+            .find(|(_, colour)| *colour == RED)
+            .map(|(down, _)| *down);
+        assert_eq!(first_red, last_blue.map(|down| down + 1 + gap), "{size}px");
     }
 }
 
@@ -127,9 +138,9 @@ fn wavy_ink(thickness: &str) -> Vec<Vec<u8>> {
          {thickness}px;text-decoration-skip-ink:none\">|                    |</div>"
     ));
     (0..support::WIDTH)
-        .map(|x| {
+        .map(|across| {
             (0..40)
-                .map(|y| 255 - pixel(&buffer, usize::try_from(x).expect("fits"), y)[0])
+                .map(|down| 255 - pixel(&buffer, usize::try_from(across).expect("fits"), down)[0])
                 .collect()
         })
         .collect()
@@ -139,19 +150,19 @@ fn wavy_ink(thickness: &str) -> Vec<Vec<u8>> {
 fn wavy_underlines_repeat_and_sit_where_chrome_draws_them() {
     for (thickness, period, rows) in [("1", 7, 15..=19), ("1.5", 11, 15..=21), ("3", 15, 16..=24)] {
         let ink = wavy_ink(thickness);
-        for x in 20..40 {
-            let drift = ink[x]
+        for across in 20..40 {
+            let drift = ink[across]
                 .iter()
-                .zip(&ink[x + period])
+                .zip(&ink[across + period])
                 .map(|(here, there)| here.abs_diff(*there))
                 .max();
             assert!(
                 drift <= Some(2),
-                "{thickness}px wave doesn't repeat every {period}px at column {x}"
+                "{thickness}px wave doesn't repeat every {period}px at column {across}"
             );
         }
         let inked: Vec<usize> = (0..40)
-            .filter(|&y| (20..60).any(|x| ink[x][y] > 12))
+            .filter(|&down| (20..60).any(|across| ink[across][down] > 12))
             .collect();
         assert_eq!(
             (inked.first(), inked.last()),
@@ -165,7 +176,7 @@ fn wavy_underlines_repeat_and_sit_where_chrome_draws_them() {
 fn one_pixel_wavy_underlines_are_hairlines_like_chrome() {
     let ink = wavy_ink("1");
     let total: u32 = (20..62)
-        .flat_map(|x| ink[x].iter().map(|value| u32::from(*value)))
+        .flat_map(|across| ink[across].iter().map(|value| u32::from(*value)))
         .sum();
     let per_column = f64::from(total) / 255.0 / 42.0;
     assert!(
@@ -177,12 +188,12 @@ fn one_pixel_wavy_underlines_are_hairlines_like_chrome() {
 fn ink_rows(body: &str, columns: std::ops::Range<usize>) -> Vec<(usize, Vec<u8>)> {
     let buffer = draw(body);
     (0..60)
-        .map(|y| {
+        .map(|down| {
             let ink: Vec<u8> = columns
                 .clone()
-                .map(|x| 255 - pixel(&buffer, x, y)[0])
+                .map(|across| 255 - pixel(&buffer, across, down)[0])
                 .collect();
-            (y, ink)
+            (down, ink)
         })
         .filter(|(_, ink)| ink.iter().any(|value| *value > 0))
         .collect()
@@ -194,14 +205,14 @@ fn assert_ink_near(
     tolerance: u8,
     what: &str,
 ) {
-    let found_rows: Vec<usize> = found.iter().map(|(y, _)| *y).collect();
-    let chrome_rows: Vec<usize> = chrome.iter().map(|(y, _)| *y).collect();
+    let found_rows: Vec<usize> = found.iter().map(|(down, _)| *down).collect();
+    let chrome_rows: Vec<usize> = chrome.iter().map(|(down, _)| *down).collect();
     assert_eq!(found_rows, chrome_rows, "{what} rows");
-    for ((y, ink), (_, expected)) in found.iter().zip(chrome) {
-        for (x, (value, wanted)) in ink.iter().zip(expected.iter()).enumerate() {
+    for ((down, ink), (_, expected)) in found.iter().zip(chrome) {
+        for (across, (value, wanted)) in ink.iter().zip(expected.iter()).enumerate() {
             assert!(
                 value.abs_diff(*wanted) <= tolerance,
-                "{what} at column {x} row {y}: {value}, Chrome {wanted}"
+                "{what} at column {across} row {down}: {value}, Chrome {wanted}"
             );
         }
     }
@@ -248,8 +259,44 @@ fn thick_dotted_underlines_are_round_dots_like_chrome() {
     assert_ink_near(
         &found,
         &[(38, edge), (39, middle), (40, middle), (41, edge)],
-        24,
+        20,
         "4px dots",
+    );
+}
+
+#[test]
+fn short_thick_dotted_underlines_fit_two_dots_or_a_capsule_like_chrome() {
+    let short = |spacing: i32| {
+        format!(
+            "<div style=\"font:40px/50px Arial;white-space:pre;letter-spacing:{spacing}px;\
+             text-decoration:underline dotted black;text-decoration-skip-ink:none\">|</div>"
+        )
+    };
+    let capsule_edge: &[u8] = &[86, 216, 255, 255, 255, 255, 216, 86, 0];
+    let capsule_middle: &[u8] = &[216, 255, 255, 255, 255, 255, 255, 216, 0];
+    assert_ink_near(
+        &ink_rows(&short(-2), 0..9),
+        &[
+            (41, capsule_edge),
+            (42, capsule_middle),
+            (43, capsule_middle),
+            (44, capsule_edge),
+        ],
+        20,
+        "a line exactly two dots long",
+    );
+    let dots_edge: &[u8] = &[84, 216, 216, 84, 0, 86, 219, 213, 81];
+    let dots_middle: &[u8] = &[212, 255, 255, 212, 0, 219, 255, 255, 210];
+    assert_ink_near(
+        &ink_rows(&short(-1), 0..9),
+        &[
+            (41, dots_edge),
+            (42, dots_middle),
+            (43, dots_middle),
+            (44, dots_edge),
+        ],
+        20,
+        "a line between two and three dots long",
     );
 }
 
@@ -273,7 +320,7 @@ fn inked_rows(body: &str) -> (Option<usize>, Option<usize>) {
     let rows: Vec<usize> = ink_rows(body, 20..60)
         .into_iter()
         .filter(|(_, ink)| ink.iter().any(|value| *value > 12))
-        .map(|(y, _)| y)
+        .map(|(down, _)| down)
         .collect();
     (rows.first().copied(), rows.last().copied())
 }

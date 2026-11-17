@@ -1,5 +1,7 @@
 use anyrender::PaintScene;
-use kurbo::{Affine, BezPath, Cap, Circle, PathEl, Point, Rect, Shape as _, Stroke, Vec2};
+use kurbo::{
+    Affine, BezPath, Cap, Circle, PathEl, Point, Rect, RoundedRect, Shape as _, Stroke, Vec2,
+};
 use num_traits::ToPrimitive;
 use pageframe_dom::CopyStyleGetters;
 use pageframe_dom::{BaseDocument, NodeId, node::TextBrush, util::ToColorColor};
@@ -506,9 +508,6 @@ fn select_best_dash_gap(stroke_length: f64, dash_length: f64, gap_length: f64) -
     let max_num_dashes = min_num_dashes + 1.0;
     let min_num_gaps = min_num_dashes - 1.0;
     let max_num_gaps = max_num_dashes - 1.0;
-    if min_num_gaps < 1.0 {
-        return gap_length;
-    }
     let min_gap = (stroke_length - min_num_dashes * dash_length) / min_num_gaps;
     let max_gap = (stroke_length - max_num_dashes * dash_length) / max_num_gaps;
     if max_gap <= 0.0 || (min_gap - gap_length).abs() < (max_gap - gap_length).abs() {
@@ -832,15 +831,33 @@ fn draw_decoration_line(
             if dotted && whole > 3.0 {
                 let first = start + whole / 2.0;
                 let last = end - whole / 2.0;
-                let step = select_best_dash_gap(length, whole, whole) + whole - 0.01;
+                let step = if length < 2.0 * whole {
+                    2.0 * whole
+                } else {
+                    select_best_dash_gap(length, whole, whole) + whole - 0.01
+                };
+                let radius = thickness / 2.0;
                 let mut dots = BezPath::new();
-                let mut centre = first;
-                while centre <= last || centre == first {
-                    let circle = Circle::new((centre, middle), thickness / 2.0);
-                    kurbo::flatten(circle.path_elements(0.01), 0.01, |element| {
+                if step.is_finite() {
+                    let mut centre = first;
+                    while centre <= last || centre == first {
+                        let circle = Circle::new((centre, middle), radius);
+                        kurbo::flatten(circle.path_elements(0.01), 0.01, |element| {
+                            dots.push(element)
+                        });
+                        centre += step;
+                    }
+                } else {
+                    let capsule = RoundedRect::new(
+                        first - radius,
+                        middle - radius,
+                        last + radius,
+                        middle + radius,
+                        radius,
+                    );
+                    kurbo::flatten(capsule.path_elements(0.01), 0.01, |element| {
                         dots.push(element)
                     });
-                    centre += step;
                 }
                 scene.fill(Fill::NonZero, transform, brush, None, &dots);
             } else {
