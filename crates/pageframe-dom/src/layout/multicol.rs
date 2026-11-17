@@ -165,6 +165,7 @@ struct LineSlot {
     count: usize,
     orphans: usize,
     widows: usize,
+    box_top: f32,
 }
 
 struct ColumnStyle {
@@ -258,16 +259,17 @@ fn honour_orphans_and_widows(solids: &[Solid], start: f32, end: f32) -> f32 {
         .find(|&index| line_top(index) >= start - EDGE)
         .unwrap_or(slot.index);
     let fitted = slot.index - first_here;
-    if fitted == 0 {
-        return end;
-    }
     let minimum = if first_here == 0 {
         slot.orphans
     } else {
         slot.orphans.max(slot.widows)
     };
     if fitted < minimum {
-        let before = line_top(0);
+        let before = if slot.box_top > start + EDGE {
+            slot.box_top
+        } else {
+            line_top(0)
+        };
         return if first_here == 0 && before > start + EDGE {
             before
         } else {
@@ -413,7 +415,7 @@ impl BaseDocument {
         })
     }
 
-    fn collect_lines(&self, node: &Node, content_top: f32, solids: &mut Vec<Solid>) {
+    fn collect_lines(&self, node: &Node, box_top: f32, content_top: f32, solids: &mut Vec<Solid>) {
         let Some(text_layout) = node
             .data
             .downcast_element()
@@ -442,6 +444,7 @@ impl BaseDocument {
                     count,
                     orphans,
                     widows,
+                    box_top,
                 }),
             });
         }
@@ -451,7 +454,12 @@ impl BaseDocument {
         let node = &self.nodes[node_id];
         if node.flags.is_inline_root() {
             let layout = node.unrounded_layout();
-            self.collect_lines(node, top + layout.border.top + layout.padding.top, solids);
+            self.collect_lines(
+                node,
+                top,
+                top + layout.border.top + layout.padding.top,
+                solids,
+            );
             return;
         }
         let children = node.layout_children.borrow();
@@ -605,7 +613,7 @@ impl LayoutPassState<'_> {
         let mut solids = Vec::new();
         let node = &self.nodes[node_id];
         if node.flags.is_inline_root() {
-            self.collect_lines(node, flow_start, &mut solids);
+            self.collect_lines(node, flow_start, flow_start, &mut solids);
         } else {
             self.collect_solids(node_id, 0.0, &mut solids);
         }

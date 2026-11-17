@@ -364,8 +364,12 @@ fn columns_keep_orphans_and_widows_like_chrome() {
         (115.0, 230.0, "n0_5"),
         (225.0, 190.0, "n0_6"),
     ];
-    for (x, y, id) in expected {
-        assert_eq!(hit_id(&harness, x, y).as_deref(), Some(id), "at {x},{y}");
+    for (left, top, id) in expected {
+        assert_eq!(
+            hit_id(&harness, left, top).as_deref(),
+            Some(id),
+            "at {left},{top}"
+        );
     }
 }
 
@@ -422,4 +426,29 @@ fn auto_column_fill_fills_columns_in_order_like_chrome() {
     ));
     check(&unbounded, &[("r", [0.0, 0.0, 320.0, 180.0])]);
     assert_eq!(hit_id(&unbounded, 5.0, 170.0).as_deref(), Some("r0_8"));
+}
+
+#[test]
+fn a_paragraph_moved_to_the_next_column_takes_its_padding() {
+    let fill = "column-count:2;column-fill:auto";
+    let body = format!(
+        "<style>p+p{{padding-top:8px;border-top:4px solid #f80}}</style>         <div class=\"c\" style=\"{fill};height:80px\">{}</div>         <div class=\"c\" style=\"{fill};height:60px\">{}</div>",
+        paragraphs("o", &[2, 3]),
+        paragraphs("k", &[2, 3]),
+    );
+    let harness = page(&body);
+    let expected = [
+        (170.0, 22.0, "o1_0"),
+        (170.0, 62.0, "o1_2"),
+        (170.0, 102.0, "k1_0"),
+        (170.0, 122.0, "k1_1"),
+        (330.0, 90.0, "k1_2"),
+    ];
+    for (left, top, id) in expected {
+        assert_eq!(
+            hit_id(&harness, left, top).as_deref(),
+            Some(id),
+            "at {left},{top}"
+        );
+    }
 }
