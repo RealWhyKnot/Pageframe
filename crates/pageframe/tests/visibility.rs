@@ -14,21 +14,41 @@ const FADED: &str = "<!doctype html><style>html,body{margin:0}</style>\
 <div style=\"visibility:hidden;opacity:0.5;background:#000;padding:5px\">\
 <div style=\"visibility:visible;background:#00f;height:20px\"></div></div>";
 
-fn on_white(buffer: &[u8], x: usize, y: usize) -> [u8; 3] {
-    let [r, g, b, a] = pixel(buffer, x, y);
-    let cover = 255 - a;
+fn on_white(buffer: &[u8], column: usize, row: usize) -> [u8; 3] {
+    let [red, green, blue, alpha] = pixel(buffer, column, row);
+    let cover = 255 - alpha;
     [
-        r.saturating_add(cover),
-        g.saturating_add(cover),
-        b.saturating_add(cover),
+        red.saturating_add(cover),
+        green.saturating_add(cover),
+        blue.saturating_add(cover),
     ]
+}
+
+fn is_red([red, green, blue]: [u8; 3]) -> bool {
+    red > 200 && green < 80 && blue < 80
+}
+
+fn is_green([red, green, blue]: [u8; 3]) -> bool {
+    green > 200 && red < 80 && blue < 80
+}
+
+fn is_blue([red, green, blue]: [u8; 3]) -> bool {
+    blue > 200 && red < 80 && green < 80
 }
 
 fn count(buffer: &[u8], rows: std::ops::Range<usize>, test: impl Fn([u8; 3]) -> bool) -> usize {
     let width = usize::try_from(WIDTH).expect("the width fits");
-    rows.flat_map(|y| (0..width).map(move |x| (x, y)))
-        .filter(|&(x, y)| test(on_white(buffer, x, y)))
+    rows.flat_map(|row| (0..width).map(move |column| (column, row)))
+        .filter(|&(column, row)| test(on_white(buffer, column, row)))
         .count()
+}
+
+fn columns(buffer: &[u8], test: impl Fn([u8; 3]) -> bool) -> Vec<usize> {
+    let width = usize::try_from(WIDTH).expect("the width fits");
+    let height = usize::try_from(HEIGHT).expect("the height fits");
+    (0..width)
+        .filter(|&column| (0..height).any(|row| test(on_white(buffer, column, row))))
+        .collect()
 }
 
 #[test]
@@ -38,9 +58,9 @@ fn visible_children_of_hidden_boxes_paint_like_chrome() {
     assert_eq!(on_white(&buffer, 2, 2), [255, 255, 255]);
     assert_eq!(on_white(&buffer, 6, 6), [255, 255, 255]);
     let height = usize::try_from(HEIGHT).expect("the height fits");
-    let red = count(&buffer, 0..height, |[r, g, b]| r > 200 && g < 80 && b < 80);
+    let red = count(&buffer, 0..height, is_red);
     assert_eq!(red, 0, "hidden boxes and text leave no red behind");
-    let green = count(&buffer, 58..78, |[r, g, b]| g > 200 && r < 80 && b < 80);
+    let green = count(&buffer, 58..78, is_green);
     assert!(
         green > 100,
         "the visible span paints its background, got {green}"
@@ -50,11 +70,11 @@ fn visible_children_of_hidden_boxes_paint_like_chrome() {
 #[test]
 fn hidden_boxes_still_fade_visible_children_like_chrome() {
     let buffer = render(&mut open(App::new((), FADED)));
-    let [r, g, b] = on_white(&buffer, 30, 15);
+    let [red, green, blue] = on_white(&buffer, 30, 15);
     assert!(
-        (126..=129).contains(&r) && (126..=129).contains(&g) && b == 255,
+        (126..=129).contains(&red) && (126..=129).contains(&green) && blue == 255,
         "the child is half transparent blue, got {:?}",
-        [r, g, b]
+        [red, green, blue]
     );
     assert_eq!(on_white(&buffer, 2, 2), [255, 255, 255]);
 }
@@ -65,15 +85,20 @@ const PARTS: &str = "<!doctype html><style>html,body{margin:0}td{padding:0;width
 <ul style=\"margin:0;padding-left:30px\"><li style=\"visibility:hidden;color:#00f\">\
 <span style=\"visibility:visible;color:#0f0\">x</span></li></ul>";
 
-const UNDERLINE: &str = "<!doctype html><style>html,body{margin:0}</style>\
+fn underlined(word_style: &str) -> String {
+    format!(
+        "<!doctype html><style>html,body{{margin:0}}</style>\
 <p style=\"margin:0;font:16px/20px sans-serif\">\
-<span style=\"text-decoration:underline;text-decoration-color:#f00\">a <span style=\"visibility:hidden\">mmmm</span> b</span></p>";
+<span style=\"text-decoration:underline;text-decoration-color:#f00\">a \
+<span style=\"{word_style}\">mmmm</span> b</span></p>"
+    )
+}
 
 #[test]
 fn hidden_tables_and_list_items_keep_their_parts_hidden_like_chrome() {
     let buffer = render(&mut open(App::new((), PARTS)));
     let height = usize::try_from(HEIGHT).expect("the height fits");
-    let blue = count(&buffer, 0..height, |[r, g, b]| b > 200 && r < 80 && g < 80);
+    let blue = count(&buffer, 0..height, is_blue);
     assert_eq!(blue, 0, "no collapsed borders and no marker");
     assert_eq!(on_white(&buffer, 15, 10), [255, 0, 0]);
     assert_eq!(on_white(&buffer, 50, 10), [255, 255, 255]);
@@ -81,24 +106,24 @@ fn hidden_tables_and_list_items_keep_their_parts_hidden_like_chrome() {
 
 #[test]
 fn underlines_skip_hidden_text_like_chrome() {
-    let buffer = render(&mut open(App::new((), UNDERLINE)));
-    let width = usize::try_from(WIDTH).expect("the width fits");
-    let height = usize::try_from(HEIGHT).expect("the height fits");
-    let red_columns: Vec<usize> = (0..width)
-        .filter(|&x| {
-            (0..height).any(|y| {
-                let [r, g, b] = on_white(&buffer, x, y);
-                r > 200 && g < 80 && b < 80
-            })
-        })
-        .collect();
-    let widest_gap = red_columns
+    let shown = render(&mut open(App::new((), &underlined("color:#00f"))));
+    let word = columns(&shown, is_blue);
+    let (Some(&word_left), Some(&word_right)) = (word.first(), word.last()) else {
+        panic!("the visible word paints blue ink");
+    };
+    let hidden = render(&mut open(App::new((), &underlined("visibility:hidden"))));
+    let line = columns(&hidden, is_red);
+    let (gap_left, gap_right) = line
         .windows(2)
-        .map(|pair| pair[1] - pair[0])
-        .max()
-        .unwrap_or(0);
+        .map(|pair| (pair[0], pair[1]))
+        .max_by_key(|(left, right)| right - left)
+        .expect("the underline spans at least two columns");
     assert!(
-        widest_gap > 20,
-        "the underline breaks under the hidden word, widest gap {widest_gap}"
+        gap_left < word_left && gap_right > word_right,
+        "the gap {gap_left}..{gap_right} covers the hidden word {word_left}..{word_right}"
+    );
+    assert!(
+        gap_right - gap_left < word_right - word_left + 12,
+        "the gap {gap_left}..{gap_right} stays near the hidden word {word_left}..{word_right}"
     );
 }

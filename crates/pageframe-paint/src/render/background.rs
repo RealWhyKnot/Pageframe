@@ -1,6 +1,7 @@
 use super::{ALMOST_OPAQUE, ElementCx, to_image_quality, to_peniko_image};
 use crate::color::{Color, ToColorColor};
 use crate::gradient::to_peniko_gradient;
+use crate::text::is_invisible;
 use anyrender::PaintScene;
 use kurbo::{self, Affine, BezPath, Point, Rect, Shape as _, Size, Vec2};
 use num_traits::ToPrimitive as _;
@@ -16,7 +17,6 @@ use style::{
             background_attachment::single_value::computed_value::T as StyloBackgroundAttachment,
             background_clip::single_value::computed_value::T as StyloBackgroundClip,
             background_origin::single_value::computed_value::T as StyloBackgroundOrigin,
-            visibility::computed_value::T as Visibility,
         },
         style_structs::{Background, SVG},
     },
@@ -510,10 +510,7 @@ impl ElementCx<'_, '_> {
             let Some(cell_node) = self.context.dom.get_node(cell.node_id) else {
                 continue;
             };
-            let is_hidden = cell_node
-                .primary_styles()
-                .is_some_and(|style| style.get_inherited_box().visibility != Visibility::Visible);
-            if cell_node.is_in_lifted_row() || is_hidden {
+            if cell_node.is_in_lifted_row() || is_invisible(self.context.dom, cell.node_id) {
                 continue;
             }
             let Some(rect) = cell_rect(cell.node_id) else {
