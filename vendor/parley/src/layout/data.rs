@@ -464,13 +464,27 @@ struct ContentWidthsMeasurer {
     /// Indents for lines following a soft/hard wrap.
     soft_indent: f32,
     hard_indent: f32,
+
+    line_growth: Vec<(usize, f32)>,
+    cluster_base: usize,
 }
 
 impl ContentWidthsMeasurer {
+    fn line_growth_at(&self, cluster: usize) -> f32 {
+        let start = self.line_growth.partition_point(|&(grown, _)| grown < cluster);
+        self.line_growth[start..]
+            .iter()
+            .take_while(|&&(grown, _)| grown == cluster)
+            .map(|&(_, extra)| extra)
+            .sum()
+    }
+
     #[inline(always)]
     fn new(indent_amount: f32, indent_options: IndentOptions) -> Self {
         let first_line_indent = indent_options.indent_for_first_line(indent_amount);
         Self {
+            line_growth: Vec::new(),
+            cluster_base: 0,
             min_width: 0.,
             max_width: 0.,
             running_min_width: first_line_indent,
@@ -524,12 +538,24 @@ impl ContentWidthsMeasurer {
 
     #[inline(always)]
     fn measure<B: Brush>(mut self, layout_data: &LayoutData<B>) -> ContentWidths {
+        self.line_growth = layout_data
+            .split_item_ceils
+            .iter()
+            .map(|(_, growth)| (growth.cluster(), growth.extra()))
+            .collect();
+        self.line_growth.sort_by_key(|&(cluster, _)| cluster);
         let mut items = layout_data.items.iter();
         while let Some(item) = items.next() {
             match item.kind {
                 LayoutItemKind::TextRun => {
                     let slice = layout_data.shaped_text.run_slice(item.index as u32);
                     let run = &layout_data.runs[item.index];
+                    self.cluster_base = layout_data
+                        .shaped_text
+                        .runs()
+                        .get(item.index)
+                        .and_then(|shaped| usize::try_from(shaped.shaped_clusters_range.start).ok())
+                        .unwrap_or(usize::MAX);
                     // Trailing whitespace can only hang if it ends up at the line's end edge after
                     // bidi reordering. We don't currently apply UAX #9 L1 (resetting trailing
                     // whitespace to paragraph level), so only logically-last items that match the
@@ -654,7 +680,7 @@ impl ContentWidthsMeasurer {
                 continue;
             }
 
-            let mut advance = cluster.advance;
+            let mut advance = cluster.advance - self.line_growth_at(self.cluster_base + i);
             let mut min_advance = None;
             if whitespace == Whitespace::Tab {
                 min_advance = Some(tab_advance(style.tab_size, run, self.running_min_width));

@@ -1001,21 +1001,17 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                 .shaped_text
                 .set_cluster_advance(cluster, advance);
         }
-        if self.layout.data.quantize
-            && self.state.line.items.end > self.state.line.items.start
-            && self.layout.data.items[self.state.line.items.end - 1].kind
-                == LayoutItemKind::TextRun
-            && let Some((growth, remainder)) = self
+        if self.layout.data.quantize {
+            let line = self.lines.lines.len();
+            let growths = self
                 .layout
                 .data
                 .shaped_text
-                .ceil_line_end_of_split_item(self.state.line.clusters.clone(), 64.0)
-        {
-            self.state.line.x += remainder;
-            self.layout
-                .data
-                .split_item_ceils
-                .push((self.lines.lines.len(), growth));
+                .ceil_split_text_items(self.state.line.clusters.clone(), 64.0);
+            for growth in growths.into_iter().flatten() {
+                self.state.line.x += growth.extra();
+                self.layout.data.split_item_ceils.push((line, growth));
+            }
         }
         commit_line(
             self.layout,
