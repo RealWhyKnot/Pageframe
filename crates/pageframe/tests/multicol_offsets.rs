@@ -167,6 +167,46 @@ fn scrolled_content_stays_in_its_scroller_column_like_chrome() {
     assert_eq!(doc.hit(5.0, 45.0).map(|hit| hit.node_id), Some(k1));
 }
 
+#[test]
+fn hidden_boxes_stay_whole_in_columns_like_chrome() {
+    let column = "<div class=\"c\" style=\"width:210px;column-count:2;height:60px;                  column-fill:auto;position:relative;margin-bottom:20px\">                  <div style=\"height:40px\"></div>";
+    let boxes: String = ["hidden", "clip", "hidden visible"]
+        .iter()
+        .enumerate()
+        .map(|(index, overflow)| {
+            format!(
+                "{column}<div id=\"h{index}\" style=\"height:50px;overflow:{overflow}\">                 <div style=\"height:25px\"></div><div id=\"k{index}\" style=\"height:10px\">                 </div><div style=\"height:100px\"></div></div></div>"
+            )
+        })
+        .collect();
+    let harness = page(&boxes);
+    for (id, offsets, client) in [
+        ("h0", [110.0, 0.0, 100.0, 50.0], [110.0, 0.0, 100.0, 50.0]),
+        ("k0", [110.0, 25.0, 100.0, 10.0], [110.0, 25.0, 100.0, 10.0]),
+        ("h1", [0.0, 40.0, 210.0, 60.0], [0.0, 80.0, 210.0, 60.0]),
+        ("k1", [110.0, 5.0, 100.0, 10.0], [110.0, 85.0, 100.0, 10.0]),
+        ("h2", [110.0, 0.0, 100.0, 50.0], [110.0, 160.0, 100.0, 50.0]),
+        (
+            "k2",
+            [110.0, 25.0, 100.0, 10.0],
+            [110.0, 185.0, 100.0, 10.0],
+        ),
+    ] {
+        assert_eq!(offset(&harness, id).map(f64::round), offsets, "{id}");
+        assert_eq!(client_rect(&harness, id).map(f64::round), client, "{id}");
+    }
+    let doc = harness.base();
+    let k0 = doc
+        .query_selector_all("#k0")
+        .expect("box selector is valid")[0];
+    let position = doc
+        .get_node(k0)
+        .expect("k0 exists")
+        .absolute_position(0.0, 0.0);
+    assert_eq!([position.x.round(), position.y.round()], [110.0, 25.0]);
+    assert_eq!(doc.hit(115.0, 28.0).map(|hit| hit.node_id), Some(k0));
+}
+
 fn scroll(harness: &mut Harness<Page<()>>, targets: &[(&str, f64)]) {
     {
         let mut doc = harness.base_mut();
