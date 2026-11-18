@@ -106,15 +106,15 @@ fn inline_ancestors(
             color,
             is_boxed: pageframe_dom::util::inline_box_is_decorated(&styles),
             font_size: f64::from(styles.get_font().font_size.used_size.0.px()),
-            shift: relative_shift(&styles),
+            shift: relative_shift(node),
             is_faded: styles.get_effects().opacity < 1.0,
         });
     }
     ancestors
 }
 
-fn relative_shift(styles: &style::properties::ComputedValues) -> Vec2 {
-    let (x, y) = pageframe_dom::util::inline_relative_offset(styles);
+fn relative_shift(node: &pageframe_dom::Node) -> Vec2 {
+    let (x, y) = node.inline_relative_offset();
     Vec2::new(f64::from(x), f64::from(y))
 }
 
@@ -556,10 +556,9 @@ fn resolve_decoration_entry(doc: &BaseDocument, node_id: NodeId) -> DecorationSt
         fill_color,
         decoration,
         shadows,
-        shift: if is_inline {
-            relative_shift(&styles)
-        } else {
-            Vec2::ZERO
+        shift: match doc.get_node(node_id) {
+            Some(node) if is_inline => relative_shift(node),
+            _ => Vec2::ZERO,
         },
         group: (is_inline && styles.get_effects().opacity < 1.0).then_some(node_id),
     }

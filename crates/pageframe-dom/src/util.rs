@@ -384,25 +384,48 @@ fn line_break_override(context: parley::LineBreakContext) -> Option<bool> {
     parley::CHROMIUM_LINE_BREAK_OVERRIDE(context)
 }
 
-pub fn inline_relative_offset(style: &style::properties::ComputedValues) -> (f32, f32) {
+#[derive(Clone, Copy)]
+pub struct InsetBasis {
+    pub width: f32,
+    pub height: Option<f32>,
+    pub scale: f32,
+}
+
+pub fn inline_relative_offset(
+    style: &style::properties::ComputedValues,
+    basis: InsetBasis,
+) -> (f32, f32) {
+    use style::values::computed::{CSSPixelLength, Inset};
     use style::values::generics::position::GenericInset;
     use stylo_taffy::CopyStyleGetters as _;
-    if style.get_box().position != style::computed_values::position::T::Relative {
+    if style.get_box().position != style::computed_values::position::T::Relative
+        || style.get_box().display.is_contents()
+    {
         return (0.0, 0.0);
     }
-    let zero = style::values::computed::CSSPixelLength::new(0.0);
     let position = style.get_position();
-    let resolve = |inset: &style::values::computed::Inset| match inset {
-        GenericInset::LengthPercentage(value) => Some(value.resolve(zero).px()),
+    let resolve = |inset: &Inset, length: Option<f32>| match inset {
+        GenericInset::LengthPercentage(value) => {
+            let px = match length {
+                Some(length) => value.resolve(CSSPixelLength::new(length)).px(),
+                None => value.to_length()?.px(),
+            };
+            Some(stylo_taffy::layout_unit_px(px, basis.scale))
+        }
         _ => None,
     };
-    let (left, right) = (resolve(&position.left), resolve(&position.right));
+    let width = Some(basis.width);
+    let (left, right) = (
+        resolve(&position.left, width),
+        resolve(&position.right, width),
+    );
     let x = if style.clone_direction() == style::computed_values::direction::T::Rtl {
         right.map(|value| -value).or(left)
     } else {
         left.or(right.map(|value| -value))
     };
-    let y = resolve(&position.top).or(resolve(&position.bottom).map(|value| -value));
+    let y = resolve(&position.top, basis.height)
+        .or(resolve(&position.bottom, basis.height).map(|value| -value));
     (x.unwrap_or(0.0), y.unwrap_or(0.0))
 }
 

@@ -2700,31 +2700,26 @@ impl BaseDocument {
             });
         };
 
-        // Union the per-line-box fragments into a single bounding box
-        let bounds = fragments
+        let rects: Vec<BoundingRect> = fragments
             .map(|(pos, size)| BoundingRect {
                 x: f64::from(pos.x),
                 y: f64::from(pos.y),
                 width: f64::from(size.width),
                 height: f64::from(size.height),
             })
-            .reduce(BoundingRect::union)?;
-        let mut x = bounds.x;
-        let mut y = bounds.y;
+            .collect();
+        let first = *rects.first()?;
+        let bounds = rects.into_iter().reduce(BoundingRect::union)?;
+        let mut x = first.x;
+        let mut y = first.y;
 
-        // Resolve the offsetParent from the inline root (the root itself if it is positioned)
-        let inline_root = node.inline_root_ancestor()?;
-        let offset_parent = if inline_root.is_offset_parent() {
-            Some(inline_root)
-        } else {
-            inline_root.offset_parent()
-        };
-        // Make the position relative to the offsetParent's padding edge
-        if let Some(parent) = offset_parent.filter(|parent| !parent.is_static_body()) {
-            let parent_origin = self.first_fragment_origin(parent.id, ScrollOffsets::Ignored);
-            let border = self.physical_unrounded_layout(parent.id).border;
-            x -= f64::from(parent_origin.x + border.left);
-            y -= f64::from(parent_origin.y + border.top);
+        if let Some(parent) = node
+            .offset_parent()
+            .filter(|parent| !parent.is_static_body())
+        {
+            let origin = self.offset_parent_padding_origin(parent);
+            x -= f64::from(origin.x);
+            y -= f64::from(origin.y);
         }
 
         Some(BoundingRect {
@@ -2733,6 +2728,33 @@ impl BaseDocument {
             width: bounds.width,
             height: bounds.height,
         })
+    }
+
+    fn offset_parent_padding_origin(&self, parent: &Node) -> crate::util::Point<f32> {
+        let first = self
+            .inline_fragment_boxes_mapped(parent.id, ScrollOffsets::Ignored)
+            .and_then(|mut fragments| fragments.next());
+        let (origin, border) = match first {
+            Some((pos, _)) => (
+                crate::util::Point { x: pos.x, y: pos.y },
+                taffy::Point { x: 0.0, y: 0.0 },
+            ),
+            None => {
+                let border = self.physical_unrounded_layout(parent.id).border;
+                let origin = self.first_fragment_origin(parent.id, ScrollOffsets::Ignored);
+                (
+                    origin,
+                    taffy::Point {
+                        x: border.left,
+                        y: border.top,
+                    },
+                )
+            }
+        };
+        crate::util::Point {
+            x: origin.x + border.x,
+            y: origin.y + border.y,
+        }
     }
 
     fn column_offset_rect(&self, node: &Node, node_id: NodeId) -> BoundingRect {

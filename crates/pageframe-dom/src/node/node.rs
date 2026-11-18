@@ -1791,6 +1791,52 @@ impl Node {
         }
     }
 
+    fn inset_basis(&self) -> crate::util::InsetBasis {
+        let layout = self.unrounded_layout();
+        let content = layout.content_box_size();
+        let fixed_height = self.primary_styles().is_some_and(|styles| {
+            matches!(
+                &styles.get_position().height,
+                style::values::computed::Size::LengthPercentage(value) if value.0.to_length().is_some()
+            )
+        });
+        let scale = self
+            .element_data()
+            .and_then(|data| data.inline_layout_data.as_ref())
+            .map_or(1.0, |inline| inline.layout.scale());
+        crate::util::InsetBasis {
+            width: content.width,
+            height: fixed_height.then_some(content.height),
+            scale,
+        }
+    }
+
+    pub fn inline_relative_offset(&self) -> (f32, f32) {
+        let (Some(styles), Some(root)) = (self.primary_styles(), self.inline_root_ancestor())
+        else {
+            return (0.0, 0.0);
+        };
+        crate::util::inline_relative_offset(&styles, root.inset_basis())
+    }
+
+    pub(crate) fn inline_relative_shift(&self) -> (f32, f32) {
+        let Some(root) = self.inline_root_ancestor() else {
+            return (0.0, 0.0);
+        };
+        let basis = root.inset_basis();
+        let mut shift = (0.0, 0.0);
+        let mut current = Some(self.id);
+        while let Some(id) = current.filter(|id| *id != root.id) {
+            let node = self.with(id);
+            if let Some(styles) = node.primary_styles() {
+                let (x, y) = crate::util::inline_relative_offset(&styles, basis);
+                shift = (shift.0 + x, shift.1 + y);
+            }
+            current = node.parent;
+        }
+        shift
+    }
+
     /// Get the text byte offset at a given point, using coordinates already transformed
     /// to be relative to this inline root's content box.
     /// Returns Some(byte_offset) if the point hits text, None otherwise.
@@ -2105,6 +2151,7 @@ impl Node {
         };
 
         let is_rtl = layout.is_rtl();
+        let shift = self.inline_relative_shift();
         let percent_basis = inline_layout.percent_basis;
         let text = inline_layout.text.as_str();
 
@@ -2208,10 +2255,10 @@ impl Node {
                 };
                 let physical = inline_root.inline_layout_rect(block_offset, unscaled);
                 taffy::Rect {
-                    left: content_box_inset.left + physical.left,
-                    top: content_box_inset.top + physical.top,
-                    right: content_box_inset.left + physical.right,
-                    bottom: content_box_inset.top + physical.bottom,
+                    left: content_box_inset.left + physical.left + shift.0,
+                    top: content_box_inset.top + physical.top + shift.1,
+                    right: content_box_inset.left + physical.right + shift.0,
+                    bottom: content_box_inset.top + physical.bottom + shift.1,
                 }
             })
         }))
