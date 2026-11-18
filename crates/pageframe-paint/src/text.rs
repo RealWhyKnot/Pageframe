@@ -1706,42 +1706,44 @@ pub(crate) fn stroke_text<'a>(
                 }
 
                 // Zero-size text is invisible, but hinting can give its glyphs ink.
-                let turned = (!FONT_EMBOLDEN_ENABLED && glyph_xform.is_none())
-                    .then(|| sideways::SidewaysFrame::new(transform))
-                    .flatten()
-                    .filter(|frame| {
-                        frame.ppem(font_size).is_some_and(|ppem| {
-                            sideways.outlines(
-                                &upright::SizedFace::new(font, ppem, normalized_coords),
-                                glyphs().map(|glyph| glyph.id),
-                                sideways_paths,
-                            )
-                        })
-                    });
-                if let Some(frame) = turned.filter(|_| font_size > 0.0) {
-                    for (glyph, path) in glyphs().zip(sideways_paths.iter()) {
-                        scene.fill(
+                if font_size > 0.0 {
+                    let turned = (!FONT_EMBOLDEN_ENABLED && glyph_xform.is_none())
+                        .then(|| sideways::SidewaysFrame::new(transform))
+                        .flatten()
+                        .filter(|frame| {
+                            frame.ppem(font_size).is_some_and(|ppem| {
+                                sideways.outlines(
+                                    &upright::SizedFace::new(font, ppem, normalized_coords),
+                                    glyphs().map(|glyph| glyph.id),
+                                    sideways_paths,
+                                )
+                            })
+                        });
+                    if let Some(frame) = turned {
+                        for (glyph, path) in glyphs().zip(sideways_paths.iter()) {
+                            scene.fill(
+                                Fill::NonZero,
+                                frame.place(glyph.x, glyph.y),
+                                fill_color,
+                                None,
+                                path.as_ref(),
+                            );
+                        }
+                    } else {
+                        scene.draw_glyphs(
+                            font,
+                            font_size,
+                            !FONT_EMBOLDEN_ENABLED, // hint
+                            normalized_coords,
+                            embolden,
                             Fill::NonZero,
-                            frame.place(glyph.x, glyph.y),
-                            fill_color,
-                            None,
-                            path.as_ref(),
+                            &anyrender::Paint::from(fill_color),
+                            1.0, // alpha
+                            transform,
+                            glyph_xform,
+                            glyphs(),
                         );
                     }
-                } else if font_size > 0.0 {
-                    scene.draw_glyphs(
-                        font,
-                        font_size,
-                        !FONT_EMBOLDEN_ENABLED, // hint
-                        normalized_coords,
-                        embolden,
-                        Fill::NonZero,
-                        &anyrender::Paint::from(fill_color),
-                        1.0, // alpha
-                        transform,
-                        glyph_xform,
-                        glyphs(),
-                    );
                 }
 
                 // Accumulate this run's contribution to each decorating box on its ancestor
