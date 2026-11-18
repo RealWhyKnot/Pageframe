@@ -1688,10 +1688,10 @@ impl Node {
             if let Some(ild) = element_data.inline_layout_data.as_ref() {
                 let layout = &ild.layout;
                 let scale = layout.scale();
-                let y = y - ild.block_offset;
+                let (inline, block) = self.inline_layout_point(ild.block_offset, x, y);
 
                 if let Some((cluster, _side)) =
-                    Cluster::from_point_exact(layout, x * scale, y * scale)
+                    Cluster::from_point_exact(layout, inline * scale, block * scale)
                 {
                     let node_id = cluster.style().brush.id;
                     if let Some(text_node) = self.tree().get(node_id)
@@ -1786,10 +1786,10 @@ impl Node {
         let inline_layout = element_data.inline_layout_data.as_ref()?;
         let layout = &inline_layout.layout;
         let scale = layout.scale();
-        let y = y - inline_layout.block_offset;
+        let (inline, block) = self.inline_layout_point(inline_layout.block_offset, x, y);
 
         // Use Parley's cluster hit testing (from_point is more forgiving than from_point_exact)
-        let (cluster, side) = Cluster::from_point(layout, x * scale, y * scale)?;
+        let (cluster, side) = Cluster::from_point(layout, inline * scale, block * scale)?;
 
         // Determine byte offset based on which side of the cluster was clicked
         // For LTR text: left side = start of cluster, right side = end of cluster
@@ -1812,6 +1812,47 @@ impl Node {
         };
 
         Some(offset)
+    }
+
+    fn vertical_line_extent(&self) -> Option<f32> {
+        let is_vertical = self
+            .primary_styles()
+            .is_some_and(|style| style.writing_mode.is_vertical());
+        let unsnapped = self.layout_data().unsnapped;
+        is_vertical.then_some(
+            unsnapped.size.width
+                - unsnapped.border.left
+                - unsnapped.border.right
+                - unsnapped.padding.left
+                - unsnapped.padding.right,
+        )
+    }
+
+    fn inline_layout_point(&self, block_offset: f32, x: f32, y: f32) -> (f32, f32) {
+        let (inline, block) = match self.vertical_line_extent() {
+            Some(extent) => (y, extent - x),
+            None => (x, y),
+        };
+        (inline, block - block_offset)
+    }
+
+    fn inline_layout_rect(&self, block_offset: f32, rect: taffy::Rect<f32>) -> taffy::Rect<f32> {
+        let top = rect.top + block_offset;
+        let bottom = rect.bottom + block_offset;
+        match self.vertical_line_extent() {
+            Some(extent) => taffy::Rect {
+                left: extent - bottom,
+                top: rect.left,
+                right: extent - top,
+                bottom: rect.right,
+            },
+            None => taffy::Rect {
+                left: rect.left,
+                top,
+                right: rect.right,
+                bottom,
+            },
+        }
     }
 
     /// Whether this node is a non-atomic inline element: one that has no layout box of its
@@ -1970,8 +2011,7 @@ impl Node {
 
         let root_layout = inline_root.unrounded_layout();
         let content_box_inset = root_layout.padding + root_layout.border;
-        let origin_x = content_box_inset.left;
-        let origin_y = content_box_inset.top + inline_layout.block_offset;
+        let block_offset = inline_layout.block_offset;
 
         fn union(acc: &mut Option<taffy::Rect<f32>>, left: f32, top: f32, right: f32, bottom: f32) {
             *acc = Some(match *acc {
@@ -2029,11 +2069,20 @@ impl Node {
                 }
             }
 
-            line_rect.map(|rect| taffy::Rect {
-                left: origin_x + rect.left / scale,
-                top: origin_y + rect.top / scale,
-                right: origin_x + rect.right / scale,
-                bottom: origin_y + rect.bottom / scale,
+            line_rect.map(|rect| {
+                let unscaled = taffy::Rect {
+                    left: rect.left / scale,
+                    top: rect.top / scale,
+                    right: rect.right / scale,
+                    bottom: rect.bottom / scale,
+                };
+                let physical = inline_root.inline_layout_rect(block_offset, unscaled);
+                taffy::Rect {
+                    left: content_box_inset.left + physical.left,
+                    top: content_box_inset.top + physical.top,
+                    right: content_box_inset.left + physical.right,
+                    bottom: content_box_inset.top + physical.bottom,
+                }
             })
         }))
     }

@@ -315,3 +315,64 @@ fn atomic_inlines_centre_on_the_vertical_baseline_like_chrome() {
         assert_eq!([x, width], expected, "{id}");
     }
 }
+
+#[test]
+fn vertical_spans_report_rotated_rects_and_hits_like_chrome() {
+    let html = "<html><head><style>html,body{margin:0;font:16px/20px Arial}\
+                div{float:left;margin:10px;height:120px;border:2px solid #999;padding:3px 5px}\
+                </style></head><body>\
+                <div id=\"d1\" style=\"writing-mode:vertical-rl\">aaa <span id=\"s1\">bbb</span> \
+                ccc ddd eee <span id=\"s2\">fff ggg</span> hhh</div>\
+                <div id=\"d2\" style=\"writing-mode:vertical-lr\">aaa <span id=\"s3\">bbb</span> \
+                ccc ddd eee <span id=\"s4\">fff ggg</span> hhh</div><pre></pre></body></html>";
+    let page = App::new((), html)
+        .page(640, 400)
+        .expect("test pages have valid selectors");
+    let mut harness = Harness::wrap(page);
+    harness.pump();
+    let doc = harness.base();
+    let id_of = |id: &str| {
+        doc.query_selector_all(&format!("#{id}"))
+            .expect("selector is valid")[0]
+    };
+    for (span, root, chrome, point, offset) in [
+        ("s1", "d1", [39.0, 62.141, 17.0, 26.703], (47.5, 70.152), 5),
+        ("s2", "d1", [19.0, 62.141, 17.0, 43.906], (27.5, 75.313), 23),
+        ("s3", "d2", [93.0, 62.141, 17.0, 26.703], (101.5, 70.152), 5),
+        (
+            "s4",
+            "d2",
+            [113.0, 62.141, 17.0, 43.906],
+            (121.5, 75.313),
+            23,
+        ),
+    ] {
+        let ours = doc
+            .get_client_bounding_rect(id_of(span))
+            .expect("span has a rect");
+        let [left, top, width, height] = chrome;
+        assert!(
+            (ours.y - top).abs() < 0.01 && (ours.height - height).abs() < 0.01,
+            "{span} inline extent {} {}",
+            ours.y,
+            ours.height
+        );
+        assert!(
+            ours.x <= left && ours.x + ours.width >= left + width && ours.width <= 20.0,
+            "{span} block extent {} {}",
+            ours.x,
+            ours.width
+        );
+        let (x, y) = point;
+        assert_eq!(
+            doc.hit(x, y).map(|hit| hit.node_id),
+            Some(id_of(span)),
+            "{span}"
+        );
+        assert_eq!(
+            doc.find_text_position(x, y),
+            Some((id_of(root), offset)),
+            "{span}"
+        );
+    }
+}

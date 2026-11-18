@@ -281,17 +281,23 @@ impl<B: Brush> Layout<B> {
     /// For horizontal text, this is a vertical or y offset. If the offset is
     /// on a line boundary, it is considered to be contained by the later line.
     pub(crate) fn line_for_offset(&self, offset: f32) -> Option<(usize, Line<'_, B>)> {
-        if offset < 0.0 {
+        let lines = &self.data.lines;
+        let is_mirrored = lines
+            .first()
+            .zip(lines.last())
+            .is_some_and(|(first, last)| first.metrics.block_min_coord > last.metrics.block_min_coord);
+        if offset < 0.0 && !is_mirrored {
             return Some((0, self.get(0)?));
         }
-        let maybe_line_index = self.data.lines.binary_search_by(|line| {
-            if offset < line.metrics.block_min_coord {
+        let maybe_line_index = lines.binary_search_by(|line| {
+            let order = if offset < line.metrics.block_min_coord {
                 Ordering::Greater
             } else if offset >= line.metrics.block_max_coord {
                 Ordering::Less
             } else {
                 Ordering::Equal
-            }
+            };
+            if is_mirrored { order.reverse() } else { order }
         });
         let line_index = match maybe_line_index {
             Ok(index) => index,
