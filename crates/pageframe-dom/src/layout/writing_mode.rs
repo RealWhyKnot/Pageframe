@@ -485,6 +485,7 @@ impl BaseDocument {
         scrolls: ScrollOffsets,
     ) -> (Point<f32>, Size<f32>) {
         let mut pos = Point::ZERO;
+        let mut shift = Point::ZERO;
         for (index, (&id, placed)) in chain.iter().zip(placed).enumerate() {
             pos.x += placed.location.x;
             pos.y += placed.location.y;
@@ -497,10 +498,10 @@ impl BaseDocument {
                 (pos, size) = columns.visual_box(pos, size);
             }
             if let Some(&placer) = chain.get(index + 1) {
-                pos = scrolls.apply(pos, &self.nodes[placer]);
+                shift = shift + scrolls.shift(&self.nodes[placer]);
             }
         }
-        (pos, size)
+        (ScrollOffsets::unshift(pos, shift), size)
     }
 
     pub(crate) fn physical_unrounded_layout(&self, node_id: crate::NodeId) -> Layout {

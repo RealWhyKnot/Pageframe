@@ -526,7 +526,7 @@ impl BaseDocument {
                 // Used value: the padding resolved by layout (percentages
                 // resolved to lengths)
                 let layout = self
-                    .physical_unrounded_geometry(node_id, crate::document::ScrollOffsets::Applied)
+                    .physical_unrounded_geometry(node_id, crate::document::ScrollOffsets::Ignored)
                     .1;
                 let padding = match property_name {
                     "padding-top" => layout.padding.top,
@@ -540,7 +540,7 @@ impl BaseDocument {
             "transform-origin" | "perspective-origin" if has_layout_box => {
                 // Used value: percentages resolved against the border box
                 let layout = self
-                    .physical_unrounded_geometry(node_id, crate::document::ScrollOffsets::Applied)
+                    .physical_unrounded_geometry(node_id, crate::document::ScrollOffsets::Ignored)
                     .1;
                 let resolve = |value: &LengthPercentage, basis: f32| {
                     format_used_px(value.resolve(CSSPixelLength::new(basis)).px())

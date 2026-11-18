@@ -72,16 +72,7 @@ fn scrolled_boxes_in_columns_keep_their_offsets_like_chrome() {
          margin-top:20px\"><div id=\"s3\" style=\"height:50px;overflow:auto\">\
          <div style=\"height:70px\"></div><div id=\"k3\" style=\"height:10px\"></div></div></div>",
     );
-    {
-        let mut doc = harness.base_mut();
-        for (id, top) in [("s1", 17.0), ("s3", 33.0)] {
-            let node_id = doc
-                .query_selector_all(&format!("#{id}"))
-                .expect("box selector is valid")[0];
-            doc.scroll_to(node_id, 0.0, top, ScrollBehavior::Instant);
-        }
-    }
-    harness.pump();
+    scroll(&mut harness, &[("s1", 17.0), ("s3", 33.0)]);
     for (id, expected) in [
         ("s1", [0.0, 5.0, 100.0, 50.0]),
         ("p2", [0.0, 10.0, 210.0, 52.0]),
@@ -100,6 +91,60 @@ fn scrolled_boxes_in_columns_keep_their_offsets_like_chrome() {
     ] {
         assert_eq!(client_rect(&harness, id), expected, "{id}");
     }
+}
+
+#[test]
+fn scrolled_content_follows_its_scroller_like_chrome() {
+    let mut harness = page(
+        "<div class=\"c\" style=\"width:210px;column-count:2;height:60px;column-fill:auto;\
+         position:relative\"><div style=\"height:60px\"></div><div id=\"s1\" \
+         style=\"height:50px;overflow:auto\"><div style=\"height:5px\"></div>\
+         <div id=\"k1\" style=\"height:10px\"></div><div style=\"height:100px\"></div></div></div>\
+         <div id=\"s2\" style=\"margin-top:20px;width:100px;height:40px;overflow:auto\">\
+         aa<br>bb<br><span id=\"i2\">cc</span><br>dd<br>ee<br>ff</div>\
+         <div id=\"s3\" style=\"margin-top:20px;width:100px;height:40px;overflow:auto\">\
+         <div style=\"height:30px\"></div><div id=\"k3\" style=\"height:10px\"></div>\
+         <div style=\"height:100px\"></div></div>",
+    );
+    scroll(&mut harness, &[("s1", 20.0), ("s2", 25.0), ("s3", 30.0)]);
+    for (id, expected) in [
+        ("s1", [110.0, 0.0, 100.0, 50.0]),
+        ("k1", [110.0, 5.0, 100.0, 10.0]),
+        ("s2", [0.0, 80.0, 100.0, 40.0]),
+        ("s3", [0.0, 140.0, 100.0, 40.0]),
+        ("k3", [0.0, 170.0, 100.0, 10.0]),
+    ] {
+        assert_eq!(offset(&harness, id).map(f64::round), expected, "{id}");
+    }
+    for (id, expected) in [
+        ("s1", [110.0, 0.0, 100.0, 50.0]),
+        ("k1", [110.0, -15.0, 100.0, 10.0]),
+        ("s2", [0.0, 80.0, 100.0, 40.0]),
+        ("s3", [0.0, 140.0, 100.0, 40.0]),
+        ("k3", [0.0, 140.0, 100.0, 10.0]),
+    ] {
+        assert_eq!(client_rect(&harness, id).map(f64::round), expected, "{id}");
+    }
+    let [left, top, width, _] = offset(&harness, "i2");
+    let [client_left, client_top, client_width, _] = client_rect(&harness, "i2");
+    assert_eq!(
+        [left, width, client_left, client_width].map(f64::round),
+        [0.0, 16.0, 0.0, 16.0]
+    );
+    assert_eq!((client_top - top).round(), -25.0);
+}
+
+fn scroll(harness: &mut Harness<Page<()>>, targets: &[(&str, f64)]) {
+    {
+        let mut doc = harness.base_mut();
+        for &(id, top) in targets {
+            let node_id = doc
+                .query_selector_all(&format!("#{id}"))
+                .expect("box selector is valid")[0];
+            doc.scroll_to(node_id, 0.0, top, ScrollBehavior::Instant);
+        }
+    }
+    harness.pump();
 }
 
 fn client_rect(harness: &Harness<Page<()>>, id: &str) -> [f64; 4] {

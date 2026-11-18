@@ -2603,18 +2603,19 @@ impl BaseDocument {
         mut size: taffy::Size<f32>,
         scrolls: ScrollOffsets,
     ) -> (taffy::Point<f32>, taffy::Size<f32>) {
+        let mut shift = taffy::Point::ZERO;
         let mut current = container;
         while let Some(id) = current {
             let node = &self.nodes[id];
             if let Some(columns) = node.columns() {
                 (pos, size) = columns.visual_box(pos, size);
             }
-            pos = scrolls.apply(pos, node);
+            shift = shift + scrolls.shift(node);
             pos.x += node.unrounded_layout().location.x;
             pos.y += node.unrounded_layout().location.y;
             current = node.containing_block();
         }
-        (pos, size)
+        (ScrollOffsets::unshift(pos, shift), size)
     }
 
     fn has_column_ancestor(&self, node_id: NodeId) -> bool {
@@ -3203,14 +3204,27 @@ pub(crate) enum ScrollOffsets {
 }
 
 impl ScrollOffsets {
-    pub(crate) fn apply(self, pos: taffy::Point<f32>, container: &Node) -> taffy::Point<f32> {
-        let scroll = container.scroll_offset();
+    pub(crate) fn shift(self, container: &Node) -> taffy::Point<f32> {
         match self {
-            Self::Applied => taffy::Point {
-                x: pos.x - scroll.x.to_f32().unwrap_or(0.0),
-                y: pos.y - scroll.y.to_f32().unwrap_or(0.0),
-            },
-            Self::Ignored => pos,
+            Self::Applied => {
+                let scroll = container.scroll_offset();
+                taffy::Point {
+                    x: scroll.x.to_f32().unwrap_or(0.0),
+                    y: scroll.y.to_f32().unwrap_or(0.0),
+                }
+            }
+            Self::Ignored => taffy::Point::ZERO,
+        }
+    }
+
+    pub(crate) fn apply(self, pos: taffy::Point<f32>, container: &Node) -> taffy::Point<f32> {
+        Self::unshift(pos, self.shift(container))
+    }
+
+    pub(crate) fn unshift(pos: taffy::Point<f32>, shift: taffy::Point<f32>) -> taffy::Point<f32> {
+        taffy::Point {
+            x: pos.x - shift.x,
+            y: pos.y - shift.y,
         }
     }
 }
