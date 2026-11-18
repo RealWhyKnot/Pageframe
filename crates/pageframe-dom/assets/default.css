@@ -1256,6 +1256,9 @@ ruby > rt {
 rtc,
 rt {
     white-space: nowrap;
+}
+
+rt {
     font-size: 50%;
     -moz-min-font-size-ratio: 50%;
 }

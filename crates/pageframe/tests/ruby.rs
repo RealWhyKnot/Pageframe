@@ -171,3 +171,21 @@ fn a_ruby_without_annotations_stays_inline() {
         "div",
     );
 }
+
+#[test]
+fn an_annotation_container_keeps_the_full_font_size_like_chrome() {
+    let mut harness = open(App::new(
+        (),
+        "<!doctype html><style>html,body{margin:0;font:14px Arial}div{border:1px solid #999;margin:3px;width:200px}</style>\
+<div>ab<ruby>x<rtc><rt>long annotation</rt></rtc></ruby>cd</div>",
+    ));
+    assert_boxes(
+        &boxes(&mut harness, "ruby, rtc, rt"),
+        &[
+            [19.58, 4.0, 102.77, 16.0],
+            [26.58, 4.0, 95.77, 16.0],
+            [26.58, 4.0, 95.77, 16.0],
+        ],
+        "ruby, container and annotation",
+    );
+}
