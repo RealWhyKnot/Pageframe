@@ -265,3 +265,28 @@ fn fallback_han_sits_on_the_strut_baseline_like_chrome() {
     let buffer = render(&mut open(App::new((), html)));
     assert_eq!(ink_across(&buffer, 4, 60), [8, 23]);
 }
+
+#[test]
+fn atomic_inlines_centre_on_the_vertical_baseline_like_chrome() {
+    let html = "<!doctype html><style>html,body{margin:0;background:#fff;font:16px Arial}\
+                .v{float:left;height:70px;margin:4px 8px 4px 4px;writing-mode:vertical-rl}\
+                .b{display:inline-block;width:10px;height:10px}\
+                </style><div class=v id=d1>H<span class=b id=b1></span>H</div>\
+                <div class=v id=d4>H<span id=b4 style=\"display:inline-block;width:20px;height:6px\">\
+                </span>H</div><div class=v style=\"text-orientation:upright\">H\
+                <span class=b id=b5></span>H</div><div class=v style=\"text-orientation:sideways\">\
+                H<span class=b id=b6></span>H</div>";
+    let mut harness = Harness::wrap(App::new((), html).page(640, 400).expect("valid selectors"));
+    harness.pump();
+    for (id, expected) in [
+        ("d1", [4.0, 18.0]),
+        ("b1", [8.0, 10.0]),
+        ("d4", [34.0, 20.0]),
+        ("b4", [34.0, 20.0]),
+        ("b5", [70.0, 10.0]),
+        ("b6", [100.0, 10.0]),
+    ] {
+        let [x, _, width, _] = rect(&harness, id);
+        assert_eq!([x, width], expected, "{id}");
+    }
+}

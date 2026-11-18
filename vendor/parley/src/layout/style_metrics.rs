@@ -77,6 +77,7 @@ pub(crate) struct StyleMetrics {
     /// Distance from the baseline to the bottom of the line-height expanded span box.
     pub(crate) under: f32,
     pub(crate) alphabetic_drop: f32,
+    pub(crate) dominant_baseline: DominantBaseline,
     /// Offset of this box's baseline above the baseline of the root of the
     /// [independent aligned subtree] it belongs to.
     ///
@@ -319,11 +320,24 @@ impl StyleMetrics {
             over: box_metrics.over,
             under: box_metrics.under,
             alphabetic_drop: baseline.alphabetic_drop(font, quantize),
+            dominant_baseline: baseline,
             baseline_offset: 0.,
             exact_baseline_offset: 0.,
             aligned_subtree_root: 0,
             parent: 0,
             font_size: 0.,
+        }
+    }
+
+    pub(crate) fn inline_box_ascent(&self, inline_box: &InlineBox, quantize: bool) -> f32 {
+        let height = inline_box.height;
+        match (inline_box.baseline, self.dominant_baseline) {
+            (Some(baseline), _) => baseline,
+            (None, DominantBaseline::Alphabetic) => height,
+            (None, DominantBaseline::Central) if quantize => {
+                height - layout_unit_floor(height / 2.)
+            }
+            (None, DominantBaseline::Central) => height / 2.,
         }
     }
 }
@@ -389,12 +403,12 @@ pub(crate) fn inline_box_placement(
     style_metrics: &[StyleMetrics],
     quantize: bool,
 ) -> InlineBoxPlacement {
-    let ascent = inline_box.baseline.unwrap_or(inline_box.height);
-    let descent = inline_box.height - ascent;
     let parent = style_metrics
         .get(usize::from(parent_style))
         .copied()
         .unwrap_or_default();
+    let ascent = parent.inline_box_ascent(inline_box, quantize);
+    let descent = inline_box.height - ascent;
     let shift = shift_from_parent(inline_box.vertical_align, ascent, descent, &parent);
     let baseline_offset = parent.exact_baseline_offset + shift;
     InlineBoxPlacement {
