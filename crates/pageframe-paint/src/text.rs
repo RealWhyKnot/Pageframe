@@ -4,7 +4,7 @@ use kurbo::{
 };
 use num_traits::ToPrimitive;
 use pageframe_dom::CopyStyleGetters;
-use pageframe_dom::inline_trim::{LineTrim, hung_space, is_end_mark};
+use pageframe_dom::inline_trim::{LineSpan, LineTrim, hung_space, is_end_mark, settle_line_spans};
 use pageframe_dom::{BaseDocument, NodeId, node::TextBrush, util::ToColorColor};
 use parley::{Affinity, Cursor, Layout, Line, PositionedLayoutItem, Selection};
 use peniko::Fill;
@@ -204,11 +204,15 @@ pub(crate) fn inline_fragments<'a>(
     let Some(root) = doc.get_node(inline_root_id) else {
         return fragments;
     };
-    let (clone_basis, is_rtl) = root
+    let (clone_basis, is_rtl, scale_f32) = root
         .element_data()
         .and_then(|element| element.inline_layout_data.as_ref())
-        .map_or((0.0, false), |layout| {
-            (layout.percent_basis, layout.layout.is_rtl())
+        .map_or((0.0, false, 1.0), |layout| {
+            (
+                layout.percent_basis,
+                layout.layout.is_rtl(),
+                layout.layout.scale(),
+            )
         });
     for line in lines {
         let line_baseline = f64::from(line.metrics().baseline);
@@ -259,6 +263,13 @@ pub(crate) fn inline_fragments<'a>(
                 }
                 PositionedLayoutItem::InlineBox(_) => continue,
             };
+            let mut span_item = span_item;
+            if let (Some(left), Some(right)) = (span_item.left.to_f32(), span_item.right.to_f32())
+                && trim.is_hung(left, right)
+            {
+                span_item.left = f64::INFINITY;
+                span_item.right = f64::NEG_INFINITY;
+            }
 
             let ancestors = inline_ancestors(doc, start, inline_root_id);
             let depth_of_first = ancestors.len();
@@ -328,46 +339,22 @@ pub(crate) fn inline_fragments<'a>(
         }
 
         boxes.sort_by_key(|span_box| span_box.depth);
-        let clones: Vec<_> = boxes
+        let mut spans: Vec<LineSpan<f64>> = boxes
             .iter()
-            .map(|span_box| {
-                doc.get_node(span_box.node_id)
-                    .and_then(|node| pageframe_dom::util::inline_clone_insets(node, clone_basis))
-                    .map(|insets| (insets, span_box.is_start, span_box.is_end))
+            .map(|span_box| LineSpan {
+                node_id: span_box.node_id,
+                left: span_box.left,
+                right: span_box.right,
+                is_start: span_box.is_start,
+                is_end: span_box.is_end,
             })
             .collect();
-        for (index, mut span_box) in boxes.into_iter().enumerate() {
-            (span_box.left, span_box.right) =
-                trim.clamp(span_box.left, span_box.right, span_box.is_end);
-            if let Some((insets, _, _)) = clones.get(index).copied().flatten() {
-                let inner = || clones.iter().skip(index + 1).flatten();
-                if !span_box.is_start {
-                    let nested: f32 = inner()
-                        .filter(|(_, is_start, _)| !is_start)
-                        .map(|(inner, _, _)| inner.outer_start())
-                        .sum();
-                    let grown = f64::from(insets.start() + nested) * scale;
-                    if insets.is_rtl {
-                        span_box.right += grown;
-                    } else {
-                        span_box.left -= grown;
-                    }
-                }
-                if !span_box.is_end {
-                    let nested: f32 = inner()
-                        .filter(|(_, _, is_end)| !is_end)
-                        .map(|(inner, _, _)| inner.outer_end())
-                        .sum();
-                    let grown = f64::from(insets.end() + nested) * scale;
-                    if insets.is_rtl {
-                        span_box.left -= grown;
-                    } else {
-                        span_box.right += grown;
-                    }
-                }
-                span_box.is_start = true;
-                span_box.is_end = true;
-            }
+        settle_line_spans(root, &mut spans, &trim, clone_basis, scale_f32);
+        for (mut span_box, span) in boxes.into_iter().zip(spans) {
+            span_box.left = span.left;
+            span_box.right = span.right;
+            span_box.is_start = span.is_start;
+            span_box.is_end = span.is_end;
             let extent = span_box.extent.or_else(|| {
                 font_ratios.map(|(ascent, descent)| {
                     (ascent * span_box.font_size, descent * span_box.font_size)

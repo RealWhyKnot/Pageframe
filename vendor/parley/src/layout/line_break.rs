@@ -2007,9 +2007,17 @@ fn reset_trailing_whitespace_level<B: Brush>(
     start_item_idx: usize,
 ) {
     let base_level = layout.data.base_level;
-    let Some(last) = lines.line_items[start_item_idx..].last_mut() else {
+    let mut target_idx = lines.line_items.len();
+    while target_idx > start_item_idx
+        && is_invisible_item(layout, &lines.line_items[target_idx - 1])
+    {
+        target_idx -= 1;
+        lines.line_items[target_idx].bidi_level = base_level;
+    }
+    if target_idx == start_item_idx {
         return;
-    };
+    }
+    let last = &mut lines.line_items[target_idx - 1];
     if last.kind != LayoutItemKind::TextRun || last.bidi_level == base_level {
         return;
     }
@@ -2046,7 +2054,37 @@ fn reset_trailing_whitespace_level<B: Brush>(
     };
     last.text_range.end = text_split;
     last.shaped_cluster_range.end = split;
-    lines.line_items.push(tail);
+    lines.line_items.insert(target_idx, tail);
+}
+
+fn is_invisible_atom(atom: &Atom<'_>, spacing: EffectiveSpacing) -> bool {
+    let gaps = spacing.gaps(atom);
+    gaps.before == 0.
+        && gaps.after == 0.
+        && atom
+            .characters()
+            .iter()
+            .all(|character| character.whitespace == Whitespace::None)
+        && atom
+            .shaped_clusters()
+            .iter()
+            .all(|cluster| cluster.advance == 0.)
+}
+
+fn is_invisible_item<B: Brush>(layout: &Layout<B>, item: &LineItemData) -> bool {
+    if item.kind != LayoutItemKind::TextRun {
+        return false;
+    }
+    let spacing = EffectiveSpacing::new(layout.data.runs[item.index].spacing, Justification::NONE);
+    let slice = layout
+        .data
+        .shaped_text
+        .run_slice(item.index as u32)
+        .narrow(item.shaped_cluster_range.clone());
+    let mut atoms = slice.atoms_end().rev();
+    let first = atoms.next();
+    first.is_some_and(|atom| is_invisible_atom(&atom, spacing))
+        && atoms.all(|atom| is_invisible_atom(&atom, spacing))
 }
 
 // Note: This runs once per line, but it called in the line breaker's per-atom loop. The compiler
@@ -2103,6 +2141,9 @@ fn hanging_whitespace<B: Brush>(
                     .narrow(line_item.shaped_cluster_range.clone());
 
                 for atom in slice.atoms_end().rev() {
+                    if is_invisible_atom(&atom, effective_spacing) {
+                        continue;
+                    }
                     let (hanging, all_hang) = atom_hanging_advance(
                         slice,
                         &atom,

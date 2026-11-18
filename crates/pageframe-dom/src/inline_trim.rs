@@ -1,6 +1,7 @@
 use crate::node::{Node, TextBrush};
-use crate::util::{INLINE_BREAK, INLINE_EDGE_END, INLINE_MARGIN_END};
+use crate::util::{INLINE_BREAK, INLINE_EDGE_END, INLINE_MARGIN_END, inline_clone_insets};
 use num_traits::Float;
+use pageframe_traits::node_id::NodeId;
 use parley::{GlyphRun, InlineBoxKind, Line, PositionedLayoutItem};
 use smallvec::SmallVec;
 use style::computed_values::white_space_collapse::T as WhiteSpaceCollapse;
@@ -49,6 +50,7 @@ pub fn hung_space(
 pub struct LineTrim {
     inked_left: f32,
     inked_right: f32,
+    hanging: f32,
     closing_space: Option<(f32, f32)>,
     is_rtl: bool,
 }
@@ -63,16 +65,16 @@ impl LineTrim {
         for item in line.items() {
             let (left, right) = match item {
                 PositionedLayoutItem::GlyphRun(glyph_run) => {
-                    let owner = root.with(glyph_run.style().brush.id);
+                    let owner = root.tree().get(glyph_run.style().brush.id);
                     let run_text = text.get(glyph_run.run().text_range()).unwrap_or_default();
                     let body = run_text.trim_end_matches(is_end_mark);
                     if body.is_empty() {
                         is_hung_closed = true;
                     } else {
-                        hung = hung_space(&glyph_run, run_text, owner);
+                        hung = owner.and_then(|owner| hung_space(&glyph_run, run_text, owner));
                         is_hung_closed = body.len() < run_text.len();
                         if !(is_rtl && edge_owner.is_some()) {
-                            edge_owner = Some(owner);
+                            edge_owner = owner;
                         }
                     }
                     let left = glyph_run.offset();
@@ -97,8 +99,28 @@ impl LineTrim {
         Self {
             inked_left: line_left + hanging,
             inked_right: line_right - hanging,
+            hanging,
             closing_space: hung.filter(|_| is_hung_closed),
             is_rtl,
+        }
+    }
+
+    pub fn is_hung(&self, left: f32, right: f32) -> bool {
+        if self.hanging <= 0.0 {
+            return false;
+        }
+        if self.is_rtl {
+            right <= self.inked_left
+        } else {
+            left >= self.inked_right
+        }
+    }
+
+    fn hung_edge(&self) -> f32 {
+        if self.is_rtl {
+            self.inked_left
+        } else {
+            self.inked_right
         }
     }
 
@@ -120,5 +142,89 @@ impl LineTrim {
             right = right.min(lift(self.inked_right)).max(left);
         }
         (left, right)
+    }
+}
+
+pub struct LineSpan<T> {
+    pub node_id: NodeId,
+    pub left: T,
+    pub right: T,
+    pub is_start: bool,
+    pub is_end: bool,
+}
+
+fn grow<T: Float + From<f32>>(left: T, right: T, start: f32, end: f32, is_rtl: bool) -> (T, T) {
+    let lift = <T as From<f32>>::from;
+    if is_rtl {
+        (left - lift(end), right + lift(start))
+    } else {
+        (left - lift(start), right + lift(end))
+    }
+}
+
+pub fn settle_line_spans<T: Float + From<f32>>(
+    root: &Node,
+    spans: &mut [LineSpan<T>],
+    trim: &LineTrim,
+    basis: f32,
+    scale: f32,
+) {
+    let tree = root.tree();
+    let depth_of = |id: NodeId| {
+        let mut depth = 0_usize;
+        let mut cursor = tree.get(id);
+        while let Some(node) = cursor.filter(|node| node.id != root.id) {
+            depth += 1;
+            cursor = node.parent.and_then(|parent| tree.get(parent));
+        }
+        depth
+    };
+    for span in spans.iter_mut() {
+        if span.left > span.right {
+            let edge = <T as From<f32>>::from(trim.hung_edge());
+            (span.left, span.right) = (edge, edge);
+        }
+        (span.left, span.right) = trim.clamp(span.left, span.right, span.is_end);
+    }
+    let mut order: SmallVec<[(usize, usize); 8]> = spans
+        .iter()
+        .enumerate()
+        .map(|(index, span)| (depth_of(span.node_id), index))
+        .collect();
+    order.sort_by(|first, second| second.cmp(first));
+    for (_, index) in order {
+        let span = &mut spans[index];
+        let node = tree.get(span.node_id);
+        let Some(insets) = node.and_then(|node| inline_clone_insets(node, basis)) else {
+            continue;
+        };
+        let start_scale = if span.is_start { 0.0 } else { scale };
+        let end_scale = if span.is_end { 0.0 } else { scale };
+        let (left, right) = (span.left, span.right);
+        (span.left, span.right) = grow(
+            left,
+            right,
+            start_scale * insets.start(),
+            end_scale * insets.end(),
+            insets.is_rtl,
+        );
+        let outer = grow(
+            left,
+            right,
+            start_scale * insets.outer_start(),
+            end_scale * insets.outer_end(),
+            insets.is_rtl,
+        );
+        span.is_start = true;
+        span.is_end = true;
+        let mut cursor = node.and_then(|node| node.parent);
+        while let Some(parent) = cursor.filter(|parent| *parent != root.id) {
+            if let Some(ancestor) = spans.iter_mut().find(|span| span.node_id == parent) {
+                ancestor.left = ancestor.left.min(outer.0);
+                ancestor.right = ancestor.right.max(outer.1);
+                break;
+            }
+            cursor = tree.get(parent).and_then(|node| node.parent);
+        }
     }
 }

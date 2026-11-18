@@ -246,3 +246,28 @@ fn line_end_spaces_leave_inline_fragments_like_chrome() {
     assert_eq!(tail[0][0], 19.468_75, "{tail:?}");
     assert!((tail[0][1] - 14.796_875).abs() <= 1.0 / 64.0, "{tail:?}");
 }
+
+const SPAN_ENDS: &str = "<html><head><style>html,body{margin:0;background:#fff;\
+    font:14px/24px Arial}div{width:90px;margin-bottom:6px}span{background:#0f0}</style></head>\
+    <body><div dir=rtl><span id=rend>quick brown </span>fox jumps</div>\
+    <div dir=rtl>ab <span id=rtail>cd </span>efghijklmn</div>\
+    <div><span id=outer><span style='box-decoration-break:clone;padding:0 4px 0 8px'>\
+    ab cd ef gh ij</span></span></div>\
+    <div><span id=outer2>xy <span style='box-decoration-break:clone;padding:0 4px 0 8px'>\
+    ab cd ef gh</span> z</span></div></body></html>";
+
+#[test]
+fn spaces_before_span_ends_hang_and_clone_insets_reach_outer_spans_like_chrome() {
+    let expected: [(&str, &[[f64; 2]]); 3] = [
+        ("rend", &[[15.296_875, 74.703_125]]),
+        ("outer", &[[0.0, 81.281_25], [0.0, 18.234_375]]),
+        ("outer2", &[[0.0, 79.718_75], [0.0, 38.468_75]]),
+    ];
+    for (id, rects) in expected {
+        assert_eq!(fragment_rects(SPAN_ENDS, id), rects, "{id}");
+    }
+    let tail = fragment_rects(SPAN_ENDS, "rtail");
+    assert_eq!(tail.len(), 1, "{tail:?}");
+    assert!((tail[0][0] - 75.203_125).abs() <= 1.0 / 64.0, "{tail:?}");
+    assert!((tail[0][1] - 14.796_875).abs() <= 1.0 / 64.0, "{tail:?}");
+}

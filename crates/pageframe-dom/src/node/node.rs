@@ -2063,21 +2063,18 @@ impl Node {
         let layout = &inline_layout.layout;
         let scale = layout.scale();
 
-        // Walk up the DOM parent chain from `id` to check whether it is (or is
-        // inside) the target node, stopping at the inline root.
         let inline_root_id = inline_root.id;
-        let is_in_target = move |mut id: NodeId| -> bool {
+        let chain_to = move |mut id: NodeId| -> Option<smallvec::SmallVec<[NodeId; 4]>> {
+            let mut chain = smallvec::SmallVec::new();
             loop {
+                chain.push(id);
                 if id == self.id {
-                    return true;
+                    return Some(chain);
                 }
                 if id == inline_root_id {
-                    return false;
+                    return None;
                 }
-                match self.with(id).parent {
-                    Some(parent) => id = parent,
-                    None => return false,
-                }
+                id = self.tree().get(id)?.parent?;
             }
         };
 
@@ -2093,29 +2090,22 @@ impl Node {
         };
 
         let is_rtl = layout.is_rtl();
-        let clone = crate::util::inline_clone_insets(self, inline_layout.percent_basis);
+        let percent_basis = inline_layout.percent_basis;
         let text = inline_layout.text.as_str();
 
         Some(layout.lines().filter_map(move |line| {
             let line_metrics = line.metrics();
             let trim = crate::inline_trim::LineTrim::new(inline_root, &line, text, is_rtl);
-            let mut span: Option<(f32, f32)> = None;
+            let mut spans: smallvec::SmallVec<[crate::inline_trim::LineSpan<f32>; 4]> =
+                smallvec::SmallVec::new();
             let mut own: Option<(f32, FontExtent)> = None;
-            let mut is_start = false;
-            let mut is_end = false;
 
             for item in line.items() {
-                let (start, end) = match item {
+                let (owner, start, end, run_text) = match item {
                     PositionedLayoutItem::GlyphRun(glyph_run) => {
                         let owner = glyph_run.style().brush.id;
-                        if !is_in_target(owner) {
-                            continue;
-                        }
+                        let run_text = text.get(glyph_run.run().text_range()).unwrap_or_default();
                         if owner == self.id {
-                            let run_text =
-                                text.get(glyph_run.run().text_range()).unwrap_or_default();
-                            is_start |= run_text.starts_with(crate::util::INLINE_EDGE_START);
-                            is_end |= run_text.ends_with(crate::util::INLINE_EDGE_END);
                             let metrics = glyph_run.run().font_metrics();
                             own.get_or_insert((
                                 glyph_run.baseline(),
@@ -2126,19 +2116,57 @@ impl Node {
                             ));
                         }
                         let start = glyph_run.offset();
-                        (start, start + glyph_run.advance())
+                        (owner, start, start + glyph_run.advance(), run_text)
                     }
-                    PositionedLayoutItem::InlineBox(inline_box) => {
-                        if !is_in_target(NodeId::from_u64(inline_box.id)) {
-                            continue;
-                        }
-                        (inline_box.x, inline_box.x + inline_box.width)
-                    }
+                    PositionedLayoutItem::InlineBox(inline_box) => (
+                        NodeId::from_u64(inline_box.id),
+                        inline_box.x,
+                        inline_box.x + inline_box.width,
+                        "",
+                    ),
                 };
-                span = Some(span.map_or((start, end), |(left, right)| {
-                    (left.min(start), right.max(end))
-                }));
+                let Some(chain) = chain_to(owner) else {
+                    continue;
+                };
+                let (start, end) = if trim.is_hung(start, end) {
+                    (f32::INFINITY, f32::NEG_INFINITY)
+                } else {
+                    (start, end)
+                };
+                for (position, node_id) in chain.into_iter().enumerate() {
+                    let index = match spans.iter().position(|span| span.node_id == node_id) {
+                        Some(index) => index,
+                        None => {
+                            spans.push(crate::inline_trim::LineSpan {
+                                node_id,
+                                left: start,
+                                right: end,
+                                is_start: false,
+                                is_end: false,
+                            });
+                            spans.len() - 1
+                        }
+                    };
+                    let span = &mut spans[index];
+                    span.left = span.left.min(start);
+                    span.right = span.right.max(end);
+                    if position == 0 {
+                        span.is_start |= run_text.starts_with(crate::util::INLINE_EDGE_START);
+                        span.is_end |= run_text.ends_with(crate::util::INLINE_EDGE_END);
+                    }
+                }
             }
+            crate::inline_trim::settle_line_spans(
+                inline_root,
+                &mut spans,
+                &trim,
+                percent_basis,
+                scale,
+            );
+            let span = spans
+                .iter()
+                .find(|span| span.node_id == self.id)
+                .map(|span| (span.left, span.right));
 
             let baseline = own.map_or(line_metrics.baseline, |(baseline, _)| baseline);
             let (top, bottom) = font.or(own.map(|(_, extent)| extent)).map_or(
@@ -2150,26 +2178,7 @@ impl Node {
                     )
                 },
             );
-            span.map(|(left, right)| {
-                let (mut left, mut right) = trim.clamp(left, right, is_end);
-                if let Some(insets) = clone {
-                    let start = if is_start {
-                        0.0
-                    } else {
-                        insets.start() * scale
-                    };
-                    let end = if is_end { 0.0 } else { insets.end() * scale };
-                    if insets.is_rtl {
-                        right += start;
-                        left -= end;
-                    } else {
-                        left -= start;
-                        right += end;
-                    }
-                }
-                (left, right)
-            })
-            .map(|(left, right)| taffy::Rect {
+            span.map(|(left, right)| taffy::Rect {
                 left,
                 top: top - over * scale,
                 right,
