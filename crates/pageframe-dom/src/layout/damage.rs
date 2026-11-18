@@ -414,6 +414,7 @@ pub(crate) fn compute_layout_damage(old: &ComputedValues, new: &ComputedValues) 
     let text_shaping_needs_recollect = || {
         if old.clone_direction() != new.clone_direction()
             || old.clone_unicode_bidi() != new.clone_unicode_bidi()
+            || old.writing_mode != new.writing_mode
         {
             return true;
         }

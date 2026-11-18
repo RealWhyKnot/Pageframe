@@ -599,7 +599,7 @@ impl ShapedText {
         let place = |glyph: Glyph| {
             if !upright {
                 glyph
-            } else if has_vertical_metrics {
+            } else if has_vertical_metrics || glyph.advance == 0. {
                 Glyph {
                     y: glyph.y + central_shift,
                     ..glyph

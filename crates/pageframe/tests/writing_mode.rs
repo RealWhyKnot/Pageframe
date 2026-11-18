@@ -175,3 +175,59 @@ fn upright_letters_stand_in_their_own_cells_like_chrome() {
     assert_eq!(ink_columns(&buffer, 0, 42), [[21, 30, 6, 52]]);
     assert_eq!(ink_rows(&buffer, 0, 42, 78), [[6, 18], [23, 35], [40, 52]]);
 }
+
+fn near(ours: &[[usize; 2]], chrome: &[[usize; 2]]) -> bool {
+    ours.len() == chrome.len()
+        && ours
+            .iter()
+            .flatten()
+            .zip(chrome.iter().flatten())
+            .all(|(ours, theirs)| ours.abs_diff(*theirs) <= 1)
+}
+
+#[test]
+fn han_stands_upright_in_mixed_vertical_text_like_chrome() {
+    let html = "<!doctype html><style>html,body{margin:0;background:#fff;font:16px Arial}\
+                div{float:left;width:30px;height:70px;margin:4px 8px 4px 4px;\
+                writing-mode:vertical-rl}</style><div>一一一</div>";
+    let mut harness = open(App::new((), html));
+    let buffer = render(&mut harness);
+    let [[left, right, ..]] = ink_columns(&buffer, 0, 42)[..] else {
+        panic!("one column of ink");
+    };
+    let rows = ink_rows(&buffer, 0, 42, 78);
+    assert!(
+        near(&[[left, right]], &[[17, 32]]),
+        "columns {left}..{right}"
+    );
+    assert!(
+        near(&rows, &[[11, 12], [27, 28], [43, 44]]),
+        "rows {rows:?}"
+    );
+}
+
+#[test]
+fn changing_text_orientation_reshapes_the_text() {
+    let html = "<!doctype html><style>html,body{margin:0;background:#fff;font:16px Arial}\
+                div{float:left;width:30px;height:70px;margin:4px 8px 4px 4px;\
+                writing-mode:vertical-rl}</style><div id=t>HHH</div>";
+    let mut harness = open(App::new((), html));
+    let before = render(&mut harness);
+    assert_ne!(ink_rows(&before, 0, 42, 78), [[6, 18], [23, 35], [40, 52]]);
+    let id = harness
+        .base()
+        .query_selector_all("#t")
+        .expect("the selector parses")[0];
+    let name = pageframe_dom::QualName::new(
+        None,
+        pageframe_dom::ns!(),
+        pageframe_dom::local_name!("style"),
+    );
+    harness
+        .base_mut()
+        .mutate()
+        .set_attribute(id, name, "text-orientation:upright");
+    harness.pump();
+    let after = render(&mut harness);
+    assert_eq!(ink_rows(&after, 0, 42, 78), [[6, 18], [23, 35], [40, 52]]);
+}
