@@ -57,6 +57,7 @@ mod relative_selectors;
 mod resolve;
 /// Computation of resolved CSS property values (`getComputedStyle()`)
 mod resolved_style;
+mod script_fallback;
 /// Scrolling of nodes and the viewport, and scroll animations.
 mod scrolling;
 mod select;

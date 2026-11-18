@@ -513,6 +513,7 @@ impl BaseDocument {
                 font_ctx
                     .collection
                     .register_fonts(Blob::new(Arc::new(crate::BULLET_FONT) as _), None);
+                crate::script_fallback::prefer_browser_script_fallbacks(&mut font_ctx.collection);
                 font_ctx
             });
         let font_ctx = Arc::new(Mutex::new(font_ctx));
