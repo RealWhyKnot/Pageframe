@@ -316,3 +316,31 @@ fn spans_in_vertical_columns_land_in_their_column_like_chrome() {
         }
     }
 }
+
+#[test]
+fn scrollers_in_vertical_columns_move_whole_like_chrome() {
+    let harness = page(
+        "<style>body{font:16px/20px Arial}.m{columns:2;column-gap:20px;width:200px;\
+         height:120px;margin:4px;float:left;position:relative}</style>\
+         <div class=\"m\" style=\"writing-mode:vertical-rl\"><div style=\"width:60px\"></div>\
+         <div style=\"overflow:auto;width:100px\">aaa bbb ccc <span id=\"s1\">ddd eee</span> \
+         fff ggg hhh iii jjj kkk lll <span id=\"s2\">mmm</span></div></div>",
+    );
+    for (id, chrome) in [
+        ("s1", vec![[126.0, 74.0, 17.0], [106.0, 74.0, 17.0]]),
+        ("s2", vec![[6.0, 74.0, 17.0]]),
+    ] {
+        let doc = harness.base();
+        let node_id = doc
+            .query_selector_all(&format!("#{id}"))
+            .expect("valid selector")[0];
+        let rects = doc.node_client_rects(node_id);
+        drop(doc);
+        assert_eq!(rects.len(), chrome.len(), "{id}");
+        for (rect, [x, y, width]) in rects.iter().zip(chrome) {
+            assert_eq!(rect.y, y, "{id}");
+            let centre_gap = (rect.x + rect.width / 2.0) - (x + width / 2.0);
+            assert!(centre_gap.abs() <= 1.0, "{id} {rect:?}");
+        }
+    }
+}

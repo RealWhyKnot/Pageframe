@@ -552,6 +552,9 @@ impl BaseDocument {
     }
 
     fn is_breakable_container(&self, node: &Node) -> bool {
+        if node.is_scroll_container() {
+            return false;
+        }
         if node.flags.is_inline_root() {
             return true;
         }
