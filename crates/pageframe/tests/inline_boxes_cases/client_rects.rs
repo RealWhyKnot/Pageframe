@@ -41,6 +41,16 @@ const SIDEWAYS: &str = "<html><head><style>html,body{margin:0;background:#fff;fo
     <section style='left:100px;writing-mode:sideways-lr;direction:rtl'>ab <span id=rtl \
     style='padding:2px 4px 6px 8px'>cd</span></section></body></html>";
 
+const TRAILING: &str = "<html><head><style>html,body{margin:0;background:#fff;\
+    font:14px/24px Arial}div{width:90px;margin-bottom:6px}span{background:#0f0}</style></head>\
+    <body><div><span id=wrap>quick brown fox jumps over</span></div>\
+    <div>ab <span id=tail>cd </span>efghijklmn</div>\
+    <div style='white-space:pre-wrap'><span id=prew>quick brown   fox jumps</span></div>\
+    <div><span id=nbsp>quick brown&nbsp; fox</span></div>\
+    <div dir=rtl><span id=rtl>quick brown fox jumps</span></div>\
+    <div><span id=clone style='box-decoration-break:clone;padding:0 4px 0 8px'>\
+    ab cd ef gh ij</span></div></body></html>";
+
 fn client_rects<const COUNT: usize>(
     html: &str,
     scale: f32,
@@ -173,4 +183,39 @@ fn sideways_lr_client_rects_run_bottom_to_top_like_chrome() {
             [96.0, 4.0, 28.0, 22.796_875],
         ]
     );
+}
+
+fn fragment_rects(html: &str, id: &str) -> Vec<[f64; 2]> {
+    let mut harness = open(App::new((), html));
+    harness.pump();
+    let doc = harness.base_mut();
+    let node = doc
+        .query_selector(&format!("#{id}"))
+        .expect("valid selector")
+        .expect("the span exists");
+    doc.inline_fragment_rects(node)
+        .expect("the span is laid out")
+        .map(|rect| [rect.x, rect.width])
+        .collect()
+}
+
+#[test]
+fn line_end_spaces_leave_inline_fragments_like_chrome() {
+    let expected: [(&str, &[[f64; 2]]); 5] = [
+        (
+            "wrap",
+            &[[0.0, 74.703_125], [0.0, 59.921_875], [0.0, 27.234_375]],
+        ),
+        ("prew", &[[0.0, 86.375], [0.0, 59.921_875]]),
+        ("nbsp", &[[0.0, 78.593_75], [0.0, 18.687_5]]),
+        ("rtl", &[[15.296_875, 74.703_125], [30.078_125, 59.921_875]]),
+        ("clone", &[[0.0, 81.281_25], [0.0, 18.234_375]]),
+    ];
+    for (id, rects) in expected {
+        assert_eq!(fragment_rects(TRAILING, id), rects, "{id}");
+    }
+    let tail = fragment_rects(TRAILING, "tail");
+    assert_eq!(tail.len(), 1, "{tail:?}");
+    assert_eq!(tail[0][0], 19.468_75, "{tail:?}");
+    assert!((tail[0][1] - 14.796_875).abs() <= 1.0 / 64.0, "{tail:?}");
 }

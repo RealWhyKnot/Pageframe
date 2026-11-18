@@ -4,6 +4,7 @@ use kurbo::{
 };
 use num_traits::ToPrimitive;
 use pageframe_dom::CopyStyleGetters;
+use pageframe_dom::inline_trim::{LineTrim, hung_space, is_end_mark};
 use pageframe_dom::{BaseDocument, NodeId, node::TextBrush, util::ToColorColor};
 use parley::{Affinity, Cursor, Layout, Line, PositionedLayoutItem, Selection};
 use peniko::Fill;
@@ -117,51 +118,6 @@ fn relative_shift(styles: &style::properties::ComputedValues) -> Vec2 {
     Vec2::new(f64::from(x), f64::from(y))
 }
 
-fn is_end_mark(character: char) -> bool {
-    pageframe_dom::util::INLINE_EDGE_END.contains(character)
-        || pageframe_dom::util::INLINE_MARGIN_END.contains(character)
-        || pageframe_dom::util::INLINE_BREAK.contains(character)
-}
-
-fn collapses_spaces(doc: &BaseDocument, owner: NodeId) -> bool {
-    use style::computed_values::white_space_collapse::T as WhiteSpaceCollapse;
-    doc.get_node(owner)
-        .and_then(|node| node.primary_styles())
-        .is_some_and(|styles| {
-            matches!(
-                styles.get_inherited_text().white_space_collapse,
-                WhiteSpaceCollapse::Collapse | WhiteSpaceCollapse::PreserveBreaks
-            )
-        })
-}
-
-fn hung_space(
-    glyph_run: &parley::GlyphRun<'_, TextBrush>,
-    run_text: &str,
-    doc: &BaseDocument,
-    owner: NodeId,
-) -> Option<(f64, f64)> {
-    let body = run_text.trim_end_matches(is_end_mark);
-    let marks = run_text.get(body.len()..)?.chars().count();
-    let is_blank = body.chars().all(|ch| ch == ' ');
-    if !body.ends_with(' ') || (glyph_run.run().is_rtl() && !is_blank) {
-        return None;
-    }
-    if !collapses_spaces(doc, owner) {
-        return None;
-    }
-    if is_blank && marks == 0 {
-        let left = f64::from(glyph_run.offset());
-        return Some((left, f64::from(glyph_run.advance())));
-    }
-    let glyphs: SmallVec<[(f32, f32); 16]> = glyph_run
-        .positioned_glyphs()
-        .map(|glyph| (glyph.x, glyph.advance))
-        .collect();
-    let (left, width) = *glyphs.get(glyphs.len().checked_sub(marks + 1)?)?;
-    (width > 0.0).then_some((f64::from(left), f64::from(width)))
-}
-
 fn covers_its_start(doc: &BaseDocument, owner: NodeId, is_rtl: bool) -> bool {
     let Some(styles) = doc.get_node(owner).and_then(|node| node.primary_styles()) else {
         return false;
@@ -245,9 +201,11 @@ pub(crate) fn inline_fragments<'a>(
 ) -> Vec<InlineFragment> {
     let mut fragments = Vec::new();
     let mut font_ratios: Option<(f64, f64)> = None;
-    let (clone_basis, is_rtl) = doc
-        .get_node(inline_root_id)
-        .and_then(|node| node.element_data())
+    let Some(root) = doc.get_node(inline_root_id) else {
+        return fragments;
+    };
+    let (clone_basis, is_rtl) = root
+        .element_data()
         .and_then(|element| element.inline_layout_data.as_ref())
         .map_or((0.0, false), |layout| {
             (layout.percent_basis, layout.layout.is_rtl())
@@ -255,11 +213,7 @@ pub(crate) fn inline_fragments<'a>(
     for line in lines {
         let line_baseline = f64::from(line.metrics().baseline);
         let mut boxes: Vec<SpanBox> = Vec::new();
-        let mut line_right = f64::MIN;
-        let mut line_left = f64::MAX;
-        let mut hung: Option<(f64, f64)> = None;
-        let mut is_hung_closed = false;
-        let mut edge_owner: Option<NodeId> = None;
+        let trim = LineTrim::new(root, &line, text, is_rtl);
         for item in line.items() {
             let (start, span_item) = match item {
                 PositionedLayoutItem::GlyphRun(glyph_run) => {
@@ -274,16 +228,6 @@ pub(crate) fn inline_fragments<'a>(
                     }
                     let owner = glyph_run.style().brush.id;
                     let run_text = text.get(run.text_range()).unwrap_or_default();
-                    let body = run_text.trim_end_matches(is_end_mark);
-                    if body.is_empty() {
-                        is_hung_closed = true;
-                    } else {
-                        hung = hung_space(&glyph_run, run_text, doc, owner);
-                        is_hung_closed = body.len() < run_text.len();
-                        if !(is_rtl && edge_owner.is_some()) {
-                            edge_owner = Some(owner);
-                        }
-                    }
                     (
                         Some(owner),
                         SpanItem {
@@ -299,7 +243,6 @@ pub(crate) fn inline_fragments<'a>(
                 PositionedLayoutItem::InlineBox(inline_box)
                     if inline_box.kind == parley::InlineBoxKind::InFlow =>
                 {
-                    hung = None;
                     let left = f64::from(inline_box.x);
                     (
                         doc.get_node(NodeId::from_u64(inline_box.id))
@@ -317,8 +260,6 @@ pub(crate) fn inline_fragments<'a>(
                 PositionedLayoutItem::InlineBox(_) => continue,
             };
 
-            line_right = line_right.max(span_item.right);
-            line_left = line_left.min(span_item.left);
             let ancestors = inline_ancestors(doc, start, inline_root_id);
             let depth_of_first = ancestors.len();
             let mut outer_shift = ancestors
@@ -386,13 +327,6 @@ pub(crate) fn inline_fragments<'a>(
             }
         }
 
-        let hanging = if edge_owner.is_some_and(|owner| !collapses_spaces(doc, owner)) {
-            0.0
-        } else {
-            f64::from(line.metrics().hanging_advance)
-        };
-        let inked_right = line_right - hanging;
-        let inked_left = line_left + hanging;
         boxes.sort_by_key(|span_box| span_box.depth);
         let clones: Vec<_> = boxes
             .iter()
@@ -403,20 +337,8 @@ pub(crate) fn inline_fragments<'a>(
             })
             .collect();
         for (index, mut span_box) in boxes.into_iter().enumerate() {
-            if is_rtl {
-                if !span_box.is_end {
-                    span_box.left = span_box.left.max(inked_left).min(span_box.right);
-                }
-            } else {
-                if let Some((space_left, space_width)) = hung.filter(|_| is_hung_closed)
-                    && span_box.right > space_left
-                {
-                    span_box.right = (span_box.right - space_width).max(span_box.left);
-                }
-                if !span_box.is_end {
-                    span_box.right = span_box.right.min(inked_right).max(span_box.left);
-                }
-            }
+            (span_box.left, span_box.right) =
+                trim.clamp(span_box.left, span_box.right, span_box.is_end);
             if let Some((insets, _, _)) = clones.get(index).copied().flatten() {
                 let inner = || clones.iter().skip(index + 1).flatten();
                 if !span_box.is_start {
@@ -1525,8 +1447,11 @@ pub(crate) fn stroke_text<'a>(
                 push_spacer_holes(&glyph_run, run_text, snap_origin, &mut holes);
                 let body = run_text.trim_end_matches(is_end_mark);
                 if !body.is_empty() && !(is_rtl && has_text) {
-                    hung = hung_space(&glyph_run, run_text, doc, glyph_run.style().brush.id)
-                        .filter(|_| !is_rtl || body.chars().all(|ch| ch == ' '));
+                    hung = doc
+                        .get_node(glyph_run.style().brush.id)
+                        .and_then(|owner| hung_space(&glyph_run, run_text, owner))
+                        .filter(|_| !is_rtl || body.chars().all(|ch| ch == ' '))
+                        .map(|(left, width)| (f64::from(left), f64::from(width)));
                     has_text = true;
                 }
                 if is_invisible(doc, glyph_run.style().brush.id) {

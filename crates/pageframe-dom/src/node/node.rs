@@ -2088,10 +2088,17 @@ impl Node {
             LineAxes::Level => (edges.top, edges.bottom),
         };
 
+        let is_rtl = layout.is_rtl();
+        let clone = crate::util::inline_clone_insets(self, inline_layout.percent_basis);
+        let text = inline_layout.text.as_str();
+
         Some(layout.lines().filter_map(move |line| {
             let line_metrics = line.metrics();
+            let trim = crate::inline_trim::LineTrim::new(inline_root, &line, text, is_rtl);
             let mut span: Option<(f32, f32)> = None;
             let mut own: Option<(f32, FontExtent)> = None;
+            let mut is_start = false;
+            let mut is_end = false;
 
             for item in line.items() {
                 let (start, end) = match item {
@@ -2101,6 +2108,10 @@ impl Node {
                             continue;
                         }
                         if owner == self.id {
+                            let run_text =
+                                text.get(glyph_run.run().text_range()).unwrap_or_default();
+                            is_start |= run_text.starts_with(crate::util::INLINE_EDGE_START);
+                            is_end |= run_text.ends_with(crate::util::INLINE_EDGE_END);
                             let metrics = glyph_run.run().font_metrics();
                             own.get_or_insert((
                                 glyph_run.baseline(),
@@ -2135,7 +2146,26 @@ impl Node {
                     )
                 },
             );
-            span.map(|(left, right)| taffy::Rect {
+            span.map(|(left, right)| {
+                let (mut left, mut right) = trim.clamp(left, right, is_end);
+                if let Some(insets) = clone {
+                    let start = if is_start {
+                        0.0
+                    } else {
+                        insets.start() * scale
+                    };
+                    let end = if is_end { 0.0 } else { insets.end() * scale };
+                    if insets.is_rtl {
+                        right += start;
+                        left -= end;
+                    } else {
+                        left -= start;
+                        right += end;
+                    }
+                }
+                (left, right)
+            })
+            .map(|(left, right)| taffy::Rect {
                 left,
                 top: top - over * scale,
                 right,

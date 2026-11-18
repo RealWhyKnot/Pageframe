@@ -86,6 +86,7 @@ pub use stylo_taffy::CopyStyleGetters;
 pub use stylo_taffy::writing_mode::WritingModeExt;
 pub use stylo_to_kurbo::{resolve_2d_transform, resolve_projective_transform};
 
+pub mod inline_trim;
 pub mod net;
 pub mod util;
 
