@@ -271,3 +271,53 @@ fn items_in_a_wrapper_count_with_their_list() {
         "a list nested in a wrapped item is numbered with the outer list"
     );
 }
+
+fn marker_box(buffer: &[u8], line_left: usize) -> Option<[usize; 4]> {
+    let mut found: Option<[usize; 4]> = None;
+    for y in 0..60 {
+        for x in line_left..line_left + LINE {
+            if is_marker_ink(buffer, x, y) {
+                found = Some(
+                    found.map_or([x, y, x + 1, y + 1], |[left, top, right, bottom]| {
+                        [left.min(x), top.min(y), right.max(x + 1), bottom.max(y + 1)]
+                    }),
+                );
+            }
+        }
+    }
+    found
+}
+
+#[test]
+fn vertical_list_markers_sit_where_chrome_puts_them() {
+    let items = "<ul><li>alpha</li><li>beta</li></ul><ol><li>one</li><li>two</li></ol>";
+    let rl_discs = [(68, [75, 22, 80, 27]), (48, [55, 22, 60, 27])];
+    let rl_numbers = [(28, [32, 22, 46, 32]), (8, [12, 21, 26, 32])];
+    let lr_discs = [(8, [15, 22, 20, 27]), (28, [35, 22, 40, 27])];
+    let lr_numbers = [(48, [52, 22, 66, 32]), (68, [72, 21, 86, 32])];
+    for (mode, discs, numbers) in [
+        ("vertical-rl", rl_discs, rl_numbers),
+        ("vertical-lr", lr_discs, lr_numbers),
+    ] {
+        let html = format!(
+            "<html><head><style>html,body{{margin:0;background:#fff;font:16px/20px Arial;\
+             color:#fff}}.v{{margin:8px;height:150px;width:max-content}}ul,ol{{margin:0;\
+             padding:0;padding-inline-start:30px}}li::marker{{color:rgb(255,0,0)}}</style>\
+             </head><body><div class=\"v\" style=\"writing-mode:{mode}\">{items}</div></body>\
+             </html>"
+        );
+        let mut harness = open(App::new((), &html));
+        let buffer = frame(&mut harness);
+        for (line_left, chrome) in discs {
+            let found = marker_box(&buffer, line_left);
+            assert_eq!(found, Some(chrome), "{mode} disc at {line_left}");
+        }
+        for (line_left, chrome) in numbers {
+            let found = marker_box(&buffer, line_left).expect("the item has a number");
+            for (edge, expected) in found.into_iter().zip(chrome) {
+                let message = format!("{mode} number at {line_left}: {found:?}");
+                assert!(edge.abs_diff(expected) <= 1, "{message}");
+            }
+        }
+    }
+}

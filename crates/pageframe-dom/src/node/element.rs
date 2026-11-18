@@ -1193,6 +1193,7 @@ pub enum MarkerShape {
 pub struct MarkerSymbol {
     pub shape: MarkerShape,
     pub ascent: f32,
+    pub descent: f32,
     pub space_advance: f32,
 }
 
@@ -1210,6 +1211,10 @@ impl MarkerSymbol {
     pub fn top_from_baseline(&self) -> f32 {
         let ascent = self.ascent.round();
         (3.0 * (ascent - self.offset()) / 2.0).floor() - ascent
+    }
+
+    pub fn top_from_central_baseline(&self) -> f32 {
+        (self.ascent.round() - self.descent.round()) / 2.0 + self.top_from_baseline()
     }
 }
 

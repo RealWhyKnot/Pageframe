@@ -1838,6 +1838,33 @@ impl ElementCx<'_, '_> {
             x: pos.x + f64::from(subpixel_offset.x),
             y: pos.y + f64::from(subpixel_offset.y),
         };
+        if self.style.writing_mode.is_vertical() {
+            let transform = self.transform
+                * Affine::translate((origin.x * self.scale, origin.y * self.scale))
+                * self.inline_axes(true);
+            let logical = ElementCx {
+                frame: self.frame.clone(),
+                style: style::servo_arc::Arc::clone(&self.style),
+                transform: snap_vertical_baseline(transform, self.transform),
+                ..*self
+            };
+            let pos = Point {
+                x: -f64::from(subpixel_offset.y),
+                y: -f64::from(subpixel_offset.x),
+            };
+            logical.draw_list_marker(scene, list_item, pos, Point::ZERO);
+            return;
+        }
+        self.draw_list_marker(scene, list_item, pos, origin);
+    }
+
+    fn draw_list_marker(
+        &self,
+        scene: &mut impl PaintScene,
+        list_item: &ListItemLayout,
+        pos: Point,
+        origin: Point,
+    ) {
         match (&list_item.marker, &list_item.position) {
             (Marker::Symbol(symbol), ListItemLayoutPosition::Outside(layout)) => {
                 self.draw_outside_symbol(scene, pos, origin, symbol, layout);
@@ -1863,17 +1890,35 @@ impl ElementCx<'_, '_> {
 
     fn border_box_inline_edges(&self, pos: Point) -> (f64, f64) {
         let item_layout = self.node.final_layout();
-        let left = pos.x - f64::from(item_layout.padding.left + item_layout.border.left);
-        (left, left + f64::from(item_layout.size.width))
+        let (start, size) = if self.style.writing_mode.is_vertical() {
+            (
+                item_layout.padding.top + item_layout.border.top,
+                item_layout.size.height,
+            )
+        } else {
+            (
+                item_layout.padding.left + item_layout.border.left,
+                item_layout.size.width,
+            )
+        };
+        let left = pos.x - f64::from(start);
+        (left, left + f64::from(size))
     }
 
     fn first_line_baseline(&self) -> Option<f64> {
-        let own_layout = self.node.final_layout();
+        let is_vertical = self.style.writing_mode.is_vertical();
+        let block_start = |layout: &taffy::Layout| {
+            if is_vertical {
+                layout.border.right + layout.padding.right
+            } else {
+                layout.border.top + layout.padding.top
+            }
+        };
         let mut node = self.node;
-        let mut top = -f64::from(own_layout.border.top + own_layout.padding.top);
+        let mut top = -f64::from(block_start(self.node.final_layout()));
         for _ in 0..MARKER_LINE_SEARCH_DEPTH {
             let layout = node.final_layout();
-            let content_top = top + f64::from(layout.border.top + layout.padding.top);
+            let content_top = top + f64::from(block_start(layout));
             if node.flags.is_inline_root() {
                 let text_layout = node.element_data()?.inline_layout_data.as_ref()?;
                 let line = text_layout.layout.lines().next()?;
@@ -1882,7 +1927,12 @@ impl ElementCx<'_, '_> {
             }
             let first_child = *node.layout_children.borrow().as_ref()?.first()?;
             node = &self.context.dom.as_ref().tree()[first_child];
-            top += f64::from(node.final_layout().location.y);
+            let child = node.final_layout();
+            top += f64::from(if is_vertical {
+                layout.size.width - child.location.x - child.size.width
+            } else {
+                child.location.y
+            });
         }
         None
     }
@@ -1910,7 +1960,13 @@ impl ElementCx<'_, '_> {
         } else {
             left * self.scale - reach
         };
-        let y = origin.y * self.scale + baseline + f64::from(symbol.top_from_baseline());
+        let line_top = origin.y * self.scale + baseline;
+        let writing_mode = self.style.writing_mode;
+        let y = if writing_mode.is_vertical() && !writing_mode.is_sideways() {
+            (line_top + f64::from(symbol.top_from_central_baseline()) - 0.5).ceil()
+        } else {
+            line_top + f64::from(symbol.top_from_baseline())
+        };
         self.draw_symbol(scene, symbol, x, y);
     }
 

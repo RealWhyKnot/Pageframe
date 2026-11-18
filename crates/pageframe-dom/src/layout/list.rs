@@ -339,8 +339,10 @@ fn list_item_layout(
 
     let layout = if is_outside || matches!(marker, Marker::Symbol(_)) {
         let mut parley_style = stylo_to_parley::style(child_id, text_styles);
-        if matches!(marker, Marker::Char(_)) {
-            parley_style.font_family = FontFamily::from(BULLET_FONT_FAMILY);
+        match marker {
+            Marker::Char(_) => parley_style.font_family = FontFamily::from(BULLET_FONT_FAMILY),
+            Marker::Symbol(_) => parley_style.upright_glyphs = parley::UprightGlyphs::None,
+            Marker::String(_) => {}
         }
 
         let mut font_ctx = doc
@@ -374,6 +376,7 @@ fn list_item_layout(
         if let Some(line) = layout.lines().next() {
             let metrics = line.metrics();
             symbol.ascent = metrics.baseline - metrics.content_block_min_coord;
+            symbol.descent = metrics.content_block_max_coord - metrics.baseline;
         }
         symbol.space_advance = layout.full_width();
     }
@@ -435,6 +438,7 @@ fn symbol(shape: MarkerShape) -> Marker {
     Marker::Symbol(MarkerSymbol {
         shape,
         ascent: 0.0,
+        descent: 0.0,
         space_advance: 0.0,
     })
 }
@@ -474,6 +478,7 @@ mod tests {
             let symbol = MarkerSymbol {
                 shape: MarkerShape::Disc,
                 ascent,
+                descent: 0.0,
                 space_advance: 0.0,
             };
             (symbol.offset(), symbol.size(), symbol.top_from_baseline())
