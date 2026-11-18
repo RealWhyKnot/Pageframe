@@ -8,6 +8,7 @@ fn heights(texts: &[&str]) -> Vec<f64> {
 }
 
 fn heights_in(langs: &[&str], texts: &[&str]) -> Vec<f64> {
+    assert_eq!(langs.len(), texts.len());
     let rows: String = texts
         .iter()
         .zip(langs)
@@ -49,10 +50,12 @@ fn japanese_text_falls_back_to_the_fonts_chrome_uses() {
 
 #[test]
 fn han_falls_back_by_the_page_language_like_chrome() {
-    let langs = ["ja", "ko", "zh-TW", "zh-HK", "zh-CN", "zh-Hant", "en"];
-    let texts = ["漢字漢字"; 7];
+    let langs = [
+        "ja", "ko", "zh-TW", "zh-HK", "zh-MO", "zh-SG", "zh-CN", "zh-Hant", "en",
+    ];
+    let texts = ["漢字漢字"; 9];
     assert_eq!(
         heights_in(&langs, &texts),
-        [28.0, 23.0, 23.0, 23.0, 23.0, 23.0, 23.0]
+        [28.0, 23.0, 23.0, 23.0, 23.0, 23.0, 23.0, 23.0, 23.0]
     );
 }
