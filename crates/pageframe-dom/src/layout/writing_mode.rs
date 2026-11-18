@@ -411,8 +411,9 @@ impl BaseDocument {
             None => self.column_mapped_box(node_id, layout.size, scrolls, FragmentSpan::All),
             Some((chain, placed)) => {
                 layout = placed.first().copied().unwrap_or(layout);
-                let span = FragmentSpan::All;
-                self.columns_along_chain(&chain, &placed, layout.size, scrolls, span)
+                let scroller = ScrollerBox::new(FragmentSpan::All);
+                let start = (Point::ZERO, layout.size);
+                self.columns_along_chain(&chain, &placed, start, scrolls, scroller)
             }
         };
         layout.size = size;
@@ -430,7 +431,8 @@ impl BaseDocument {
             None => self.column_mapped_box(node_id, size, scrolls, span),
             Some((chain, placed)) => {
                 let size = placed.first().map_or(size, |layout| layout.size);
-                self.columns_along_chain(&chain, &placed, size, scrolls, span)
+                let scroller = ScrollerBox::new(span);
+                self.columns_along_chain(&chain, &placed, (Point::ZERO, size), scrolls, scroller)
             }
         };
         crate::util::Point { x: pos.x, y: pos.y }
@@ -478,16 +480,38 @@ impl BaseDocument {
         Some((chain, placed))
     }
 
+    pub(crate) fn column_mapped_fragment(
+        &self,
+        root_id: crate::NodeId,
+        pos: Point<f32>,
+        size: Size<f32>,
+        scrolls: ScrollOffsets,
+    ) -> (Point<f32>, Size<f32>) {
+        let span = FragmentSpan::All;
+        let Some((chain, placed)) = self.physical_chain(root_id) else {
+            return self.column_mapped_content(Some(root_id), pos, size, scrolls, span);
+        };
+        let root = &self.nodes[root_id];
+        let mut scroller = ScrollerBox::new(span);
+        let (mut pos, mut size) = (pos, size);
+        if let Some(columns) = root.columns() {
+            (pos, size) = scroller.place(columns, pos, size);
+        }
+        pos = scrolls.apply(pos, root);
+        if let Some(own) = placed.first() {
+            scroller.leave(root, own.location, own.size);
+        }
+        self.columns_along_chain(&chain, &placed, (pos, size), scrolls, scroller)
+    }
+
     fn columns_along_chain(
         &self,
         chain: &[crate::NodeId],
         placed: &[Layout],
-        mut size: Size<f32>,
+        (mut pos, mut size): (Point<f32>, Size<f32>),
         scrolls: ScrollOffsets,
-        span: FragmentSpan,
+        mut scroller: ScrollerBox,
     ) -> (Point<f32>, Size<f32>) {
-        let mut pos = Point::ZERO;
-        let mut scroller = ScrollerBox::new(span);
         for (index, (&id, placed)) in chain.iter().zip(placed).enumerate() {
             if index > 0 {
                 scroller.leave(&self.nodes[id], placed.location, placed.size);

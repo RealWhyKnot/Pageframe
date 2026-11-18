@@ -2584,6 +2584,18 @@ impl BaseDocument {
         *self.nodes[node_id].unrounded_layout()
     }
 
+    #[cfg(not(feature = "writing-mode"))]
+    pub(crate) fn column_mapped_fragment(
+        &self,
+        root_id: NodeId,
+        pos: taffy::Point<f32>,
+        size: taffy::Size<f32>,
+        scrolls: ScrollOffsets,
+    ) -> (taffy::Point<f32>, taffy::Size<f32>) {
+        let span = FragmentSpan::All;
+        self.column_mapped_content(Some(root_id), pos, size, scrolls, span)
+    }
+
     pub(crate) fn column_mapped_box(
         &self,
         node_id: NodeId,
@@ -2596,7 +2608,7 @@ impl BaseDocument {
         self.column_mapped_content(node.containing_block(), pos, size, scrolls, span)
     }
 
-    fn column_mapped_content(
+    pub(crate) fn column_mapped_content(
         &self,
         container: Option<NodeId>,
         mut pos: taffy::Point<f32>,
@@ -2807,8 +2819,7 @@ impl BaseDocument {
                 height: rect.bottom - rect.top,
             };
             if in_columns {
-                let span = FragmentSpan::All;
-                return self.column_mapped_content(Some(root_id), pos, size, scrolls, span);
+                return self.column_mapped_fragment(root_id, pos, size, scrolls);
             }
             let pos = taffy::Point {
                 x: root_pos.x + pos.x,

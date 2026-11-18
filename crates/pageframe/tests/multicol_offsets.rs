@@ -277,3 +277,43 @@ fn vertical_columns_split_boxes_along_the_inline_axis_like_chrome() {
         );
     }
 }
+
+#[test]
+fn spans_in_vertical_columns_land_in_their_column_like_chrome() {
+    let text = "aaa bbb ccc <span id=\"{id}1\">ddd eee</span> fff ggg hhh iii jjj kkk lll \
+                <span id=\"{id}2\">mmm</span>";
+    let block = |mode: &str, id: &str| {
+        format!(
+            "<div class=\"m\" style=\"writing-mode:{mode}\"><div style=\"width:60px\"></div>\
+             <p style=\"margin:0\">{}</p></div>",
+            text.replace("{id}", id)
+        )
+    };
+    let harness = page(&format!(
+        "<style>body{{font:16px/20px Arial}}.m{{columns:2;column-gap:20px;width:200px;\
+         height:120px;margin:4px;float:left;position:relative}}</style>{}{}",
+        block("vertical-rl", "s"),
+        block("vertical-lr", "t"),
+    ));
+    for (id, chrome) in [
+        ("s1", vec![[66.0, 4.0, 17.0], [186.0, 74.0, 17.0]]),
+        ("s2", vec![[86.0, 74.0, 17.0]]),
+        ("t1", vec![[334.0, 4.0, 17.0], [214.0, 74.0, 17.0]]),
+        ("t2", vec![[314.0, 74.0, 17.0]]),
+    ] {
+        let doc = harness.base();
+        let node_id = doc
+            .query_selector_all(&format!("#{id}"))
+            .expect("valid selector")[0];
+        let rects = doc.node_client_rects(node_id);
+        drop(doc);
+        assert_eq!(rects.len(), chrome.len(), "{id}");
+        for (rect, [x, y, width]) in rects.iter().zip(chrome) {
+            assert_eq!(rect.y, y, "{id}");
+            assert!(
+                rect.x <= x && rect.x + rect.width >= x + width,
+                "{id} {rect:?}"
+            );
+        }
+    }
+}
