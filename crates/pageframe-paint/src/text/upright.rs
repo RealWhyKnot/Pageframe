@@ -4,6 +4,8 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use kurbo::Affine;
 use num_traits::ToPrimitive as _;
 use pageframe_dom::node::TextBrush;
+
+use crate::FONT_EMBOLDEN_ENABLED;
 use skrifa::instance::{LocationRef, Size};
 use skrifa::outline::{
     DrawSettings, Engine, HintingInstance, HintingOptions, OutlinePen, SmoothMode, Target,
@@ -121,7 +123,7 @@ impl UprightCache {
     ) {
         placed.clear();
         let run = glyph_run.run();
-        if !run.is_upright() {
+        if FONT_EMBOLDEN_ENABLED || !run.is_upright() {
             return;
         }
         let Some(snap) = InlineSnap::new(transform, glyph_run.offset()) else {

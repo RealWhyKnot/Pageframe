@@ -537,19 +537,21 @@ fn upright_cjk_glyphs_start_where_chrome_puts_them() {
             )
         })
         .collect();
-    let html = format!(
-        "<!doctype html><meta charset=utf-8><style>html,body{{margin:0;background:#fff;\
-         font-size:16px}}div{{position:absolute;writing-mode:vertical-rl;height:30px;\
-         line-height:16px}}</style>{boxes}"
-    );
-    let mut harness = open(App::new((), &html));
-    let buffer = render(&mut harness);
-    for (index, (font, glyph, top, chrome)) in cases.into_iter().enumerate() {
-        let left = 2 + 17 * index;
-        assert_eq!(
-            first_ink_row(&buffer, left..left + 16, 0..80),
-            Some(chrome),
-            "{font} {glyph} at top {top}"
+    for mode in ["vertical-rl", "vertical-lr"] {
+        let html = format!(
+            "<!doctype html><meta charset=utf-8><style>html,body{{margin:0;background:#fff;\
+             font-size:16px}}div{{position:absolute;writing-mode:{mode};height:30px;\
+             line-height:16px}}</style>{boxes}"
         );
+        let mut harness = open(App::new((), &html));
+        let buffer = render(&mut harness);
+        for (index, (font, glyph, top, chrome)) in cases.iter().enumerate() {
+            let left = 2 + 17 * index;
+            assert_eq!(
+                first_ink_row(&buffer, left..left + 16, 0..80),
+                Some(*chrome),
+                "{mode}: {font} {glyph} at top {top}"
+            );
+        }
     }
 }
