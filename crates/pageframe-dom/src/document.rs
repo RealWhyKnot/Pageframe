@@ -22,6 +22,7 @@ use crate::{
 use cursor_icon::CursorIcon;
 use linebender_resource_handle::Blob;
 use markup5ever::{LocalName, local_name};
+use num_traits::ToPrimitive;
 use pageframe_traits::devtools::DevtoolSettings;
 use pageframe_traits::events::{DomEvent, HitResult, UiEvent};
 use pageframe_traits::navigation::{DummyNavigationProvider, NavigationProvider};
@@ -2559,18 +2560,23 @@ impl BaseDocument {
     pub(crate) fn physical_unrounded_geometry(
         &self,
         node_id: NodeId,
+        scrolls: ScrollOffsets,
     ) -> (crate::util::Point<f32>, taffy::Layout) {
         let mut layout = *self.nodes[node_id].unrounded_layout();
-        let (pos, size) = self.column_mapped_box(node_id, taffy::Point::ZERO, layout.size);
+        let (pos, size) = self.column_mapped_box(node_id, layout.size, scrolls);
         layout.size = size;
         (crate::util::Point { x: pos.x, y: pos.y }, layout)
     }
 
     #[cfg(not(feature = "writing-mode"))]
-    pub(crate) fn first_fragment_origin(&self, node_id: NodeId) -> crate::util::Point<f32> {
+    pub(crate) fn first_fragment_origin(
+        &self,
+        node_id: NodeId,
+        scrolls: ScrollOffsets,
+    ) -> crate::util::Point<f32> {
         let width = self.nodes[node_id].unrounded_layout().size.width;
         let line = taffy::Size { width, height: 0.0 };
-        let (pos, _) = self.column_mapped_box(node_id, taffy::Point::ZERO, line);
+        let (pos, _) = self.column_mapped_box(node_id, line, scrolls);
         crate::util::Point { x: pos.x, y: pos.y }
     }
 
@@ -2582,18 +2588,31 @@ impl BaseDocument {
     pub(crate) fn column_mapped_box(
         &self,
         node_id: NodeId,
+        size: taffy::Size<f32>,
+        scrolls: ScrollOffsets,
+    ) -> (taffy::Point<f32>, taffy::Size<f32>) {
+        let node = &self.nodes[node_id];
+        let pos = node.unrounded_layout().location;
+        self.column_mapped_content(node.containing_block(), pos, size, scrolls)
+    }
+
+    fn column_mapped_content(
+        &self,
+        container: Option<NodeId>,
         mut pos: taffy::Point<f32>,
         mut size: taffy::Size<f32>,
+        scrolls: ScrollOffsets,
     ) -> (taffy::Point<f32>, taffy::Size<f32>) {
-        let mut current = Some(node_id);
+        let mut current = container;
         while let Some(id) = current {
             let node = &self.nodes[id];
-            pos.x += node.unrounded_layout().location.x - node.scroll_offset().x as f32;
-            pos.y += node.unrounded_layout().location.y - node.scroll_offset().y as f32;
-            current = node.containing_block();
-            if let Some(columns) = current.and_then(|parent| self.nodes[parent].columns()) {
+            if let Some(columns) = node.columns() {
                 (pos, size) = columns.visual_box(pos, size);
             }
+            pos = scrolls.apply(pos, node);
+            pos.x += node.unrounded_layout().location.x;
+            pos.y += node.unrounded_layout().location.y;
+            current = node.containing_block();
         }
         (pos, size)
     }
@@ -2618,7 +2637,7 @@ impl BaseDocument {
         }
 
         self.get_node(node_id)?;
-        let (pos, layout) = self.physical_unrounded_geometry(node_id);
+        let (pos, layout) = self.physical_unrounded_geometry(node_id, ScrollOffsets::Applied);
         let size = layout.size;
         let scale = self.viewport().scale_f64();
 
@@ -2642,7 +2661,8 @@ impl BaseDocument {
         let node = self.get_node(node_id)?;
 
         // Nodes with their own layout box: use it directly
-        let Some(rects) = self.inline_fragment_rects(node_id) else {
+        let Some(fragments) = self.inline_fragment_boxes_mapped(node_id, ScrollOffsets::Ignored)
+        else {
             if self.has_column_ancestor(node_id) {
                 return Some(self.column_offset_rect(node, node_id));
             }
@@ -2664,12 +2684,16 @@ impl BaseDocument {
         };
 
         // Union the per-line-box fragments into a single bounding box
-        let bounds = rects.reduce(BoundingRect::union)?;
-
-        // Fragment rects are viewport-relative; convert to document-relative
-        let scroll = self.viewport_scroll();
-        let mut x = bounds.x + scroll.x;
-        let mut y = bounds.y + scroll.y;
+        let bounds = fragments
+            .map(|(pos, size)| BoundingRect {
+                x: f64::from(pos.x),
+                y: f64::from(pos.y),
+                width: f64::from(size.width),
+                height: f64::from(size.height),
+            })
+            .reduce(BoundingRect::union)?;
+        let mut x = bounds.x;
+        let mut y = bounds.y;
 
         // Resolve the offsetParent from the inline root (the root itself if it is positioned)
         let inline_root = node.inline_root_ancestor()?;
@@ -2680,10 +2704,10 @@ impl BaseDocument {
         };
         // Make the position relative to the offsetParent's padding edge
         if let Some(parent) = offset_parent.filter(|parent| !parent.is_static_body()) {
-            let (parent_pos, parent_layout) = self.physical_unrounded_geometry(parent.id);
-            let border = parent_layout.border;
-            x -= (parent_pos.x + border.left) as f64;
-            y -= (parent_pos.y + border.top) as f64;
+            let parent_origin = self.first_fragment_origin(parent.id, ScrollOffsets::Ignored);
+            let border = self.physical_unrounded_layout(parent.id).border;
+            x -= f64::from(parent_origin.x + border.left);
+            y -= f64::from(parent_origin.y + border.top);
         }
 
         Some(BoundingRect {
@@ -2695,15 +2719,15 @@ impl BaseDocument {
     }
 
     fn column_offset_rect(&self, node: &Node, node_id: NodeId) -> BoundingRect {
-        let (_, layout) = self.physical_unrounded_geometry(node_id);
-        let origin = self.first_fragment_origin(node_id);
+        let (_, layout) = self.physical_unrounded_geometry(node_id, ScrollOffsets::Ignored);
+        let origin = self.first_fragment_origin(node_id, ScrollOffsets::Ignored);
         let mut x = f64::from(origin.x);
         let mut y = f64::from(origin.y);
         if let Some(parent) = node
             .offset_parent()
             .filter(|parent| !parent.is_static_body())
         {
-            let parent_origin = self.first_fragment_origin(parent.id);
+            let parent_origin = self.first_fragment_origin(parent.id, ScrollOffsets::Ignored);
             let border = self.physical_unrounded_layout(parent.id).border;
             x -= f64::from(parent_origin.x + border.left);
             y -= f64::from(parent_origin.y + border.top);
@@ -2734,6 +2758,22 @@ impl BaseDocument {
         &self,
         node_id: NodeId,
     ) -> Option<impl Iterator<Item = BoundingRect> + '_> {
+        let fragments = self.inline_fragment_boxes_mapped(node_id, ScrollOffsets::Applied)?;
+        let scroll = self.viewport_scroll();
+        let scale = self.viewport().scale_f64();
+        Some(fragments.map(move |(pos, size)| BoundingRect {
+            x: snap_to_layout_unit(f64::from(pos.x) - scroll.x, scale),
+            y: snap_to_layout_unit(f64::from(pos.y) - scroll.y, scale),
+            width: snap_to_layout_unit(f64::from(size.width), scale),
+            height: snap_to_layout_unit(f64::from(size.height), scale),
+        }))
+    }
+
+    fn inline_fragment_boxes_mapped(
+        &self,
+        node_id: NodeId,
+        scrolls: ScrollOffsets,
+    ) -> Option<impl Iterator<Item = (taffy::Point<f32>, taffy::Size<f32>)> + '_> {
         let node = self.get_node(node_id)?;
 
         // Only non-atomic inline elements lack their own layout box: they are
@@ -2742,52 +2782,36 @@ impl BaseDocument {
         let inline_root = node.inline_root_ancestor()?;
 
         // Fragment boxes are relative to the inline root's border box.
-        let (root_pos, _) = self.physical_unrounded_geometry(inline_root.id);
-        let origin_x = root_pos.x as f64 - self.viewport_scroll().x;
-        let origin_y = root_pos.y as f64 - self.viewport_scroll().y;
         let root_id = inline_root.id;
+        let (root_pos, _) = self.physical_unrounded_geometry(root_id, scrolls);
+        let root_pos = scrolls.apply(
+            taffy::Point {
+                x: root_pos.x,
+                y: root_pos.y,
+            },
+            inline_root,
+        );
         let in_columns =
             self.has_column_ancestor(root_id) || self.nodes[root_id].columns().is_some();
-        let scroll = self.viewport_scroll();
-        let scale = self.viewport().scale_f64();
 
         Some(fragments.map(move |rect| {
+            let pos = taffy::Point {
+                x: rect.left,
+                y: rect.top,
+            };
+            let size = taffy::Size {
+                width: rect.right - rect.left,
+                height: rect.bottom - rect.top,
+            };
             if in_columns {
-                let (pos, size) = self.column_mapped_line_box(root_id, rect);
-                return BoundingRect {
-                    x: snap_to_layout_unit(f64::from(pos.x) - scroll.x, scale),
-                    y: snap_to_layout_unit(f64::from(pos.y) - scroll.y, scale),
-                    width: snap_to_layout_unit(f64::from(size.width), scale),
-                    height: snap_to_layout_unit(f64::from(size.height), scale),
-                };
+                return self.column_mapped_content(Some(root_id), pos, size, scrolls);
             }
-            BoundingRect {
-                x: snap_to_layout_unit(origin_x + rect.left as f64, scale),
-                y: snap_to_layout_unit(origin_y + rect.top as f64, scale),
-                width: snap_to_layout_unit((rect.right - rect.left) as f64, scale),
-                height: snap_to_layout_unit((rect.bottom - rect.top) as f64, scale),
-            }
+            let pos = taffy::Point {
+                x: root_pos.x + pos.x,
+                y: root_pos.y + pos.y,
+            };
+            (pos, size)
         }))
-    }
-
-    fn column_mapped_line_box(
-        &self,
-        root_id: NodeId,
-        rect: taffy::Rect<f32>,
-    ) -> (taffy::Point<f32>, taffy::Size<f32>) {
-        let pos = taffy::Point {
-            x: rect.left,
-            y: rect.top,
-        };
-        let size = taffy::Size {
-            width: rect.right - rect.left,
-            height: rect.bottom - rect.top,
-        };
-        let (pos, size) = match self.nodes[root_id].columns() {
-            Some(columns) => columns.visual_box(pos, size),
-            None => (pos, size),
-        };
-        self.column_mapped_box(root_id, pos, size)
     }
 
     /// The first element in tree order with the given tag name. The root element and
@@ -3168,6 +3192,25 @@ impl BoundingRect {
             y,
             width: (self.x + self.width).max(other.x + other.width) - x,
             height: (self.y + self.height).max(other.y + other.height) - y,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ScrollOffsets {
+    Applied,
+    Ignored,
+}
+
+impl ScrollOffsets {
+    pub(crate) fn apply(self, pos: taffy::Point<f32>, container: &Node) -> taffy::Point<f32> {
+        let scroll = container.scroll_offset();
+        match self {
+            Self::Applied => taffy::Point {
+                x: pos.x - scroll.x.to_f32().unwrap_or(0.0),
+                y: pos.y - scroll.y.to_f32().unwrap_or(0.0),
+            },
+            Self::Ignored => pos,
         }
     }
 }

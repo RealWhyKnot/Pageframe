@@ -21,7 +21,7 @@
 //! [`physicalise_and_round_layout`]: LayoutPassState::physicalise_and_round_layout
 
 use super::{BlockContext, LayoutPassState, resolve_calc_value};
-use crate::document::BaseDocument;
+use crate::document::{BaseDocument, ScrollOffsets};
 use crate::dom_node_id;
 use crate::node::Node;
 use stylo_taffy::WritingMode;
@@ -404,27 +404,32 @@ impl BaseDocument {
     pub(crate) fn physical_unrounded_geometry(
         &self,
         node_id: crate::NodeId,
+        scrolls: ScrollOffsets,
     ) -> (crate::util::Point<f32>, Layout) {
         let mut layout = *self.nodes[node_id].unrounded_layout();
         let (pos, size) = match self.physical_chain(node_id) {
-            None => self.column_mapped_box(node_id, Point::ZERO, layout.size),
+            None => self.column_mapped_box(node_id, layout.size, scrolls),
             Some((chain, placed)) => {
                 layout = placed.first().copied().unwrap_or(layout);
-                self.columns_along_chain(&chain, &placed, layout.size)
+                self.columns_along_chain(&chain, &placed, layout.size, scrolls)
             }
         };
         layout.size = size;
         (crate::util::Point { x: pos.x, y: pos.y }, layout)
     }
 
-    pub(crate) fn first_fragment_origin(&self, node_id: crate::NodeId) -> crate::util::Point<f32> {
+    pub(crate) fn first_fragment_origin(
+        &self,
+        node_id: crate::NodeId,
+        scrolls: ScrollOffsets,
+    ) -> crate::util::Point<f32> {
         let width = self.nodes[node_id].unrounded_layout().size.width;
         let line = |width| Size { width, height: 0.0 };
         let (pos, _) = match self.physical_chain(node_id) {
-            None => self.column_mapped_box(node_id, Point::ZERO, line(width)),
+            None => self.column_mapped_box(node_id, line(width), scrolls),
             Some((chain, placed)) => {
                 let width = placed.first().map_or(width, |layout| layout.size.width);
-                self.columns_along_chain(&chain, &placed, line(width))
+                self.columns_along_chain(&chain, &placed, line(width), scrolls)
             }
         };
         crate::util::Point { x: pos.x, y: pos.y }
@@ -477,19 +482,22 @@ impl BaseDocument {
         chain: &[crate::NodeId],
         placed: &[Layout],
         mut size: Size<f32>,
+        scrolls: ScrollOffsets,
     ) -> (Point<f32>, Size<f32>) {
         let mut pos = Point::ZERO;
-        for (&id, placed) in chain.iter().zip(placed) {
-            let node = &self.nodes[id];
-            pos.x += placed.location.x - node.scroll_offset().x as f32;
-            pos.y += placed.location.y - node.scroll_offset().y as f32;
-            let columns = node
+        for (index, (&id, placed)) in chain.iter().zip(placed).enumerate() {
+            pos.x += placed.location.x;
+            pos.y += placed.location.y;
+            let columns = self.nodes[id]
                 .containing_block()
                 .map(|placer| &self.nodes[placer])
                 .filter(|placer| !placer.layout_data().writing_mode.is_vertical())
                 .and_then(|placer| placer.columns());
             if let Some(columns) = columns {
                 (pos, size) = columns.visual_box(pos, size);
+            }
+            if let Some(&placer) = chain.get(index + 1) {
+                pos = scrolls.apply(pos, &self.nodes[placer]);
             }
         }
         (pos, size)
