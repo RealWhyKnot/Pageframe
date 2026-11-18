@@ -165,6 +165,10 @@ fn push_spacer_holes(
     } else {
         (leading, trailing)
     };
+    let opens_right = glyph_run
+        .run()
+        .inline_edge()
+        .map_or(is_rtl, |edge| edge.is_rtl);
     let count = glyph_run.positioned_glyphs().count();
     for (index, glyph) in glyph_run.positioned_glyphs().enumerate() {
         let is_mark = index < first || index + last >= count;
@@ -182,7 +186,7 @@ fn push_spacer_holes(
         if let (Some(origin), Some(mark)) = (snap_origin, mark)
             && pageframe_dom::util::INLINE_EDGE_START.contains(mark)
         {
-            if is_rtl {
+            if opens_right {
                 right = right.max((right + origin).round() - origin);
             } else {
                 left = left.min((left + origin).round() - origin);

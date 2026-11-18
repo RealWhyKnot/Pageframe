@@ -25,6 +25,8 @@ use crate::{
 const DISCLOSURE_MARKER_GAP_EM: f32 = 0.4;
 
 struct InlineEdges {
+    owner: u64,
+    is_rtl: bool,
     has_edge_marks: bool,
     margin_start: f32,
     inset_start: f32,
@@ -82,7 +84,12 @@ struct EdgeBasis {
     has_clone: bool,
 }
 
-fn inline_edges(style: &ComputedValues, basis: &mut EdgeBasis, scale: f32) -> InlineEdges {
+fn inline_edges(
+    style: &ComputedValues,
+    owner: u64,
+    basis: &mut EdgeBasis,
+    scale: f32,
+) -> InlineEdges {
     basis.has_clone |= style.get_border().box_decoration_break == BoxDecorationBreak::Clone;
     let writing_mode = style.writing_mode;
     let start = crate::util::inline_side(
@@ -100,6 +107,8 @@ fn inline_edges(style: &ComputedValues, basis: &mut EdgeBasis, scale: f32) -> In
     let has_percent_margin = start.has_percent_margin || end.has_percent_margin;
     basis.has_percent |= has_percent_margin || crate::util::has_percent_padding(style);
     InlineEdges {
+        owner,
+        is_rtl: !writing_mode.is_bidi_ltr(),
         has_edge_marks: crate::util::inline_box_is_decorated(style)
             || style
                 .get_background()
@@ -115,13 +124,23 @@ fn inline_edges(style: &ComputedValues, basis: &mut EdgeBasis, scale: f32) -> In
     }
 }
 
-fn push_spacer(builder: &mut TreeBuilder<TextBrush>, spacer: &str, width: f32) {
+fn push_spacer(
+    builder: &mut TreeBuilder<TextBrush>,
+    edges: &InlineEdges,
+    spacer: &str,
+    width: f32,
+) {
     let is_start =
         spacer == crate::util::INLINE_EDGE_START || spacer == crate::util::INLINE_MARGIN_START;
     let run_mark = if is_start { 1.0 } else { 2.0 };
     builder.push_style_modification_span(&[
         parley::StyleProperty::LetterSpacing(width),
         parley::StyleProperty::WordSpacing(run_mark),
+        parley::StyleProperty::InlineEdge(Some(parley::InlineEdge {
+            owner: edges.owner,
+            is_start,
+            is_rtl: edges.is_rtl,
+        })),
     ]);
     builder.push_text(spacer);
     builder.pop_style_span();
@@ -134,7 +153,7 @@ fn push_margin_spacer(
     width: f32,
 ) {
     if edges.has_percent_margin || width.abs() >= f32::EPSILON {
-        push_spacer(builder, spacer, width);
+        push_spacer(builder, edges, spacer, width);
     }
 }
 
@@ -145,7 +164,7 @@ fn push_edge_spacer(
     width: f32,
 ) {
     if edges.has_edge_marks {
-        push_spacer(builder, spacer, width);
+        push_spacer(builder, edges, spacer, width);
     }
 }
 
@@ -438,9 +457,14 @@ pub(crate) fn build_inline_layout_into(
                             builder.pop_style_span();
                             text_transformer.word_break(builder);
                         } else {
-                            let edges = node
-                                .primary_styles()
-                                .map(|s| inline_edges(&s, edge_basis, node.tree().device_scale()));
+                            let edges = node.primary_styles().map(|s| {
+                                inline_edges(
+                                    &s,
+                                    node_id.as_u64(),
+                                    edge_basis,
+                                    node.tree().device_scale(),
+                                )
+                            });
                             if let Some(edges) = &edges {
                                 push_margin_spacer(
                                     builder,

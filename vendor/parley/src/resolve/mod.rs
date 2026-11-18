@@ -171,6 +171,7 @@ impl ResolveContext {
             StyleProperty::WhiteSpaceCollapse(value) => WhiteSpaceCollapse(*value),
             StyleProperty::TabSize(value) => TabSize(value.scale(scale)),
             StyleProperty::UprightGlyphs(value) => UprightGlyphs(*value),
+            StyleProperty::InlineEdge(value) => InlineEdge(*value),
         }
     }
 
@@ -214,6 +215,7 @@ impl ResolveContext {
             white_space_collapse: raw_style.white_space_collapse,
             tab_size: raw_style.tab_size.scale(scale),
             upright_glyphs: raw_style.upright_glyphs,
+            inline_edge: raw_style.inline_edge,
         }
     }
 
@@ -406,6 +408,7 @@ pub(crate) enum ResolvedProperty<B: Brush> {
     WhiteSpaceCollapse(WhiteSpaceCollapse),
     TabSize(crate::TabSize),
     UprightGlyphs(crate::UprightGlyphs),
+    InlineEdge(Option<crate::InlineEdge>),
 }
 
 /// Flattened group of style properties.
@@ -456,6 +459,7 @@ pub(crate) struct ResolvedStyle<B: Brush> {
     pub(crate) white_space_collapse: WhiteSpaceCollapse,
     pub(crate) tab_size: crate::TabSize,
     pub(crate) upright_glyphs: crate::UprightGlyphs,
+    pub(crate) inline_edge: Option<crate::InlineEdge>,
 }
 
 impl<B: Brush> ResolvedStyle<B> {
@@ -491,6 +495,7 @@ impl<B: Brush> ResolvedStyle<B> {
             WhiteSpaceCollapse(value) => self.white_space_collapse = value,
             TabSize(value) => self.tab_size = value,
             UprightGlyphs(value) => self.upright_glyphs = value,
+            InlineEdge(value) => self.inline_edge = value,
         }
     }
 
@@ -525,6 +530,7 @@ impl<B: Brush> ResolvedStyle<B> {
             WhiteSpaceCollapse(value) => self.white_space_collapse == *value,
             TabSize(value) => self.tab_size == *value,
             UprightGlyphs(value) => self.upright_glyphs == *value,
+            InlineEdge(value) => self.inline_edge == *value,
         }
     }
 

@@ -26,6 +26,13 @@ pub use styleset::StyleSet;
 
 use crate::util::nearly_eq;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InlineEdge {
+    pub owner: u64,
+    pub is_start: bool,
+    pub is_rtl: bool,
+}
+
 /// Whitespace collapsing and hanging behavior.
 ///
 /// Note: Currently only the [`TreeBuilder`](crate::TreeBuilder) collapses white space. The
@@ -308,6 +315,7 @@ pub enum StyleProperty<'a, B: Brush> {
     WhiteSpaceCollapse(WhiteSpaceCollapse),
     TabSize(TabSize),
     UprightGlyphs(UprightGlyphs),
+    InlineEdge(Option<InlineEdge>),
 }
 
 /// Unresolved styles.
@@ -367,6 +375,7 @@ pub struct TextStyle<'family, 'settings, B: Brush> {
     pub white_space_collapse: WhiteSpaceCollapse,
     pub tab_size: TabSize,
     pub upright_glyphs: UprightGlyphs,
+    pub inline_edge: Option<InlineEdge>,
 }
 
 impl<B: Brush> Default for TextStyle<'static, 'static, B> {
@@ -400,6 +409,7 @@ impl<B: Brush> Default for TextStyle<'static, 'static, B> {
             white_space_collapse: WhiteSpaceCollapse::default(),
             tab_size: TabSize::default(),
             upright_glyphs: UprightGlyphs::None,
+            inline_edge: None,
         }
     }
 }

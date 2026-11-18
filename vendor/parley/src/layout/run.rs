@@ -158,6 +158,10 @@ impl<'a, B: Brush> Run<'a, B> {
         self.shaped.bidi_level.is_rtl()
     }
 
+    pub fn inline_edge(&self) -> Option<crate::InlineEdge> {
+        self.data.inline_edge
+    }
+
     pub fn is_upright(&self) -> bool {
         self.shaped.upright
     }

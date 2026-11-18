@@ -45,6 +45,7 @@ pub(crate) struct RunData {
     /// a grapheme.
     pub(crate) has_mixed_style_atoms: bool,
     pub(crate) tab_space: f32,
+    pub(crate) inline_edge: Option<crate::InlineEdge>,
 }
 
 pub(crate) fn tab_advance(tab_size: crate::TabSize, run: &RunData, position: f32) -> f32 {
@@ -410,6 +411,7 @@ impl<B: Brush> LayoutData<B> {
             run_box,
             has_mixed_style_atoms,
             tab_space,
+            inline_edge: run_style.inline_edge,
         };
 
         self.runs.push(run);

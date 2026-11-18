@@ -529,3 +529,31 @@ fn a_span_background_covers_a_preserved_space_that_hangs() {
         assert!(width("white-space:pre-wrap") >= width("") + 5, "{dir}");
     }
 }
+
+fn span_text_insets(direction: &str, before: &str, after: &str) -> (usize, usize) {
+    let buffer = draw(&format!(
+        "<div dir=\"{direction}\" style=\"line-height:40px;width:90px\">{before}<span \
+         style=\"background:#0f0;padding:0 9px 0 2px\">aa</span>{after}</div>"
+    ));
+    let row: Vec<(usize, [u8; 4])> = (0..90).map(|x| (x, pixel(&buffer, x, 20))).collect();
+    let lime: Vec<usize> = row
+        .iter()
+        .filter(|(_, colour)| colour[1] > 200 && colour[0] < 60 && colour[2] < 60)
+        .map(|(x, _)| *x)
+        .collect();
+    let (box_left, box_right) = (lime[0], lime[lime.len() - 1]);
+    let ink: Vec<usize> = row[box_left..=box_right]
+        .iter()
+        .filter(|(_, colour)| colour[1] < 128)
+        .map(|(x, _)| *x)
+        .collect();
+    (ink[0] - box_left, box_right - ink[ink.len() - 1])
+}
+
+#[test]
+fn right_to_left_spans_keep_their_physical_padding_around_their_text() {
+    let expected = span_text_insets("ltr", "", "");
+    assert!(expected.1 > expected.0 + 4);
+    assert_eq!(span_text_insets("rtl", "", ""), expected);
+    assert_eq!(span_text_insets("rtl", "x ", " y"), expected);
+}

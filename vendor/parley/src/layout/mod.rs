@@ -5,6 +5,7 @@
 
 mod alignment;
 mod cluster;
+mod inline_edges;
 mod line;
 mod line_break;
 mod run;

@@ -11,6 +11,7 @@ use core_maths::CoreFloat;
 use parlance::BidiLevel;
 
 use crate::layout::data::{AlignedSubtreeOffset, run_box_metrics, tab_advance};
+use crate::layout::inline_edges::place_inline_edges;
 use crate::layout::spacing::{EffectiveSpacing, Justification, is_word_separator};
 use crate::layout::style_metrics::{
     BoxMetrics, InlineBoxPlacement, StyleMetrics, inline_box_placement, layout_unit_round,
@@ -1945,6 +1946,11 @@ fn commit_line<B: Brush>(
     if needs_reorder && end_item_idx - start_item_idx > 1 {
         reorder_line_items(&mut lines.line_items[start_item_idx..end_item_idx]);
     }
+    place_inline_edges(
+        layout,
+        &mut lines.line_items[start_item_idx..end_item_idx],
+        needs_reorder,
+    );
 
     lines.lines.push(LineData {
         item_range: start_item_idx..end_item_idx,
@@ -2007,44 +2013,50 @@ fn reset_trailing_whitespace_level<B: Brush>(
     start_item_idx: usize,
 ) {
     let base_level = layout.data.base_level;
-    let mut target_idx = lines.line_items.len();
-    while target_idx > start_item_idx
-        && is_invisible_item(layout, &lines.line_items[target_idx - 1])
-    {
-        target_idx -= 1;
-    }
-    if target_idx == start_item_idx {
-        return;
-    }
-    let last = &lines.line_items[target_idx - 1];
-    if last.kind != LayoutItemKind::TextRun {
-        return;
-    }
     let shaped_text = &layout.data.shaped_text;
-    let run_slice = shaped_text.run_slice(last.index as u32);
-    let slice = run_slice.narrow(last.shaped_cluster_range.clone());
-    let spacing = EffectiveSpacing::new(layout.data.runs[last.index].spacing, Justification::NONE);
-    let mut split = last.shaped_cluster_range.end;
-    for atom in slice.atoms_end().rev() {
-        let (_, all_hang) =
-            atom_hanging_advance(slice, &atom, &layout.data.styles, spacing, last.is_rtl());
-        if !all_hang {
-            break;
+    let mut end_idx = lines.line_items.len();
+    let (target_idx, split, run_slice) = loop {
+        let mut target_idx = end_idx;
+        while target_idx > start_item_idx
+            && is_invisible_item(layout, &lines.line_items[target_idx - 1])
+        {
+            target_idx -= 1;
         }
-        split = atom.shaped_clusters_range().start;
-    }
-    if split == last.shaped_cluster_range.end {
-        return;
-    }
-    for mark in &mut lines.line_items[target_idx..] {
-        mark.bidi_level = base_level;
-    }
+        if target_idx == start_item_idx {
+            return;
+        }
+        let last = &lines.line_items[target_idx - 1];
+        if last.kind != LayoutItemKind::TextRun {
+            return;
+        }
+        let run_slice = shaped_text.run_slice(last.index as u32);
+        let slice = run_slice.narrow(last.shaped_cluster_range.clone());
+        let spacing =
+            EffectiveSpacing::new(layout.data.runs[last.index].spacing, Justification::NONE);
+        let mut split = last.shaped_cluster_range.end;
+        for atom in slice.atoms_end().rev() {
+            let (_, all_hang) =
+                atom_hanging_advance(slice, &atom, &layout.data.styles, spacing, last.is_rtl());
+            if !all_hang {
+                break;
+            }
+            split = atom.shaped_clusters_range().start;
+        }
+        if split == last.shaped_cluster_range.end {
+            return;
+        }
+        for mark in &mut lines.line_items[target_idx..end_idx] {
+            mark.bidi_level = base_level;
+        }
+        let last = &mut lines.line_items[target_idx - 1];
+        if split > last.shaped_cluster_range.start {
+            break (target_idx, split, run_slice);
+        }
+        last.bidi_level = base_level;
+        end_idx = target_idx - 1;
+    };
     let last = &mut lines.line_items[target_idx - 1];
     if last.bidi_level == base_level {
-        return;
-    }
-    if split <= last.shaped_cluster_range.start {
-        last.bidi_level = base_level;
         return;
     }
     let first_char = shaped_text.shaped_clusters()[split as usize]

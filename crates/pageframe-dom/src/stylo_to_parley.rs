@@ -555,6 +555,7 @@ pub(crate) fn style(
         white_space_collapse: white_space_collapse(itext_styles.white_space_collapse),
         tab_size: tab_size(&itext_styles.tab_size),
         upright_glyphs: upright_glyphs(style.writing_mode),
+        inline_edge: None,
         overflow_wrap,
         word_break,
         line_break,
