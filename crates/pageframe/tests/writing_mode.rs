@@ -231,3 +231,37 @@ fn changing_text_orientation_reshapes_the_text() {
     let after = render(&mut harness);
     assert_eq!(ink_rows(&after, 0, 42, 78), [[6, 18], [23, 35], [40, 52]]);
 }
+
+fn ink_across(buffer: &[u8], top: usize, bottom: usize) -> [usize; 2] {
+    let inked: Vec<usize> = (0..60)
+        .filter(|&across| {
+            (top..bottom).any(|down| {
+                let [red, green, blue, _] = pixel(buffer, across, down);
+                red.max(green).max(blue) < 128
+            })
+        })
+        .collect();
+    [
+        inked.first().copied().unwrap_or(0),
+        inked.last().map_or(0, |last| last + 1),
+    ]
+}
+
+#[test]
+fn mixed_vertical_runs_share_the_central_baseline_like_chrome() {
+    let html = "<!doctype html><style>html,body{margin:0;background:#fff;font:16px Arial}\
+                div{float:left;height:70px;margin:4px 8px 4px 4px;writing-mode:vertical-rl}\
+                </style><div>H<span style=\"font-size:32px\">H</span>H</div>";
+    let buffer = render(&mut open(App::new((), html)));
+    assert_eq!(ink_across(&buffer, 4, 16), [18, 29]);
+    assert_eq!(ink_across(&buffer, 20, 38), [12, 35]);
+}
+
+#[test]
+fn fallback_han_sits_on_the_strut_baseline_like_chrome() {
+    let html = "<!doctype html><style>html,body{margin:0;background:#fff;font:16px Arial}\
+                div{float:left;height:70px;margin:4px 8px 4px 4px;writing-mode:vertical-rl}\
+                </style><div>漢漢</div>";
+    let buffer = render(&mut open(App::new((), html)));
+    assert_eq!(ink_across(&buffer, 4, 60), [8, 23]);
+}

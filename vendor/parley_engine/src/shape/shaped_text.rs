@@ -593,7 +593,7 @@ impl ShapedText {
         } else {
             core::convert::identity
         };
-        let central_shift = (font_metrics.descent - font_metrics.ascent) / 2.;
+        let central_shift = (font_metrics.descent.round() - font_metrics.ascent.round()) / 2.;
         let cell_ascent = font_metrics.ascent.round();
         let cell_advance = cell_ascent + font_metrics.descent.round();
         let place = |glyph: Glyph| {

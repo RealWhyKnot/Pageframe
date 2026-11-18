@@ -79,7 +79,12 @@ pub(crate) fn run_box_metrics<B: Brush>(
         LineHeight::MetricsRelative(_) => {
             let (size, metrics) = (shaped_run.font_size, &shaped_run.font_metrics);
             let line_height = style.line_height.resolve(size, metrics, quantize);
-            Some(BoxMetrics::from_font(metrics, line_height, quantize))
+            Some(BoxMetrics::from_font(
+                metrics,
+                line_height,
+                quantize,
+                style.dominant_baseline,
+            ))
         }
         LineHeight::FontSizeRelative(_) | LineHeight::Absolute(_) => None,
     }
@@ -158,6 +163,7 @@ impl LineData {
         self.metrics.baseline
             - self.aligned_subtree_offset(offsets, metrics.aligned_subtree_root)
             - metrics.baseline_offset
+            + metrics.alphabetic_drop
     }
 }
 

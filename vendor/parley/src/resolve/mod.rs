@@ -540,6 +540,9 @@ impl<B: Brush> ResolvedStyle<B> {
             text_wrap_mode: self.text_wrap_mode,
             white_space_collapse: self.white_space_collapse,
             tab_size: self.tab_size,
+            dominant_baseline: layout::style_metrics::DominantBaseline::of(
+                self.upright_glyphs,
+            ),
             locale: self.locale,
         }
     }
