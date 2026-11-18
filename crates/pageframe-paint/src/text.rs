@@ -716,7 +716,7 @@ fn draw_decoration_line(
             }
         }
         // Two lines, each `size` thick, separated by a 1px (device) gap. This
-        // matches Chrome, where the second line is offset by `thickness + 1px`
+        // matches Chrome, where the second line is offset by `size + 1px`
         // and sits further from the text (below for underline, above for
         // overline).
         TextDecorationStyle::Double => {
