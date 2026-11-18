@@ -264,3 +264,30 @@ fn an_inline_ruby_box_covers_only_its_base_line_like_chrome() {
         "padded ruby at 2x",
     );
 }
+
+#[test]
+fn a_ruby_in_columns_reports_the_same_base_line_box() {
+    let mut harness = open(App::new(
+        (),
+        "<!doctype html><style>html,body{margin:0;font:14px Arial}</style>\
+<div style=\"columns:2;column-gap:10px;width:210px;border:1px solid #999;margin:3px\">ab<ruby id=ruby>x<rt>long annotation</rt></ruby>cd</div>",
+    ));
+    assert_boxes(
+        &boxes(&mut harness, "#ruby"),
+        &[[19.58, 9.0, 41.88, 16.0]],
+        "client rect",
+    );
+    let offset = {
+        let doc = harness.base_mut();
+        let ruby = doc
+            .query_selector("#ruby")
+            .expect("valid selector")
+            .expect("the ruby exists");
+        doc.offset_rect(ruby).expect("the ruby has a box")
+    };
+    assert_eq!(
+        [offset.y.round(), offset.height.round()],
+        [9.0, 16.0],
+        "offsetTop and offsetHeight, Chrome 9 and 16"
+    );
+}

@@ -2749,11 +2749,14 @@ impl BaseDocument {
             x -= f64::from(parent_origin.x + border.left);
             y -= f64::from(parent_origin.y + border.top);
         }
+        let (top, height) = self
+            .inline_ruby_extent(node)
+            .unwrap_or((0.0, layout.size.height));
         BoundingRect {
             x,
-            y,
+            y: y + f64::from(top),
             width: f64::from(layout.size.width),
-            height: f64::from(layout.size.height),
+            height: f64::from(height),
         }
     }
 
