@@ -5,7 +5,7 @@ use pageframe::{App, Page};
 use pageframe_dom::{ScrollBehavior, ScrollLogicalPosition};
 use pageframe_test_harness::Harness;
 use scaled::render_at_scale;
-use support::{open, pixel, render};
+use support::{HEIGHT, open, pixel, render};
 
 const PAGE: &str = "<!doctype html><style>html,body{margin:0;background:white;font:14px Arial}div{border:1px solid #999;margin:3px}</style>\
 <div>ab<ruby>x<rt>long annotation</rt></ruby>cd</div>\
@@ -35,15 +35,18 @@ fn inline_extents<S: 'static>(harness: &mut Harness<Page<S>>) -> Vec<[f64; 4]> {
 
 fn assert_boxes(found: &[[f64; 4]], chrome: &[[f64; 4]], what: &str) {
     assert_eq!(found.len(), chrome.len(), "{what}");
-    for (found, chrome) in found.iter().zip(chrome) {
-        assert!(
+    let wrong: Vec<String> = found
+        .iter()
+        .zip(chrome)
+        .filter(|(found, chrome)| {
             found
                 .iter()
-                .zip(chrome)
-                .all(|(have, want)| (have - want).abs() < 0.05),
-            "{what}: {found:?}, Chrome {chrome:?}"
-        );
-    }
+                .zip(chrome.iter())
+                .any(|(have, want)| (have - want).abs() >= 0.05)
+        })
+        .map(|(found, chrome)| format!("{what}: {found:?}, Chrome {chrome:?}"))
+        .collect();
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
 #[test]
@@ -298,14 +301,16 @@ fn a_ruby_without_a_base_keeps_an_empty_base_line_like_chrome() {
     let mut harness = open(App::new(
         (),
         "<!doctype html><style>html,body{margin:0;font:14px Arial}div{border:1px solid #999;margin:3px;width:200px}</style>\
-<div>ab<ruby><rt>long annotation</rt></ruby>cd</div>",
+<div><span>ab</span><ruby><rt>long annotation</rt></ruby><span>cd</span></div>",
     ));
     assert_boxes(
-        &boxes(&mut harness, "div, ruby, rt"),
+        &boxes(&mut harness, "div, span, ruby, rt"),
         &[
             [3.0, 3.0, 202.0, 25.0],
+            [4.0, 11.0, 15.58, 16.0],
             [19.58, 11.0, 47.88, 16.0],
             [19.58, 4.0, 47.89, 7.0],
+            [67.45, 11.0, 14.80, 16.0],
         ],
         "boxes at 1x",
     );
@@ -321,6 +326,29 @@ fn a_ruby_without_a_base_keeps_an_empty_base_line_like_chrome() {
     );
 }
 
+fn scroll_to_ruby<S: 'static>(
+    harness: &mut Harness<Page<S>>,
+    position: ScrollLogicalPosition,
+) -> [f64; 4] {
+    {
+        let mut doc = harness.base_mut();
+        let ruby = doc
+            .query_selector("#ruby")
+            .expect("valid selector")
+            .expect("the ruby exists");
+        doc.scroll_into_view(
+            ruby,
+            ScrollBehavior::Instant,
+            position,
+            ScrollLogicalPosition::Nearest,
+        );
+    }
+    boxes(harness, "#ruby")
+        .into_iter()
+        .next()
+        .expect("the ruby has a box")
+}
+
 #[test]
 fn scrolling_to_an_inline_ruby_aligns_its_base_line_like_chrome() {
     let mut harness = open(App::new(
@@ -329,20 +357,21 @@ fn scrolling_to_an_inline_ruby_aligns_its_base_line_like_chrome() {
 <div style=\"height:1000px\"></div><div>ab<ruby id=ruby>x<rt>long annotation</rt></ruby>cd</div>\
 <div style=\"height:2000px\"></div>",
     ));
-    let mut doc = harness.base_mut();
-    let ruby = doc
-        .query_selector("#ruby")
-        .expect("valid selector")
-        .expect("the ruby exists");
-    doc.scroll_into_view(
-        ruby,
-        ScrollBehavior::Instant,
-        ScrollLogicalPosition::Start,
-        ScrollLogicalPosition::Nearest,
-    );
+    let start = scroll_to_ruby(&mut harness, ScrollLogicalPosition::Start);
     assert_eq!(
-        doc.viewport_scroll().y.round(),
+        harness.base_mut().viewport_scroll().y,
         1005.0,
         "scrollY, Chrome 1005"
+    );
+    assert!(start[1].abs() < 0.05, "top after start: {start:?}");
+    let end = scroll_to_ruby(&mut harness, ScrollLogicalPosition::End);
+    assert!(
+        (end[1] + end[3] - f64::from(HEIGHT)).abs() < 0.05,
+        "bottom after end: {end:?}"
+    );
+    let center = scroll_to_ruby(&mut harness, ScrollLogicalPosition::Center);
+    assert!(
+        (center[1] - 32.0).abs() < 0.05,
+        "top after center: {center:?}"
     );
 }
