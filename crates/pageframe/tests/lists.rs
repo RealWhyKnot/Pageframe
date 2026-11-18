@@ -321,3 +321,47 @@ fn vertical_list_markers_sit_where_chrome_puts_them() {
         }
     }
 }
+
+#[test]
+fn vertical_discs_follow_chrome_inside_empty_and_off_the_pixel_grid() {
+    for (box_style, list_style, items, chrome) in [
+        (
+            "",
+            "list-style-position:inside",
+            "<li>alpha</li><li>beta</li>",
+            [(28, [35, 38, 40, 43]), (8, [15, 38, 20, 43])],
+        ),
+        (
+            "",
+            "",
+            "<li></li><li>beta</li>",
+            [(28, [35, 22, 40, 27]), (8, [15, 22, 20, 27])],
+        ),
+        (
+            "margin-top:8.4px",
+            "",
+            "<li>alpha</li>",
+            [(8, [15, 22, 20, 27]); 2],
+        ),
+        (
+            "margin-top:8.6px",
+            "",
+            "<li>alpha</li>",
+            [(8, [15, 23, 20, 28]); 2],
+        ),
+    ] {
+        let html = format!(
+            "<html><head><style>html,body{{margin:0;background:#fff;font:16px/20px Arial;\
+             color:#fff}}.v{{margin:8px;height:150px;width:max-content;\
+             writing-mode:vertical-rl}}ul{{margin:0;padding:0;padding-inline-start:30px}}\
+             li::marker{{color:rgb(255,0,0)}}</style></head><body><div class=\"v\" \
+             style=\"{box_style}\"><ul style=\"{list_style}\">{items}</ul></div></body></html>"
+        );
+        let mut harness = open(App::new((), &html));
+        let buffer = frame(&mut harness);
+        for (line_left, expected) in chrome {
+            let found = marker_box(&buffer, line_left);
+            assert_eq!(found, Some(expected), "{box_style} {list_style} {items}");
+        }
+    }
+}

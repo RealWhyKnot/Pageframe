@@ -1840,7 +1840,7 @@ impl ElementCx<'_, '_> {
         };
         if self.style.writing_mode.is_vertical() {
             let transform = self.transform
-                * Affine::translate((origin.x * self.scale, origin.y * self.scale))
+                * Affine::translate((pos.x * self.scale, pos.y * self.scale))
                 * self.inline_axes(true);
             let logical = ElementCx {
                 frame: self.frame.clone(),
@@ -1848,11 +1848,11 @@ impl ElementCx<'_, '_> {
                 transform: snap_vertical_baseline(transform, self.transform),
                 ..*self
             };
-            let pos = Point {
-                x: -f64::from(subpixel_offset.y),
+            let origin = Point {
+                x: f64::from(subpixel_offset.y),
                 y: -f64::from(subpixel_offset.x),
             };
-            logical.draw_list_marker(scene, list_item, pos, Point::ZERO);
+            logical.draw_list_marker(scene, list_item, origin, origin);
             return;
         }
         self.draw_list_marker(scene, list_item, pos, origin);
@@ -1945,10 +1945,16 @@ impl ElementCx<'_, '_> {
         symbol: &MarkerSymbol,
         layout: &parley::Layout<TextBrush>,
     ) {
-        let own_baseline = layout
-            .lines()
-            .next()
-            .map(|line| f64::from(line.metrics().baseline));
+        let writing_mode = self.style.writing_mode;
+        let is_central = writing_mode.is_vertical() && !writing_mode.is_sideways();
+        let own_baseline = layout.lines().next().map(|line| {
+            let metrics = line.metrics();
+            if is_central {
+                f64::from(metrics.block_min_coord + metrics.block_max_coord) / 2.0
+            } else {
+                f64::from(metrics.baseline)
+            }
+        });
         let Some(baseline) = self.first_line_baseline().or(own_baseline) else {
             return;
         };
@@ -1961,8 +1967,7 @@ impl ElementCx<'_, '_> {
             left * self.scale - reach
         };
         let line_top = origin.y * self.scale + baseline;
-        let writing_mode = self.style.writing_mode;
-        let y = if writing_mode.is_vertical() && !writing_mode.is_sideways() {
+        let y = if is_central {
             (line_top + f64::from(symbol.top_from_central_baseline()) - 0.5).ceil()
         } else {
             line_top + f64::from(symbol.top_from_baseline())
