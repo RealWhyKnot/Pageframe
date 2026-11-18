@@ -113,6 +113,22 @@ impl LayoutPassState<'_> {
         Some((font_size * scale - metrics.descent.round()) / scale)
     }
 
+    fn empty_base_extent(&self, node: NodeId) -> Option<(f32, f32)> {
+        let style = self.nodes[node].primary_styles()?;
+        let font_size = style.slow_clone_font_size().used_size().px();
+        let scale = self.viewport.scale();
+        let metrics = crate::font_metrics::form_control_metrics(
+            &mut *self.font_ctx.lock().ok()?,
+            style.get_font(),
+            font_size,
+            scale,
+        )?;
+        Some((
+            metrics.ascent.round() / scale,
+            metrics.descent.round() / scale,
+        ))
+    }
+
     fn font_size(&self, node: NodeId) -> Option<f32> {
         self.nodes[node]
             .primary_styles()
@@ -283,6 +299,11 @@ impl LayoutPassState<'_> {
             .flatten()
             .filter_map(|base| base.measured.baseline)
             .reduce(f32::max);
+        let empty_base = baseline
+            .is_none()
+            .then(|| self.empty_base_extent(node_id))
+            .flatten();
+        let baseline = baseline.or(empty_base.map(|(ascent, _)| ascent));
         let shared_baseline = baseline.unwrap_or(0.0);
         let mut em_tops = Vec::with_capacity(bases.len());
         for base in bases.iter_mut() {
@@ -327,7 +348,10 @@ impl LayoutPassState<'_> {
             .fold(0.0_f32, f32::min);
         let block_end = placed()
             .map(|placed| placed.location.y + placed.measured.size.height)
-            .fold(0.0_f32, f32::max);
+            .fold(
+                empty_base.map_or(0.0, |(ascent, descent)| ascent + descent),
+                f32::max,
+            );
 
         let parent_width = inputs.parent_size.width;
         let frame = {

@@ -291,3 +291,31 @@ fn a_ruby_in_columns_reports_the_same_base_line_box() {
         "offsetTop and offsetHeight, Chrome 9 and 16"
     );
 }
+
+#[test]
+fn a_ruby_without_a_base_keeps_an_empty_base_line_like_chrome() {
+    let mut harness = open(App::new(
+        (),
+        "<!doctype html><style>html,body{margin:0;font:14px Arial}div{border:1px solid #999;margin:3px;width:200px}</style>\
+<div>ab<ruby><rt>long annotation</rt></ruby>cd</div>",
+    ));
+    assert_boxes(
+        &boxes(&mut harness, "div, ruby, rt"),
+        &[
+            [3.0, 3.0, 202.0, 25.0],
+            [19.58, 11.0, 47.88, 16.0],
+            [19.58, 4.0, 47.89, 7.0],
+        ],
+        "boxes at 1x",
+    );
+    render_at_scale(&mut harness, 2);
+    assert_boxes(
+        &boxes(&mut harness, "div, ruby, rt"),
+        &[
+            [3.0, 3.0, 202.0, 25.0],
+            [19.58, 11.0, 47.88, 15.5],
+            [19.58, 3.0, 47.88, 8.0],
+        ],
+        "boxes at 2x",
+    );
+}
