@@ -1,5 +1,8 @@
+mod support;
+
 use pageframe::{App, Page};
 use pageframe_test_harness::Harness;
+use support::{open, pixel, render};
 
 const STYLE: &str = "html,body{margin:0;background:#fff;font:16px/18px Arial}\
 .c{width:200px;height:100px;border:2px solid #999;padding:3px 5px 7px 11px;margin:4px}\
@@ -73,4 +76,57 @@ fn computed_sizes_inside_a_vertical_box_stay_physical() {
     assert_eq!(value("fixed", "height"), "40px");
     assert_eq!(value("auto", "width"), "30px");
     assert_eq!(value("auto", "height"), "88px");
+}
+
+fn ink_columns(buffer: &[u8], left: usize, right: usize) -> Vec<[usize; 4]> {
+    let is_ink = |across: usize, down: usize| {
+        let [red, green, blue, _] = pixel(buffer, across, down);
+        red.max(green).max(blue) < 128
+    };
+    let mut columns: Vec<[usize; 4]> = Vec::new();
+    for across in (left..right).filter(|&across| (0..60).any(|down| is_ink(across, down))) {
+        match columns.last_mut() {
+            Some(column) if column[1] == across => column[1] = across + 1,
+            _ => columns.push([across, across + 1, 0, 0]),
+        }
+    }
+    for column in &mut columns {
+        let rows: Vec<usize> = (0..60)
+            .filter(|&down| (column[0]..column[1]).any(|across| is_ink(across, down)))
+            .collect();
+        column[2] = rows.first().copied().unwrap_or(0);
+        column[3] = rows.last().map_or(0, |last| last + 1);
+    }
+    columns
+}
+
+#[test]
+fn vertical_text_paints_in_columns_like_chrome() {
+    let html = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}\
+                div{float:left;width:40px;height:40px;margin:4px 8px 4px 4px}</style>\
+                <div style=\"writing-mode:vertical-rl\">HHH II</div>\
+                <div style=\"writing-mode:vertical-lr\">HHH II</div>";
+    let mut harness = open(App::new((), html));
+    let buffer = render(&mut harness);
+    let chrome = [
+        [[15, 25, 5, 10], [31, 41, 5, 33]],
+        [[59, 69, 5, 33], [75, 85, 5, 10]],
+    ];
+    for ((left, right), expected) in [(0, 52), (52, 120)].into_iter().zip(chrome) {
+        let columns = ink_columns(&buffer, left, right);
+        assert_eq!(
+            columns.len(),
+            2,
+            "two columns in {left}..{right}: {columns:?}"
+        );
+        for (column, chrome_column) in columns.iter().zip(expected) {
+            assert!(
+                column
+                    .iter()
+                    .zip(chrome_column)
+                    .all(|(ours, theirs)| ours.abs_diff(theirs) <= 1),
+                "ink {column:?}, Chrome {chrome_column:?}"
+            );
+        }
+    }
 }

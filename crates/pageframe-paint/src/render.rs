@@ -1559,17 +1559,30 @@ impl ElementCx<'_, '_> {
 
             // Text keeps its unrounded position; only box edges are snapped to whole pixels.
             let subpixel_offset = text_layout.content_box_subpixel_offset;
-            let pos = Point {
-                x: pos.x + subpixel_offset.x as f64,
-                y: pos.y + subpixel_offset.y as f64 + text_layout.block_offset as f64,
+            let origin = Point {
+                x: pos.x + f64::from(subpixel_offset.x),
+                y: pos.y + f64::from(subpixel_offset.y),
             };
-            let transform =
-                self.transform * Affine::translate((pos.x * self.scale, pos.y * self.scale));
+            let is_vertical = self.style.writing_mode.is_vertical();
+            let inline_extent = if is_vertical {
+                self.frame.content_box.height() - f64::from(subpixel_offset.y) * self.scale
+            } else {
+                self.frame.content_box.width() - f64::from(subpixel_offset.x) * self.scale
+            };
+            let transform = self.transform
+                * Affine::translate((origin.x * self.scale, origin.y * self.scale))
+                * self.inline_axes(is_vertical)
+                * Affine::translate((0.0, f64::from(text_layout.block_offset) * self.scale));
+            let transform = if is_vertical {
+                snap_vertical_baseline(transform, self.transform)
+            } else {
+                transform
+            };
 
             let (visible_lines, ellipsis) = line_ellipsis(
                 &self.style,
                 &text_layout.layout,
-                (self.frame.content_box.width() - subpixel_offset.x as f64 * self.scale) as f32,
+                inline_extent.to_f32().unwrap_or(0.0),
                 pageframe_dom::util::inherited_clamp_line(self.node),
             );
 
@@ -1621,6 +1634,26 @@ impl ElementCx<'_, '_> {
                 );
             }
         }
+    }
+
+    fn inline_axes(&self, is_vertical: bool) -> Affine {
+        if !is_vertical {
+            return Affine::IDENTITY;
+        }
+        let unsnapped = self.node.layout_data().unsnapped;
+        let content_width = unsnapped.size.width
+            - unsnapped.border.left
+            - unsnapped.border.right
+            - unsnapped.padding.left
+            - unsnapped.padding.right;
+        Affine::new([
+            0.0,
+            1.0,
+            -1.0,
+            0.0,
+            f64::from(content_width) * self.scale,
+            0.0,
+        ])
     }
 
     fn draw_inline_group(
@@ -2577,6 +2610,16 @@ fn has_corner_radius(style: &ComputedValues) -> bool {
 fn pixel_phase(transform: Affine) -> Option<f64> {
     let [a, b, c, d, _, y] = transform.as_coeffs();
     (a == 1.0 && b == 0.0 && c == 0.0 && d == 1.0).then(|| y - y.floor())
+}
+
+fn snap_vertical_baseline(transform: Affine, base: Affine) -> Affine {
+    let [_, base_b, base_c, ..] = base.as_coeffs();
+    if base_b != 0.0 || base_c != 0.0 {
+        return transform;
+    }
+    let mut coeffs = transform.as_coeffs();
+    coeffs[4] = coeffs[4].round();
+    Affine::new(coeffs)
 }
 
 /// Convert Stylo and Taffy types into Kurbo types

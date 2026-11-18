@@ -1571,6 +1571,15 @@ impl LayoutPassState<'_> {
         };
         inline_layout.block_offset = block_offset;
         let line_box_top = container_pb.top + block_offset;
+        let content_block_size = final_size.height - content_box_inset.vertical_axis_sum();
+        let mirrors_lines = self.nodes[node_id]
+            .primary_styles()
+            .is_some_and(|style| style.writing_mode.is_vertical_lr());
+        if mirrors_lines {
+            inline_layout
+                .layout
+                .mirror_lines_in_block_axis((content_block_size - 2.0 * block_offset) * scale);
+        }
 
         // Store sizes and positions of inline boxes. Walking a line's items builds every
         // glyph run on it, so lines are only walked when there are boxes to find.
@@ -1745,8 +1754,17 @@ impl LayoutPassState<'_> {
                             (ibox.x / scale) + margin.left + container_pb.left + inset_offset.x;
                         // Parley positions the margin box; offset to the border box even
                         // when a negative top margin makes it extend above the margin box.
-                        layout.location.y =
-                            (ibox.y / scale) + margin.top + line_box_top + inset_offset.y;
+                        let margin_box_top = ibox.y / scale;
+                        layout.location.y = if mirrors_lines {
+                            container_pb.top + content_block_size
+                                - block_offset
+                                - margin_box_top
+                                - margin.top
+                                - size.height
+                                + inset_offset.y
+                        } else {
+                            margin_box_top + margin.top + line_box_top + inset_offset.y
+                        };
                         layout.padding = padding; //.map(|p| p / scale);
                         layout.border = border; //.map(|p| p / scale);
                         layout.margin = margin;

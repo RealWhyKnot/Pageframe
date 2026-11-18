@@ -243,6 +243,18 @@ impl<B: Brush> Layout<B> {
         align(&mut self.data, alignment, options);
     }
 
+    pub fn mirror_lines_in_block_axis(&mut self, extent: f32) {
+        for line in &mut self.data.lines {
+            let metrics = &mut line.metrics;
+            let shift = extent - metrics.block_min_coord - metrics.block_max_coord;
+            metrics.block_min_coord += shift;
+            metrics.block_max_coord += shift;
+            metrics.content_block_min_coord += shift;
+            metrics.content_block_max_coord += shift;
+            metrics.baseline += shift;
+        }
+    }
+
     /// Returns the index and `Line` object for the line containing the
     /// given byte `index` in the source text.
     pub(crate) fn line_for_byte_index(&self, index: usize) -> Option<(usize, Line<'_, B>)> {
