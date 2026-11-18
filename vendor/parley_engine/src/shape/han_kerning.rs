@@ -286,24 +286,28 @@ impl FontSpacing {
         indices: &mut Vec<usize>,
     ) {
         indices.clear();
-        let types: Vec<CharType> = run.chars().map(|ch| self.char_type(ch)).collect();
-        let (Some(&first), Some(&last)) = (types.first(), types.last()) else {
+        let mut types = run.chars().map(|ch| self.char_type(ch));
+        let Some(first) = types.next() else {
             return;
         };
         if before.is_some_and(|ch| should_kern(first, self.char_type(ch))) {
             indices.push(0);
         }
-        if self.spacing == Spacing::Alternate {
-            for (index, pair) in types.windows(2).enumerate() {
-                if should_kern_last(pair[1], pair[0]) {
-                    indices.push(index);
-                } else if should_kern(pair[1], pair[0]) {
-                    indices.push(index + 1);
+        let mut last = first;
+        let mut last_index = 0;
+        for char_type in types {
+            if self.spacing == Spacing::Alternate {
+                if should_kern_last(char_type, last) {
+                    indices.push(last_index);
+                } else if should_kern(char_type, last) {
+                    indices.push(last_index + 1);
                 }
             }
+            last = char_type;
+            last_index += 1;
         }
         if after.is_some_and(|ch| should_kern_last(self.char_type(ch), last)) {
-            indices.push(types.len() - 1);
+            indices.push(last_index);
         }
         indices.dedup();
     }
