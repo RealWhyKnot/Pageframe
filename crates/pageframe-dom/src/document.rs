@@ -2565,7 +2565,7 @@ impl BaseDocument {
         (crate::util::Point { x: pos.x, y: pos.y }, layout)
     }
 
-    fn column_mapped_box(
+    pub(crate) fn column_mapped_box(
         &self,
         node_id: NodeId,
         mut pos: taffy::Point<f32>,

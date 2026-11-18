@@ -25,6 +25,7 @@ pageframe-dom = { workspace = true, features = [
     "custom-widget",
     "text-transform-icu",
     "floats",
+    "writing-mode",
 ] }
 pageframe-html = { workspace = true }
 pageframe-paint = { workspace = true, features = ["custom-widget"] }

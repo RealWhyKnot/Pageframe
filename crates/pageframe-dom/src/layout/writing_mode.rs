@@ -235,7 +235,7 @@ impl LayoutPassState<'_> {
             height: viewport.height.to_f32_px(),
         };
         let root_wm = self.layout_wm_of(dom_node_id(root));
-        self.physicalise_and_round_inner(root, root_wm, viewport, Point::ZERO, Point::ZERO, snap);
+        self.physicalise_and_round_inner(root, root_wm, viewport, Point::ZERO, snap);
     }
 
     fn physicalise_and_round_inner(
@@ -244,7 +244,6 @@ impl LayoutPassState<'_> {
         placer_wm: WritingMode,
         placer_size: Size<f32>,
         parent_pos: Point<f32>,
-        rounded_parent_pos: Point<f32>,
         snap: super::round::DeviceSnap,
     ) {
         let node = &self.doc.nodes[dom_node_id(node_id)];
@@ -258,93 +257,21 @@ impl LayoutPassState<'_> {
             is_scroll_container,
         );
 
-        let pos = Point {
-            x: parent_pos.x + unrounded.location.x,
-            y: parent_pos.y + unrounded.location.y,
-        };
         let size = unrounded.size;
-        // As in `taffy::round_layout`: the box's outer edges are rounded in absolute coordinates and
-        // every inner edge is rounded relative to them, so adjacent boxes never overlap or gap.
-        let rounded_pos = Point {
-            x: snap.round(pos.x),
-            y: snap.round(pos.y),
-        };
-        let rounded_end = Point {
-            x: snap.round(pos.x + size.width),
-            y: snap.round(pos.y + size.height),
-        };
-        let from_left = |v: f32| snap.round(pos.x + v) - rounded_pos.x;
-        let from_top = |v: f32| snap.round(pos.y + v) - rounded_pos.y;
-        let from_right = |v: f32| rounded_end.x - snap.round(pos.x + size.width - v);
-        let from_bottom = |v: f32| rounded_end.y - snap.round(pos.y + size.height - v);
-
-        let mut layout = unrounded;
-        layout.location = Point {
-            x: rounded_pos.x - rounded_parent_pos.x,
-            y: rounded_pos.y - rounded_parent_pos.y,
-        };
-        layout.size = Size {
-            width: rounded_end.x - rounded_pos.x,
-            height: rounded_end.y - rounded_pos.y,
-        };
-        layout.scrollbar_size = unrounded.scrollbar_size.map(|length| snap.round(length));
-        layout.border = taffy::Rect {
-            left: from_left(unrounded.border.left),
-            right: from_right(unrounded.border.right),
-            top: from_top(unrounded.border.top),
-            bottom: from_bottom(unrounded.border.bottom),
-        };
-        layout.padding = taffy::Rect {
-            left: from_left(unrounded.padding.left),
-            right: from_right(unrounded.padding.right),
-            top: from_top(unrounded.padding.top),
-            bottom: from_bottom(unrounded.padding.bottom),
-        };
-        let overflow = unrounded.scrollable_overflow_rect.rect();
-        layout.scrollable_overflow_rect = taffy::ScrollableOverflow::new(
-            taffy::Rect {
-                left: from_left(overflow.left),
-                right: from_left(overflow.right),
-                top: from_top(overflow.top),
-                bottom: from_top(overflow.bottom),
-            },
-            unrounded.scrollable_overflow_rect.is_reversed(),
-        );
-
-        let content_box_subpixel_offset = Point {
-            x: (pos.x + unrounded.border.left + unrounded.padding.left)
-                - (rounded_pos.x + layout.border.left + layout.padding.left),
-            y: (pos.y + unrounded.border.top + unrounded.padding.top)
-                - (rounded_pos.y + layout.border.top + layout.padding.top),
-        };
-
-        // `unrounded_layout` is left in the placer's writing mode: Taffy's cache may skip re-placing
-        // this node on a later layout, and only `final_layout` is read downstream.
-        self.set_final_layout(node_id, &layout);
-        self.node_from_id_mut(node_id).layout_data_mut().unsnapped = crate::node::UnsnappedBox {
-            offset: Point {
-                x: pos.x - rounded_pos.x,
-                y: pos.y - rounded_pos.y,
-            },
-            size,
-            border: unrounded.border,
-            padding: unrounded.padding,
-        };
-
+        let pos = super::round::snap_layout(self, node_id, unrounded, parent_pos, snap);
         let wm = self.layout_wm_of(dom_node_id(node_id));
         self.node_from_id_mut(node_id)
             .layout_data_mut()
             .writing_mode = wm;
-        self.set_content_box_subpixel_offset(node_id, content_box_subpixel_offset);
         for index in 0..self.child_count(node_id) {
             let child = self.get_child_id(node_id, index);
             if !self.is_out_of_flow(child) {
-                self.physicalise_and_round_inner(child, wm, size, pos, rounded_pos, snap);
+                self.physicalise_and_round_inner(child, wm, size, pos, snap);
             }
         }
         for index in 0..self.hoisted_child_count(node_id) {
             let child = self.get_hoisted_child_id(node_id, index);
-            self.physicalise_and_round_inner(child, wm, size, pos, rounded_pos, snap);
+            self.physicalise_and_round_inner(child, wm, size, pos, snap);
         }
     }
 }
@@ -479,18 +406,18 @@ impl BaseDocument {
         node_id: crate::NodeId,
     ) -> (crate::util::Point<f32>, Layout) {
         // Without a vertical box on the containing-block chain there is nothing to physicalise.
-        let mut pos = crate::util::Point { x: 0.0, y: 0.0 };
         let mut has_vertical = false;
         let mut current = Some(node_id);
         while let Some(id) = current {
             let node = &self.nodes[id];
-            pos.x += node.unrounded_layout().location.x - node.scroll_offset().x as f32;
-            pos.y += node.unrounded_layout().location.y - node.scroll_offset().y as f32;
             has_vertical |= node.layout_data().writing_mode.is_vertical();
             current = node.containing_block();
         }
         if !has_vertical {
-            return (pos, *self.nodes[node_id].unrounded_layout());
+            let mut layout = *self.nodes[node_id].unrounded_layout();
+            let (pos, size) = self.column_mapped_box(node_id, Point::ZERO, layout.size);
+            layout.size = size;
+            return (crate::util::Point { x: pos.x, y: pos.y }, layout);
         }
 
         let root_id = self.try_root_element().map(|root| root.id);

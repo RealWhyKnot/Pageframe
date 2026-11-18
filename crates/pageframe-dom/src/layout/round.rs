@@ -1,7 +1,7 @@
-#[cfg(not(feature = "writing-mode"))]
 use super::LayoutPassState;
 #[cfg(not(feature = "writing-mode"))]
-use taffy::{NodeId, Rect, RoundTree, ScrollableOverflow, TraversePartialTree};
+use taffy::TraversePartialTree;
+use taffy::{Layout, NodeId, Point, Rect, RoundTree, ScrollableOverflow};
 
 const LAYOUT_UNITS: f32 = 64.0;
 const UNIT_SLACK: f32 = 1.0 / 32.0;
@@ -39,7 +39,6 @@ impl DeviceSnap {
     }
 }
 
-#[cfg(not(feature = "writing-mode"))]
 impl DeviceSnap {
     fn inset_from_end(self, start: f32, size: f32, inset: f32) -> f32 {
         self.between(start + size - inset, start + size)
@@ -69,13 +68,42 @@ fn round_inner(
     parent_y: f32,
 ) {
     let unrounded = tree.get_unrounded_layout(node_id);
-    let x = parent_x + unrounded.location.x;
-    let y = parent_y + unrounded.location.y;
+    let position = snap_layout(
+        tree,
+        node_id,
+        unrounded,
+        Point {
+            x: parent_x,
+            y: parent_y,
+        },
+        snap,
+    );
+    for index in 0..tree.child_count(node_id) {
+        let child = tree.get_child_id(node_id, index);
+        if !tree.is_out_of_flow(child) {
+            round_inner(tree, child, snap, position.x, position.y);
+        }
+    }
+    for index in 0..tree.hoisted_child_count(node_id) {
+        let child = tree.get_hoisted_child_id(node_id, index);
+        round_inner(tree, child, snap, position.x, position.y);
+    }
+}
+
+pub(crate) fn snap_layout(
+    tree: &mut LayoutPassState<'_>,
+    node_id: NodeId,
+    unrounded: Layout,
+    parent: Point<f32>,
+    snap: DeviceSnap,
+) -> Point<f32> {
+    let x = parent.x + unrounded.location.x;
+    let y = parent.y + unrounded.location.y;
     let size = unrounded.size;
 
     let mut layout = unrounded;
-    layout.location.x = snap.between(parent_x, x);
-    layout.location.y = snap.between(parent_y, y);
+    layout.location.x = snap.between(parent.x, x);
+    layout.location.y = snap.between(parent.y, y);
     layout.size.width = snap.shift(x, size.width);
     layout.size.height = snap.shift(y, size.height);
     layout.scrollbar_size = unrounded.scrollbar_size.map(|length| snap.round(length));
@@ -133,17 +161,7 @@ fn round_inner(
             ),
         },
     );
-
-    for index in 0..tree.child_count(node_id) {
-        let child = tree.get_child_id(node_id, index);
-        if !tree.is_out_of_flow(child) {
-            round_inner(tree, child, snap, x, y);
-        }
-    }
-    for index in 0..tree.hoisted_child_count(node_id) {
-        let child = tree.get_hoisted_child_id(node_id, index);
-        round_inner(tree, child, snap, x, y);
-    }
+    Point { x, y }
 }
 
 #[cfg(test)]
