@@ -420,17 +420,45 @@ impl BaseDocument {
             return (crate::util::Point { x: pos.x, y: pos.y }, layout);
         }
 
-        let (_, mut layout) = self.placed_physical_layout(node_id);
+        let root_id = self.try_root_element().map(|root| root.id);
+        let mut chain = vec![node_id];
+        while let Some(placer) = chain.last().and_then(|&id| {
+            self.nodes[id]
+                .containing_block()
+                .filter(|_| Some(id) != root_id)
+        }) {
+            chain.push(placer);
+        }
+        let outermost = chain.last().copied().unwrap_or(node_id);
+        let (_, mut placer_wm, mut placer_size) =
+            self.placer_geometry(&self.nodes[outermost], outermost, root_id);
+        let mut placed = Vec::with_capacity(chain.len());
+        for &id in chain.iter().rev() {
+            let node = &self.nodes[id];
+            let overflow = node.layout_style().overflow();
+            let layout = physical_layout(
+                *node.unrounded_layout(),
+                placer_wm,
+                placer_size,
+                overflow.x.is_scroll_container() || overflow.y.is_scroll_container(),
+            );
+            placed.push(layout);
+            placer_wm = node.layout_data().writing_mode;
+            placer_size = layout.size;
+        }
+
+        let mut layout = placed
+            .last()
+            .copied()
+            .unwrap_or(*self.nodes[node_id].unrounded_layout());
         let mut pos = Point::ZERO;
         let mut size = layout.size;
-        let mut current = Some(node_id);
-        while let Some(id) = current {
+        for (&id, placed) in chain.iter().zip(placed.iter().rev()) {
             let node = &self.nodes[id];
-            let location = self.placed_physical_layout(id).1.location;
-            pos.x += location.x - node.scroll_offset().x as f32;
-            pos.y += location.y - node.scroll_offset().y as f32;
-            current = node.containing_block();
-            let columns = current
+            pos.x += placed.location.x - node.scroll_offset().x as f32;
+            pos.y += placed.location.y - node.scroll_offset().y as f32;
+            let columns = node
+                .containing_block()
                 .map(|placer| &self.nodes[placer])
                 .filter(|placer| !placer.layout_data().writing_mode.is_vertical())
                 .and_then(|placer| placer.columns());
