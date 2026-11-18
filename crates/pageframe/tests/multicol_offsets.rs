@@ -310,10 +310,9 @@ fn spans_in_vertical_columns_land_in_their_column_like_chrome() {
         assert_eq!(rects.len(), chrome.len(), "{id}");
         for (rect, [x, y, width]) in rects.iter().zip(chrome) {
             assert_eq!(rect.y, y, "{id}");
-            assert!(
-                rect.x <= x && rect.x + rect.width >= x + width,
-                "{id} {rect:?}"
-            );
+            let centre_gap = (rect.x + rect.width / 2.0) - (x + width / 2.0);
+            assert!(centre_gap.abs() <= 1.0, "{id} {rect:?}");
+            assert!(rect.width <= 20.0, "{id} {rect:?}");
         }
     }
 }
