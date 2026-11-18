@@ -487,11 +487,18 @@ fn text_clipped_backgrounds_line_up_with_the_text_at_fractional_offsets() {
     ));
     let text = render(&mut text);
     let clipped = render(&mut clipped);
+    let inked = text
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|rgba| rgba[0] < 128)
+        .count();
+    assert!(inked > 200, "only {inked} dark pixels");
     let worst = text
         .iter()
         .zip(&clipped)
         .map(|(ours, theirs)| ours.abs_diff(*theirs))
         .max()
         .unwrap_or(0);
-    assert!(worst <= 40, "worst channel difference {worst}");
+    assert_eq!(worst, 0, "worst channel difference");
 }
