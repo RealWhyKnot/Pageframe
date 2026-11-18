@@ -869,6 +869,13 @@ impl Node {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+enum LineAxes {
+    Level,
+    Clockwise(f32),
+    CounterClockwise(f32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct FontExtent {
     pub(crate) ascent: f32,
     pub(crate) descent: f32,
@@ -1820,24 +1827,37 @@ impl Node {
         Some(offset)
     }
 
-    fn vertical_line_extent(&self) -> Option<f32> {
-        let is_vertical = self
-            .primary_styles()
-            .is_some_and(|style| style.writing_mode.is_vertical());
+    fn line_axes(&self) -> LineAxes {
+        let Some(writing_mode) = self.primary_styles().map(|style| style.writing_mode) else {
+            return LineAxes::Level;
+        };
         let unsnapped = self.layout_data().unsnapped;
-        is_vertical.then_some(
-            unsnapped.size.width
-                - unsnapped.border.left
-                - unsnapped.border.right
-                - unsnapped.padding.left
-                - unsnapped.padding.right,
-        )
+        if writing_mode.line_left_is_bottom() {
+            LineAxes::CounterClockwise(
+                unsnapped.size.height
+                    - unsnapped.border.top
+                    - unsnapped.border.bottom
+                    - unsnapped.padding.top
+                    - unsnapped.padding.bottom,
+            )
+        } else if writing_mode.is_vertical() {
+            LineAxes::Clockwise(
+                unsnapped.size.width
+                    - unsnapped.border.left
+                    - unsnapped.border.right
+                    - unsnapped.padding.left
+                    - unsnapped.padding.right,
+            )
+        } else {
+            LineAxes::Level
+        }
     }
 
     fn inline_layout_point(&self, block_offset: f32, x: f32, y: f32) -> (f32, f32) {
-        let (inline, block) = match self.vertical_line_extent() {
-            Some(extent) => (y, extent - x),
-            None => (x, y),
+        let (inline, block) = match self.line_axes() {
+            LineAxes::Clockwise(extent) => (y, extent - x),
+            LineAxes::CounterClockwise(extent) => (extent - y, x),
+            LineAxes::Level => (x, y),
         };
         (inline, block - block_offset)
     }
@@ -1845,14 +1865,20 @@ impl Node {
     fn inline_layout_rect(&self, block_offset: f32, rect: taffy::Rect<f32>) -> taffy::Rect<f32> {
         let top = rect.top + block_offset;
         let bottom = rect.bottom + block_offset;
-        match self.vertical_line_extent() {
-            Some(extent) => taffy::Rect {
+        match self.line_axes() {
+            LineAxes::Clockwise(extent) => taffy::Rect {
                 left: extent - bottom,
                 top: rect.left,
                 right: extent - top,
                 bottom: rect.right,
             },
-            None => taffy::Rect {
+            LineAxes::CounterClockwise(extent) => taffy::Rect {
+                left: top,
+                top: extent - rect.right,
+                right: bottom,
+                bottom: extent - rect.left,
+            },
+            LineAxes::Level => taffy::Rect {
                 left: rect.left,
                 top,
                 right: rect.right,
@@ -2056,10 +2082,10 @@ impl Node {
         let block_offset = inline_layout.block_offset;
 
         let edges = self.block_edges(inline_layout.percent_basis);
-        let (over, under) = if inline_root.vertical_line_extent().is_some() {
-            (edges.right, edges.left)
-        } else {
-            (edges.top, edges.bottom)
+        let (over, under) = match inline_root.line_axes() {
+            LineAxes::Clockwise(_) => (edges.right, edges.left),
+            LineAxes::CounterClockwise(_) => (edges.left, edges.right),
+            LineAxes::Level => (edges.top, edges.bottom),
         };
 
         Some(layout.lines().filter_map(move |line| {

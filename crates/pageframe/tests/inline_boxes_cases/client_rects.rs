@@ -33,6 +33,14 @@ const SIDES: &str = "<html><head><style>html,body{margin:0;background:#fff;font:
     <section style='left:4px;top:120px;width:300px;height:100px'>ab \
     <span id=hblock style='padding-top:10%'>cd</span></section></body></html>";
 
+const SIDEWAYS: &str = "<html><head><style>html,body{margin:0;background:#fff;font:14px/24px Arial}\
+    section{position:absolute;top:4px;height:100px;width:60px}span{background:#0f0}</style>\
+    </head><body><section style='left:4px;writing-mode:sideways-lr'>ab <span id=lr \
+    style='padding:2px 4px 6px 8px;border-bottom:3px solid #000'>cd</span> <i id=ib \
+    style='display:inline-block;width:10px;height:6px;margin:0 2px 0 5px'></i></section>\
+    <section style='left:100px;writing-mode:sideways-lr;direction:rtl'>ab <span id=rtl \
+    style='padding:2px 4px 6px 8px'>cd</span></section></body></html>";
+
 fn client_rects<const COUNT: usize>(
     html: &str,
     scale: f32,
@@ -149,4 +157,20 @@ fn inline_client_rects_round_the_content_area_in_device_pixels_at_2x() {
         [258.960_937_5, 15.5],
     ];
     assert_eq!(vertical_extents(2.0), chrome);
+}
+
+#[test]
+fn sideways_lr_client_rects_run_bottom_to_top_like_chrome() {
+    let rects: Vec<[f64; 4]> = client_rects(SIDEWAYS, 1.0, ["lr", "ib", "rtl"])
+        .iter()
+        .map(|rect| [rect.x, rect.y, rect.width, rect.height])
+        .collect();
+    assert_eq!(
+        rects,
+        [
+            [0.0, 58.734_375, 28.0, 25.796_875],
+            [9.0, 48.843_75, 10.0, 6.0],
+            [96.0, 4.0, 28.0, 22.796_875],
+        ]
+    );
 }

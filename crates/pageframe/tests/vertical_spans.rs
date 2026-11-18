@@ -18,6 +18,15 @@ const CLONED: &str = "<html><head><style>html,body{margin:0;background:#fff;font
     height:60px'>ab <span style='box-decoration-break:clone;padding:2px 4px 6px 8px'>\
     cd ef gh ij</span></section></body></html>";
 
+const SIDEWAYS: &str = "<html><head><style>html,body{margin:0;background:#fff;font:14px/24px Arial}\
+    div{position:absolute;top:4px;height:70px}\
+    span{padding:4px 0 6px;border-top:3px solid #f00;border-bottom:5px solid #00f;\
+    background:#0f0}</style></head><body>\
+    <div style='left:4px;writing-mode:sideways-lr'><span>ab</span></div>\
+    <div style='left:44px;writing-mode:sideways-lr;direction:rtl'><span>ab</span></div>\
+    <div style='left:84px;writing-mode:sideways-rl'><span>ab</span></div>\
+    </body></html>";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Paint {
     Red,
@@ -90,5 +99,25 @@ fn cloned_vertical_spans_repeat_the_inline_padding_like_chrome() {
         [first.first(), first.last(), second.first(), second.last()],
         [Some(&23), Some(&61), Some(&4), Some(&37)],
         "{first:?} {second:?}"
+    );
+}
+
+#[test]
+fn sideways_lr_text_runs_bottom_to_top_like_chrome() {
+    let mut harness = open(App::new((), SIDEWAYS));
+    let buffer = render(&mut harness);
+    let found = [9, 49, 89].map(|column| {
+        (
+            border_rows(&buffer, column, Paint::Red),
+            border_rows(&buffer, column, Paint::Blue),
+        )
+    });
+    assert_eq!(
+        found,
+        [
+            (vec![40, 41, 42], vec![69, 70, 71, 72, 73]),
+            (vec![4, 5, 6], vec![33, 34, 35, 36, 37]),
+            (vec![4, 5, 6], vec![33, 34, 35, 36, 37]),
+        ]
     );
 }

@@ -8,6 +8,7 @@ use style::values::{
     generics::text::GenericTextIndent,
 };
 use stylo_taffy::CopyStyleGetters;
+use stylo_taffy::WritingModeExt;
 use taffy::{
     AvailableSpace, AxisStaticPosition, BlockContainerStyle, BlockContext, BlockFormattingContext,
     BoxSizing, CollapsibleMarginSet, CompactLength, CoreStyle as _, Direction, LayoutInput,
@@ -1578,9 +1579,20 @@ impl LayoutPassState<'_> {
         inline_layout.block_offset = block_offset;
         let line_box_top = container_pb.top + block_offset;
         let content_block_size = final_size.height - content_box_inset.vertical_axis_sum();
-        let mirrors_lines = self.nodes[node_id]
+        let writing_mode = self.nodes[node_id]
             .primary_styles()
-            .is_some_and(|style| style.writing_mode.is_vertical_lr());
+            .map(|style| style.writing_mode);
+        let is_sideways_lr = writing_mode.is_some_and(WritingModeExt::line_left_is_bottom);
+        let mirrors_lines =
+            writing_mode.is_some_and(|mode| mode.is_vertical_lr() && !mode.is_sideways());
+        let inline_far_edge = final_size.width - container_pb.right;
+        let inline_position = |start: f32, length: f32| {
+            if is_sideways_lr {
+                inline_far_edge - start - length
+            } else {
+                start + container_pb.left
+            }
+        };
         if mirrors_lines {
             inline_layout
                 .layout
@@ -1686,7 +1698,7 @@ impl LayoutPassState<'_> {
                             )
                         };
                         let (inline_area, block_area) = if is_inline_level {
-                            let x = (ibox.x / scale) + container_pb.left;
+                            let x = inline_position(ibox.x / scale, 0.0);
                             (
                                 taffy::Line { start: x, end: x },
                                 taffy::Line {
@@ -1766,8 +1778,11 @@ impl LayoutPassState<'_> {
                         let layout = node.unrounded_layout_mut();
                         layout.size = size;
                         layout.scrollable_overflow_rect = output.scrollable_overflow_rect;
-                        layout.location.x =
-                            (ibox.x / scale) + margin.left + container_pb.left + inset_offset.x;
+                        layout.location.x = if is_sideways_lr {
+                            inline_position(ibox.x / scale, margin.left + size.width)
+                        } else {
+                            inline_position(ibox.x / scale, 0.0) + margin.left
+                        } + inset_offset.x;
                         // Parley positions the margin box; offset to the border box even
                         // when a negative top margin makes it extend above the margin box.
                         let margin_box_top = ibox.y / scale;

@@ -20,6 +20,7 @@ mod table_borders;
 mod text_field;
 
 use pageframe_dom::CopyStyleGetters;
+use pageframe_dom::WritingModeExt as _;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -1462,7 +1463,9 @@ impl ElementCx<'_, '_> {
         fragment: &crate::text::InlineFragment,
     ) {
         let is_vertical = self.style.writing_mode.is_vertical();
-        let axes = if is_vertical {
+        let axes = if self.style.writing_mode.line_left_is_bottom() {
+            Affine::new([0.0, -1.0, 1.0, 0.0, 0.0, 0.0])
+        } else if is_vertical {
             Affine::new([0.0, 1.0, -1.0, 0.0, 0.0, 0.0])
         } else {
             Affine::IDENTITY
@@ -1697,6 +1700,21 @@ impl ElementCx<'_, '_> {
             return Affine::IDENTITY;
         }
         let unsnapped = self.node.layout_data().unsnapped;
+        if self.style.writing_mode.line_left_is_bottom() {
+            let content_height = unsnapped.size.height
+                - unsnapped.border.top
+                - unsnapped.border.bottom
+                - unsnapped.padding.top
+                - unsnapped.padding.bottom;
+            return Affine::new([
+                0.0,
+                -1.0,
+                1.0,
+                0.0,
+                0.0,
+                f64::from(content_height) * self.scale,
+            ]);
+        }
         let content_width = unsnapped.size.width
             - unsnapped.border.left
             - unsnapped.border.right
