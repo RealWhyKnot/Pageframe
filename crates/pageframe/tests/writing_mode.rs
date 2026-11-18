@@ -502,3 +502,54 @@ fn text_clipped_backgrounds_line_up_with_the_text_at_fractional_offsets() {
         .unwrap_or(0);
     assert_eq!(worst, 0, "worst channel difference");
 }
+
+fn first_ink_row(
+    buffer: &[u8],
+    columns: std::ops::Range<usize>,
+    rows: std::ops::Range<usize>,
+) -> Option<usize> {
+    rows.into_iter().find(|&row| {
+        columns.clone().any(|column| {
+            let [red, green, blue, _] = pixel(buffer, column, row);
+            u16::from(red) + u16::from(green) + u16::from(blue) < 3 * 236
+        })
+    })
+}
+
+#[test]
+fn upright_cjk_glyphs_start_where_chrome_puts_them() {
+    let cases = [
+        ("Microsoft YaHei", "漢", "4px", 4),
+        ("Microsoft YaHei", "一", "4px", 11),
+        ("Yu Gothic", "あ", "4px", 6),
+        ("MS Gothic", "口", "4px", 7),
+        ("SimSun", "あ", "4px", 5),
+        ("Malgun Gothic", "あ", "40px", 42),
+        ("Malgun Gothic", "漢", "40.75px", 43),
+    ];
+    let boxes: String = cases
+        .iter()
+        .enumerate()
+        .map(|(index, (font, glyph, top, _))| {
+            format!(
+                "<div style=\"left:{}px;top:{top};font-family:'{font}'\">{glyph}</div>",
+                2 + 17 * index
+            )
+        })
+        .collect();
+    let html = format!(
+        "<!doctype html><meta charset=utf-8><style>html,body{{margin:0;background:#fff;\
+         font-size:16px}}div{{position:absolute;writing-mode:vertical-rl;height:30px;\
+         line-height:16px}}</style>{boxes}"
+    );
+    let mut harness = open(App::new((), &html));
+    let buffer = render(&mut harness);
+    for (index, (font, glyph, top, chrome)) in cases.into_iter().enumerate() {
+        let left = 2 + 17 * index;
+        assert_eq!(
+            first_ink_row(&buffer, left..left + 16, 0..80),
+            Some(chrome),
+            "{font} {glyph} at top {top}"
+        );
+    }
+}

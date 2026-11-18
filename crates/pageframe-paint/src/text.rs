@@ -24,6 +24,7 @@ use crate::image_cache::ImageCache;
 use crate::{FONT_EMBOLDEN_ENABLED, SELECTION_COLOR};
 
 mod ink;
+mod upright;
 
 pub(crate) struct InlineFragment {
     pub(crate) node_id: NodeId,
@@ -697,6 +698,8 @@ pub(crate) struct DrawTextContext {
     deco_boxes: Vec<LineDecoration>,
     win_ascent_ratios: WinAscentCache,
     ink: ink::InkCache,
+    upright: upright::UprightCache,
+    upright_x: Vec<f32>,
 }
 
 /// Resolve the CSS `text-decoration-thickness` to a device-pixel size.
@@ -1457,6 +1460,8 @@ pub(crate) fn stroke_text<'a>(
         deco_boxes,
         win_ascent_ratios,
         ink,
+        upright,
+        upright_x,
     } = context;
     stack.clear();
     path_scratch.clear();
@@ -1591,13 +1596,16 @@ pub(crate) fn stroke_text<'a>(
                 };
 
                 let normalized_coords: &[i16] = bytemuck::cast_slice(run.normalized_coords());
+                upright.place_run(upright_x, transform, &glyph_run);
+                let placed: &[f32] = upright_x;
                 let glyphs = || {
                     glyph_run
                         .positioned_glyphs()
-                        .filter(move |glyph| cut.is_none_or(|cut| cut.keeps(glyph)))
-                        .map(|glyph| anyrender::Glyph {
+                        .enumerate()
+                        .filter(move |(_, glyph)| cut.is_none_or(|cut| cut.keeps(glyph)))
+                        .map(|(index, glyph)| anyrender::Glyph {
                             id: glyph.id as _,
-                            x: glyph.x,
+                            x: placed.get(index).copied().unwrap_or(glyph.x),
                             y: glyph.y,
                         })
                         .chain(
