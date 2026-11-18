@@ -1306,6 +1306,7 @@ struct EffectBody<'n> {
 const DISCLOSURE_OUTSIDE_GAP: f64 = 8.0;
 const COLUMN_CLIP_REACH: f64 = 1.0e7;
 const MARKER_LINE_SEARCH_DEPTH: usize = 8;
+const SIDEWAYS_LR_SYMBOL_SHIFT: f64 = 2.0;
 
 /// A context of loaded and hot data to draw the element from
 struct ElementCx<'dom, 'a> {
@@ -1908,9 +1909,16 @@ impl ElementCx<'_, '_> {
                 transform: snap_vertical_baseline(transform, self.transform),
                 ..*self
             };
-            let origin = Point {
-                x: f64::from(subpixel_offset.y),
-                y: -f64::from(subpixel_offset.x),
+            let origin = if self.style.writing_mode.line_left_is_bottom() {
+                Point {
+                    x: -f64::from(subpixel_offset.y),
+                    y: f64::from(subpixel_offset.x),
+                }
+            } else {
+                Point {
+                    x: f64::from(subpixel_offset.y),
+                    y: -f64::from(subpixel_offset.x),
+                }
             };
             logical.draw_list_marker(scene, list_item, origin, origin);
             return;
@@ -1950,7 +1958,12 @@ impl ElementCx<'_, '_> {
 
     fn border_box_inline_edges(&self, pos: Point) -> (f64, f64) {
         let item_layout = self.node.final_layout();
-        let (start, size) = if self.style.writing_mode.is_vertical() {
+        let (start, size) = if self.style.writing_mode.line_left_is_bottom() {
+            (
+                item_layout.padding.bottom + item_layout.border.bottom,
+                item_layout.size.height,
+            )
+        } else if self.style.writing_mode.is_vertical() {
             (
                 item_layout.padding.top + item_layout.border.top,
                 item_layout.size.height,
@@ -1967,8 +1980,11 @@ impl ElementCx<'_, '_> {
 
     fn first_line_baseline(&self) -> Option<f64> {
         let is_vertical = self.style.writing_mode.is_vertical();
+        let is_counter_clockwise = self.style.writing_mode.line_left_is_bottom();
         let block_start = |layout: &taffy::Layout| {
-            if is_vertical {
+            if is_counter_clockwise {
+                layout.border.left + layout.padding.left
+            } else if is_vertical {
                 layout.border.right + layout.padding.right
             } else {
                 layout.border.top + layout.padding.top
@@ -1988,7 +2004,9 @@ impl ElementCx<'_, '_> {
             let first_child = *node.layout_children.borrow().as_ref()?.first()?;
             node = &self.context.dom.as_ref().tree()[first_child];
             let child = node.final_layout();
-            top += f64::from(if is_vertical {
+            top += f64::from(if is_counter_clockwise {
+                child.location.x
+            } else if is_vertical {
                 layout.size.width - child.location.x - child.size.width
             } else {
                 child.location.y
@@ -2076,6 +2094,11 @@ impl ElementCx<'_, '_> {
 
     fn draw_symbol(&self, scene: &mut impl PaintScene, symbol: &MarkerSymbol, x: f64, y: f64) {
         let size = f64::from(symbol.size());
+        let x = if self.style.writing_mode.line_left_is_bottom() {
+            x + SIDEWAYS_LR_SYMBOL_SHIFT
+        } else {
+            x
+        };
         let rect = Rect::new(x.round(), y.round(), x.round() + size, y.round() + size);
         let color = self
             .marker_color()

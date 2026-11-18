@@ -41,6 +41,16 @@ const SIDEWAYS: &str = "<html><head><style>html,body{margin:0;background:#fff;fo
     <section style='left:100px;writing-mode:sideways-lr;direction:rtl'>ab <span id=rtl \
     style='padding:2px 4px 6px 8px'>cd</span></section></body></html>";
 
+const SIDE_MARGINS: &str = "<html><head><style>html,body{margin:0;background:#fff;\
+    font:14px/24px Arial}section{position:absolute;top:4px;height:100px;width:60px;\
+    writing-mode:sideways-lr}i{display:inline-block;width:10px;height:6px}</style></head><body>\
+    <section style='left:4px'>ab<i id=bottom style='margin:0 0 10px 0'></i>cd</section>\
+    <section style='left:70px'>ab<i id=top style='margin:10px 0 0 0'></i>cd</section>\
+    <section style='left:140px;padding:5px 3px 9px 7px;border-bottom:4px solid #000'>ab\
+    <i id=padded></i>cd</section>\
+    <section style='left:240px;direction:rtl'>ab<i id=rtl style='margin:0 0 10px 0'></i>cd\
+    </section></body></html>";
+
 const TRAILING: &str = "<html><head><style>html,body{margin:0;background:#fff;\
     font:14px/24px Arial}div{width:90px;margin-bottom:6px}span{background:#0f0}</style></head>\
     <body><div><span id=wrap>quick brown fox jumps over</span></div>\
@@ -181,6 +191,23 @@ fn sideways_lr_client_rects_run_bottom_to_top_like_chrome() {
             [0.0, 58.734_375, 28.0, 25.796_875],
             [9.0, 48.843_75, 10.0, 6.0],
             [96.0, 4.0, 28.0, 22.796_875],
+        ]
+    );
+}
+
+#[test]
+fn sideways_lr_inline_blocks_take_the_bottom_margin_first_like_chrome() {
+    let rects: Vec<[f64; 2]> = client_rects(SIDE_MARGINS, 1.0, ["bottom", "top", "padded", "rtl"])
+        .iter()
+        .map(|rect| [rect.x, rect.y])
+        .collect();
+    assert_eq!(
+        rects,
+        [
+            [11.0, 72.421_875],
+            [77.0, 82.421_875],
+            [154.0, 87.421_875],
+            [247.0, 18.796_875],
         ]
     );
 }

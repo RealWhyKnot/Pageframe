@@ -365,3 +365,17 @@ fn vertical_discs_follow_chrome_inside_empty_and_off_the_pixel_grid() {
         }
     }
 }
+
+#[test]
+fn sideways_lr_discs_sit_where_chrome_puts_them() {
+    let html = "<html><head><style>html,body{margin:0;background:#fff;font:14px/24px Arial;\
+        color:#fff}ul{position:absolute;top:4px;height:40px;margin:0;padding:0 0 0 4px;\
+        writing-mode:sideways-lr}li{padding:3px 9px 12px 2px;border-bottom:2px solid #00f}\
+        li::marker{color:rgb(255,0,0)}p{margin:0 0 0 6px;padding-left:5px}</style></head>\
+        <body><ul style='left:4px'><li>Lq</li></ul><ul style='left:60px'><li><p>Lq</p></li>\
+        </ul></body></html>";
+    let mut harness = open(App::new((), html));
+    let buffer = frame(&mut harness);
+    assert_eq!(marker_box(&buffer, 10), Some([21, 53, 25, 57]));
+    assert_eq!(marker_box(&buffer, 80), Some([88, 53, 92, 57]));
+}

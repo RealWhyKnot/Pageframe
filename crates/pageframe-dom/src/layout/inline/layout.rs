@@ -1779,7 +1779,7 @@ impl LayoutPassState<'_> {
                         layout.size = size;
                         layout.scrollable_overflow_rect = output.scrollable_overflow_rect;
                         layout.location.x = if is_sideways_lr {
-                            inline_position(ibox.x / scale, margin.left + size.width)
+                            inline_position(ibox.x / scale, margin.right + size.width)
                         } else {
                             inline_position(ibox.x / scale, 0.0) + margin.left
                         } + inset_offset.x;
