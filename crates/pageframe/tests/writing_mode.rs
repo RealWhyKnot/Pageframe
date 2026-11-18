@@ -379,27 +379,38 @@ fn vertical_spans_report_rotated_rects_and_hits_like_chrome() {
 
 #[test]
 fn absolute_boxes_keep_their_static_line_in_vertical_text_like_chrome() {
-    let row = |id: &str, mode: &str, tail: &str| {
-        format!("<div id=\"{id}\" style=\"writing-mode:{mode}\">aaa bbb{tail}</div>")
-    };
-    let html = format!(
-        "<html><head><style>html,body{{margin:0;font:16px/20px Arial}}\
-         div{{float:left;margin:10px;height:120px;border:2px solid #999;padding:3px 5px;\
-         position:relative}}i{{position:absolute;width:6px;height:6px}}\
-         b{{position:absolute;display:block;width:6px;height:6px}}</style></head><body>{}{}{}{}\
-         <pre></pre></body></html>",
-        row(
+    let rl = "writing-mode:vertical-rl";
+    let lr = "writing-mode:vertical-lr";
+    let rows: String = [
+        (
             "d1",
-            "vertical-rl",
-            "<i id=\"a1\"></i> ccc ddd eee fff<i id=\"a2\"></i> ggg"
+            rl,
+            "<i id=\"a1\"></i> ccc ddd eee fff<i id=\"a2\"></i> ggg",
         ),
-        row(
+        (
             "d2",
-            "vertical-lr",
-            "<i id=\"a3\"></i> ccc ddd eee fff<i id=\"a4\"></i> ggg"
+            lr,
+            "<i id=\"a3\"></i> ccc ddd eee fff<i id=\"a4\"></i> ggg",
         ),
-        row("d3", "vertical-lr", "<b id=\"a5\"></b> ccc ddd eee fff ggg"),
-        row("d4", "vertical-rl", "<b id=\"a6\"></b> ccc ddd eee fff ggg"),
+        ("d3", lr, "<b id=\"a5\"></b> ccc ddd eee fff ggg"),
+        ("d4", rl, "<b id=\"a6\"></b> ccc ddd eee fff ggg"),
+        ("d5", lr, " ccc<b id=\"a7\"></b> ddd eee"),
+        (
+            "d6",
+            "writing-mode:vertical-lr;align-content:center;width:80px",
+            "<i id=\"a8\"></i> ccc ddd eee fff<i id=\"a9\"></i> ggg",
+        ),
+        (
+            "d7",
+            "writing-mode:vertical-lr;align-content:end;width:80px",
+            " ccc ddd<b id=\"a10\"></b> eee",
+        ),
+    ]
+    .iter()
+    .map(|(id, style, tail)| format!("<div id=\"{id}\" style=\"{style}\">aaa bbb{tail}</div>"))
+    .collect();
+    let html = format!(
+        "<html><head><style>html,body{{margin:0;font:16px/20px Arial}}         div{{float:left;margin:10px;height:120px;border:2px solid #999;padding:3px 5px;         position:relative}}i{{position:absolute;width:6px;height:6px}}         b{{position:absolute;display:block;width:6px;height:6px}}</style></head><body>{rows}         <pre></pre></body></html>"
     );
     let page = App::new((), &html)
         .page(640, 400)
@@ -413,11 +424,43 @@ fn absolute_boxes_keep_their_static_line_in_vertical_text_like_chrome() {
         ("a4", [111.0, 74.906]),
         ("a5", [185.0, 31.0]),
         ("a6", [253.0, 31.0]),
+        ("a7", [333.0, 31.0]),
+        ("a8", [407.0, 88.844]),
+        ("a9", [427.0, 74.906]),
+        ("a10", [561.0, 31.0]),
     ] {
         let [left, top, ..] = rect(&harness, id);
         assert!(
             (left - chrome[0]).abs() < 0.01 && (top - chrome[1]).abs() < 0.01,
             "{id} at {left},{top}, Chrome {chrome:?}"
         );
+    }
+}
+
+#[test]
+fn text_clipped_backgrounds_follow_vertical_text_like_chrome() {
+    let html = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}\
+                div{float:left;width:46px;height:36px;margin:4px 8px 4px 4px;background:#000;\
+                background-clip:text;color:transparent}</style>\
+                <div style=\"writing-mode:vertical-rl\">HHH II</div>\
+                <div style=\"writing-mode:vertical-lr\">HHH II</div>";
+    let mut harness = open(App::new((), html));
+    let buffer = render(&mut harness);
+    let chrome = [
+        [[21, 31, 5, 10], [37, 47, 5, 33]],
+        [[65, 75, 5, 33], [81, 91, 5, 10]],
+    ];
+    for ((left, right), expected) in [(0, 58), (58, 120)].into_iter().zip(chrome) {
+        let columns = ink_columns(&buffer, left, right);
+        assert_eq!(columns.len(), 2, "{left}..{right}: {columns:?}");
+        for (column, chrome_column) in columns.iter().zip(expected) {
+            assert!(
+                column
+                    .iter()
+                    .zip(chrome_column)
+                    .all(|(ours, theirs)| ours.abs_diff(theirs) <= 1),
+                "ink {column:?}, Chrome {chrome_column:?}"
+            );
+        }
     }
 }

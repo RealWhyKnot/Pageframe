@@ -330,19 +330,28 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                 let x = (layout_box.padding.left + layout_box.border.left) as f64
                     - node.scroll_offset().x;
                 let y = (layout_box.padding.top + layout_box.border.top) as f64
-                    - node.scroll_offset().y
-                    + layout.block_offset as f64;
-                let text_transform =
-                    transform * Affine::translate((x * self.scale, y * self.scale));
-                let (visible_lines, ellipsis) =
-                    node.primary_styles().map_or((usize::MAX, None), |style| {
-                        line_ellipsis(
-                            &style,
-                            &layout.layout,
-                            (layout_box.content_box_width() as f64 * self.scale) as f32,
-                            pageframe_dom::util::inherited_clamp_line(node),
-                        )
-                    });
+                    - node.scroll_offset().y;
+                let is_vertical = styles.writing_mode.is_vertical();
+                let text_transform = transform
+                    * Affine::translate((x * self.scale, y * self.scale))
+                    * cx.inline_axes(is_vertical)
+                    * Affine::translate((0.0, f64::from(layout.block_offset) * self.scale));
+                let (text_transform, inline_extent) = if is_vertical {
+                    (
+                        snap_vertical_baseline(text_transform, transform),
+                        layout_box.content_box_height(),
+                    )
+                } else {
+                    (text_transform, layout_box.content_box_width())
+                };
+                let (visible_lines, ellipsis) = line_ellipsis(
+                    &styles,
+                    &layout.layout,
+                    (f64::from(inline_extent) * self.scale)
+                        .to_f32()
+                        .unwrap_or(0.0),
+                    pageframe_dom::util::inherited_clamp_line(node),
+                );
                 crate::text::stroke_text(
                     scene,
                     layout.layout.lines().take(visible_lines),
