@@ -306,3 +306,26 @@ fn hidden_text_gets_no_highlight() {
     assert_eq!(highlighted_rows(&frame, 22), 0, "the hidden span");
     assert_eq!(highlighted_rows(&frame, 70), 0, "the moved hidden span");
 }
+
+#[test]
+fn nested_faded_spans_multiply_their_opacity_like_chrome() {
+    let page = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}\
+div{margin:4px 0;height:20px}</style>\
+<div><span style=\"opacity:.5\"><span style=\"opacity:.5;background:#000;color:transparent\">nested</span></span></div>\
+<div><span style=\"opacity:.5;background:#00f;color:transparent\">out<span style=\"opacity:.5;background:#f00\">in</span>out</span></div>\
+<div><span style=\"opacity:.6\">a<span style=\"opacity:.6\">b<span style=\"opacity:.6;background:#000\">c</span></span></span></div>";
+    let mut harness = open(App::new((), page));
+    let frame = render(&mut harness);
+    let close = |found: [u8; 4], chrome: [u8; 3]| {
+        found
+            .iter()
+            .zip(chrome)
+            .all(|(value, expected)| value.abs_diff(expected) <= 2)
+    };
+    let quarter = pixel(&frame, 10, 6);
+    assert!(close(quarter, [191, 191, 191]), "{quarter:?}");
+    let inner = pixel(&frame, 22, 30);
+    assert!(close(inner, [191, 126, 189]), "{inner:?}");
+    let deepest = pixel(&frame, 18, 54);
+    assert!(close(deepest, [200, 200, 200]), "{deepest:?}");
+}

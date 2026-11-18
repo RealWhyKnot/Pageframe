@@ -1176,6 +1176,12 @@ struct InlinePass<'a> {
     ellipsis: Option<LineEllipsis>,
 }
 
+struct PaintGroup {
+    id: NodeId,
+    parent: Option<NodeId>,
+    bounds: Rect,
+}
+
 impl ElementCx<'_, '_> {
     pub(crate) fn is_hidden(&self) -> bool {
         self.style.get_inherited_box().visibility != StyloVisibility::Visible
@@ -1663,14 +1669,22 @@ impl ElementCx<'_, '_> {
                 &text_layout.text,
                 self.scale,
             );
-            let mut groups: Vec<(NodeId, Rect)> = Vec::new();
+            let mut groups: Vec<PaintGroup> = Vec::new();
             for fragment in &fragments {
-                let Some(group) = fragment.group else {
-                    continue;
-                };
-                match groups.iter_mut().find(|(id, _)| *id == group) {
-                    Some((_, bounds)) => *bounds = bounds.union(fragment.rect),
-                    None => groups.push((group, fragment.rect)),
+                let mut next_group = fragment.group;
+                while let Some(group) = next_group {
+                    if let Some(known) = groups.iter_mut().find(|known| known.id == group) {
+                        known.bounds = known.bounds.union(fragment.rect);
+                        next_group = known.parent;
+                        continue;
+                    }
+                    let parent = crate::text::parent_group(self.context.dom, group, self.node.id);
+                    groups.push(PaintGroup {
+                        id: group,
+                        parent,
+                        bounds: fragment.rect,
+                    });
+                    next_group = parent;
                 }
             }
             fragments
@@ -1692,30 +1706,46 @@ impl ElementCx<'_, '_> {
                 ellipsis,
             };
             self.draw_inline_group(scene, transform, pass, None);
-            for (group, bounds) in groups {
-                let Some(opacity) = self
-                    .context
-                    .dom
-                    .get_node(group)
-                    .and_then(|node| node.primary_styles())
-                    .map(|style| style.get_effects().opacity)
-                else {
-                    continue;
-                };
-                let reach = SPAN_GROUP_REACH * self.scale;
-                self.context.layer_manager.maybe_with_layer(
-                    scene,
-                    opacity < 1.0,
-                    peniko::Mix::Normal.into(),
-                    opacity,
-                    transform,
-                    &bounds.inflate(reach, reach),
-                    None,
-                    None,
-                    |scene| self.draw_inline_group(scene, transform, pass, Some(group)),
-                );
+            for group in groups.iter().filter(|group| group.parent.is_none()) {
+                self.draw_paint_group(scene, transform, pass, &groups, group);
             }
         }
+    }
+
+    fn draw_paint_group(
+        &self,
+        scene: &mut impl PaintScene,
+        transform: Affine,
+        pass: InlinePass<'_>,
+        groups: &[PaintGroup],
+        group: &PaintGroup,
+    ) {
+        let Some(opacity) = self
+            .context
+            .dom
+            .get_node(group.id)
+            .and_then(|node| node.primary_styles())
+            .map(|style| style.get_effects().opacity)
+        else {
+            return;
+        };
+        let reach = SPAN_GROUP_REACH * self.scale;
+        self.context.layer_manager.maybe_with_layer(
+            scene,
+            opacity < 1.0,
+            peniko::Mix::Normal.into(),
+            opacity,
+            transform,
+            &group.bounds.inflate(reach, reach),
+            None,
+            None,
+            |scene| {
+                self.draw_inline_group(scene, transform, pass, Some(group.id));
+                for child in groups.iter().filter(|child| child.parent == Some(group.id)) {
+                    self.draw_paint_group(scene, transform, pass, groups, child);
+                }
+            },
+        );
     }
 
     fn inline_axes(&self, is_vertical: bool) -> Affine {
