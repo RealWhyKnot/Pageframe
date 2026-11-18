@@ -158,6 +158,10 @@ impl<'a, B: Brush> Run<'a, B> {
         self.shaped.bidi_level.is_rtl()
     }
 
+    pub fn is_upright(&self) -> bool {
+        self.shaped.upright
+    }
+
     /// Returns the cluster range for the run.
     ///
     /// The indices are grapheme cluster indices, relative to the shaped run this [`Run`] belongs

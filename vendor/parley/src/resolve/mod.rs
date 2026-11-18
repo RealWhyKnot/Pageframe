@@ -170,6 +170,7 @@ impl ResolveContext {
             StyleProperty::TextWrapMode(value) => TextWrapMode(*value),
             StyleProperty::WhiteSpaceCollapse(value) => WhiteSpaceCollapse(*value),
             StyleProperty::TabSize(value) => TabSize(value.scale(scale)),
+            StyleProperty::UprightGlyphs(value) => UprightGlyphs(*value),
         }
     }
 
@@ -212,6 +213,7 @@ impl ResolveContext {
             text_wrap_mode: raw_style.text_wrap_mode,
             white_space_collapse: raw_style.white_space_collapse,
             tab_size: raw_style.tab_size.scale(scale),
+            upright_glyphs: raw_style.upright_glyphs,
         }
     }
 
@@ -403,6 +405,7 @@ pub(crate) enum ResolvedProperty<B: Brush> {
     /// Whitespace collapsing and hanging behavior.
     WhiteSpaceCollapse(WhiteSpaceCollapse),
     TabSize(crate::TabSize),
+    UprightGlyphs(crate::UprightGlyphs),
 }
 
 /// Flattened group of style properties.
@@ -452,6 +455,7 @@ pub(crate) struct ResolvedStyle<B: Brush> {
     /// Whitespace collapsing and hanging behavior.
     pub(crate) white_space_collapse: WhiteSpaceCollapse,
     pub(crate) tab_size: crate::TabSize,
+    pub(crate) upright_glyphs: crate::UprightGlyphs,
 }
 
 impl<B: Brush> ResolvedStyle<B> {
@@ -486,6 +490,7 @@ impl<B: Brush> ResolvedStyle<B> {
             TextWrapMode(value) => self.text_wrap_mode = value,
             WhiteSpaceCollapse(value) => self.white_space_collapse = value,
             TabSize(value) => self.tab_size = value,
+            UprightGlyphs(value) => self.upright_glyphs = value,
         }
     }
 
@@ -519,6 +524,7 @@ impl<B: Brush> ResolvedStyle<B> {
             TextWrapMode(value) => self.text_wrap_mode == *value,
             WhiteSpaceCollapse(value) => self.white_space_collapse == *value,
             TabSize(value) => self.tab_size == *value,
+            UprightGlyphs(value) => self.upright_glyphs == *value,
         }
     }
 

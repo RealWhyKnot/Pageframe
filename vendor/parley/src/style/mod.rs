@@ -21,6 +21,7 @@ pub use font::{
 };
 pub use fontique::Language;
 pub use parlance::{LineBreak, OverflowWrap, TextWrapMode, WordBreak};
+pub use parley_engine::UprightGlyphs;
 pub use styleset::StyleSet;
 
 use crate::util::nearly_eq;
@@ -306,6 +307,7 @@ pub enum StyleProperty<'a, B: Brush> {
     /// Whitespace collapsing and hanging behavior.
     WhiteSpaceCollapse(WhiteSpaceCollapse),
     TabSize(TabSize),
+    UprightGlyphs(UprightGlyphs),
 }
 
 /// Unresolved styles.
@@ -364,6 +366,7 @@ pub struct TextStyle<'family, 'settings, B: Brush> {
     /// Whitespace collapsing and hanging behavior.
     pub white_space_collapse: WhiteSpaceCollapse,
     pub tab_size: TabSize,
+    pub upright_glyphs: UprightGlyphs,
 }
 
 impl<B: Brush> Default for TextStyle<'static, 'static, B> {
@@ -396,6 +399,7 @@ impl<B: Brush> Default for TextStyle<'static, 'static, B> {
             text_wrap_mode: TextWrapMode::default(),
             white_space_collapse: WhiteSpaceCollapse::default(),
             tab_size: TabSize::default(),
+            upright_glyphs: UprightGlyphs::None,
         }
     }
 }

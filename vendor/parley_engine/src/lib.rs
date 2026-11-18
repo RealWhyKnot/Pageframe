@@ -17,7 +17,7 @@
 //!
 //! ```rust,no_run
 //! # // We only compile this doctest because we don't have a font available.
-//! # use parley_engine::{Analysis, AnalysisOptions, Analyzer, FontInstanceRef, FontSelector, ShapedText, ShapeOptions, Shaper};
+//! # use parley_engine::{Analysis, AnalysisOptions, Analyzer, FontInstanceRef, FontSelector, ShapedText, ShapeOptions, Shaper, UprightGlyphs};
 //! # use parley_engine::shape::CharCluster;
 //! # use parley_engine::itemize::{Item, Segment};
 //! #
@@ -55,6 +55,7 @@
 //!             language: None,
 //!             features: &[],
 //!             variations: &[],
+//!             upright: UprightGlyphs::None,
 //!         },
 //!      }],
 //!      select_font, // Selects fonts covering each cluster.
@@ -123,4 +124,6 @@ pub use analyzer::{AnalysisOptions, Analyzer, LineBreakConfig};
 pub use glyph::Glyph;
 pub use shape::atom::{Atom, Atoms, Grapheme, Graphemes, ShapedClusterGlyphs, ShapedSlice};
 pub use shape::shaped_text::{ClusterGrowth, FontMetrics, ShapedRun, ShapedText};
-pub use shape::shaper::{FontInstance, FontInstanceRef, FontSelector, ShapeOptions, Shaper};
+pub use shape::shaper::{
+    FontInstance, FontInstanceRef, FontSelector, ShapeOptions, Shaper, UprightGlyphs,
+};

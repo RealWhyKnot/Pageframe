@@ -148,3 +148,30 @@ fn a_vertical_root_reports_physical_computed_sizes() {
     assert_eq!(doc.resolved_style_value(root, "width"), "30px");
     assert_eq!(doc.resolved_style_value(root, "height"), "400px");
 }
+
+fn ink_rows(buffer: &[u8], left: usize, right: usize, height: usize) -> Vec<[usize; 2]> {
+    let mut rows: Vec<[usize; 2]> = Vec::new();
+    for down in (0..height).filter(|&down| {
+        (left..right).any(|across| {
+            let [red, green, blue, _] = pixel(buffer, across, down);
+            red.max(green).max(blue) < 128
+        })
+    }) {
+        match rows.last_mut() {
+            Some(row) if row[1] == down => row[1] = down + 1,
+            _ => rows.push([down, down + 1]),
+        }
+    }
+    rows
+}
+
+#[test]
+fn upright_letters_stand_in_their_own_cells_like_chrome() {
+    let html = "<!doctype html><style>html,body{margin:0;background:#fff;font:16px Arial}\
+                div{float:left;width:30px;height:70px;margin:4px 8px 4px 4px;\
+                writing-mode:vertical-rl;text-orientation:upright}</style><div>HHH</div>";
+    let mut harness = open(App::new((), html));
+    let buffer = render(&mut harness);
+    assert_eq!(ink_columns(&buffer, 0, 42), [[21, 30, 6, 52]]);
+    assert_eq!(ink_rows(&buffer, 0, 42, 78), [[6, 18], [23, 35], [40, 52]]);
+}

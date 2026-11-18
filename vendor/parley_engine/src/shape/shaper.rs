@@ -6,6 +6,8 @@
 use alloc::vec::Vec;
 use core::mem;
 use harfrust::ShapeOptions as HarfShapeOptions;
+use icu_properties::CodePointMapData;
+use icu_properties::props::VerticalOrientation;
 use linebender_resource_handle::{Blob, FontData};
 use parlance::{FontFeature, FontVariation, Language};
 
@@ -34,6 +36,28 @@ pub struct ShapeOptions<'a> {
     pub features: &'a [FontFeature],
     /// The font variations that are constant over an item.
     pub variations: &'a [FontVariation],
+    pub upright: UprightGlyphs,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum UprightGlyphs {
+    #[default]
+    None,
+    Mixed,
+    All,
+}
+
+impl UprightGlyphs {
+    fn stands_upright(self, ch: char) -> bool {
+        match self {
+            Self::None => false,
+            Self::All => true,
+            Self::Mixed => matches!(
+                const { CodePointMapData::<VerticalOrientation>::new() }.get(ch),
+                VerticalOrientation::Upright | VerticalOrientation::TransformedUpright
+            ),
+        }
+    }
 }
 
 /// The font instance to shape an item with.
@@ -272,7 +296,12 @@ fn shape_segment(
     }));
 
     // Shape a run of the segment with a single font, appending it to `shaped_text`.
-    let mut shape_run = |font: &FontInstance, range: TextRange| {
+    let mut shape_run = |font: &FontInstance, range: TextRange, upright: bool| {
+        let direction = if upright {
+            harfrust::Direction::TopToBottom
+        } else {
+            direction
+        };
         // TODO: How do we want to handle errors like this?
         let font_ref =
             harfrust::FontRef::from_index(font.font.data.as_ref(), font.font.index).unwrap();
@@ -370,6 +399,7 @@ fn shape_segment(
             font,
             &glyph_buffer,
             harf_shaper.coords(),
+            upright,
         );
 
         // Replace buffer to reuse allocation in the next run.
@@ -378,7 +408,7 @@ fn shape_segment(
 
     // This is the run being accumulated, i.e., consecutive graphemes for which `select_font`
     // returns the same font.
-    let mut run: Option<(FontInstance, TextRange)> = None;
+    let mut run: Option<(FontInstance, TextRange, bool)> = None;
 
     // The segment's characters with their analysis data and style indices.
     let mut chars = segment_text
@@ -409,21 +439,27 @@ fn shape_segment(
             .select_font(segment, options, char_cluster)
             .ok_or(())?;
 
-        if let Some((run_font, run_range)) = &mut run
+        let upright = text[byte_start..byte_end]
+            .chars()
+            .next()
+            .is_some_and(|ch| options.upright.stands_upright(ch));
+
+        if let Some((run_font, run_range, run_upright)) = &mut run
             && run_font.as_ref() == font
+            && *run_upright == upright
         {
             run_range.byte_range.end = byte_end;
             run_range.char_range.end = char_end;
         } else {
-            if let Some((run_font, run_range)) = run.take() {
+            if let Some((run_font, run_range, run_upright)) = run.take() {
                 // The font changed: shape the previous run.
-                shape_run(&run_font, run_range);
+                shape_run(&run_font, run_range, run_upright);
             }
-            run = Some((font.into(), grapheme));
+            run = Some((font.into(), grapheme, upright));
         }
     }
-    if let Some((run_font, run_range)) = run {
-        shape_run(&run_font, run_range);
+    if let Some((run_font, run_range, run_upright)) = run {
+        shape_run(&run_font, run_range, run_upright);
     }
 
     Ok(())

@@ -863,7 +863,7 @@ mod tests {
 
     use crate::{
         Analysis, AnalysisOptions, Analyzer, FontInstance, FontInstanceRef, FontSelector,
-        ShapeOptions, ShapedText, Shaper,
+        ShapeOptions, ShapedText, Shaper, UprightGlyphs,
         itemize::{Item, Segment},
         shape::CharCluster,
     };
@@ -920,6 +920,7 @@ mod tests {
                 language: None,
                 features: &[],
                 variations: &[],
+                upright: UprightGlyphs::None,
             },
         }];
         shaper.shape_text(

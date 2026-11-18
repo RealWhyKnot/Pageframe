@@ -156,7 +156,8 @@ pub(crate) fn shape_text<'a, B: Brush>(
                         || style.font_variations != item_style.font_variations
                         || style.font_features != item_style.font_features
                         || !nearly_eq(style.letter_spacing, item_style.letter_spacing)
-                        || !nearly_eq(style.word_spacing, item_style.word_spacing);
+                        || !nearly_eq(style.word_spacing, item_style.word_spacing)
+                        || style.upright_glyphs != item_style.upright_glyphs;
                 }
 
                 if split {
@@ -174,6 +175,7 @@ pub(crate) fn shape_text<'a, B: Brush>(
                     font_size: item_style.font_size,
                     features: &style_features[item_style_index as usize],
                     variations: rcx.variations(item_style.font_variations).unwrap_or(&[]),
+                    upright: item_style.upright_glyphs,
                 },
             })
         })

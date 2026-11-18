@@ -507,6 +507,7 @@ impl ShapedText {
         font: &FontInstance,
         glyph_buffer: &harfrust::GlyphBuffer,
         normalized_coords: &[harfrust::NormalizedCoord],
+        upright: bool,
     ) {
         debug_assert_eq!(
             range.char_range.len(),
@@ -536,11 +537,12 @@ impl ShapedText {
                 index
             });
 
-        let metrics = {
+        let (metrics, has_vertical_metrics) = {
             let font = &self.fonts[font_index];
             let font_ref =
                 skrifa::FontRef::from_index(font.font.data.as_ref(), font.font.index).unwrap();
-            platform_metrics(
+            let has_vertical_metrics = font_ref.table_data(skrifa::Tag::new(b"vmtx")).is_some();
+            let metrics = platform_metrics(
                 &font_ref,
                 skrifa::metrics::Metrics::new(
                     &font_ref,
@@ -548,7 +550,8 @@ impl ShapedText {
                     normalized_coords,
                 ),
                 options.font_size,
-            )
+            );
+            (metrics, has_vertical_metrics)
         };
         let units_per_em = metrics.units_per_em as f32;
         let font_metrics = FontMetrics::from_skrifa_metrics(&metrics, options.font_size);
@@ -585,13 +588,39 @@ impl ShapedText {
         self.characters[characters_start].grapheme_start = true;
 
         let glyphs_start = self.glyphs.len();
+        let orient: fn(harfrust::GlyphPosition) -> harfrust::GlyphPosition = if upright {
+            upright_position
+        } else {
+            core::convert::identity
+        };
+        let central_shift = (font_metrics.descent - font_metrics.ascent) / 2.;
+        let cell_ascent = font_metrics.ascent.round();
+        let cell_advance = cell_ascent + font_metrics.descent.round();
+        let place = |glyph: Glyph| {
+            if !upright {
+                glyph
+            } else if has_vertical_metrics {
+                Glyph {
+                    y: glyph.y + central_shift,
+                    ..glyph
+                }
+            } else {
+                Glyph {
+                    x: cell_ascent,
+                    y: glyph.y + central_shift,
+                    advance: cell_advance,
+                    ..glyph
+                }
+            }
+        };
         if segment.bidi_level.is_ltr() {
             process_shaped_clusters(
                 &mut self.shaped_clusters,
                 &mut self.glyphs,
                 scale_factor,
+                place,
                 glyph_infos.iter(),
-                glyph_positions.iter(),
+                glyph_positions.iter().copied().map(orient),
                 &self.characters,
                 characters_start,
             );
@@ -600,8 +629,9 @@ impl ShapedText {
                 &mut self.shaped_clusters,
                 &mut self.glyphs,
                 scale_factor,
+                place,
                 glyph_infos.iter().rev(),
-                glyph_positions.iter().rev(),
+                glyph_positions.iter().rev().copied().map(orient),
                 &self.characters,
                 characters_start,
             );
@@ -633,8 +663,18 @@ impl ShapedText {
             bidi_level: segment.bidi_level,
             advance: run_advance,
             font_metrics,
+            upright,
         });
     }
+}
+
+fn upright_position(position: harfrust::GlyphPosition) -> harfrust::GlyphPosition {
+    let mut rotated = position;
+    rotated.x_advance = -position.y_advance;
+    rotated.y_advance = 0;
+    rotated.x_offset = -position.y_offset;
+    rotated.y_offset = position.x_offset;
+    rotated
 }
 
 /// One shaped run, belonging to a [`ShapedText`].
@@ -663,6 +703,7 @@ pub struct ShapedRun {
     pub advance: f32,
     /// The font metrics of this run.
     pub font_metrics: FontMetrics,
+    pub upright: bool,
 }
 
 /// Processes shaped glyphs from `HarfRust` and converts them into `ShapedCluster` and `Glyph`.
@@ -686,8 +727,9 @@ fn process_shaped_clusters<'a>(
     shaped_clusters: &mut Vec<ShapedCluster>,
     glyphs: &mut Vec<Glyph>,
     scale_factor: f32,
+    place: impl Fn(Glyph) -> Glyph,
     glyph_infos: impl Iterator<Item = &'a harfrust::GlyphInfo>,
-    glyph_positions: impl Iterator<Item = &'a harfrust::GlyphPosition>,
+    glyph_positions: impl Iterator<Item = harfrust::GlyphPosition>,
     characters: &[Character],
     characters_start: usize,
 ) {
@@ -765,13 +807,13 @@ fn process_shaped_clusters<'a>(
             };
         }
 
-        let glyph = Glyph {
+        let glyph = place(Glyph {
             id: glyph_info.glyph_id,
             x: (glyph_pos.x_offset as f32) * scale_factor,
             // Convert from font space (Y-up) to layout space (Y-down)
             y: -(glyph_pos.y_offset as f32) * scale_factor,
             advance: (glyph_pos.x_advance as f32) * scale_factor,
-        };
+        });
         if cluster.glyphs == 0 && glyph.x == 0. && glyph.y == 0. {
             // Defer this potential zero-offset, single glyph cluster
             cluster.inline_glyph = Some(glyph);
@@ -798,7 +840,7 @@ mod tests {
 
     use crate::{
         Analysis, AnalysisOptions, Analyzer, FontInstance, FontInstanceRef, FontSelector,
-        ShapeOptions, Shaper,
+        ShapeOptions, Shaper, UprightGlyphs,
         itemize::{Item, Segment},
         shape::CharCluster,
     };
@@ -888,6 +930,7 @@ mod tests {
                 language: None,
                 features: &[],
                 variations: &[],
+                upright: UprightGlyphs::None,
             },
         }];
         shaper.shape_text(
@@ -1046,6 +1089,7 @@ mod tests {
                     language: None,
                     features: &[],
                     variations: &[],
+                    upright: UprightGlyphs::None,
                 },
             },
             Item {
@@ -1055,6 +1099,7 @@ mod tests {
                     language: None,
                     features: &[],
                     variations: &[],
+                    upright: UprightGlyphs::None,
                 },
             },
         ];

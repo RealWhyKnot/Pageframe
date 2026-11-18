@@ -1151,6 +1151,8 @@ fn ellipsis_glyph(run: &parley::Run<'_, TextBrush>) -> Option<(u32, f32, usize)>
 
 const MAX_INK_OUTSET: f64 = 13.0;
 
+const UPRIGHT_GLYPH: Affine = Affine::new([0.0, 1.0, -1.0, 0.0, 0.0, 0.0]);
+
 struct LineInk<'a, 'l> {
     line: &'a Line<'l, TextBrush>,
     cut: Option<LineCut>,
@@ -1527,9 +1529,14 @@ pub(crate) fn stroke_text<'a>(
                 let metrics = run.font_metrics();
                 let style = glyph_run.style();
                 let synthesis = run.synthesis();
-                let glyph_xform = synthesis
+                let skew = synthesis
                     .skew()
                     .map(|angle| Affine::skew(angle.to_radians().tan() as f64, 0.0));
+                let glyph_xform = if run.is_upright() {
+                    Some(UPRIGHT_GLYPH * skew.unwrap_or(Affine::IDENTITY))
+                } else {
+                    skew
+                };
 
                 let css_font_size = font_size as f64 / scale;
 

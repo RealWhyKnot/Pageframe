@@ -371,6 +371,16 @@ pub(crate) fn white_space_collapse(input: stylo::WhiteSpaceCollapse) -> parley::
     }
 }
 
+fn upright_glyphs(writing_mode: style::logical_geometry::WritingMode) -> parley::UprightGlyphs {
+    if !writing_mode.is_vertical() || writing_mode.is_sideways() {
+        parley::UprightGlyphs::None
+    } else if writing_mode.is_upright() {
+        parley::UprightGlyphs::All
+    } else {
+        parley::UprightGlyphs::Mixed
+    }
+}
+
 pub(crate) fn tab_size(
     input: &style::values::computed::NonNegativeLengthOrNumber,
 ) -> parley::TabSize {
@@ -544,6 +554,7 @@ pub(crate) fn style(
         text_wrap_mode,
         white_space_collapse: white_space_collapse(itext_styles.white_space_collapse),
         tab_size: tab_size(&itext_styles.tab_size),
+        upright_glyphs: upright_glyphs(style.writing_mode),
         overflow_wrap,
         word_break,
         line_break,
