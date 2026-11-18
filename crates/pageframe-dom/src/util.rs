@@ -510,14 +510,15 @@ pub(crate) fn inline_side(
         stylo_taffy::device_border_px(width.0.to_f32_px(), scale)
     };
     let (margin, has_percent_margin) = match margin {
-        GenericMargin::LengthPercentage(value) => {
-            (value.resolve(basis).px(), value.has_percentage())
-        }
+        GenericMargin::LengthPercentage(value) => (
+            stylo_taffy::layout_unit_px(value.resolve(basis).px(), scale),
+            value.has_percentage(),
+        ),
         _ => (0.0, false),
     };
     InlineSide {
         margin,
-        inset: border_px + padding.0.resolve(basis).px(),
+        inset: border_px + stylo_taffy::layout_unit_px(padding.0.resolve(basis).px(), scale),
         has_percent_margin,
     }
 }

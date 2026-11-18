@@ -185,6 +185,9 @@ pub fn layout_unit_px(px: f32, scale: f32) -> f32 {
     }
     let steps = scale * 64.0;
     let units = px * steps;
+    if !units.is_finite() {
+        return px;
+    }
     let slack = units.abs() * 4.0 * f32::EPSILON;
     (units.abs() + slack).floor().copysign(units) / steps
 }
@@ -844,6 +847,7 @@ pub fn grid_line(input: &stylo::GridLine) -> taffy::GridPlacement<Atom> {
 #[cfg(feature = "grid")]
 pub fn grid_template_tracks(
     input: &stylo::GridTemplateComponent,
+    scale: f32,
 ) -> Vec<taffy::GridTemplateComponent<Atom>> {
     match input {
         stylo::GenericGridTemplateComponent::None => Vec::new(),
@@ -852,12 +856,16 @@ pub fn grid_template_tracks(
             .iter()
             .map(|track| match track {
                 stylo::TrackListValue::TrackSize(size) => {
-                    taffy::GridTemplateComponent::Single(track_size(size))
+                    taffy::GridTemplateComponent::Single(track_size(size, scale))
                 }
                 stylo::TrackListValue::TrackRepeat(repeat) => {
                     taffy::GridTemplateComponent::Repeat(taffy::GridTemplateRepetition {
                         count: track_repeat(repeat.count),
-                        tracks: repeat.track_sizes.iter().map(track_size).collect(),
+                        tracks: repeat
+                            .track_sizes
+                            .iter()
+                            .map(|size| track_size(size, scale))
+                            .collect(),
                         line_names: repeat
                             .line_names
                             .iter()
@@ -926,8 +934,11 @@ fn grid_template_areas(input: &stylo::GridTemplateAreas) -> Option<taffy::GridTe
 
 #[inline]
 #[cfg(feature = "grid")]
-pub fn grid_auto_tracks(input: &stylo::ImplicitGridTracks) -> Vec<taffy::TrackSizingFunction> {
-    input.0.iter().map(track_size).collect()
+pub fn grid_auto_tracks(
+    input: &stylo::ImplicitGridTracks,
+    scale: f32,
+) -> Vec<taffy::TrackSizingFunction> {
+    input.0.iter().map(|size| track_size(size, scale)).collect()
 }
 
 #[inline]
@@ -942,24 +953,27 @@ pub fn track_repeat(input: stylo::RepeatCount<i32>) -> taffy::RepetitionCount {
 
 #[inline]
 #[cfg(feature = "grid")]
-pub fn track_size(input: &stylo::TrackSize<stylo::LengthPercentage>) -> taffy::TrackSizingFunction {
+pub fn track_size(
+    input: &stylo::TrackSize<stylo::LengthPercentage>,
+    scale: f32,
+) -> taffy::TrackSizingFunction {
     use taffy::MaxTrackSizingFunction;
 
     match input {
         stylo::TrackSize::Breadth(breadth) => taffy::MinMax {
-            min: min_track(breadth),
-            max: max_track(breadth),
+            min: min_track(breadth, scale),
+            max: max_track(breadth, scale),
         },
         stylo::TrackSize::Minmax(min, max) => taffy::MinMax {
-            min: min_track(min),
-            max: max_track(max),
+            min: min_track(min, scale),
+            max: max_track(max, scale),
         },
         stylo::TrackSize::FitContent(limit) => taffy::MinMax {
             min: taffy::MinTrackSizingFunction::AUTO,
             max: match limit {
-                stylo::TrackBreadth::Breadth(lp) => {
-                    MaxTrackSizingFunction::fit_content(length_percentage(lp))
-                }
+                stylo::TrackBreadth::Breadth(lp) => MaxTrackSizingFunction::fit_content(
+                    length_percentage(lp).in_layout_units(scale),
+                ),
 
                 // Are these valid? Taffy doesn't support this in any case
                 stylo::TrackBreadth::Flex(_) => unreachable!(),
@@ -975,11 +989,12 @@ pub fn track_size(input: &stylo::TrackSize<stylo::LengthPercentage>) -> taffy::T
 #[cfg(feature = "grid")]
 pub fn min_track(
     input: &stylo::TrackBreadth<stylo::LengthPercentage>,
+    scale: f32,
 ) -> taffy::MinTrackSizingFunction {
     use taffy::prelude::*;
     match input {
         stylo::TrackBreadth::Breadth(lp) => {
-            taffy::MinTrackSizingFunction::from(length_percentage(lp))
+            taffy::MinTrackSizingFunction::from(length_percentage(lp).in_layout_units(scale))
         }
         stylo::TrackBreadth::Flex(_) => taffy::MinTrackSizingFunction::AUTO,
         stylo::TrackBreadth::Auto => taffy::MinTrackSizingFunction::AUTO,
@@ -992,12 +1007,13 @@ pub fn min_track(
 #[cfg(feature = "grid")]
 pub fn max_track(
     input: &stylo::TrackBreadth<stylo::LengthPercentage>,
+    scale: f32,
 ) -> taffy::MaxTrackSizingFunction {
     use taffy::prelude::*;
 
     match input {
         stylo::TrackBreadth::Breadth(lp) => {
-            taffy::MaxTrackSizingFunction::from(length_percentage(lp))
+            taffy::MaxTrackSizingFunction::from(length_percentage(lp).in_layout_units(scale))
         }
         stylo::TrackBreadth::Flex(val) => taffy::MaxTrackSizingFunction::from_fr(val.0),
         stylo::TrackBreadth::Auto => taffy::MaxTrackSizingFunction::AUTO,
@@ -1144,9 +1160,9 @@ pub fn to_taffy_style(style: &stylo::ComputedValues, scale: f32) -> taffy::Style
         #[cfg(feature = "grid")]
         grid_auto_flow: self::grid_auto_flow(pos.grid_auto_flow),
         #[cfg(feature = "grid")]
-        grid_template_rows: self::grid_template_tracks(&pos.grid_template_rows),
+        grid_template_rows: self::grid_template_tracks(&pos.grid_template_rows, scale),
         #[cfg(feature = "grid")]
-        grid_template_columns: self::grid_template_tracks(&pos.grid_template_columns),
+        grid_template_columns: self::grid_template_tracks(&pos.grid_template_columns, scale),
         #[cfg(feature = "grid")]
         grid_template_row_names: match self::grid_template_line_names(&pos.grid_template_rows) {
             Some(iter) => iter
@@ -1165,9 +1181,9 @@ pub fn to_taffy_style(style: &stylo::ComputedValues, scale: f32) -> taffy::Style
         #[cfg(feature = "grid")]
         grid_template_areas: self::grid_template_areas(&pos.grid_template_areas),
         #[cfg(feature = "grid")]
-        grid_auto_rows: self::grid_auto_tracks(&pos.grid_auto_rows),
+        grid_auto_rows: self::grid_auto_tracks(&pos.grid_auto_rows, scale),
         #[cfg(feature = "grid")]
-        grid_auto_columns: self::grid_auto_tracks(&pos.grid_auto_columns),
+        grid_auto_columns: self::grid_auto_tracks(&pos.grid_auto_columns, scale),
         #[cfg(feature = "grid")]
         grid_row: taffy::Line {
             start: self::grid_line(&pos.grid_row_start),

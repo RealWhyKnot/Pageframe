@@ -12,6 +12,7 @@ pub use wrapper::{StyleFlags, TaffyStyloStyle};
 pub mod convert;
 #[doc(inline)]
 pub use convert::device_border_px;
+pub use convert::layout_unit_px;
 pub use convert::to_taffy_style;
 #[doc(inline)]
 pub use convert::to_taffy_style_in;
