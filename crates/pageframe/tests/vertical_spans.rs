@@ -81,7 +81,7 @@ fn green_rows(buffer: &[u8], column: usize) -> Vec<u32> {
 }
 
 #[test]
-fn cloned_vertical_spans_repeat_the_block_side_padding_like_chrome() {
+fn cloned_vertical_spans_repeat_the_inline_padding_like_chrome() {
     let mut harness = open(App::new((), CLONED));
     let buffer = render(&mut harness);
     let first = green_rows(&buffer, 90);
