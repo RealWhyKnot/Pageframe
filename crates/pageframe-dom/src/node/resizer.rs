@@ -39,22 +39,23 @@ impl Node {
             return Resize::None;
         };
         let resize = style.clone_resize();
-        if resize == Resize::None {
-            return Resize::None;
+        if resize != Resize::None && self.is_scroll_container() {
+            resize
+        } else {
+            Resize::None
         }
-        let is_scroll_container = |overflow| {
+    }
+
+    pub(crate) fn is_scroll_container(&self) -> bool {
+        let scrolls = |overflow| {
             matches!(
                 overflow,
                 Overflow::Hidden | Overflow::Scroll | Overflow::Auto
             )
         };
-        if is_scroll_container(style.clone_overflow_x())
-            || is_scroll_container(style.clone_overflow_y())
-        {
-            resize
-        } else {
-            Resize::None
-        }
+        self.primary_styles().is_some_and(|style| {
+            scrolls(style.clone_overflow_x()) || scrolls(style.clone_overflow_y())
+        })
     }
 
     pub fn resizer_on_left(&self) -> bool {

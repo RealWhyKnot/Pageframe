@@ -21,7 +21,7 @@
 //! [`physicalise_and_round_layout`]: LayoutPassState::physicalise_and_round_layout
 
 use super::{BlockContext, LayoutPassState, resolve_calc_value};
-use crate::document::{BaseDocument, ScrollOffsets};
+use crate::document::{BaseDocument, ScrollOffsets, ScrollerTop};
 use crate::dom_node_id;
 use crate::node::Node;
 use stylo_taffy::WritingMode;
@@ -485,23 +485,25 @@ impl BaseDocument {
         scrolls: ScrollOffsets,
     ) -> (Point<f32>, Size<f32>) {
         let mut pos = Point::ZERO;
-        let mut shift = Point::ZERO;
+        let mut scroller = ScrollerTop::default();
         for (index, (&id, placed)) in chain.iter().zip(placed).enumerate() {
-            pos.x += placed.location.x;
-            pos.y += placed.location.y;
+            if index > 0 {
+                scroller.leave(&self.nodes[id], placed.location);
+            }
+            pos = pos + placed.location;
             let columns = self.nodes[id]
                 .containing_block()
                 .map(|placer| &self.nodes[placer])
                 .filter(|placer| !placer.layout_data().writing_mode.is_vertical())
                 .and_then(|placer| placer.columns());
             if let Some(columns) = columns {
-                (pos, size) = columns.visual_box(pos, size);
+                (pos, size) = scroller.place(columns, pos, size);
             }
             if let Some(&placer) = chain.get(index + 1) {
-                shift = shift + scrolls.shift(&self.nodes[placer]);
+                pos = scrolls.apply(pos, &self.nodes[placer]);
             }
         }
-        (ScrollOffsets::unshift(pos, shift), size)
+        (pos, size)
     }
 
     pub(crate) fn physical_unrounded_layout(&self, node_id: crate::NodeId) -> Layout {

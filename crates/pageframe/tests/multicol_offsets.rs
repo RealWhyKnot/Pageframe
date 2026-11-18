@@ -134,6 +134,39 @@ fn scrolled_content_follows_its_scroller_like_chrome() {
     assert_eq!((client_top - top).round(), -25.0);
 }
 
+#[test]
+fn scrolled_content_stays_in_its_scroller_column_like_chrome() {
+    let mut harness = page(
+        "<div class=\"c\" style=\"width:210px;column-count:2;height:60px;column-fill:auto;\
+         position:relative\"><div id=\"s1\" style=\"height:50px;overflow:auto\">\
+         <div style=\"height:70px\"></div><div id=\"k1\" style=\"height:10px\"></div>\
+         <div style=\"height:100px\"></div></div><div style=\"height:100px\"></div></div>\
+         <div class=\"c\" style=\"width:210px;column-count:2;height:60px;column-fill:auto;\
+         position:relative;margin-top:20px\"><div style=\"height:20px\"></div>\
+         <div id=\"s2\" style=\"height:30px;overflow:hidden\"><div style=\"height:50px\"></div>\
+         <div id=\"k2\" style=\"height:10px\"></div><div style=\"height:50px\"></div></div>\
+         <div style=\"height:100px\"></div></div>",
+    );
+    scroll(&mut harness, &[("s1", 30.0), ("s2", 40.0)]);
+    for (id, offsets, client) in [
+        ("k1", [0.0, 70.0, 100.0, 10.0], [0.0, 40.0, 100.0, 10.0]),
+        ("k2", [0.0, 70.0, 100.0, 10.0], [0.0, 110.0, 100.0, 10.0]),
+    ] {
+        assert_eq!(offset(&harness, id).map(f64::round), offsets, "{id}");
+        assert_eq!(client_rect(&harness, id).map(f64::round), client, "{id}");
+    }
+    let doc = harness.base();
+    let k1 = doc
+        .query_selector_all("#k1")
+        .expect("box selector is valid")[0];
+    let position = doc
+        .get_node(k1)
+        .expect("k1 exists")
+        .absolute_position(0.0, 0.0);
+    assert_eq!([position.x.round(), position.y.round()], [0.0, 40.0]);
+    assert_eq!(doc.hit(5.0, 45.0).map(|hit| hit.node_id), Some(k1));
+}
+
 fn scroll(harness: &mut Harness<Page<()>>, targets: &[(&str, f64)]) {
     {
         let mut doc = harness.base_mut();

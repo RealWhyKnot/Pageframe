@@ -2603,19 +2603,20 @@ impl BaseDocument {
         mut size: taffy::Size<f32>,
         scrolls: ScrollOffsets,
     ) -> (taffy::Point<f32>, taffy::Size<f32>) {
-        let mut shift = taffy::Point::ZERO;
+        let mut scroller = ScrollerTop::default();
         let mut current = container;
         while let Some(id) = current {
             let node = &self.nodes[id];
             if let Some(columns) = node.columns() {
-                (pos, size) = columns.visual_box(pos, size);
+                (pos, size) = scroller.place(columns, pos, size);
             }
-            shift = shift + scrolls.shift(node);
-            pos.x += node.unrounded_layout().location.x;
-            pos.y += node.unrounded_layout().location.y;
+            pos = scrolls.apply(pos, node);
+            let location = node.unrounded_layout().location;
+            scroller.leave(node, location);
+            pos = pos + location;
             current = node.containing_block();
         }
-        (ScrollOffsets::unshift(pos, shift), size)
+        (pos, size)
     }
 
     fn has_column_ancestor(&self, node_id: NodeId) -> bool {
@@ -3204,28 +3205,41 @@ pub(crate) enum ScrollOffsets {
 }
 
 impl ScrollOffsets {
-    pub(crate) fn shift(self, container: &Node) -> taffy::Point<f32> {
-        match self {
-            Self::Applied => {
-                let scroll = container.scroll_offset();
-                taffy::Point {
-                    x: scroll.x.to_f32().unwrap_or(0.0),
-                    y: scroll.y.to_f32().unwrap_or(0.0),
-                }
-            }
-            Self::Ignored => taffy::Point::ZERO,
-        }
-    }
-
     pub(crate) fn apply(self, pos: taffy::Point<f32>, container: &Node) -> taffy::Point<f32> {
-        Self::unshift(pos, self.shift(container))
+        let scroll = container.scroll_offset();
+        match self {
+            Self::Applied => taffy::Point {
+                x: pos.x - scroll.x.to_f32().unwrap_or(0.0),
+                y: pos.y - scroll.y.to_f32().unwrap_or(0.0),
+            },
+            Self::Ignored => pos,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ScrollerTop(Option<f32>);
+
+impl ScrollerTop {
+    pub(crate) fn place(
+        &mut self,
+        columns: &crate::layout::multicol::ColumnLayout,
+        pos: taffy::Point<f32>,
+        size: taffy::Size<f32>,
+    ) -> (taffy::Point<f32>, taffy::Size<f32>) {
+        let Some(top) = self.0 else {
+            return columns.visual_box(pos, size);
+        };
+        let shift = columns.offset_at(top);
+        self.0 = Some(top + shift.y);
+        (pos + shift, size)
     }
 
-    pub(crate) fn unshift(pos: taffy::Point<f32>, shift: taffy::Point<f32>) -> taffy::Point<f32> {
-        taffy::Point {
-            x: pos.x - shift.x,
-            y: pos.y - shift.y,
+    pub(crate) fn leave(&mut self, container: &Node, location: taffy::Point<f32>) {
+        if container.is_scroll_container() {
+            self.0 = Some(0.0);
         }
+        self.0 = self.0.map(|top| top + location.y);
     }
 }
 

@@ -1,4 +1,5 @@
 use crate::Document;
+use crate::document::{ScrollOffsets, ScrollerTop};
 use crate::layout::paint_tree::{HoistedPaintChild, StackingContext};
 use bitflags::bitflags;
 use euclid::{Point2D, Rect, Size2D};
@@ -1874,19 +1875,27 @@ impl Node {
 
     /// Computes the Document-relative coordinates of the `Node`
     pub fn absolute_position(&self, x: f32, y: f32) -> crate::util::Point<f32> {
-        let x = x + self.final_layout().location.x - self.scroll_offset().x as f32;
-        let y = y + self.final_layout().location.y - self.scroll_offset().y as f32;
+        self.position_in_document(taffy::Point { x, y }, ScrollerTop::default())
+    }
 
-        // Recurse up the positioning hierarchy
-        self.containing_block()
-            .map(|i| {
-                let parent = self.with(i);
-                let shift = parent
-                    .columns()
-                    .map_or(taffy::Point::ZERO, |columns| columns.offset_at(y));
-                parent.absolute_position(x + shift.x, y + shift.y)
-            })
-            .unwrap_or(crate::util::Point { x, y })
+    fn position_in_document(
+        &self,
+        point: taffy::Point<f32>,
+        mut scroller: ScrollerTop,
+    ) -> crate::util::Point<f32> {
+        let location = self.final_layout().location;
+        let point = ScrollOffsets::Applied.apply(point, self) + location;
+        scroller.leave(self, location);
+        let Some(parent) = self.containing_block().map(|id| self.with(id)) else {
+            return crate::util::Point {
+                x: point.x,
+                y: point.y,
+            };
+        };
+        let point = parent.columns().map_or(point, |columns| {
+            scroller.place(columns, point, taffy::Size::ZERO).0
+        });
+        parent.position_in_document(point, scroller)
     }
 
     /// Whether this node can act as an [`offset_parent`](Self::offset_parent): a positioned
