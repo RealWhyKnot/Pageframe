@@ -2565,6 +2565,11 @@ impl BaseDocument {
         (crate::util::Point { x: pos.x, y: pos.y }, layout)
     }
 
+    #[cfg(not(feature = "writing-mode"))]
+    pub(crate) fn physical_unrounded_layout(&self, node_id: NodeId) -> taffy::Layout {
+        *self.nodes[node_id].unrounded_layout()
+    }
+
     pub(crate) fn column_mapped_box(
         &self,
         node_id: NodeId,

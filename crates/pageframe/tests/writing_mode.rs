@@ -54,3 +54,23 @@ fn vertical_blocks_stack_along_the_block_axis_like_chrome() {
         assert_eq!(rect(&harness, id), expected, "{id}");
     }
 }
+
+#[test]
+fn computed_sizes_inside_a_vertical_box_stay_physical() {
+    let harness = page(
+        "<div class=c style=\"writing-mode:vertical-rl\">\
+         <div id=fixed style=\"width:20px;height:40px\"></div>\
+         <div id=auto style=\"width:30px;padding:1px 2px 3px 4px\"></div></div>",
+    );
+    let doc = harness.base();
+    let value = |id: &str, property: &str| {
+        let node_id = doc
+            .query_selector_all(&format!("#{id}"))
+            .expect("box selector is valid")[0];
+        doc.resolved_style_value(node_id, property)
+    };
+    assert_eq!(value("fixed", "width"), "20px");
+    assert_eq!(value("fixed", "height"), "40px");
+    assert_eq!(value("auto", "width"), "30px");
+    assert_eq!(value("auto", "height"), "88px");
+}

@@ -420,9 +420,21 @@ impl BaseDocument {
             return (crate::util::Point { x: pos.x, y: pos.y }, layout);
         }
 
+        let (mut pos, layout) = self.placed_physical_layout(node_id);
+        let node = &self.nodes[node_id];
+        pos.x += layout.location.x - node.scroll_offset().x as f32;
+        pos.y += layout.location.y - node.scroll_offset().y as f32;
+        (pos, layout)
+    }
+
+    pub(crate) fn physical_unrounded_layout(&self, node_id: crate::NodeId) -> Layout {
+        self.placed_physical_layout(node_id).1
+    }
+
+    fn placed_physical_layout(&self, node_id: crate::NodeId) -> (crate::util::Point<f32>, Layout) {
         let root_id = self.try_root_element().map(|root| root.id);
         let node = &self.nodes[node_id];
-        let (mut pos, placer_wm, placer_size) = self.placer_geometry(node, node_id, root_id);
+        let (pos, placer_wm, placer_size) = self.placer_geometry(node, node_id, root_id);
         let overflow = node.layout_style().overflow();
         let layout = physical_layout(
             *node.unrounded_layout(),
@@ -430,8 +442,6 @@ impl BaseDocument {
             placer_size,
             overflow.x.is_scroll_container() || overflow.y.is_scroll_container(),
         );
-        pos.x += layout.location.x - node.scroll_offset().x as f32;
-        pos.y += layout.location.y - node.scroll_offset().y as f32;
         (pos, layout)
     }
 
