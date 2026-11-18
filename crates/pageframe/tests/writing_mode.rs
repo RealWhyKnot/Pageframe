@@ -410,7 +410,11 @@ fn absolute_boxes_keep_their_static_line_in_vertical_text_like_chrome() {
     .map(|(id, style, tail)| format!("<div id=\"{id}\" style=\"{style}\">aaa bbb{tail}</div>"))
     .collect();
     let html = format!(
-        "<html><head><style>html,body{{margin:0;font:16px/20px Arial}}         div{{float:left;margin:10px;height:120px;border:2px solid #999;padding:3px 5px;         position:relative}}i{{position:absolute;width:6px;height:6px}}         b{{position:absolute;display:block;width:6px;height:6px}}</style></head><body>{rows}         <pre></pre></body></html>"
+        "<html><head><style>html,body{{margin:0;font:16px/20px Arial}}\
+         div{{float:left;margin:10px;height:120px;border:2px solid #999;padding:3px 5px;\
+         position:relative}}i{{position:absolute;width:6px;height:6px}}\
+         b{{position:absolute;display:block;width:6px;height:6px}}</style></head><body>{rows}\
+         <pre></pre></body></html>"
     );
     let page = App::new((), &html)
         .page(640, 400)
@@ -463,4 +467,31 @@ fn text_clipped_backgrounds_follow_vertical_text_like_chrome() {
             );
         }
     }
+}
+
+#[test]
+fn text_clipped_backgrounds_line_up_with_the_text_at_fractional_offsets() {
+    let page = |paint: &str| {
+        format!(
+            "<!doctype html><style>html,body{{margin:0;background:#fff;font:14px Arial}}\
+             div{{float:left;width:46px;height:36px;margin:4.4px 3.3px 0 0.6px;\
+             padding:0.3px 0 0 0.45px;{paint}}}</style><div>HHH II</div>\
+             <div style=\"writing-mode:vertical-rl\">HHH II</div>\
+             <div style=\"writing-mode:vertical-lr\">HHH II</div>"
+        )
+    };
+    let mut text = open(App::new((), &page("color:#000")));
+    let mut clipped = open(App::new(
+        (),
+        &page("background:#000;background-clip:text;color:transparent"),
+    ));
+    let text = render(&mut text);
+    let clipped = render(&mut clipped);
+    let worst = text
+        .iter()
+        .zip(&clipped)
+        .map(|(ours, theirs)| ours.abs_diff(*theirs))
+        .max()
+        .unwrap_or(0);
+    assert!(worst <= 40, "worst channel difference {worst}");
 }

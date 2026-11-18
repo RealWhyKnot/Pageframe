@@ -327,10 +327,13 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
         if node.flags.is_inline_root() {
             if let Some(layout) = &cx.element.inline_layout_data {
                 let layout_box = node.final_layout();
-                let x = (layout_box.padding.left + layout_box.border.left) as f64
-                    - node.scroll_offset().x;
-                let y = (layout_box.padding.top + layout_box.border.top) as f64
-                    - node.scroll_offset().y;
+                let subpixel_offset = layout.content_box_subpixel_offset;
+                let x =
+                    f64::from(layout_box.padding.left + layout_box.border.left + subpixel_offset.x)
+                        - node.scroll_offset().x;
+                let y =
+                    f64::from(layout_box.padding.top + layout_box.border.top + subpixel_offset.y)
+                        - node.scroll_offset().y;
                 let is_vertical = styles.writing_mode.is_vertical();
                 let text_transform = transform
                     * Affine::translate((x * self.scale, y * self.scale))
@@ -339,10 +342,13 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                 let (text_transform, inline_extent) = if is_vertical {
                     (
                         snap_vertical_baseline(text_transform, transform),
-                        layout_box.content_box_height(),
+                        layout_box.content_box_height() - subpixel_offset.y,
                     )
                 } else {
-                    (text_transform, layout_box.content_box_width())
+                    (
+                        text_transform,
+                        layout_box.content_box_width() - subpixel_offset.x,
+                    )
                 };
                 let (visible_lines, ellipsis) = line_ellipsis(
                     &styles,
