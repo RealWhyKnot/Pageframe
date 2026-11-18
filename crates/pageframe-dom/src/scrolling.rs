@@ -626,9 +626,13 @@ impl BaseDocument {
         let Some(node) = self.nodes.get(node_id) else {
             return;
         };
-        let target =
+        let mut target =
             node.absolute_position(node.scroll_offset().x as f32, node.scroll_offset().y as f32);
-        let target_size = node.final_layout().size;
+        let mut target_size = node.final_layout().size;
+        if let Some((top, height)) = self.inline_ruby_extent(node) {
+            target.y += top;
+            target_size.height = height;
+        }
         let Some(root_id) = self.try_root_element().map(|root| root.id) else {
             return;
         };

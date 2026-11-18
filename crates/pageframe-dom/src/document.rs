@@ -2805,7 +2805,7 @@ impl BaseDocument {
         })
     }
 
-    fn inline_ruby_extent(&self, node: &Node) -> Option<(f32, f32)> {
+    pub(crate) fn inline_ruby_extent(&self, node: &Node) -> Option<(f32, f32)> {
         let baseline = node.inline_ruby_baseline()?;
         let extent = self.primary_font_extent(node)?;
         let scale = self.viewport().scale();

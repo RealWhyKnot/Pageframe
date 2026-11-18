@@ -2,6 +2,7 @@ mod scaled;
 mod support;
 
 use pageframe::{App, Page};
+use pageframe_dom::{ScrollBehavior, ScrollLogicalPosition};
 use pageframe_test_harness::Harness;
 use scaled::render_at_scale;
 use support::{open, pixel, render};
@@ -317,5 +318,31 @@ fn a_ruby_without_a_base_keeps_an_empty_base_line_like_chrome() {
             [19.58, 3.0, 47.88, 8.0],
         ],
         "boxes at 2x",
+    );
+}
+
+#[test]
+fn scrolling_to_an_inline_ruby_aligns_its_base_line_like_chrome() {
+    let mut harness = open(App::new(
+        (),
+        "<!doctype html><style>html,body{margin:0;font:14px Arial}</style>\
+<div style=\"height:1000px\"></div><div>ab<ruby id=ruby>x<rt>long annotation</rt></ruby>cd</div>\
+<div style=\"height:2000px\"></div>",
+    ));
+    let mut doc = harness.base_mut();
+    let ruby = doc
+        .query_selector("#ruby")
+        .expect("valid selector")
+        .expect("the ruby exists");
+    doc.scroll_into_view(
+        ruby,
+        ScrollBehavior::Instant,
+        ScrollLogicalPosition::Start,
+        ScrollLogicalPosition::Nearest,
+    );
+    assert_eq!(
+        doc.viewport_scroll().y.round(),
+        1005.0,
+        "scrollY, Chrome 1005"
     );
 }
