@@ -355,6 +355,48 @@ fn annotations_keep_a_normal_line_height_like_chrome() {
 }
 
 #[test]
+fn annotations_clear_bigger_text_in_their_base_like_chrome() {
+    let mut harness = open(App::new(
+        (),
+        "<!doctype html><style>html,body{margin:0;font:14px Arial}div{width:200px;margin-bottom:20px;border-top:2px solid}</style>\
+<div>ab<ruby><span style=\"font-size:30px\">cd</span><rt>a</rt></ruby>ef</div>\
+<div>ab<ruby>cd<span style=\"display:inline-block;height:30px;width:10px\"></span><rt>a</rt></ruby>ef</div>\
+<div>ab<ruby>c<span style=\"font-size:20px\">d</span>e<rt>abc</rt></ruby>ef</div>",
+    ));
+    assert_boxes(
+        &boxes(&mut harness, "div, span, rt"),
+        &[
+            [0.0, 0.0, 200.0, 40.0],
+            [15.58, 6.0, 31.69, 33.0],
+            [15.58, 2.0, 31.69, 7.0],
+            [0.0, 60.0, 200.0, 42.0],
+            [30.38, 69.0, 10.0, 30.0],
+            [15.58, 62.0, 24.78, 7.0],
+            [0.0, 122.0, 200.0, 30.0],
+            [22.58, 129.0, 11.13, 22.0],
+            [15.58, 124.0, 25.92, 7.0],
+        ],
+        "boxes at 1x",
+    );
+    render_at_scale(&mut harness, 2);
+    assert_boxes(
+        &boxes(&mut harness, "div, span, rt"),
+        &[
+            [0.0, 0.0, 200.0, 39.5],
+            [15.58, 5.5, 31.69, 33.5],
+            [15.58, 1.0, 31.68, 8.0],
+            [0.0, 59.5, 200.0, 42.5],
+            [30.37, 68.5, 10.0, 30.0],
+            [15.58, 60.5, 24.79, 8.0],
+            [0.0, 122.0, 200.0, 29.5],
+            [22.58, 129.0, 11.13, 22.0],
+            [15.58, 123.0, 25.91, 8.0],
+        ],
+        "boxes at 2x",
+    );
+}
+
+#[test]
 fn a_ruby_over_an_image_leaves_room_for_its_annotation_like_chrome() {
     let mut harness = open(App::new(
         (),

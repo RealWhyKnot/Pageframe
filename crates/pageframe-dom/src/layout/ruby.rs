@@ -130,6 +130,31 @@ impl LayoutPassState<'_> {
             .reduce(f32::min)
     }
 
+    fn text_em_top(&self, base: NodeId) -> Option<f32> {
+        let node = &self.nodes[base];
+        let inline = node.element_data()?.inline_layout_data.as_ref()?;
+        let scale = inline.layout.scale();
+        let layout = node.unrounded_layout();
+        let inset = layout.padding.top + layout.border.top + inline.block_offset;
+        inline
+            .layout
+            .lines()
+            .flat_map(|line| {
+                line.items()
+                    .filter_map(|item| match item {
+                        parley::PositionedLayoutItem::GlyphRun(glyph_run) => {
+                            let run = glyph_run.run();
+                            let descent = run.font_metrics().descent.round();
+                            Some((glyph_run.baseline() - run.font_size() + descent) / scale)
+                        }
+                        parley::PositionedLayoutItem::InlineBox(_) => None,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .reduce(f32::min)
+            .map(|top| top + inset)
+    }
+
     fn empty_base_extent(&self, node: NodeId) -> Option<(f32, f32)> {
         let style = self.nodes[node].primary_styles()?;
         let font_size = style.slow_clone_font_size().used_size().px();
@@ -332,8 +357,13 @@ impl LayoutPassState<'_> {
                     .or_else(|| self.em_above_baseline(node_id))
                     .unwrap_or(own_baseline);
                 let em_top = base.location.y + own_baseline - em_above_baseline;
-                self.atomic_top(base.measured.node)
-                    .map_or(em_top, |top| em_top.min(base.location.y + top))
+                [
+                    self.atomic_top(base.measured.node),
+                    self.text_em_top(base.measured.node),
+                ]
+                .into_iter()
+                .flatten()
+                .fold(em_top, |highest, top| highest.min(base.location.y + top))
             }));
         }
         let fallback_em_top = em_tops
