@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use super::BreakReason;
+use super::style_metrics::layout_unit_floor;
 use crate::data::LayoutData;
 use crate::style::Brush;
 
@@ -121,7 +122,7 @@ pub(crate) fn align<B: Brush>(
                 line.metrics.offset += free_space;
             }
             (Alignment::Center, _) => {
-                line.metrics.offset += free_space * 0.5;
+                line.metrics.offset += layout_unit_floor(free_space * 0.5);
             }
             (Alignment::Justify, _) => {
                 // Justified alignment doesn't have any effect if free_space is negative or zero

@@ -256,14 +256,16 @@ const SPAN_ENDS: &str = "<html><head><style>html,body{margin:0;background:#fff;\
     <div><span id=outer2>xy <span style='box-decoration-break:clone;padding:0 4px 0 8px'>\
     ab cd ef gh</span> z</span></div>\
     <div style=text-align:right><span id=lright>quick brown </span>fox jumps</div>\
+    <div style=text-align:center><span id=lcenter>quick brown </span>fox jumps</div>\
     <div><span id=deep><span><span style='box-decoration-break:clone;padding-left:8px'>\
     ab cd ef gh ij kl mn</span></span></span></div></body></html>";
 
 #[test]
 fn spaces_before_span_ends_hang_and_clone_insets_reach_outer_spans_like_chrome() {
-    let expected: [(&str, &[[f64; 2]]); 5] = [
+    let expected: [(&str, &[[f64; 2]]); 6] = [
         ("rend", &[[15.296_875, 74.703_125]]),
         ("lright", &[[15.296_875, 74.703_125]]),
+        ("lcenter", &[[7.640_625, 74.703_125]]),
         ("deep", &[[0.0, 87.390_625], [0.0, 41.453_125]]),
         ("outer", &[[0.0, 81.281_25], [0.0, 18.234_375]]),
         ("outer2", &[[0.0, 79.718_75], [0.0, 38.468_75]]),
@@ -275,4 +277,20 @@ fn spaces_before_span_ends_hang_and_clone_insets_reach_outer_spans_like_chrome()
     assert_eq!(tail.len(), 1, "{tail:?}");
     assert!((tail[0][0] - 75.203_125).abs() <= 1.0 / 64.0, "{tail:?}");
     assert!((tail[0][1] - 14.796_875).abs() <= 1.0 / 64.0, "{tail:?}");
+}
+
+const CENTERED: &str = "<html><head><style>html,body{margin:0;background:#fff;\
+    font:14px/24px Arial}div{width:90px;text-align:center}</style></head>\
+    <body><div><span id=ltr>fox jumps</span></div>\
+    <div dir=rtl><span id=rtl>fox jumps</span></div></body></html>";
+
+#[test]
+fn centered_lines_floor_their_offset_to_a_layout_unit_like_chrome() {
+    for id in ["ltr", "rtl"] {
+        assert_eq!(
+            fragment_rects(CENTERED, id),
+            [[15.031_25, 59.921_875]],
+            "{id}"
+        );
+    }
 }

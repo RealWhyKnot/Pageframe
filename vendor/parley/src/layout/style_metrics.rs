@@ -368,7 +368,7 @@ pub(crate) fn shift_from_parent(
     alignment + shift
 }
 
-fn layout_unit_floor(value: f32) -> f32 {
+pub(crate) fn layout_unit_floor(value: f32) -> f32 {
     (value * 64.).floor() / 64.
 }
 
