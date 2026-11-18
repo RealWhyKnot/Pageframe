@@ -458,86 +458,143 @@ pub fn clamp_hides_lines(style: &style::properties::ComputedValues) -> bool {
         || style_box.overflow_y != style::values::computed::Overflow::Visible
 }
 
+pub(crate) struct InlineSide {
+    pub(crate) margin: f32,
+    pub(crate) inset: f32,
+    pub(crate) has_percent_margin: bool,
+}
+
+pub(crate) fn inline_side(
+    style: &style::properties::ComputedValues,
+    side: style::logical_geometry::PhysicalSide,
+    basis: f32,
+    scale: f32,
+) -> InlineSide {
+    use style::logical_geometry::PhysicalSide;
+    use style::values::computed::CSSPixelLength;
+    use style::values::generics::length::GenericMargin;
+
+    let basis = CSSPixelLength::new(basis);
+    let margins = style.get_margin();
+    let border = style.get_border();
+    let paddings = style.get_padding();
+    let (margin, width, line, padding) = match side {
+        PhysicalSide::Top => (
+            &margins.margin_top,
+            &border.border_top_width,
+            border.border_top_style,
+            &paddings.padding_top,
+        ),
+        PhysicalSide::Right => (
+            &margins.margin_right,
+            &border.border_right_width,
+            border.border_right_style,
+            &paddings.padding_right,
+        ),
+        PhysicalSide::Bottom => (
+            &margins.margin_bottom,
+            &border.border_bottom_width,
+            border.border_bottom_style,
+            &paddings.padding_bottom,
+        ),
+        PhysicalSide::Left => (
+            &margins.margin_left,
+            &border.border_left_width,
+            border.border_left_style,
+            &paddings.padding_left,
+        ),
+    };
+    let border_px = if line.none_or_hidden() {
+        0.0
+    } else {
+        stylo_taffy::device_border_px(width.0.to_f32_px(), scale)
+    };
+    let (margin, has_percent_margin) = match margin {
+        GenericMargin::LengthPercentage(value) => {
+            (value.resolve(basis).px(), value.has_percentage())
+        }
+        _ => (0.0, false),
+    };
+    InlineSide {
+        margin,
+        inset: border_px + padding.0.resolve(basis).px(),
+        has_percent_margin,
+    }
+}
+
+pub(crate) fn has_percent_padding(style: &style::properties::ComputedValues) -> bool {
+    let padding = style.get_padding();
+    [
+        &padding.padding_top,
+        &padding.padding_right,
+        &padding.padding_bottom,
+        &padding.padding_left,
+    ]
+    .iter()
+    .any(|side| side.0.has_percentage())
+}
+
 #[derive(Clone, Copy)]
 pub struct CloneInsets {
-    pub left: f32,
-    pub right: f32,
-    pub margin_left: f32,
-    pub margin_right: f32,
+    pub start: f32,
+    pub end: f32,
+    pub margin_start: f32,
+    pub margin_end: f32,
     pub is_rtl: bool,
 }
 
 impl CloneInsets {
     pub fn start(&self) -> f32 {
-        if self.is_rtl { self.right } else { self.left }
+        self.start
     }
 
     pub fn end(&self) -> f32 {
-        if self.is_rtl { self.left } else { self.right }
+        self.end
     }
 
     pub fn outer_start(&self) -> f32 {
-        self.start()
-            + if self.is_rtl {
-                self.margin_right
-            } else {
-                self.margin_left
-            }
+        self.start + self.margin_start
     }
 
     pub fn outer_end(&self) -> f32 {
-        self.end()
-            + if self.is_rtl {
-                self.margin_left
-            } else {
-                self.margin_right
-            }
+        self.end + self.margin_end
     }
 }
 
 pub fn inline_clone_insets(node: &Node, basis: f32) -> Option<CloneInsets> {
-    use style::values::computed::{BorderSideWidth, BoxDecorationBreak, CSSPixelLength};
-    use style::values::generics::length::GenericMargin;
-    use style::values::specified::border::BorderStyle;
+    use style::values::computed::BoxDecorationBreak;
     use style::values::specified::box_::{DisplayInside, DisplayOutside};
     use stylo_taffy::CopyStyleGetters as _;
 
     let style = node.primary_styles()?;
-    let border = style.get_border();
     let display = style.clone_display();
-    if border.box_decoration_break != BoxDecorationBreak::Clone
+    if style.get_border().box_decoration_break != BoxDecorationBreak::Clone
         || display.outside() != DisplayOutside::Inline
         || display.inside() != DisplayInside::Flow
     {
         return None;
     }
-    let basis = CSSPixelLength::new(basis);
-    let padding = style.get_padding();
     let scale = node.tree().device_scale();
-    let border_px = |width: &BorderSideWidth, line: BorderStyle| {
-        if line.none_or_hidden() {
-            0.0
-        } else {
-            stylo_taffy::device_border_px(width.0.to_f32_px(), scale)
-        }
-    };
-    let left = border_px(&border.border_left_width, border.border_left_style)
-        + padding.padding_left.0.resolve(basis).px();
-    let right = border_px(&border.border_right_width, border.border_right_style)
-        + padding.padding_right.0.resolve(basis).px();
-    let margin = style.get_margin();
-    let margin_px = |value: &style::values::computed::Margin| match value {
-        GenericMargin::LengthPercentage(value) => value.resolve(basis).px(),
-        _ => 0.0,
-    };
-    let margin_left = margin_px(&margin.margin_left);
-    let margin_right = margin_px(&margin.margin_right);
-    let has_insets = left > 0.0 || right > 0.0 || margin_left != 0.0 || margin_right != 0.0;
+    let writing_mode = style.writing_mode;
+    let start = inline_side(
+        &style,
+        writing_mode.inline_start_physical_side(),
+        basis,
+        scale,
+    );
+    let end = inline_side(
+        &style,
+        writing_mode.inline_end_physical_side(),
+        basis,
+        scale,
+    );
+    let has_insets =
+        start.inset > 0.0 || end.inset > 0.0 || start.margin != 0.0 || end.margin != 0.0;
     has_insets.then_some(CloneInsets {
-        left,
-        right,
-        margin_left,
-        margin_right,
+        start: start.inset,
+        end: end.inset,
+        margin_start: start.margin,
+        margin_end: end.margin,
         is_rtl: style.clone_direction() == style::computed_values::direction::T::Rtl,
     })
 }

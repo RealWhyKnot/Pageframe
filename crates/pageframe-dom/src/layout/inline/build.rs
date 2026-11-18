@@ -5,15 +5,10 @@ use parley::{
 };
 use style::{
     computed_values::position::T as PositionProperty,
-    logical_geometry::PhysicalSide,
     properties::ComputedValues,
     values::{
-        computed::{BorderSideWidth, BoxDecorationBreak, Display, Float, Length, LengthPercentage},
-        generics::length::GenericMargin,
-        specified::{
-            border::BorderStyle,
-            box_::{DisplayInside, DisplayOutside},
-        },
+        computed::{BoxDecorationBreak, Display, Float},
+        specified::box_::{DisplayInside, DisplayOutside},
     },
 };
 use stylo_taffy::CopyStyleGetters;
@@ -81,13 +76,6 @@ fn trailing_space(nodes: &crate::NodeTree, node_id: NodeId) -> Option<bool> {
     }
 }
 
-struct EdgeSide {
-    margin: f32,
-    inset: f32,
-    has_percent_margin: bool,
-    has_percent_padding: bool,
-}
-
 struct EdgeBasis {
     width: f32,
     has_percent: bool,
@@ -95,64 +83,22 @@ struct EdgeBasis {
 }
 
 fn inline_edges(style: &ComputedValues, basis: &mut EdgeBasis, scale: f32) -> InlineEdges {
-    let basis_width = Length::new(basis.width);
-    let margin = style.get_margin();
-    let padding = style.get_padding();
-    let border = style.get_border();
-    basis.has_clone |= border.box_decoration_break == BoxDecorationBreak::Clone;
-    let margin_px = |value: &GenericMargin<LengthPercentage>| match value {
-        GenericMargin::LengthPercentage(value) => value.resolve(basis_width).px(),
-        _ => 0.0,
-    };
-    let is_percent = |value: &GenericMargin<LengthPercentage>| match value {
-        GenericMargin::LengthPercentage(value) => value.has_percentage(),
-        _ => false,
-    };
-    let border_px = |width: &BorderSideWidth, line: BorderStyle| {
-        if line.none_or_hidden() {
-            0.0
-        } else {
-            stylo_taffy::device_border_px(width.0.to_f32_px(), scale)
-        }
-    };
-    let side = |side: PhysicalSide| {
-        let (margin, width, line, padding) = match side {
-            PhysicalSide::Top => (
-                &margin.margin_top,
-                &border.border_top_width,
-                border.border_top_style,
-                &padding.padding_top,
-            ),
-            PhysicalSide::Right => (
-                &margin.margin_right,
-                &border.border_right_width,
-                border.border_right_style,
-                &padding.padding_right,
-            ),
-            PhysicalSide::Bottom => (
-                &margin.margin_bottom,
-                &border.border_bottom_width,
-                border.border_bottom_style,
-                &padding.padding_bottom,
-            ),
-            PhysicalSide::Left => (
-                &margin.margin_left,
-                &border.border_left_width,
-                border.border_left_style,
-                &padding.padding_left,
-            ),
-        };
-        EdgeSide {
-            margin: margin_px(margin),
-            inset: border_px(width, line) + padding.0.resolve(basis_width).px(),
-            has_percent_margin: is_percent(margin),
-            has_percent_padding: padding.0.has_percentage(),
-        }
-    };
-    let start = side(style.writing_mode.inline_start_physical_side());
-    let end = side(style.writing_mode.inline_end_physical_side());
+    basis.has_clone |= style.get_border().box_decoration_break == BoxDecorationBreak::Clone;
+    let writing_mode = style.writing_mode;
+    let start = crate::util::inline_side(
+        style,
+        writing_mode.inline_start_physical_side(),
+        basis.width,
+        scale,
+    );
+    let end = crate::util::inline_side(
+        style,
+        writing_mode.inline_end_physical_side(),
+        basis.width,
+        scale,
+    );
     let has_percent_margin = start.has_percent_margin || end.has_percent_margin;
-    basis.has_percent |= has_percent_margin || start.has_percent_padding || end.has_percent_padding;
+    basis.has_percent |= has_percent_margin || crate::util::has_percent_padding(style);
     InlineEdges {
         has_edge_marks: crate::util::inline_box_is_decorated(style)
             || style

@@ -12,6 +12,12 @@ const SPANS: &str = "<html><head><style>html,body{margin:0;background:#fff;font:
     <div style='left:84px;writing-mode:vertical-rl;direction:rtl'><span>ab</span></div>\
     </body></html>";
 
+const CLONED: &str = "<html><head><style>html,body{margin:0;background:#fff;font:14px/24px Arial}\
+    span{background:#0f0}</style></head><body>\
+    <section style='position:absolute;left:4px;top:4px;writing-mode:vertical-rl;width:100px;\
+    height:60px'>ab <span style='box-decoration-break:clone;padding:2px 4px 6px 8px'>\
+    cd ef gh ij</span></section></body></html>";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Paint {
     Red,
@@ -51,13 +57,38 @@ fn vertical_span_borders_follow_the_physical_sides_like_chrome() {
             [4, 5, 6],
             "column {column}"
         );
-        let blue = border_rows(&buffer, column, Paint::Blue);
-        assert_eq!(blue.len(), 5, "column {column}: {blue:?}");
-        assert!(blue[0] > 15, "column {column}: {blue:?}");
+        assert_eq!(
+            border_rows(&buffer, column, Paint::Blue),
+            [33, 34, 35, 36, 37],
+            "column {column}"
+        );
     }
     let red = border_rows(&buffer, 89, Paint::Red);
     let blue = border_rows(&buffer, 89, Paint::Blue);
     assert_eq!((red.len(), blue.len()), (3, 5), "{red:?} {blue:?}");
     assert!(red[2] < blue[0], "{red:?} {blue:?}");
     assert_eq!(blue[4], 73, "{blue:?}");
+}
+
+fn green_rows(buffer: &[u8], column: usize) -> Vec<u32> {
+    (0..HEIGHT)
+        .filter(|&row| {
+            let index = usize::try_from(row).expect("rows fit in usize");
+            let [red, green, blue, _] = pixel(buffer, column, index);
+            green > 200 && red < 80 && blue < 80
+        })
+        .collect()
+}
+
+#[test]
+fn cloned_vertical_spans_repeat_the_block_side_padding_like_chrome() {
+    let mut harness = open(App::new((), CLONED));
+    let buffer = render(&mut harness);
+    let first = green_rows(&buffer, 90);
+    let second = green_rows(&buffer, 66);
+    assert_eq!(
+        [first.first(), first.last(), second.first(), second.last()],
+        [Some(&23), Some(&61), Some(&4), Some(&37)],
+        "{first:?} {second:?}"
+    );
 }

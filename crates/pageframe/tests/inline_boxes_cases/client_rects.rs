@@ -26,6 +26,13 @@ const FONTS: &str = "<html><head><style>html,body{margin:0;background:#fff;font:
     style='padding:2px 4px 6px 8px;border-left:3px solid #000'>vert</span></div>\
     </body></html>";
 
+const SIDES: &str = "<html><head><style>html,body{margin:0;background:#fff;font:14px/24px Arial}\
+    section{position:absolute}span{background:#0f0}</style></head><body>\
+    <section style='left:320px;top:4px;writing-mode:vertical-rl;width:300px;height:100px'>ab \
+    <span id=vblock style='padding-left:10%'>cd</span></section>\
+    <section style='left:4px;top:120px;width:300px;height:100px'>ab \
+    <span id=hblock style='padding-top:10%'>cd</span></section></body></html>";
+
 fn client_rects<const COUNT: usize>(
     html: &str,
     scale: f32,
@@ -95,6 +102,19 @@ fn inline_client_rects_use_the_primary_font_like_chrome() {
             .collect();
         assert_eq!(found, [vertical, vertical], "scale {scale}");
     }
+}
+
+#[test]
+fn percent_block_side_padding_resolves_like_chrome() {
+    let rects: Vec<[f64; 4]> = client_rects(SIDES, 1.0, ["vblock", "hblock"])
+        .iter()
+        .map(|rect| [rect.x, rect.y, rect.width, rect.height])
+        .collect();
+    let chrome = [
+        [590.0, 23.468_75, 26.0, 14.796_875],
+        [23.468_75, 94.0, 14.796_875, 46.0],
+    ];
+    assert_eq!(rects, chrome);
 }
 
 #[test]
