@@ -20,7 +20,8 @@ pub struct InlineBox {
     pub height: f32,
     /// The baseline of the box in pixels, relative to the top of the box
     ///
-    /// If `None`, the baseline is the box's bottom edge.
+    /// If `None`, the baseline is the box's bottom edge, or its middle in lines that use the
+    /// central baseline (vertical text with mixed or upright orientation).
     pub baseline: Option<f32>,
     /// Vertical alignment of the box within its line, relative to the enclosing style span.
     pub vertical_align: VerticalAlign,

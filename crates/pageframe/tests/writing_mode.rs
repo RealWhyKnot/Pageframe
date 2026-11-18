@@ -294,7 +294,9 @@ fn atomic_inlines_centre_on_the_vertical_baseline_like_chrome() {
                 <div class=v id=d4>H<span id=b4 style=\"display:inline-block;width:20px;height:6px\">\
                 </span>H</div><div class=v style=\"text-orientation:upright\">H\
                 <span class=b id=b5></span>H</div><div class=v style=\"text-orientation:sideways\">\
-                H<span class=b id=b6></span>H</div>";
+                H<span id=b6 style=\"display:inline-block;width:4px;height:10px\"></span>H</div>\
+                <div class=v id=d7>H<span class=b id=b7 style=\"vertical-align:middle\"></span>H</div>\
+                <div class=v id=d8>H<span class=b id=b8 style=\"vertical-align:text-top\"></span>H</div>";
     let mut harness = Harness::wrap(App::new((), html).page(640, 400).expect("valid selectors"));
     harness.pump();
     for (id, expected) in [
@@ -303,7 +305,11 @@ fn atomic_inlines_centre_on_the_vertical_baseline_like_chrome() {
         ("d4", [34.0, 20.0]),
         ("b4", [34.0, 20.0]),
         ("b5", [70.0, 10.0]),
-        ("b6", [100.0, 10.0]),
+        ("b6", [100.0, 4.0]),
+        ("d7", [126.0, 18.15625]),
+        ("b7", [134.15625, 10.0]),
+        ("d8", [156.15625, 18.0]),
+        ("b8", [164.15625, 10.0]),
     ] {
         let [x, _, width, _] = rect(&harness, id);
         assert_eq!([x, width], expected, "{id}");

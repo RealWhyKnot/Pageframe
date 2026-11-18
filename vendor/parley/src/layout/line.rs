@@ -275,7 +275,8 @@ pub struct PositionedInlineBox {
     /// The baseline of the box in pixels, relative to the top of the box (i.e. to [`Self::y`]).
     ///
     /// This is `None` if the box does not specify a baseline, in which case its bottom edge is
-    /// aligned with the text baseline.
+    /// aligned with the text baseline, or its middle with the central baseline of vertical text
+    /// with mixed or upright orientation.
     pub baseline: Option<f32>,
     pub id: u64,
     pub kind: InlineBoxKind,

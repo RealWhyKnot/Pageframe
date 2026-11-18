@@ -393,7 +393,8 @@ pub(crate) struct InlineBoxPlacement {
 /// Resolve the parent-relative alignment of `inline_box` against the span box of the style
 /// containing it (`parent_style`).
 ///
-/// A box without an explicit baseline sits on the baseline, i.e. it is all ascent. For
+/// A box without an explicit baseline sits on the alphabetic baseline, i.e. it is all ascent,
+/// or is split in half by the central baseline (see [`StyleMetrics::inline_box_ascent`]). For
 /// `vertical-align: top | bottom` the returned offset is relative to the subtree the parent
 /// belongs to, but such boxes are positioned against the line box instead (see
 /// [`crate::Line::inline_box_top`]).
