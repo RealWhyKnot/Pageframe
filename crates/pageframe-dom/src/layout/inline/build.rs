@@ -4,7 +4,8 @@ use parley::{
     FontContext, InlineBox, InlineBoxKind, LayoutContext, TreeBuilder, WhiteSpaceCollapse,
 };
 use style::{
-    computed_values::{direction::T as Direction, position::T as PositionProperty},
+    computed_values::position::T as PositionProperty,
+    logical_geometry::PhysicalSide,
     properties::ComputedValues,
     values::{
         computed::{BorderSideWidth, BoxDecorationBreak, Display, Float, Length, LengthPercentage},
@@ -80,6 +81,13 @@ fn trailing_space(nodes: &crate::NodeTree, node_id: NodeId) -> Option<bool> {
     }
 }
 
+struct EdgeSide {
+    margin: f32,
+    inset: f32,
+    has_percent_margin: bool,
+    has_percent_padding: bool,
+}
+
 struct EdgeBasis {
     width: f32,
     has_percent: bool,
@@ -100,10 +108,6 @@ fn inline_edges(style: &ComputedValues, basis: &mut EdgeBasis, scale: f32) -> In
         GenericMargin::LengthPercentage(value) => value.has_percentage(),
         _ => false,
     };
-    let has_percent_margin = is_percent(&margin.margin_left) || is_percent(&margin.margin_right);
-    basis.has_percent |= has_percent_margin
-        || padding.padding_left.0.has_percentage()
-        || padding.padding_right.0.has_percentage();
     let border_px = |width: &BorderSideWidth, line: BorderStyle| {
         if line.none_or_hidden() {
             0.0
@@ -111,21 +115,44 @@ fn inline_edges(style: &ComputedValues, basis: &mut EdgeBasis, scale: f32) -> In
             stylo_taffy::device_border_px(width.0.to_f32_px(), scale)
         }
     };
-    let left = (
-        margin_px(&margin.margin_left),
-        border_px(&border.border_left_width, border.border_left_style)
-            + padding.padding_left.0.resolve(basis_width).px(),
-    );
-    let right = (
-        margin_px(&margin.margin_right),
-        border_px(&border.border_right_width, border.border_right_style)
-            + padding.padding_right.0.resolve(basis_width).px(),
-    );
-    let (start, end) = if style.clone_direction() == Direction::Rtl {
-        (right, left)
-    } else {
-        (left, right)
+    let side = |side: PhysicalSide| {
+        let (margin, width, line, padding) = match side {
+            PhysicalSide::Top => (
+                &margin.margin_top,
+                &border.border_top_width,
+                border.border_top_style,
+                &padding.padding_top,
+            ),
+            PhysicalSide::Right => (
+                &margin.margin_right,
+                &border.border_right_width,
+                border.border_right_style,
+                &padding.padding_right,
+            ),
+            PhysicalSide::Bottom => (
+                &margin.margin_bottom,
+                &border.border_bottom_width,
+                border.border_bottom_style,
+                &padding.padding_bottom,
+            ),
+            PhysicalSide::Left => (
+                &margin.margin_left,
+                &border.border_left_width,
+                border.border_left_style,
+                &padding.padding_left,
+            ),
+        };
+        EdgeSide {
+            margin: margin_px(margin),
+            inset: border_px(width, line) + padding.0.resolve(basis_width).px(),
+            has_percent_margin: is_percent(margin),
+            has_percent_padding: padding.0.has_percentage(),
+        }
     };
+    let start = side(style.writing_mode.inline_start_physical_side());
+    let end = side(style.writing_mode.inline_end_physical_side());
+    let has_percent_margin = start.has_percent_margin || end.has_percent_margin;
+    basis.has_percent |= has_percent_margin || start.has_percent_padding || end.has_percent_padding;
     InlineEdges {
         has_edge_marks: crate::util::inline_box_is_decorated(style)
             || style
@@ -134,10 +161,10 @@ fn inline_edges(style: &ComputedValues, basis: &mut EdgeBasis, scale: f32) -> In
                 .resolve_to_absolute(&style.clone_color())
                 .alpha
                 > 0.0,
-        margin_start: start.0,
-        inset_start: start.1,
-        inset_end: end.1,
-        margin_end: end.0,
+        margin_start: start.margin,
+        inset_start: start.inset,
+        inset_end: end.inset,
+        margin_end: end.margin,
         has_percent_margin,
     }
 }

@@ -69,8 +69,16 @@ fn vertical_extents(scale: f32) -> Vec<[f64; 2]> {
 #[test]
 fn inline_client_rects_use_the_primary_font_like_chrome() {
     let chrome = [
-        (1.0, [[7.0, 16.0], [41.0, 16.0], [76.0, 16.0]], [-4.0, 31.0]),
-        (2.0, [[7.0, 15.5], [41.0, 15.5], [75.0, 15.5]], [-3.5, 30.5]),
+        (
+            1.0,
+            [[7.0, 16.0], [41.0, 16.0], [76.0, 16.0]],
+            [-4.0, 31.0, 31.343_75],
+        ),
+        (
+            2.0,
+            [[7.0, 15.5], [41.0, 15.5], [75.0, 15.5]],
+            [-3.5, 30.5, 31.343_75],
+        ),
     ];
     for (scale, horizontal, vertical) in chrome {
         let rects = client_rects(FONTS, scale, ["fallback", "borrow", "larger", "lr", "rl"]);
@@ -79,7 +87,10 @@ fn inline_client_rects_use_the_primary_font_like_chrome() {
             .map(|rect| [rect.y, rect.height])
             .collect();
         assert_eq!(found, horizontal, "scale {scale}");
-        let found: Vec<[f64; 2]> = rects[3..].iter().map(|rect| [rect.x, rect.width]).collect();
+        let found: Vec<[f64; 3]> = rects[3..]
+            .iter()
+            .map(|rect| [rect.x, rect.width, rect.height])
+            .collect();
         assert_eq!(found, [vertical, vertical], "scale {scale}");
     }
 }

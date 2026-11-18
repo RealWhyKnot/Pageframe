@@ -63,6 +63,7 @@ use style::computed_values::direction::T as Direction;
 use style::computed_values::float::T as StyloFloat;
 use style::computed_values::isolation::T as Isolation;
 use style::computed_values::position::T as StyloPosition;
+use style::logical_geometry::PhysicalSide;
 use taffy::Layout;
 
 const SPAN_GROUP_REACH: f64 = 256.0;
@@ -1460,10 +1461,17 @@ impl ElementCx<'_, '_> {
         transform: Affine,
         fragment: &crate::text::InlineFragment,
     ) {
+        let is_vertical = self.style.writing_mode.is_vertical();
+        let axes = if is_vertical {
+            Affine::new([0.0, 1.0, -1.0, 0.0, 0.0, 0.0])
+        } else {
+            Affine::IDENTITY
+        };
+        let transform = transform * axes.inverse();
         let origin = transform.translation();
         let snap_x = |value: f64| pixels::device_round(value + origin.x) - origin.x;
         let snap_y = |value: f64| pixels::device_round(value + origin.y) - origin.y;
-        let rect = fragment.rect;
+        let rect = axes.transform_rect_bbox(fragment.rect);
         let node = self.context.dom.get_node(fragment.node_id);
         let Some((node, style)) = node
             .filter(|_| fragment.is_boxed)
@@ -1497,37 +1505,63 @@ impl ElementCx<'_, '_> {
         let inset = |value: &style::values::computed::NonNegativeLengthPercentage| {
             f64::from(value.0.resolve(basis).px()) * self.scale
         };
-        let is_rtl = style.clone_direction() == Direction::Rtl;
-        let (has_left, has_right) = if is_rtl {
-            (fragment.is_end, fragment.is_start)
-        } else {
-            (fragment.is_start, fragment.is_end)
+        let writing_mode = style.writing_mode;
+        let present = |side: PhysicalSide| {
+            if side == writing_mode.inline_start_physical_side() {
+                fragment.is_start
+            } else if side == writing_mode.inline_end_physical_side() {
+                fragment.is_end
+            } else {
+                true
+            }
         };
+        let has_left = present(PhysicalSide::Left);
+        let has_top = present(PhysicalSide::Top);
+        let has_right = present(PhysicalSide::Right);
+        let has_bottom = present(PhysicalSide::Bottom);
         let side = |is_present: bool, value: f64| if is_present { value } else { 0.0 };
         let border = Insets::new(
             side(
                 has_left,
                 width(&s_border.border_left_width, s_border.border_left_style),
             ),
-            width(&s_border.border_top_width, s_border.border_top_style),
+            side(
+                has_top,
+                width(&s_border.border_top_width, s_border.border_top_style),
+            ),
             side(
                 has_right,
                 width(&s_border.border_right_width, s_border.border_right_style),
             ),
-            width(&s_border.border_bottom_width, s_border.border_bottom_style),
+            side(
+                has_bottom,
+                width(&s_border.border_bottom_width, s_border.border_bottom_style),
+            ),
         );
         let padding = Insets::new(
             side(has_left, inset(&s_padding.padding_left)),
-            inset(&s_padding.padding_top),
+            side(has_top, inset(&s_padding.padding_top)),
             side(has_right, inset(&s_padding.padding_right)),
-            inset(&s_padding.padding_bottom),
+            side(has_bottom, inset(&s_padding.padding_bottom)),
         );
-        let left = snap_x(rect.x0);
-        let top = snap_y(rect.y0 - border.y0 - padding.y0);
-        let size = Size::new(
-            snap_x(rect.x1) - left,
-            snap_y(rect.y1 + border.y1 + padding.y1) - top,
-        );
+        let outer = if is_vertical {
+            Rect::new(
+                rect.x0 - border.x0 - padding.x0,
+                rect.y0,
+                rect.x1 + border.x1 + padding.x1,
+                rect.y1,
+            )
+        } else {
+            Rect::new(
+                rect.x0,
+                rect.y0 - border.y0 - padding.y0,
+                rect.x1,
+                rect.y1 + border.y1 + padding.y1,
+            )
+        };
+        let left = snap_x(outer.x0);
+        let top = snap_y(outer.y0);
+        let size = Size::new(snap_x(outer.x1) - left, snap_y(outer.y1) - top);
         let mut radii = corner_radii(&style, size, self.scale);
         if !has_left {
             radii.top_left = Vec2::ZERO;
@@ -1535,6 +1569,14 @@ impl ElementCx<'_, '_> {
         }
         if !has_right {
             radii.top_right = Vec2::ZERO;
+            radii.bottom_right = Vec2::ZERO;
+        }
+        if !has_top {
+            radii.top_left = Vec2::ZERO;
+            radii.top_right = Vec2::ZERO;
+        }
+        if !has_bottom {
+            radii.bottom_left = Vec2::ZERO;
             radii.bottom_right = Vec2::ZERO;
         }
         let mut cx = self.context.element_cx(
