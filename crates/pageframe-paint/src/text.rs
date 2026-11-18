@@ -1620,6 +1620,14 @@ pub(crate) fn stroke_text<'a>(
                         )
                 };
 
+                let face = RunFace {
+                    font,
+                    font_size,
+                    coords: normalized_coords,
+                    embolden,
+                    glyph_xform,
+                };
+
                 // Shadows are painted beneath the text, with the first shadow on top.
                 // Text painted with a brush override (e.g. as a mask) has no shadow.
                 let shadows = match (brush_override, stack.last()) {
@@ -1689,62 +1697,27 @@ pub(crate) fn stroke_text<'a>(
                                 shadow_transform * Affine::translate(origin),
                             );
                         }
-                        None => scene.draw_glyphs(
-                            font,
-                            font_size,
-                            !FONT_EMBOLDEN_ENABLED,
-                            normalized_coords,
-                            embolden,
-                            Fill::NonZero,
-                            &anyrender::Paint::from(shadow.color),
-                            1.0,
-                            shadow_transform,
-                            glyph_xform,
-                            glyphs(),
+                        None => fill_glyphs(
+                            scene,
+                            sampled,
+                            sampled_paths,
+                            &face,
+                            (shadow_transform, shadow.color),
+                            glyphs,
                         ),
                     }
                 }
 
                 // Zero-size text is invisible, but hinting can give its glyphs ink.
                 if font_size > 0.0 {
-                    let sampled_frame = (!FONT_EMBOLDEN_ENABLED && glyph_xform.is_none())
-                        .then(|| sampled::SampledFrame::new(transform))
-                        .flatten()
-                        .filter(|&frame| {
-                            frame.ppem(font_size).is_some_and(|ppem| {
-                                sampled.outlines(
-                                    frame,
-                                    &upright::SizedFace::new(font, ppem, normalized_coords),
-                                    glyphs().map(|glyph| glyph.id),
-                                    sampled_paths,
-                                )
-                            })
-                        });
-                    if let Some(frame) = sampled_frame {
-                        for (glyph, path) in glyphs().zip(sampled_paths.iter()) {
-                            scene.fill(
-                                Fill::NonZero,
-                                frame.place(glyph.x, glyph.y),
-                                fill_color,
-                                None,
-                                path.as_ref(),
-                            );
-                        }
-                    } else {
-                        scene.draw_glyphs(
-                            font,
-                            font_size,
-                            !FONT_EMBOLDEN_ENABLED, // hint
-                            normalized_coords,
-                            embolden,
-                            Fill::NonZero,
-                            &anyrender::Paint::from(fill_color),
-                            1.0, // alpha
-                            transform,
-                            glyph_xform,
-                            glyphs(),
-                        );
-                    }
+                    fill_glyphs(
+                        scene,
+                        sampled,
+                        sampled_paths,
+                        &face,
+                        (transform, fill_color),
+                        glyphs,
+                    );
                 }
 
                 // Accumulate this run's contribution to each decorating box on its ancestor
@@ -1921,6 +1894,62 @@ thread_local! {
 /// repaint or scroll doesn't render the shadow again.
 ///
 /// Returns the image and the offset to draw it at.
+struct RunFace<'a> {
+    font: &'a parley::FontData,
+    font_size: f32,
+    coords: &'a [i16],
+    embolden: Vec2,
+    glyph_xform: Option<Affine>,
+}
+
+fn fill_glyphs<I: Iterator<Item = anyrender::Glyph> + Clone>(
+    scene: &mut impl PaintScene,
+    sampled: &mut sampled::SampledCache,
+    sampled_paths: &mut Vec<Arc<BezPath>>,
+    face: &RunFace<'_>,
+    (transform, color): (Affine, Color),
+    glyphs: impl Fn() -> I,
+) {
+    let frame = (!FONT_EMBOLDEN_ENABLED && face.glyph_xform.is_none())
+        .then(|| sampled::SampledFrame::new(transform))
+        .flatten()
+        .filter(|&frame| {
+            frame.ppem(face.font_size).is_some_and(|ppem| {
+                sampled.outlines(
+                    frame,
+                    &upright::SizedFace::new(face.font, ppem, face.coords),
+                    glyphs().map(|glyph| glyph.id),
+                    sampled_paths,
+                )
+            })
+        });
+    let Some(frame) = frame else {
+        scene.draw_glyphs(
+            face.font,
+            face.font_size,
+            !FONT_EMBOLDEN_ENABLED,
+            face.coords,
+            face.embolden,
+            Fill::NonZero,
+            &anyrender::Paint::from(color),
+            1.0,
+            transform,
+            face.glyph_xform,
+            glyphs(),
+        );
+        return;
+    };
+    for (glyph, path) in glyphs().zip(sampled_paths.iter()) {
+        scene.fill(
+            Fill::NonZero,
+            frame.place(glyph.x, glyph.y),
+            color,
+            None,
+            path.as_ref(),
+        );
+    }
+}
+
 fn blurred_shadow_image(
     bounds: Rect,
     std_deviation: f64,
