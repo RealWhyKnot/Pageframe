@@ -1,3 +1,5 @@
+#[path = "inline_boxes_cases/client_rects.rs"]
+mod client_rects;
 #[path = "inline_boxes_cases/rounding.rs"]
 mod rounding;
 mod support;

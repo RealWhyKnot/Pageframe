@@ -1975,6 +1975,38 @@ impl Node {
         }
     }
 
+    fn block_edges(&self, basis: f32) -> (f32, (f32, f32), (f32, f32)) {
+        use style::values::computed::{BorderSideWidth, CSSPixelLength};
+        use style::values::specified::border::BorderStyle;
+
+        let Some(style) = self.primary_styles() else {
+            return (0.0, (0.0, 0.0), (0.0, 0.0));
+        };
+        let basis = CSSPixelLength::new(basis);
+        let border = style.get_border();
+        let padding = style.get_padding();
+        let width = |width: &BorderSideWidth, line: BorderStyle| {
+            if line.none_or_hidden() {
+                0.0
+            } else {
+                width.0.to_f32_px()
+            }
+        };
+        let top = width(&border.border_top_width, border.border_top_style)
+            + padding.padding_top.0.resolve(basis).px();
+        let bottom = width(&border.border_bottom_width, border.border_bottom_style)
+            + padding.padding_bottom.0.resolve(basis).px();
+        let left = width(&border.border_left_width, border.border_left_style)
+            + padding.padding_left.0.resolve(basis).px();
+        let right = width(&border.border_right_width, border.border_right_style)
+            + padding.padding_right.0.resolve(basis).px();
+        (
+            style.get_font().font_size.used_size.0.px(),
+            (top, right),
+            (bottom, left),
+        )
+    }
+
     /// The per-line-box fragment boxes of a non-atomic inline element, in CSS pixels relative
     /// to the border box of its inline root.
     ///
@@ -2013,63 +2045,74 @@ impl Node {
         let content_box_inset = root_layout.padding + root_layout.border;
         let block_offset = inline_layout.block_offset;
 
-        fn union(acc: &mut Option<taffy::Rect<f32>>, left: f32, top: f32, right: f32, bottom: f32) {
-            *acc = Some(match *acc {
-                Some(rect) => taffy::Rect {
-                    left: rect.left.min(left),
-                    top: rect.top.min(top),
-                    right: rect.right.max(right),
-                    bottom: rect.bottom.max(bottom),
-                },
-                None => taffy::Rect {
-                    left,
-                    top,
-                    right,
-                    bottom,
-                },
-            });
-        }
+        let (font_size, over, under) = self.block_edges(inline_layout.percent_basis);
+        let (over, under) = if inline_root.vertical_line_extent().is_some() {
+            (over.1, under.1)
+        } else {
+            (over.0, under.0)
+        };
 
-        // One rect per line box: the union of all of the target's fragments on that line
         Some(layout.lines().filter_map(move |line| {
             let line_metrics = line.metrics();
-            let mut line_rect: Option<taffy::Rect<f32>> = None;
+            let mut span: Option<(f32, f32)> = None;
+            let mut own: Option<(f32, f32)> = None;
+            let mut borrowed: Option<(f32, f32)> = None;
 
             for item in line.items() {
-                match item {
+                let (start, end) = match item {
                     PositionedLayoutItem::GlyphRun(glyph_run) => {
-                        if !is_in_target(glyph_run.style().brush.id) {
+                        let owner = glyph_run.style().brush.id;
+                        if !is_in_target(owner) {
                             continue;
                         }
-                        let x0 = glyph_run.offset();
-                        let x1 = x0 + glyph_run.advance();
-                        // Use the line box's block extent rather than the
-                        // run's font ascent/descent: fonts with small
-                        // typographic metrics would otherwise produce rects
-                        // that clip the rendered glyphs. This matches the
-                        // geometry used for text selection highlights.
-                        let y0 = line_metrics.block_min_coord;
-                        let y1 = line_metrics.block_max_coord;
-                        union(&mut line_rect, x0, y0, x1, y1);
+                        let run = glyph_run.run();
+                        let metrics = run.font_metrics();
+                        if owner == self.id {
+                            let baseline = glyph_run.baseline();
+                            own.get_or_insert((
+                                baseline - metrics.ascent.round(),
+                                baseline + metrics.descent.round(),
+                            ));
+                        } else if run.font_size() > 0.0 {
+                            borrowed.get_or_insert((
+                                metrics.ascent / run.font_size(),
+                                metrics.descent / run.font_size(),
+                            ));
+                        }
+                        let start = glyph_run.offset();
+                        (start, start + glyph_run.advance())
                     }
                     PositionedLayoutItem::InlineBox(inline_box) => {
                         if !is_in_target(NodeId::from_u64(inline_box.id)) {
                             continue;
                         }
-                        let x0 = inline_box.x;
-                        let y0 = inline_box.y;
-                        union(
-                            &mut line_rect,
-                            x0,
-                            y0,
-                            x0 + inline_box.width,
-                            y0 + inline_box.height,
-                        );
+                        (inline_box.x, inline_box.x + inline_box.width)
                     }
-                }
+                };
+                span = Some(span.map_or((start, end), |(left, right)| {
+                    (left.min(start), right.max(end))
+                }));
             }
 
-            line_rect.map(|rect| {
+            let size = font_size * scale;
+            let baseline = line_metrics.baseline;
+            let (top, bottom) = own
+                .or_else(|| {
+                    borrowed.map(|(ascent, descent)| {
+                        (
+                            baseline - (ascent * size).round(),
+                            baseline + (descent * size).round(),
+                        )
+                    })
+                })
+                .unwrap_or((line_metrics.block_min_coord, line_metrics.block_max_coord));
+            span.map(|(left, right)| taffy::Rect {
+                left,
+                top: top - over * scale,
+                right,
+                bottom: bottom + under * scale,
+            })
+            .map(|rect| {
                 let unscaled = taffy::Rect {
                     left: rect.left / scale,
                     top: rect.top / scale,
