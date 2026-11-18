@@ -1,5 +1,6 @@
 use crate::CopyStyleGetters;
 use crate::convert;
+use crate::convert::InLayoutUnits as _;
 use crate::writing_mode::WritingModeExt;
 use bitflags::bitflags;
 use convert::stylo;
@@ -259,47 +260,58 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
 
     #[inline]
     fn inset(&self) -> taffy::Rect<taffy::LengthPercentageAuto> {
-        self.rect(convert::inset_rect(&self.style))
+        self.rect(
+            convert::inset_rect(&self.style).map(|value| value.in_layout_units(self.device_scale)),
+        )
     }
 
     #[inline]
     fn size(&self) -> taffy::Size<taffy::Dimension> {
         let position_styles = self.style.get_position();
-        self.size(taffy::Size {
-            width: convert::dimension(&position_styles.width),
-            height: if convert::is_table_cell(&self.style) {
-                taffy::style_helpers::auto()
-            } else {
-                convert::dimension(&position_styles.height)
-            },
-        })
+        self.size(
+            taffy::Size {
+                width: convert::dimension(&position_styles.width),
+                height: if convert::is_table_cell(&self.style) {
+                    taffy::style_helpers::auto()
+                } else {
+                    convert::dimension(&position_styles.height)
+                },
+            }
+            .map(|value| value.in_layout_units(self.device_scale)),
+        )
     }
 
     #[inline]
     fn min_size(&self) -> taffy::Size<taffy::LengthPercentageAuto> {
         let position_styles = self.style.get_position();
-        self.size(taffy::Size {
-            width: convert::min_size(&position_styles.min_width),
-            height: if convert::is_table_cell(&self.style) {
-                let height = convert::dimension(&position_styles.height);
-                if height.tag() == taffy::CompactLength::LENGTH_TAG {
-                    taffy::style_helpers::length(height.value())
+        self.size(
+            taffy::Size {
+                width: convert::min_size(&position_styles.min_width),
+                height: if convert::is_table_cell(&self.style) {
+                    let height = convert::dimension(&position_styles.height);
+                    if height.tag() == taffy::CompactLength::LENGTH_TAG {
+                        taffy::style_helpers::length(height.value())
+                    } else {
+                        taffy::style_helpers::auto()
+                    }
                 } else {
-                    taffy::style_helpers::auto()
-                }
-            } else {
-                convert::min_size(&position_styles.min_height)
-            },
-        })
+                    convert::min_size(&position_styles.min_height)
+                },
+            }
+            .map(|value| value.in_layout_units(self.device_scale)),
+        )
     }
 
     #[inline]
     fn max_size(&self) -> taffy::Size<taffy::LengthPercentageAuto> {
         let position_styles = self.style.get_position();
-        self.size(taffy::Size {
-            width: convert::max_size(&position_styles.max_width),
-            height: convert::max_size(&position_styles.max_height),
-        })
+        self.size(
+            taffy::Size {
+                width: convert::max_size(&position_styles.max_width),
+                height: convert::max_size(&position_styles.max_height),
+            }
+            .map(|value| value.in_layout_units(self.device_scale)),
+        )
     }
 
     #[inline]
@@ -311,12 +323,15 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
     #[inline]
     fn margin(&self) -> taffy::Rect<taffy::LengthPercentageAuto> {
         let margin_styles = self.style.get_margin();
-        self.rect(taffy::Rect {
-            left: convert::margin(&margin_styles.margin_left),
-            right: convert::margin(&margin_styles.margin_right),
-            top: convert::margin(&margin_styles.margin_top),
-            bottom: convert::margin(&margin_styles.margin_bottom),
-        })
+        self.rect(
+            taffy::Rect {
+                left: convert::margin(&margin_styles.margin_left),
+                right: convert::margin(&margin_styles.margin_right),
+                top: convert::margin(&margin_styles.margin_top),
+                bottom: convert::margin(&margin_styles.margin_bottom),
+            }
+            .map(|value| value.in_layout_units(self.device_scale)),
+        )
     }
 
     #[inline]
@@ -332,19 +347,25 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
                         .resolve_or_zero(Some(basis), convert::resolve_calc_value),
                 )
             };
-            return self.rect(taffy::Rect {
-                left: resolve(&padding_styles.padding_left.0),
-                right: resolve(&padding_styles.padding_right.0),
-                top: resolve(&padding_styles.padding_top.0),
-                bottom: resolve(&padding_styles.padding_bottom.0),
-            });
+            return self.rect(
+                taffy::Rect {
+                    left: resolve(&padding_styles.padding_left.0),
+                    right: resolve(&padding_styles.padding_right.0),
+                    top: resolve(&padding_styles.padding_top.0),
+                    bottom: resolve(&padding_styles.padding_bottom.0),
+                }
+                .map(|value| value.in_layout_units(self.device_scale)),
+            );
         }
-        self.rect(taffy::Rect {
-            left: convert::length_percentage(&padding_styles.padding_left.0),
-            right: convert::length_percentage(&padding_styles.padding_right.0),
-            top: convert::length_percentage(&padding_styles.padding_top.0),
-            bottom: convert::length_percentage(&padding_styles.padding_bottom.0),
-        })
+        self.rect(
+            taffy::Rect {
+                left: convert::length_percentage(&padding_styles.padding_left.0),
+                right: convert::length_percentage(&padding_styles.padding_right.0),
+                top: convert::length_percentage(&padding_styles.padding_top.0),
+                bottom: convert::length_percentage(&padding_styles.padding_bottom.0),
+            }
+            .map(|value| value.in_layout_units(self.device_scale)),
+        )
     }
 
     #[inline]
@@ -593,6 +614,7 @@ impl<T: Deref<Target = ComputedValues>> taffy::FlexboxContainerStyle for TaffySt
             width: convert::gap(&position_styles.column_gap),
             height: convert::gap(&position_styles.row_gap),
         }
+        .map(|value| value.in_layout_units(self.device_scale))
     }
 
     #[inline]
@@ -631,6 +653,7 @@ impl<T: Deref<Target = ComputedValues>> taffy::FlexboxItemStyle for TaffyStyloSt
     #[inline]
     fn flex_basis(&self) -> taffy::Dimension {
         convert::flex_basis(&self.style.get_position().flex_basis)
+            .in_layout_units(self.device_scale)
     }
 
     #[inline]
@@ -929,6 +952,7 @@ impl<T: Deref<Target = ComputedValues>> taffy::GridContainerStyle for TaffyStylo
             width: convert::gap(&position_styles.column_gap),
             height: convert::gap(&position_styles.row_gap),
         }
+        .map(|value| value.in_layout_units(self.device_scale))
     }
 
     #[inline]

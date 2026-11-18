@@ -179,6 +179,53 @@ pub fn margin(val: &stylo::MarginVal) -> taffy::LengthPercentageAuto {
     }
 }
 
+pub fn layout_unit_px(px: f32, scale: f32) -> f32 {
+    if !px.is_finite() || !scale.is_finite() || scale <= 0.0 {
+        return px;
+    }
+    let steps = scale * 64.0;
+    let units = px * steps;
+    let slack = units.abs() * 4.0 * f32::EPSILON;
+    (units.abs() + slack).floor().copysign(units) / steps
+}
+
+pub trait InLayoutUnits: Sized {
+    fn in_layout_units(self, scale: f32) -> Self;
+}
+
+impl InLayoutUnits for taffy::LengthPercentage {
+    fn in_layout_units(self, scale: f32) -> Self {
+        let raw = self.into_raw();
+        if raw.tag() == CompactLength::LENGTH_TAG {
+            Self::length(layout_unit_px(raw.value(), scale))
+        } else {
+            self
+        }
+    }
+}
+
+impl InLayoutUnits for taffy::LengthPercentageAuto {
+    fn in_layout_units(self, scale: f32) -> Self {
+        let raw = self.into_raw();
+        if raw.tag() == CompactLength::LENGTH_TAG {
+            Self::length(layout_unit_px(raw.value(), scale))
+        } else {
+            self
+        }
+    }
+}
+
+impl InLayoutUnits for taffy::Dimension {
+    fn in_layout_units(self, scale: f32) -> Self {
+        let raw = self.into_raw();
+        if raw.tag() == CompactLength::LENGTH_TAG {
+            Self::length(layout_unit_px(raw.value(), scale))
+        } else {
+            self
+        }
+    }
+}
+
 pub fn device_border_px(px: f32, scale: f32) -> f32 {
     if px <= 0.0 || !scale.is_finite() || scale <= 0.0 {
         return px;
@@ -1004,30 +1051,35 @@ pub fn to_taffy_style(style: &stylo::ComputedValues, scale: f32) -> taffy::Style
         size: taffy::Size {
             width: self::dimension(&pos.width),
             height: self::dimension(&pos.height),
-        },
+        }
+        .map(|value| value.in_layout_units(scale)),
         min_size: taffy::Size {
             width: self::min_size(&pos.min_width),
             height: self::min_size(&pos.min_height),
-        },
+        }
+        .map(|value| value.in_layout_units(scale)),
         max_size: taffy::Size {
             width: self::max_size(&pos.max_width),
             height: self::max_size(&pos.max_height),
-        },
+        }
+        .map(|value| value.in_layout_units(scale)),
         aspect_ratio: self::aspect_ratio(pos.aspect_ratio),
 
-        inset: self::inset_rect(style),
+        inset: self::inset_rect(style).map(|value| value.in_layout_units(scale)),
         margin: taffy::Rect {
             left: self::margin(&margin.margin_left),
             right: self::margin(&margin.margin_right),
             top: self::margin(&margin.margin_top),
             bottom: self::margin(&margin.margin_bottom),
-        },
+        }
+        .map(|value| value.in_layout_units(scale)),
         padding: taffy::Rect {
             left: self::length_percentage(&padding.padding_left.0),
             right: self::length_percentage(&padding.padding_right.0),
             top: self::length_percentage(&padding.padding_top.0),
             bottom: self::length_percentage(&padding.padding_bottom.0),
-        },
+        }
+        .map(|value| value.in_layout_units(scale)),
         border: taffy::Rect {
             left: self::border(&border.border_left_width, border.border_left_style, scale),
             right: self::border(&border.border_right_width, border.border_right_style, scale),
@@ -1044,7 +1096,8 @@ pub fn to_taffy_style(style: &stylo::ComputedValues, scale: f32) -> taffy::Style
         gap: taffy::Size {
             width: self::gap(&pos.column_gap),
             height: self::gap(&pos.row_gap),
-        },
+        }
+        .map(|value| value.in_layout_units(scale)),
 
         // Alignment
         #[cfg(any(feature = "flexbox", feature = "block", feature = "grid"))]
@@ -1085,7 +1138,7 @@ pub fn to_taffy_style(style: &stylo::ComputedValues, scale: f32) -> taffy::Style
         #[cfg(feature = "flexbox")]
         flex_shrink: pos.flex_shrink.0,
         #[cfg(feature = "flexbox")]
-        flex_basis: self::flex_basis(&pos.flex_basis),
+        flex_basis: self::flex_basis(&pos.flex_basis).in_layout_units(scale),
 
         // Grid
         #[cfg(feature = "grid")]
