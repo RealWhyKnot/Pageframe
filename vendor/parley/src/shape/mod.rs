@@ -469,14 +469,10 @@ impl<'a, 'b, B: Brush> parley_engine::FontSelector for FontSelector<'a, 'b, B> {
     }
 }
 
-/// Just query for any generic family's font from the font collection.
-///
-/// This sets generic families on `query`, so callers need to make sure to set families back again.
-/// This returns `None` if it doesn't find any fonts, but note this only checks generic families.
-///
-/// This can be used to have a font at hand for shaping, in case more sophisticated font querying
-/// returns no fonts.
-fn fallback_script(script: fontique::Script, language: Option<&fontique::Language>) -> fontique::Script {
+fn fallback_script(
+    script: fontique::Script,
+    language: Option<&fontique::Language>,
+) -> fontique::Script {
     let is_kana = [*b"Hira", *b"Kana"].contains(&script.to_bytes());
     let han_locale = language.is_some_and(|language| matches!(language.language(), "ko" | "zh"));
     if is_kana && han_locale {
@@ -486,6 +482,13 @@ fn fallback_script(script: fontique::Script, language: Option<&fontique::Languag
     }
 }
 
+/// Just query for any generic family's font from the font collection.
+///
+/// This sets generic families on `query`, so callers need to make sure to set families back again.
+/// This returns `None` if it doesn't find any fonts, but note this only checks generic families.
+///
+/// This can be used to have a font at hand for shaping, in case more sophisticated font querying
+/// returns no fonts.
 fn any_font(query: &mut Query<'_>) -> Option<QueryFont> {
     let mut found = None;
 
