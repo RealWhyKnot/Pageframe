@@ -334,9 +334,10 @@ impl<'a, 'b, B: Brush> parley_engine::FontSelector for FontSelector<'a, 'b, B> {
         segment: &parley_engine::itemize::Segment,
         options: &ShapeOptions<'_>,
     ) {
+        let language = options.language.as_ref();
         self.query.set_fallbacks(fontique::FallbackKey::new(
-            segment.script,
-            options.language.as_ref(),
+            fallback_script(segment.script, language),
+            language,
         ));
         self.query_yields_font = None;
     }
@@ -475,6 +476,16 @@ impl<'a, 'b, B: Brush> parley_engine::FontSelector for FontSelector<'a, 'b, B> {
 ///
 /// This can be used to have a font at hand for shaping, in case more sophisticated font querying
 /// returns no fonts.
+fn fallback_script(script: fontique::Script, language: Option<&fontique::Language>) -> fontique::Script {
+    let is_kana = [*b"Hira", *b"Kana"].contains(&script.to_bytes());
+    let han_locale = language.is_some_and(|language| matches!(language.language(), "ko" | "zh"));
+    if is_kana && han_locale {
+        fontique::Script::from_bytes(*b"Hani")
+    } else {
+        script
+    }
+}
+
 fn any_font(query: &mut Query<'_>) -> Option<QueryFont> {
     let mut found = None;
 

@@ -49,6 +49,16 @@ fn japanese_text_falls_back_to_the_fonts_chrome_uses() {
 }
 
 #[test]
+fn kana_falls_back_by_the_page_language_like_chrome() {
+    let langs = ["ko", "zh-CN", "zh-TW", "zh-HK", "ja", "en", ""];
+    let texts = ["かなカナ"; 7];
+    assert_eq!(
+        heights_in(&langs, &texts),
+        [23.0, 23.0, 23.0, 23.0, 28.0, 28.0, 28.0]
+    );
+}
+
+#[test]
 fn han_falls_back_by_the_page_language_like_chrome() {
     let langs = [
         "ja", "ko", "zh-TW", "zh-HK", "zh-MO", "zh-SG", "zh-CN", "zh-Hant", "en",
