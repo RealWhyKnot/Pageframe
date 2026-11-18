@@ -1,4 +1,5 @@
 use super::LayoutPassState;
+use style::values::computed::CSSPixelLength;
 #[cfg(not(feature = "writing-mode"))]
 use taffy::TraversePartialTree;
 use taffy::{Layout, NodeId, Point, Rect, RoundTree, ScrollableOverflow};
@@ -97,9 +98,14 @@ pub(crate) fn snap_layout(
     parent: Point<f32>,
     snap: DeviceSnap,
 ) -> Point<f32> {
+    let size = unrounded.size;
     let x = parent.x + unrounded.location.x;
     let y = parent.y + unrounded.location.y;
-    let size = unrounded.size;
+    let (x, y) = if starts_a_snap_root(tree.node_from_id(node_id), size) {
+        (snap.round(x), snap.round(y))
+    } else {
+        (x, y)
+    };
 
     let mut layout = unrounded;
     layout.location.x = snap.between(parent.x, x);
@@ -162,6 +168,20 @@ pub(crate) fn snap_layout(
         },
     );
     Point { x, y }
+}
+
+fn starts_a_snap_root(node: &crate::Node, size: taffy::Size<f32>) -> bool {
+    let Some(styles) = node.primary_styles() else {
+        return false;
+    };
+    let reference_box = euclid::default::Rect::new(
+        euclid::default::Point2D::new(CSSPixelLength::new(0.0), CSSPixelLength::new(0.0)),
+        euclid::default::Size2D::new(
+            CSSPixelLength::new(size.width),
+            CSSPixelLength::new(size.height),
+        ),
+    );
+    crate::transform_goes_beyond_a_shift(styles.get_box(), reference_box)
 }
 
 #[cfg(test)]

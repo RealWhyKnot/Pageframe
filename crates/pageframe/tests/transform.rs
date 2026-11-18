@@ -244,3 +244,57 @@ fn rotation_keeps_its_origin_when_the_display_scale_changes() {
         "{rows:?}"
     );
 }
+
+fn scaled_box_edges(style: &str, scale: u16) -> [f64; 4] {
+    let page = format!(
+        "<html><body style=\"margin:0;background:white\"><div style=\"position:absolute;\
+         background:rgb(0,0,255);{style}\"></div></body></html>"
+    );
+    let buffer = render_at_scale(&mut open(App::new((), &page)), scale);
+    let width = usize::try_from(WIDTH * u32::from(scale)).expect("test width fits in usize");
+    let height = buffer.len() / 4 / width;
+    let cover = |x: usize, y: usize| f64::from(255 - buffer[(y * width + x) * 4]) / 255.0;
+    let span = |values: Vec<f64>| {
+        let lit: Vec<usize> = (0..values.len()).filter(|&at| values[at] > 0.02).collect();
+        let first = *lit.first().expect("the box is painted");
+        let last = *lit.last().expect("the box is painted");
+        let first_at = f64::from(u32::try_from(first).expect("pixel index fits in u32"));
+        let last_at = f64::from(u32::try_from(last).expect("pixel index fits in u32"));
+        (first_at + 1.0 - values[first], last_at + values[last])
+    };
+    let columns = (0..width).map(|x| (0..height).map(|y| cover(x, y)).fold(0.0, f64::max));
+    let rows = (0..height).map(|y| (0..width).map(|x| cover(x, y)).fold(0.0, f64::max));
+    let (left, right) = span(columns.collect());
+    let (top, bottom) = span(rows.collect());
+    [left, top, right, bottom]
+}
+
+#[test]
+fn scaled_boxes_snap_from_a_whole_pixel_origin_like_chrome() {
+    let cases = [
+        (
+            "left:30.3px;top:20.4px;width:20.4px;height:10.4px;transform:scale(3)",
+            [
+                [9.608, 9.608, 69.612, 39.612],
+                [20.2, 20.2, 143.204, 83.204],
+            ],
+        ),
+        (
+            "left:60.6px;top:40.7px;width:20.7px;height:10.7px;transform:scale(3)",
+            [
+                [40.31, 30.31, 103.314, 63.314],
+                [79.608, 59.608, 202.612, 122.612],
+            ],
+        ),
+    ];
+    for (style, chrome) in cases {
+        for (scale, expected) in [1, 2].into_iter().zip(chrome) {
+            let found = scaled_box_edges(style, scale);
+            let close = found
+                .iter()
+                .zip(expected)
+                .all(|(edge, want)| (edge - want).abs() < 0.03);
+            assert!(close, "{style} at {scale}x: {found:?} vs {expected:?}");
+        }
+    }
+}

@@ -443,16 +443,20 @@ impl Node {
         }
     }
 
+    pub fn transform_reference_box(&self) -> euclid::default::Rect<CSSPixelLength> {
+        let size = self.layout_data().unsnapped.size;
+        Rect::new(
+            Point2D::new(CSSPixelLength::new(0.0), CSSPixelLength::new(0.0)),
+            Size2D::new(
+                CSSPixelLength::new(size.width),
+                CSSPixelLength::new(size.height),
+            ),
+        )
+    }
+
     pub fn set_transform(&mut self, scale: f32) -> Option<Affine> {
         let transform = self.primary_styles().and_then(|s| {
-            let size = self.final_layout().size;
-            let reference_box = Rect::new(
-                Point2D::new(CSSPixelLength::new(0.0), CSSPixelLength::new(0.0)),
-                Size2D::new(
-                    CSSPixelLength::new(size.width),
-                    CSSPixelLength::new(size.height),
-                ),
-            );
+            let reference_box = self.transform_reference_box();
             // Resolve the transform in CSS pixels, then convert it to device-pixel space
             // (S * T * S^-1): translation components are scaled, linear components are not.
             crate::resolve_2d_transform(s.get_box(), reference_box).map(|t| {

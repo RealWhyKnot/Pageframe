@@ -50,6 +50,14 @@ pub fn resolve_projective_transform(
     has_perspective(&matrix).then_some(matrix)
 }
 
+pub fn transform_goes_beyond_a_shift(
+    box_styles: &BoxStyleStruct,
+    reference_box: Rect<CSSPixelLength>,
+) -> bool {
+    resolve_3d_transform(box_styles, reference_box)
+        .is_some_and(|matrix| matrix != Transform3D::translation(matrix.m41, matrix.m42, 0.0))
+}
+
 fn has_perspective(m: &Transform3D<f64>) -> bool {
     m.m14 != 0.0 || m.m24 != 0.0
 }

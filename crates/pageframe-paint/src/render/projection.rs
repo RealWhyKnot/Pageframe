@@ -1,10 +1,9 @@
 use super::PageframeDomPainter;
 use anyrender::{PaintScene, Scene};
-use euclid::default::{Point2D, Rect as EuclidRect, Size2D, Transform3D};
+use euclid::default::Transform3D;
 use kurbo::{Affine, BezPath, Point, Rect, Shape, Vec2};
 use pageframe_dom::{Node, NodeId};
 use peniko::{BlendMode, Color, Compose, Fill, Mix};
-use style::values::computed::CSSPixelLength;
 
 const MIN_W: f64 = 1.0 / 1024.0;
 const MAX_ERROR: f64 = 0.25;
@@ -196,15 +195,10 @@ impl PageframeDomPainter<'_, '_> {
     pub(super) fn projection(&self, node: &Node) -> Option<Projection> {
         node.transform().as_ref()?;
         let styles = node.primary_styles()?;
-        let size = node.final_layout().size;
-        let reference_box = EuclidRect::new(
-            Point2D::new(CSSPixelLength::new(0.0), CSSPixelLength::new(0.0)),
-            Size2D::new(
-                CSSPixelLength::new(size.width),
-                CSSPixelLength::new(size.height),
-            ),
-        );
-        let matrix = pageframe_dom::resolve_projective_transform(styles.get_box(), reference_box)?;
+        let matrix = pageframe_dom::resolve_projective_transform(
+            styles.get_box(),
+            node.transform_reference_box(),
+        )?;
         Some(Projection {
             matrix,
             scale: self.scale,
