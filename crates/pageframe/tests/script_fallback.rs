@@ -4,10 +4,15 @@ use pageframe::App;
 use pageframe_test_harness::Harness;
 
 fn heights(texts: &[&str]) -> Vec<f64> {
+    heights_in(&vec![""; texts.len()], texts)
+}
+
+fn heights_in(langs: &[&str], texts: &[&str]) -> Vec<f64> {
     let rows: String = texts
         .iter()
+        .zip(langs)
         .enumerate()
-        .map(|(index, text)| format!("<div id=t{index}>{text}</div>"))
+        .map(|(index, (text, lang))| format!("<div id=t{index} lang=\"{lang}\">{text}</div>"))
         .collect();
     let html = format!(
         "<!doctype html><style>html,body{{margin:0;font:16px Arial}}\
@@ -40,4 +45,14 @@ fn japanese_text_falls_back_to_the_fonts_chrome_uses() {
         "日本語日本語日かな」。",
     ];
     assert_eq!(heights(&texts), [54.0, 44.0, 54.0, 49.0]);
+}
+
+#[test]
+fn han_falls_back_by_the_page_language_like_chrome() {
+    let langs = ["ja", "ko", "zh-TW", "zh-HK", "zh-CN", "zh-Hant", "en"];
+    let texts = ["漢字漢字"; 7];
+    assert_eq!(
+        heights_in(&langs, &texts),
+        [28.0, 23.0, 23.0, 23.0, 23.0, 23.0, 23.0]
+    );
 }
