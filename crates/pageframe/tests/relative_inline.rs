@@ -21,9 +21,9 @@ const IDS: [&str; 8] = ["rel", "kid", "in1", "rgt", "pct", "rtl", "wrap", "parki
 type Ratio = (u16, u16);
 type Rects = Vec<(&'static str, [f64; 4])>;
 
-fn rects_in_units(harness: &mut Harness<Page<()>>) -> Rects {
+fn rects_in_units(harness: &mut Harness<Page<()>>, ids: &[&'static str]) -> Rects {
     let doc = harness.base_mut();
-    IDS.iter()
+    ids.iter()
         .flat_map(|id| {
             let node = doc
                 .query_selector(&format!("#{id}"))
@@ -103,7 +103,7 @@ fn relative_inline_rects_move_with_their_offset_like_chrome() {
     let mut wrong = Vec::new();
     for (ratio, chrome) in chrome_rects() {
         render_at(&mut harness, ratio);
-        let found = rects_in_units(&mut harness);
+        let found = rects_in_units(&mut harness, &IDS);
         let ids: Vec<&str> = found.iter().map(|(id, _)| *id).collect();
         let expected: Vec<&str> = chrome.iter().map(|(id, _)| *id).collect();
         assert_eq!(ids, expected, "fragment count at {ratio:?}");
@@ -167,4 +167,29 @@ fn relative_inline_offsets_measure_from_the_first_fragment_like_chrome() {
         .map(|(id, offset, parent)| (*id, *offset, parent.as_str()))
         .collect();
     assert_eq!(found, chrome);
+}
+
+#[test]
+fn vertical_percentages_need_a_definite_height_like_chrome() {
+    let page = "<!doctype html><style>html,body{margin:0;font:14px Arial}p{margin:0;width:200px;height:50%}</style>\
+<div style=\"width:200px;height:100px\">ab<span id=fix style=\"position:relative;top:10%;left:5%\">cd</span></div>\
+<div style=\"height:200px\"><p>ab<span id=pcth style=\"position:relative;top:10%\">cd</span></p></div>\
+<div><p>ab<span id=autoh style=\"position:relative;top:10%;bottom:5px\">cd</span></p></div>\
+<div style=\"width:200px;height:100px\">ab<span id=bot style=\"position:relative;bottom:10%\">cd</span></div>";
+    let mut harness = open(App::new((), page));
+    render(&mut harness);
+    let found: Vec<(&str, [f64; 2])> =
+        rects_in_units(&mut harness, &["fix", "pcth", "autoh", "bot"])
+            .into_iter()
+            .map(|(id, [left, top, _, _])| (id, [left, top]))
+            .collect();
+    assert_eq!(
+        found,
+        [
+            ("fix", [1637.0, 640.0]),
+            ("pcth", [997.0, 7040.0]),
+            ("autoh", [997.0, 18880.0]),
+            ("bot", [997.0, 19584.0]),
+        ]
+    );
 }

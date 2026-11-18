@@ -1794,20 +1794,35 @@ impl Node {
     fn inset_basis(&self) -> crate::util::InsetBasis {
         let layout = self.unrounded_layout();
         let content = layout.content_box_size();
-        let fixed_height = self.primary_styles().is_some_and(|styles| {
-            matches!(
-                &styles.get_position().height,
-                style::values::computed::Size::LengthPercentage(value) if value.0.to_length().is_some()
-            )
-        });
         let scale = self
             .element_data()
             .and_then(|data| data.inline_layout_data.as_ref())
             .map_or(1.0, |inline| inline.layout.scale());
         crate::util::InsetBasis {
             width: content.width,
-            height: fixed_height.then_some(content.height),
+            height: self.has_definite_height().then_some(content.height),
             scale,
+        }
+    }
+
+    fn has_definite_height(&self) -> bool {
+        let mut node = self;
+        loop {
+            let Some(styles) = node.primary_styles() else {
+                return false;
+            };
+            let style::values::computed::Size::LengthPercentage(value) =
+                &styles.get_position().height
+            else {
+                return false;
+            };
+            if value.0.to_length().is_some() {
+                return true;
+            }
+            match node.containing_block() {
+                Some(id) => node = self.with(id),
+                None => return true,
+            }
         }
     }
 
@@ -1829,8 +1844,8 @@ impl Node {
         while let Some(id) = current.filter(|id| *id != root.id) {
             let node = self.with(id);
             if let Some(styles) = node.primary_styles() {
-                let (x, y) = crate::util::inline_relative_offset(&styles, basis);
-                shift = (shift.0 + x, shift.1 + y);
+                let (across, down) = crate::util::inline_relative_offset(&styles, basis);
+                shift = (shift.0 + across, shift.1 + down);
             }
             current = node.parent;
         }
