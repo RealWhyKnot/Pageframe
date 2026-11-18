@@ -1168,6 +1168,14 @@ struct OwnBox {
     transform: Affine,
 }
 
+#[derive(Clone, Copy)]
+struct InlinePass<'a> {
+    fragments: &'a [crate::text::InlineFragment],
+    runs: &'a [crate::text::GroupedRun],
+    visible_lines: usize,
+    ellipsis: Option<LineEllipsis>,
+}
+
 impl ElementCx<'_, '_> {
     pub(crate) fn is_hidden(&self) -> bool {
         self.style.get_inherited_box().visibility != StyloVisibility::Visible
@@ -1667,8 +1675,23 @@ impl ElementCx<'_, '_> {
             }
             fragments
                 .retain(|fragment| !crate::text::is_invisible(self.context.dom, fragment.node_id));
-            let cut = (visible_lines, ellipsis);
-            self.draw_inline_group(scene, transform, &fragments, None, cut);
+            let runs = if self.context.selection_ranges.contains_key(&self.node.id) {
+                crate::text::grouped_runs(
+                    &text_layout.layout,
+                    self.context.dom,
+                    self.node.id,
+                    self.scale,
+                )
+            } else {
+                Vec::new()
+            };
+            let pass = InlinePass {
+                fragments: &fragments,
+                runs: &runs,
+                visible_lines,
+                ellipsis,
+            };
+            self.draw_inline_group(scene, transform, pass, None);
             for (group, bounds) in groups {
                 let Some(opacity) = self
                     .context
@@ -1689,7 +1712,7 @@ impl ElementCx<'_, '_> {
                     &bounds.inflate(reach, reach),
                     None,
                     None,
-                    |scene| self.draw_inline_group(scene, transform, &fragments, Some(group), cut),
+                    |scene| self.draw_inline_group(scene, transform, pass, Some(group)),
                 );
             }
         }
@@ -1734,10 +1757,15 @@ impl ElementCx<'_, '_> {
         &self,
         scene: &mut impl PaintScene,
         transform: Affine,
-        fragments: &[crate::text::InlineFragment],
+        pass: InlinePass<'_>,
         group: Option<NodeId>,
-        (visible_lines, ellipsis): (usize, Option<LineEllipsis>),
     ) {
+        let InlinePass {
+            fragments,
+            runs,
+            visible_lines,
+            ellipsis,
+        } = pass;
         let Some(text_layout) = self.element.inline_layout_data.as_ref() else {
             return;
         };
@@ -1745,12 +1773,6 @@ impl ElementCx<'_, '_> {
             self.draw_inline_fragment(scene, transform, fragment);
         }
         if let Some(&range) = self.context.selection_ranges.get(&self.node.id) {
-            let runs = crate::text::grouped_runs(
-                &text_layout.layout,
-                self.context.dom,
-                self.node.id,
-                self.scale,
-            );
             crate::text::draw_text_selection(
                 scene,
                 &text_layout.layout,
@@ -1758,7 +1780,7 @@ impl ElementCx<'_, '_> {
                 crate::text::SelectionPaint {
                     range,
                     visible_lines,
-                    runs: &runs,
+                    runs,
                     group,
                 },
             );

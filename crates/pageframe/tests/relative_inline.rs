@@ -246,17 +246,10 @@ fn a_visible_child_of_a_hidden_relative_span_still_paints() {
 
 #[test]
 fn the_selection_moves_with_a_relative_span_and_stays_over_its_background() {
-    let page = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial;color:#fff}</style>\
-<div>ab<span style=\"position:relative;left:20px;background:#0f0\">cd</span></div>";
-    let mut harness = open(App::new((), page));
-    let mut doc = harness.base_mut();
-    let div = doc
-        .query_selector("div")
-        .expect("valid selector")
-        .expect("the div exists");
-    doc.set_text_selection(div, 0, div, usize::MAX);
-    drop(doc);
-    let frame = render(&mut harness);
+    let frame = selected_frame(
+        "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial;color:#fff}</style>\
+<div>ab<span style=\"position:relative;left:20px;background:#0f0\">cd</span></div>",
+    );
     let highlight = [180, 213, 255, 255];
     assert_eq!(
         pixel(&frame, 2, 1),
@@ -273,4 +266,43 @@ fn the_selection_moves_with_a_relative_span_and_stays_over_its_background() {
         [255, 255, 255, 255],
         "no highlight where the span sat"
     );
+}
+
+fn selected_frame(page: &str) -> Vec<u8> {
+    let mut harness = open(App::new((), page));
+    let mut doc = harness.base_mut();
+    let div = doc
+        .query_selector("div")
+        .expect("valid selector")
+        .expect("the div exists");
+    doc.set_text_selection(div, 0, div, usize::MAX);
+    drop(doc);
+    render(&mut harness)
+}
+
+fn highlighted_rows(frame: &[u8], column: usize) -> usize {
+    (0..40)
+        .filter(|row| pixel(frame, column, *row) == [180, 213, 255, 255])
+        .count()
+}
+
+#[test]
+fn text_under_display_contents_takes_the_relative_highlight_along() {
+    let frame = selected_frame(
+        "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial;color:#fff}</style>\
+<div>ab<span style=\"position:relative;left:30px\">c<span style=\"display:contents\">d</span></span></div>",
+    );
+    assert_eq!(highlighted_rows(&frame, 26), 0, "where the text sat");
+    assert!(highlighted_rows(&frame, 56) > 0, "where the text moved");
+}
+
+#[test]
+fn hidden_text_gets_no_highlight() {
+    let frame = selected_frame(
+        "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial;color:#fff}</style>\
+<div>ab<span style=\"visibility:hidden\">xx</span>cd<span style=\"position:relative;left:20px;visibility:hidden\">yy</span></div>",
+    );
+    assert!(highlighted_rows(&frame, 5) > 0, "visible text is selected");
+    assert_eq!(highlighted_rows(&frame, 22), 0, "the hidden span");
+    assert_eq!(highlighted_rows(&frame, 70), 0, "the moved hidden span");
 }

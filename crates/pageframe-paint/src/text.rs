@@ -1750,14 +1750,11 @@ pub(crate) fn stroke_text<'a>(
     }
 }
 
-/// Draw selection highlight rectangles for the given byte range in a layout.
-/// Uses Parley's Selection type for accurate geometry calculation. Lines from
-/// `visible_lines` on (those hidden by `line-clamp`) are not highlighted.
 pub(crate) struct GroupedRun {
     line: usize,
     left: f64,
     right: f64,
-    group: NodeId,
+    group: Option<NodeId>,
     shift: Vec2,
 }
 
@@ -1773,30 +1770,51 @@ pub(crate) fn grouped_runs(
             let PositionedLayoutItem::GlyphRun(glyph_run) = item else {
                 continue;
             };
-            let ancestors = inline_ancestors(doc, Some(glyph_run.style().brush.id), inline_root_id);
-            let outermost = |pick: fn(&InlineAncestor) -> bool| {
-                ancestors
-                    .iter()
-                    .rev()
-                    .find(|ancestor| pick(ancestor))
-                    .map(|ancestor| ancestor.node_id)
-            };
-            let Some(group) = outermost(|ancestor| ancestor.is_faded)
-                .or_else(|| outermost(|ancestor| ancestor.is_positioned))
-            else {
-                continue;
-            };
-            let shift = ancestors
-                .iter()
-                .fold(Vec2::ZERO, |sum, ancestor| sum + ancestor.shift);
+            let owner = glyph_run.style().brush.id;
             let left = f64::from(glyph_run.offset());
-            runs.push(GroupedRun {
-                line: line_index,
-                left,
-                right: left + f64::from(glyph_run.advance()),
-                group,
-                shift: shift * scale,
-            });
+            let right = left + f64::from(glyph_run.advance());
+            if is_invisible(doc, owner) {
+                runs.push(GroupedRun {
+                    line: line_index,
+                    left,
+                    right,
+                    group: None,
+                    shift: Vec2::ZERO,
+                });
+                continue;
+            }
+            let mut fade_group = None;
+            let mut move_group = None;
+            let mut shift = Vec2::ZERO;
+            let mut next_id = Some(owner);
+            while let Some(node) = next_id
+                .filter(|node_id| *node_id != inline_root_id)
+                .and_then(|node_id| doc.get_node(node_id))
+            {
+                next_id = node.parent;
+                let Some(styles) = node.primary_styles() else {
+                    continue;
+                };
+                if styles.get_box().display != Display::Inline {
+                    continue;
+                }
+                shift += relative_shift(node);
+                if styles.get_effects().opacity < 1.0 {
+                    fade_group = Some(node.id);
+                }
+                if is_positioned(&styles) {
+                    move_group = Some(node.id);
+                }
+            }
+            if let Some(group) = fade_group.or(move_group) {
+                runs.push(GroupedRun {
+                    line: line_index,
+                    left,
+                    right,
+                    group: Some(group),
+                    shift: shift * scale,
+                });
+            }
         }
     }
     runs
@@ -1809,6 +1827,9 @@ pub(crate) struct SelectionPaint<'a> {
     pub(crate) group: Option<NodeId>,
 }
 
+/// Draw selection highlight rectangles for the given byte range in a layout.
+/// Uses Parley's Selection type for accurate geometry calculation. Lines from
+/// `visible_lines` on (those hidden by `line-clamp`) are not highlighted.
 pub(crate) fn draw_text_selection(
     scene: &mut impl PaintScene,
     layout: &Layout<TextBrush>,
@@ -1824,7 +1845,10 @@ pub(crate) fn draw_text_selection(
         if line_idx >= paint.visible_lines {
             return;
         }
-        let line_runs = paint.runs.iter().filter(|run| run.line == line_idx);
+        let first = paint.runs.partition_point(|run| run.line < line_idx);
+        let later = paint.runs.get(first..).unwrap_or_default();
+        let count = later.partition_point(|run| run.line == line_idx);
+        let line_runs = later.iter().take(count);
         let mut fill = |left: f64, right: f64, shift: Vec2| {
             if left < right {
                 let rect = kurbo::Rect::new(left, rect.y0, right, rect.y1);
@@ -1845,7 +1869,7 @@ pub(crate) fn draw_text_selection(
                 fill(left, rect.x1, Vec2::ZERO);
             }
             Some(group) => {
-                for run in line_runs.filter(|run| run.group == group) {
+                for run in line_runs.filter(|run| run.group == Some(group)) {
                     fill(rect.x0.max(run.left), rect.x1.min(run.right), run.shift);
                 }
             }
