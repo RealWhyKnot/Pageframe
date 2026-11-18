@@ -420,11 +420,26 @@ impl BaseDocument {
             return (crate::util::Point { x: pos.x, y: pos.y }, layout);
         }
 
-        let (mut pos, layout) = self.placed_physical_layout(node_id);
-        let node = &self.nodes[node_id];
-        pos.x += layout.location.x - node.scroll_offset().x as f32;
-        pos.y += layout.location.y - node.scroll_offset().y as f32;
-        (pos, layout)
+        let (_, mut layout) = self.placed_physical_layout(node_id);
+        let mut pos = Point::ZERO;
+        let mut size = layout.size;
+        let mut current = Some(node_id);
+        while let Some(id) = current {
+            let node = &self.nodes[id];
+            let location = self.placed_physical_layout(id).1.location;
+            pos.x += location.x - node.scroll_offset().x as f32;
+            pos.y += location.y - node.scroll_offset().y as f32;
+            current = node.containing_block();
+            let columns = current
+                .map(|placer| &self.nodes[placer])
+                .filter(|placer| !placer.layout_data().writing_mode.is_vertical())
+                .and_then(|placer| placer.columns());
+            if let Some(columns) = columns {
+                (pos, size) = columns.visual_box(pos, size);
+            }
+        }
+        layout.size = size;
+        (crate::util::Point { x: pos.x, y: pos.y }, layout)
     }
 
     pub(crate) fn physical_unrounded_layout(&self, node_id: crate::NodeId) -> Layout {

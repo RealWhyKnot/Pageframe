@@ -267,6 +267,25 @@ fn fallback_han_sits_on_the_strut_baseline_like_chrome() {
 }
 
 #[test]
+fn vertical_boxes_inside_columns_report_their_column_rects_like_chrome() {
+    let html = "<!doctype html><style>html,body{margin:0}\
+                .mc{columns:2;column-gap:20px;width:300px;height:100px;margin:4px}\
+                .blk{height:60px}.v{writing-mode:vertical-rl;height:50px}\
+                .v div{width:12px;height:20px;margin:3px}</style>\
+                <div class=mc><div class=blk></div><div class=blk></div>\
+                <div class=v id=v1><div id=c1></div><div id=c2></div></div></div>";
+    let mut harness = Harness::wrap(App::new((), html).page(640, 400).expect("valid selectors"));
+    harness.pump();
+    for (id, expected) in [
+        ("v1", [164.0, 39.0, 33.0, 50.0]),
+        ("c1", [182.0, 42.0, 12.0, 20.0]),
+        ("c2", [167.0, 42.0, 12.0, 20.0]),
+    ] {
+        assert_eq!(rect(&harness, id), expected, "{id}");
+    }
+}
+
+#[test]
 fn atomic_inlines_centre_on_the_vertical_baseline_like_chrome() {
     let html = "<!doctype html><style>html,body{margin:0;background:#fff;font:16px Arial}\
                 .v{float:left;height:70px;margin:4px 8px 4px 4px;writing-mode:vertical-rl}\
