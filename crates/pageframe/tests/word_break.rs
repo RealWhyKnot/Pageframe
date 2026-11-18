@@ -161,3 +161,26 @@ fn a_line_too_wide_beside_its_leading_float_drops_below_it_like_chrome() {
     assert_eq!([rects[1][0], rects[2][0]], [0.0, 0.0]);
     assert_eq!(rects[2][1] - rects[1][1], 10.0);
 }
+
+const OVERWIDE_FLOAT: &str = "<!doctype html><style>html,body{margin:0}\
+div{font:10px/10px Consolas,monospace;width:50px}b{float:left;width:80px;height:20px}</style>\
+<div id=empty><b></b><i></i></div>\
+<div id=thin><b></b><span id=nub style='display:inline-block;width:0;height:4px'></span></div>";
+
+#[test]
+fn zero_width_lines_stay_beside_a_float_wider_than_their_box_like_chrome() {
+    let mut harness = open(App::new((), OVERWIDE_FLOAT));
+    let rects = ["#empty", "#thin", "#nub"].map(|selector| {
+        let doc = harness.base_mut();
+        let id = doc
+            .query_selector(selector)
+            .expect("valid selector")
+            .expect("the element exists");
+        doc.get_client_bounding_rect(id)
+            .map(|rect| [rect.x, rect.y, rect.height])
+            .expect("the element has a box")
+    });
+    assert_eq!([rects[0][2], rects[1][2]], [0.0, 10.0]);
+    assert_eq!(rects[2][0], 80.0);
+    assert_eq!(rects[2][1] - rects[1][1], 4.0);
+}

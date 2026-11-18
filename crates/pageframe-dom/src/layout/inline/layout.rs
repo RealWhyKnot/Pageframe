@@ -439,7 +439,7 @@ fn retry_line_slot(
     let line_height = ((line.line_y_end - line.line_y_start) / scale as f64) as f32;
     let advance = (line.metrics.advance - line.metrics.hanging_advance) / scale;
 
-    if wraps && advance > slot.width + FIT_TOLERANCE + LINE_FIT_EPSILON / scale {
+    if wraps && advance > 0.0 && advance > slot.width + FIT_TOLERANCE + LINE_FIT_EPSILON / scale {
         let next_slot =
             block_ctx.find_content_slot(line_y, line_height, Clear::None, Some(segment_id));
         if next_slot.segment_id.is_some() {
@@ -1420,8 +1420,10 @@ impl LayoutPassState<'_> {
                             has_active_floats = line_slot.segment_id.is_some();
                             set_line_slot(state, &line_slot, scale, slack);
 
-                            // The float is already placed and the line can't be retried.
-                            line_start_state = None;
+                            if !opens_line {
+                                // The float is already placed and the line can't be retried.
+                                line_start_state = None;
+                            }
                         }
 
                         // Floats are out-of-flow and must not contribute to the line's height.
