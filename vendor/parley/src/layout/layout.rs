@@ -285,7 +285,9 @@ impl<B: Brush> Layout<B> {
         let is_mirrored = lines
             .first()
             .zip(lines.last())
-            .is_some_and(|(first, last)| first.metrics.block_min_coord > last.metrics.block_min_coord);
+            .is_some_and(|(first, last)| {
+                first.metrics.block_min_coord > last.metrics.block_min_coord
+            });
         if offset < 0.0 && !is_mirrored {
             return Some((0, self.get(0)?));
         }
