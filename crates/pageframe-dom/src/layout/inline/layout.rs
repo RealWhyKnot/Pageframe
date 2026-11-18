@@ -1759,6 +1759,11 @@ impl LayoutPassState<'_> {
                         let mut output =
                             self.compute_child_layout(taffy::NodeId::from(ibox.id), box_inputs);
                         let size = output.size;
+                        let (span_x, span_y) = self.nodes[NodeId::from_u64(ibox.id)]
+                            .parent
+                            .map_or((0.0, 0.0), |parent| {
+                                self.nodes[parent].inline_relative_shift()
+                            });
                         let node = &mut self.nodes[NodeId::from_u64(ibox.id)];
 
                         let is_relative = position == taffy::Position::Relative;
@@ -1782,7 +1787,8 @@ impl LayoutPassState<'_> {
                             inline_position(ibox.x / scale, margin.right + size.width)
                         } else {
                             inline_position(ibox.x / scale, 0.0) + margin.left
-                        } + inset_offset.x;
+                        } + inset_offset.x
+                            + span_x;
                         // Parley positions the margin box; offset to the border box even
                         // when a negative top margin makes it extend above the margin box.
                         let margin_box_top = ibox.y / scale;
@@ -1795,7 +1801,7 @@ impl LayoutPassState<'_> {
                                 + inset_offset.y
                         } else {
                             margin_box_top + margin.top + line_box_top + inset_offset.y
-                        };
+                        } + span_y;
                         layout.padding = padding; //.map(|p| p / scale);
                         layout.border = border; //.map(|p| p / scale);
                         layout.margin = margin;

@@ -329,3 +329,21 @@ div{margin:4px 0;height:20px}</style>\
     let deepest = pixel(&frame, 18, 54);
     assert!(close(deepest, [200, 200, 200]), "{deepest:?}");
 }
+
+#[test]
+fn an_inline_block_moves_with_its_relative_span_like_chrome() {
+    let page = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}</style>\
+<div>ab<span style=\"position:relative;left:20px;top:4px\">c<span id=\"box\" \
+style=\"display:inline-block;width:10px;height:10px;background:#f00\"></span>d</span></div>";
+    let mut harness = open(App::new((), page));
+    let frame = render(&mut harness);
+    let red_rows: Vec<usize> = (0..30)
+        .filter(|row| pixel(&frame, 48, *row) == [255, 0, 0, 255])
+        .collect();
+    assert_eq!(red_rows, (7..=16).collect::<Vec<_>>());
+    assert_eq!(
+        rects_in_units(&mut harness, &["box"]),
+        vec![("box", [2725.0, 448.0, 640.0, 640.0])]
+    );
+    assert_ne!(pixel(&frame, 28, 12), [255, 0, 0, 255], "where the box sat");
+}
