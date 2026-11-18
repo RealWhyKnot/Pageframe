@@ -79,3 +79,25 @@ fn a_one_sided_margin_stays_beside_its_span_in_right_to_left_text() {
     assert!(lime[0] >= blue[blue.len() - 1] + 9);
     assert_eq!((lime, blue), placed("padding-left"));
 }
+
+#[test]
+fn a_one_sided_margin_span_still_wraps_at_the_space_after_it() {
+    let wrapped = |margins: &str| {
+        let buffer = draw(&format!(
+            "<div style=\"line-height:40px;width:50px;color:transparent\">aa \
+             <span style=\"{margins}\">bb</span> <b style=\"background:#00f\">cc</b></div>"
+        ));
+        (0..80)
+            .find_map(|down| {
+                (0..50)
+                    .find(|across| pixel(&buffer, *across, down) == BLUE)
+                    .map(|across| (across, down))
+            })
+            .expect("the blue word is drawn")
+    };
+    let both = wrapped("margin:0 9px");
+    assert_eq!(both.0, 0);
+    assert!(both.1 >= 40);
+    assert_eq!(wrapped("margin-left:9px"), both);
+    assert_eq!(wrapped("margin-right:9px"), both);
+}
