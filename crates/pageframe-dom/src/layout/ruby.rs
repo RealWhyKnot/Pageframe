@@ -353,7 +353,11 @@ impl LayoutPassState<'_> {
             y: frame.top - block_start,
         };
 
+        let baseline = baseline.map(|baseline| baseline + offset.y);
         if inputs.run_mode == RunMode::PerformLayout {
+            self.node_from_id_mut(taffy_node_id(node_id))
+                .layout_data_mut()
+                .ruby_baseline = baseline;
             for (order, placed) in placed().enumerate() {
                 let child = placed.measured.node;
                 let mut layout = Layout::with_order(u32::try_from(order).unwrap_or(u32::MAX));
@@ -374,7 +378,6 @@ impl LayoutPassState<'_> {
             }
         }
 
-        let baseline = baseline.map(|baseline| baseline + offset.y);
         LayoutOutput::from_sizes_and_baselines(
             size,
             ScrollableOverflow::new(

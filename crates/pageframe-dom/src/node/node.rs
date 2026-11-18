@@ -1910,6 +1910,21 @@ impl Node {
         })
     }
 
+    pub(crate) fn inline_ruby_baseline(&self) -> Option<f32> {
+        let is_inline = self.is_ruby_box()
+            && self
+                .display_style()
+                .is_some_and(|display| display.outside() == DisplayOutside::Inline)
+            && self
+                .primary_styles()
+                .is_some_and(|style| !style.writing_mode.is_vertical());
+        if is_inline {
+            self.layout_data().ruby_baseline
+        } else {
+            None
+        }
+    }
+
     pub fn is_ruby_box(&self) -> bool {
         self.data.is_element_with_tag_name(&local_name!("ruby"))
             && self.display_style().is_some_and(|display| {

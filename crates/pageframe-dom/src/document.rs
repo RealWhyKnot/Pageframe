@@ -2651,16 +2651,17 @@ impl BaseDocument {
             return rects.reduce(BoundingRect::union);
         }
 
-        self.get_node(node_id)?;
+        let node = self.get_node(node_id)?;
         let (pos, layout) = self.physical_unrounded_geometry(node_id, ScrollOffsets::Applied);
         let size = layout.size;
         let scale = self.viewport().scale_f64();
+        let (top, height) = self.inline_ruby_extent(node).unwrap_or((0.0, size.height));
 
         Some(BoundingRect {
             x: snap_to_layout_unit(pos.x as f64 - self.viewport_scroll().x, scale),
-            y: snap_to_layout_unit(pos.y as f64 - self.viewport_scroll().y, scale),
+            y: snap_to_layout_unit(f64::from(pos.y + top) - self.viewport_scroll().y, scale),
             width: snap_to_layout_unit(size.width as f64, scale),
-            height: snap_to_layout_unit(size.height as f64, scale),
+            height: snap_to_layout_unit(f64::from(height), scale),
         })
     }
 
@@ -2690,11 +2691,12 @@ impl BaseDocument {
                 }
                 _ => size,
             };
+            let (top, height) = self.inline_ruby_extent(node).unwrap_or((0.0, size.height));
             return Some(BoundingRect {
                 x: pos.x as f64,
-                y: pos.y as f64,
+                y: f64::from(pos.y + top),
                 width: size.width as f64,
-                height: size.height as f64,
+                height: f64::from(height),
             });
         };
 
@@ -2798,6 +2800,19 @@ impl BaseDocument {
             ascent: metrics.ascent,
             descent: metrics.descent,
         })
+    }
+
+    fn inline_ruby_extent(&self, node: &Node) -> Option<(f32, f32)> {
+        let baseline = node.inline_ruby_baseline()?;
+        let extent = self.primary_font_extent(node)?;
+        let scale = self.viewport().scale();
+        let layout = node.unrounded_layout();
+        let top = baseline - extent.ascent.round() / scale - layout.padding.top - layout.border.top;
+        let bottom = baseline
+            + extent.descent.round() / scale
+            + layout.padding.bottom
+            + layout.border.bottom;
+        Some((top, bottom - top))
     }
 
     fn inline_fragment_boxes_mapped(

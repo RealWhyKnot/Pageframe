@@ -151,6 +151,7 @@ pub struct LayoutData {
     pub scrollable_overflow: KurboRect,
     pub columns: Option<Box<crate::layout::multicol::ColumnLayout>>,
     pub unsnapped: UnsnappedBox,
+    pub ruby_baseline: Option<f32>,
     /// The writing mode this node's layout algorithm ran in (the root takes it from `<body>`),
     /// recorded by the layout pass for CSSOM geometry lookups.
     #[cfg(feature = "writing-mode")]
@@ -167,6 +168,7 @@ impl LayoutData {
             scrollable_overflow: KurboRect::ZERO,
             columns: None,
             unsnapped: UnsnappedBox::ZERO,
+            ruby_baseline: None,
             #[cfg(feature = "writing-mode")]
             writing_mode: stylo_taffy::WritingMode::empty(),
         }

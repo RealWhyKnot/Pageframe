@@ -142,7 +142,7 @@ fn unusual_rubies_match_chrome() {
         &boxes(&mut harness, "#hidden, #blank, #floated"),
         &[
             [19.58, 4.0, 30.36, 16.0],
-            [4.0, 25.0, 44.88, 21.0],
+            [4.0, 30.0, 44.88, 16.0],
             [4.0, 51.0, 32.7, 21.0],
         ],
         "rubies",
@@ -183,15 +183,84 @@ fn only_ruby_children_get_the_small_font_like_chrome() {
 <div>ab<rt>loose rt</rt>cd</div>",
     ));
     assert_boxes(
-        &boxes(&mut harness, "rtc, rt"),
+        &boxes(&mut harness, "ruby, rtc, rt"),
         &[
+            [19.58, 4.0, 102.77, 16.0],
             [26.58, 4.0, 95.77, 16.0],
             [26.58, 4.0, 95.77, 16.0],
+            [19.58, 25.0, 102.77, 16.0],
             [26.58, 25.0, 95.77, 16.0],
             [26.58, 25.0, 95.77, 16.0],
+            [19.58, 51.0, 41.88, 16.0],
             [16.58, 46.0, 47.88, 7.0],
             [19.58, 72.0, 45.92, 16.0],
         ],
-        "containers and annotations",
+        "rubies, containers and annotations",
+    );
+}
+
+#[test]
+fn an_inline_ruby_box_covers_only_its_base_line_like_chrome() {
+    let mut harness = open(App::new(
+        (),
+        "<!doctype html><style>html,body{margin:0;font:14px Arial}div{border:1px solid #999;margin:3px;width:200px}</style>\
+<div>ab<ruby id=plain>x<rt>long annotation</rt></ruby>cd</div>\
+<div style=\"line-height:30px\">ab<ruby>x<rt>long annotation</rt></ruby>cd</div>\
+<div>ab<ruby style=\"font-size:20px\">x<rt>long annotation</rt></ruby>cd</div>\
+<div>ab<ruby style=\"vertical-align:5px\">x<rt>long annotation</rt></ruby>cd</div>\
+<div>ab<ruby><rb>A</rb><rb>B</rb><rt>1</rt><rt>2</rt></ruby>cd</div>\
+<div>ab<ruby id=padded style=\"padding:2px 4px;border:1px solid red\">x<rt>long annotation</rt></ruby>cd</div>",
+    ));
+    let padded_extent = |harness: &mut Harness<Page<()>>| {
+        boxes(harness, "#padded")
+            .into_iter()
+            .map(|[left, _, width, height]| [left, 0.0, width, height])
+            .collect::<Vec<_>>()
+    };
+    assert_boxes(
+        &boxes(&mut harness, "ruby:not(#padded)"),
+        &[
+            [19.58, 9.0, 41.88, 16.0],
+            [19.58, 37.0, 41.88, 16.0],
+            [19.58, 73.0, 58.41, 22.0],
+            [19.58, 106.0, 41.88, 16.0],
+            [19.58, 137.0, 22.59, 16.0],
+        ],
+        "rubies at 1x",
+    );
+    assert_boxes(
+        &padded_extent(&mut harness),
+        &[[19.58, 0.0, 51.88, 22.0]],
+        "padded ruby at 1x",
+    );
+    let doc = harness.base_mut();
+    let plain = doc
+        .query_selector("#plain")
+        .expect("valid selector")
+        .expect("the ruby exists");
+    let offset = doc.offset_rect(plain).expect("the ruby has a box");
+    assert_eq!(
+        [offset.y.round(), offset.height.round()],
+        [9.0, 16.0],
+        "offsetTop and offsetHeight"
+    );
+    drop(doc);
+
+    render_at_scale(&mut harness, 2);
+    assert_boxes(
+        &boxes(&mut harness, "ruby:not(#padded)"),
+        &[
+            [19.58, 9.5, 40.88, 15.5],
+            [19.58, 37.5, 40.88, 15.5],
+            [19.58, 73.5, 58.39, 22.0],
+            [19.58, 106.5, 40.88, 15.5],
+            [19.58, 138.0, 22.58, 15.5],
+        ],
+        "rubies at 2x",
+    );
+    assert_boxes(
+        &padded_extent(&mut harness),
+        &[[19.58, 0.0, 50.88, 21.5]],
+        "padded ruby at 2x",
     );
 }
