@@ -1,5 +1,4 @@
 use alloc::vec::Vec;
-use core::ops::Range;
 
 use crate::InlineEdge;
 use crate::layout::{Layout, LayoutItemKind, LineItemData};
@@ -19,12 +18,16 @@ fn edge_of<B: Brush>(layout: &Layout<B>, item: &LineItemData) -> Option<InlineEd
     }
 }
 
-fn text_position<B: Brush>(layout: &Layout<B>, item: &LineItemData) -> Range<usize> {
+fn lies_within<B: Brush>(layout: &Layout<B>, item: &LineItemData, edge_box: &EdgeBox) -> bool {
     match item.kind {
-        LayoutItemKind::TextRun => item.text_range.clone(),
+        LayoutItemKind::TextRun => {
+            edge_box.start.is_none_or(|start| start <= item.text_range.start)
+                && edge_box.end.is_none_or(|end| item.text_range.end <= end)
+        }
         LayoutItemKind::InlineBox => {
             let index = layout.data.inline_boxes[item.index].inline_box.index;
-            index..index
+            edge_box.start.is_none_or(|start| start < index)
+                && edge_box.end.is_none_or(|end| index < end)
         }
     }
 }
@@ -61,19 +64,11 @@ fn collect_boxes<B: Brush>(layout: &Layout<B>, items: &[LineItemData]) -> (Vec<E
     (boxes, has_rtl)
 }
 
-fn place_box<B: Brush>(
-    layout: &Layout<B>,
-    items: &mut [LineItemData],
-    edge_box: &EdgeBox,
-    extent: Range<usize>,
-) {
+fn place_box<B: Brush>(layout: &Layout<B>, items: &mut [LineItemData], edge_box: &EdgeBox) {
     let is_mark = |item: &LineItemData| {
         edge_of(layout, item).is_some_and(|edge| edge.owner == edge_box.owner)
     };
-    let is_content = |item: &LineItemData| {
-        let position = text_position(layout, item);
-        !is_mark(item) && extent.start <= position.start && position.end <= extent.end
-    };
+    let is_content = |item: &LineItemData| !is_mark(item) && lies_within(layout, item, edge_box);
     let mut marks: Vec<(InlineEdge, LineItemData)> = items
         .iter()
         .filter_map(|item| {
@@ -125,24 +120,13 @@ pub(crate) fn place_inline_edges<B: Brush>(
     if boxes.is_empty() || !(reordered || has_rtl) {
         return;
     }
-    let text_runs = || {
-        items
-            .iter()
-            .filter(|item| item.kind == LayoutItemKind::TextRun)
-    };
-    let line_start = text_runs()
-        .map(|item| item.text_range.start)
-        .min()
-        .unwrap_or(0);
-    let line_end = text_runs()
-        .map(|item| item.text_range.end)
-        .max()
-        .unwrap_or(0);
-    let extent = |edge_box: &EdgeBox| {
-        edge_box.start.unwrap_or(line_start)..edge_box.end.unwrap_or(line_end)
-    };
-    boxes.sort_by_key(|edge_box| extent(edge_box).len());
+    boxes.sort_by_key(|edge_box| {
+        edge_box
+            .end
+            .unwrap_or(usize::MAX)
+            .saturating_sub(edge_box.start.unwrap_or(0))
+    });
     for edge_box in &boxes {
-        place_box(layout, items, edge_box, extent(edge_box));
+        place_box(layout, items, edge_box);
     }
 }

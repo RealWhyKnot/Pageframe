@@ -36,8 +36,14 @@ struct InlineEdges {
 }
 
 impl InlineEdges {
+    fn has_margin_marks(&self) -> bool {
+        self.has_percent_margin
+            || self.margin_start.abs() >= f32::EPSILON
+            || self.margin_end.abs() >= f32::EPSILON
+    }
+
     fn has_end_mark(&self) -> bool {
-        self.has_edge_marks || self.has_percent_margin || self.margin_end.abs() >= f32::EPSILON
+        self.has_edge_marks || self.has_margin_marks()
     }
 }
 
@@ -152,7 +158,7 @@ fn push_margin_spacer(
     spacer: &str,
     width: f32,
 ) {
-    if edges.has_percent_margin || width.abs() >= f32::EPSILON {
+    if edges.has_margin_marks() {
         push_spacer(builder, edges, spacer, width);
     }
 }
