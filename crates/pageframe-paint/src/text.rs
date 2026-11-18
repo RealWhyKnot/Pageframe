@@ -24,6 +24,7 @@ use crate::image_cache::ImageCache;
 use crate::{FONT_EMBOLDEN_ENABLED, SELECTION_COLOR};
 
 mod ink;
+mod sideways;
 mod upright;
 
 pub(crate) struct InlineFragment {
@@ -700,6 +701,8 @@ pub(crate) struct DrawTextContext {
     ink: ink::InkCache,
     upright: upright::UprightCache,
     upright_x: Vec<f32>,
+    sideways: sideways::SidewaysCache,
+    sideways_paths: Vec<Arc<BezPath>>,
 }
 
 /// Resolve the CSS `text-decoration-thickness` to a device-pixel size.
@@ -1462,6 +1465,8 @@ pub(crate) fn stroke_text<'a>(
         ink,
         upright,
         upright_x,
+        sideways,
+        sideways_paths,
     } = context;
     stack.clear();
     path_scratch.clear();
@@ -1701,7 +1706,29 @@ pub(crate) fn stroke_text<'a>(
                 }
 
                 // Zero-size text is invisible, but hinting can give its glyphs ink.
-                if font_size > 0.0 {
+                let turned = (!FONT_EMBOLDEN_ENABLED && glyph_xform.is_none())
+                    .then(|| sideways::SidewaysFrame::new(transform))
+                    .flatten()
+                    .filter(|frame| {
+                        frame.ppem(font_size).is_some_and(|ppem| {
+                            sideways.outlines(
+                                &upright::SizedFace::new(font, ppem, normalized_coords),
+                                glyphs().map(|glyph| glyph.id),
+                                sideways_paths,
+                            )
+                        })
+                    });
+                if let Some(frame) = turned.filter(|_| font_size > 0.0) {
+                    for (glyph, path) in glyphs().zip(sideways_paths.iter()) {
+                        scene.fill(
+                            Fill::NonZero,
+                            frame.place(glyph.x, glyph.y),
+                            fill_color,
+                            None,
+                            path.as_ref(),
+                        );
+                    }
+                } else if font_size > 0.0 {
                     scene.draw_glyphs(
                         font,
                         font_size,

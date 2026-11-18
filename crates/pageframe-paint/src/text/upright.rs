@@ -28,7 +28,7 @@ const HINTING: HintingOptions = HintingOptions {
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-struct FaceKey {
+pub(super) struct FaceKey {
     font: u64,
     index: u32,
     coords: u64,
@@ -36,7 +36,7 @@ struct FaceKey {
 }
 
 #[derive(PartialEq, Eq, Hash)]
-struct GlyphKey {
+pub(super) struct GlyphKey {
     face: FaceKey,
     glyph: u32,
 }
@@ -48,14 +48,14 @@ pub(super) struct UprightCache {
     bounded: HashMap<(u64, u32), bool>,
 }
 
-pub(super) struct UprightRun<'a> {
+pub(super) struct SizedFace<'a> {
     font: &'a parley::FontData,
     ppem: f32,
     coords: &'a [i16],
     face: FaceKey,
 }
 
-impl<'a> UprightRun<'a> {
+impl<'a> SizedFace<'a> {
     pub(super) fn new(font: &'a parley::FontData, ppem: f32, coords: &'a [i16]) -> Self {
         let mut hasher = DefaultHasher::new();
         coords.hash(&mut hasher);
@@ -72,15 +72,30 @@ impl<'a> UprightRun<'a> {
         }
     }
 
-    fn font_ref(&self) -> Option<FontRef<'a>> {
+    pub(super) fn font_ref(&self) -> Option<FontRef<'a>> {
         FontRef::from_index(self.font.data.as_ref(), self.font.index).ok()
     }
 
-    fn location(&self) -> Vec<F2Dot14> {
+    pub(super) fn location(&self) -> Vec<F2Dot14> {
         self.coords
             .iter()
             .map(|&coord| F2Dot14::from_bits(coord))
             .collect()
+    }
+
+    pub(super) fn key(&self) -> FaceKey {
+        self.face
+    }
+
+    pub(super) fn ppem(&self) -> f32 {
+        self.ppem
+    }
+
+    pub(super) fn glyph_key(&self, glyph: u32) -> GlyphKey {
+        GlyphKey {
+            face: self.face,
+            glyph,
+        }
     }
 }
 
@@ -132,7 +147,7 @@ impl UprightCache {
         let Some(ppem) = snap.ppem(run.font_size()) else {
             return;
         };
-        let face = UprightRun::new(
+        let face = SizedFace::new(
             run.font(),
             ppem,
             bytemuck::cast_slice(run.normalized_coords()),
@@ -144,7 +159,7 @@ impl UprightCache {
         );
     }
 
-    pub(super) fn origin_shift(&mut self, run: &UprightRun<'_>, glyph: u32) -> f32 {
+    pub(super) fn origin_shift(&mut self, run: &SizedFace<'_>, glyph: u32) -> f32 {
         let face = (run.face.font, run.face.index);
         let bounded = *self
             .bounded
@@ -180,7 +195,7 @@ fn origin_from_bounds(font: &FontRef<'_>) -> bool {
     font.vmtx().is_ok() && font.table_data(Tag::new(b"VORG")).is_none()
 }
 
-fn hinting_instance(run: &UprightRun<'_>) -> Option<HintingInstance> {
+fn hinting_instance(run: &SizedFace<'_>) -> Option<HintingInstance> {
     let font = run.font_ref()?;
     let coords = run.location();
     HintingInstance::new(
@@ -193,7 +208,7 @@ fn hinting_instance(run: &UprightRun<'_>) -> Option<HintingInstance> {
 }
 
 fn bounds_shift(
-    run: &UprightRun<'_>,
+    run: &SizedFace<'_>,
     instance: Option<&HintingInstance>,
     glyph: u32,
 ) -> Option<f32> {
