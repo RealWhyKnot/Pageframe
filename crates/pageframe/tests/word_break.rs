@@ -138,3 +138,26 @@ fn the_fit_epsilon_is_one_device_layout_unit_at_2x() {
     });
     assert_eq!(heights, [5.0, 10.0]);
 }
+
+const LEADING_FLOAT: &str = "<!doctype html><style>html,body{margin:0}\
+div{font:10px/10px Consolas,monospace}b{float:left;width:10px;height:30px}</style>\
+<div id=below style='width:calc(4ch + 9.98px)'><b></b><span id=first>abcd</span> \
+<span id=second>abcd</span></div>";
+
+#[test]
+fn a_line_too_wide_beside_its_leading_float_drops_below_it_like_chrome() {
+    let mut harness = open(App::new((), LEADING_FLOAT));
+    let rects = ["#below", "#first", "#second"].map(|selector| {
+        let doc = harness.base_mut();
+        let id = doc
+            .query_selector(selector)
+            .expect("valid selector")
+            .expect("the element exists");
+        doc.get_client_bounding_rect(id)
+            .map(|rect| [rect.x, rect.y, rect.height])
+            .expect("the element has a box")
+    });
+    assert_eq!(rects[0][2], 50.0);
+    assert_eq!([rects[1][0], rects[2][0]], [0.0, 0.0]);
+    assert_eq!(rects[2][1] - rects[1][1], 10.0);
+}

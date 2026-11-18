@@ -1397,9 +1397,10 @@ impl LayoutPassState<'_> {
                         // A float that doesn't fit beside the content already on the line is
                         // placed below the line (CSS 2.1 §9.5.1), as are any floats after it
                         // (a float may not be higher than an earlier float).
-                        let fits_on_line = pending_floats.is_empty()
-                            && (box_break_data.advance <= 0.0
-                                || box_break_data.advance + float_width
+                        let opens_line = pending_floats.is_empty() && box_break_data.advance <= 0.0;
+                        let fits_on_line = opens_line
+                            || (pending_floats.is_empty()
+                                && box_break_data.advance + float_width
                                     <= state.line_max_advance() + 0.001 * scale);
                         if !fits_on_line {
                             pending_floats.push(float);
@@ -1429,6 +1430,9 @@ impl LayoutPassState<'_> {
                             f32::NEG_INFINITY,
                             f32::NEG_INFINITY,
                         );
+                        if opens_line {
+                            line_start_state = has_active_floats.then(|| breaker.state().clone());
+                        }
 
                         // if float.is_floated() {
                         //     println!("INLINE FLOATED BOX ({}) {:?}", ibox.id, float);
