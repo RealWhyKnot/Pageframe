@@ -429,12 +429,18 @@ impl BaseDocument {
 
     pub(crate) fn physical_unrounded_layout(&self, node_id: crate::NodeId) -> Layout {
         let node = &self.nodes[node_id];
-        let placer_id = node.containing_block().unwrap_or(node_id);
-        if !self.nodes[placer_id]
-            .layout_data()
-            .writing_mode
-            .is_vertical()
-        {
+        let root_id = self.try_root_element().map(|root| root.id);
+        let placer_id = node
+            .containing_block()
+            .filter(|_| Some(node_id) != root_id)
+            .or(root_id);
+        let placer_is_vertical = placer_id.is_some_and(|placer_id| {
+            self.nodes[placer_id]
+                .layout_data()
+                .writing_mode
+                .is_vertical()
+        });
+        if !placer_is_vertical {
             return *node.unrounded_layout();
         }
         self.placed_physical_layout(node_id).1

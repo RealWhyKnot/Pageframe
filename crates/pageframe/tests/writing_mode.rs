@@ -103,16 +103,16 @@ fn ink_columns(buffer: &[u8], left: usize, right: usize) -> Vec<[usize; 4]> {
 #[test]
 fn vertical_text_paints_in_columns_like_chrome() {
     let html = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}\
-                div{float:left;width:40px;height:40px;margin:4px 8px 4px 4px}</style>\
+                div{float:left;width:46px;height:36px;margin:4px 8px 4px 4px}</style>\
                 <div style=\"writing-mode:vertical-rl\">HHH II</div>\
                 <div style=\"writing-mode:vertical-lr\">HHH II</div>";
     let mut harness = open(App::new((), html));
     let buffer = render(&mut harness);
     let chrome = [
-        [[15, 25, 5, 10], [31, 41, 5, 33]],
-        [[59, 69, 5, 33], [75, 85, 5, 10]],
+        [[21, 31, 5, 10], [37, 47, 5, 33]],
+        [[65, 75, 5, 33], [81, 91, 5, 10]],
     ];
-    for ((left, right), expected) in [(0, 52), (52, 120)].into_iter().zip(chrome) {
+    for ((left, right), expected) in [(0, 58), (58, 120)].into_iter().zip(chrome) {
         let columns = ink_columns(&buffer, left, right);
         assert_eq!(
             columns.len(),
@@ -129,4 +129,22 @@ fn vertical_text_paints_in_columns_like_chrome() {
             );
         }
     }
+}
+
+#[test]
+fn a_vertical_root_reports_physical_computed_sizes() {
+    let html = "<!doctype html><html style=\"writing-mode:vertical-rl\"><head><style>\
+                html,body{margin:0;font:16px/18px Arial}</style></head>\
+                <body><div style=\"width:30px;height:40px\"></div></body></html>";
+    let page = App::new((), html)
+        .page(640, 400)
+        .expect("test pages have valid selectors");
+    let mut harness = Harness::wrap(page);
+    harness.pump();
+    let doc = harness.base();
+    let root = doc
+        .query_selector_all("html")
+        .expect("root selector is valid")[0];
+    assert_eq!(doc.resolved_style_value(root, "width"), "30px");
+    assert_eq!(doc.resolved_style_value(root, "height"), "400px");
 }
