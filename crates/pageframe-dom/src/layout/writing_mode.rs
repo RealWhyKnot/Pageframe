@@ -21,7 +21,7 @@
 //! [`physicalise_and_round_layout`]: LayoutPassState::physicalise_and_round_layout
 
 use super::{BlockContext, LayoutPassState, resolve_calc_value};
-use crate::document::{BaseDocument, ScrollOffsets, ScrollerTop};
+use crate::document::{BaseDocument, FragmentSpan, ScrollOffsets, ScrollerBox};
 use crate::dom_node_id;
 use crate::node::Node;
 use stylo_taffy::WritingMode;
@@ -408,10 +408,11 @@ impl BaseDocument {
     ) -> (crate::util::Point<f32>, Layout) {
         let mut layout = *self.nodes[node_id].unrounded_layout();
         let (pos, size) = match self.physical_chain(node_id) {
-            None => self.column_mapped_box(node_id, layout.size, scrolls),
+            None => self.column_mapped_box(node_id, layout.size, scrolls, FragmentSpan::All),
             Some((chain, placed)) => {
                 layout = placed.first().copied().unwrap_or(layout);
-                self.columns_along_chain(&chain, &placed, layout.size, scrolls)
+                let span = FragmentSpan::All;
+                self.columns_along_chain(&chain, &placed, layout.size, scrolls, span)
             }
         };
         layout.size = size;
@@ -423,13 +424,13 @@ impl BaseDocument {
         node_id: crate::NodeId,
         scrolls: ScrollOffsets,
     ) -> crate::util::Point<f32> {
-        let width = self.nodes[node_id].unrounded_layout().size.width;
-        let line = |width| Size { width, height: 0.0 };
+        let size = self.nodes[node_id].unrounded_layout().size;
+        let span = FragmentSpan::First;
         let (pos, _) = match self.physical_chain(node_id) {
-            None => self.column_mapped_box(node_id, line(width), scrolls),
+            None => self.column_mapped_box(node_id, size, scrolls, span),
             Some((chain, placed)) => {
-                let width = placed.first().map_or(width, |layout| layout.size.width);
-                self.columns_along_chain(&chain, &placed, line(width), scrolls)
+                let size = placed.first().map_or(size, |layout| layout.size);
+                self.columns_along_chain(&chain, &placed, size, scrolls, span)
             }
         };
         crate::util::Point { x: pos.x, y: pos.y }
@@ -483,19 +484,18 @@ impl BaseDocument {
         placed: &[Layout],
         mut size: Size<f32>,
         scrolls: ScrollOffsets,
+        span: FragmentSpan,
     ) -> (Point<f32>, Size<f32>) {
         let mut pos = Point::ZERO;
-        let mut scroller = ScrollerTop::default();
+        let mut scroller = ScrollerBox::new(span);
         for (index, (&id, placed)) in chain.iter().zip(placed).enumerate() {
             if index > 0 {
-                scroller.leave(&self.nodes[id], placed.location);
+                scroller.leave(&self.nodes[id], placed.location, placed.size);
             }
             pos = pos + placed.location;
             let columns = self.nodes[id]
                 .containing_block()
-                .map(|placer| &self.nodes[placer])
-                .filter(|placer| !placer.layout_data().writing_mode.is_vertical())
-                .and_then(|placer| placer.columns());
+                .and_then(|placer| self.nodes[placer].columns());
             if let Some(columns) = columns {
                 (pos, size) = scroller.place(columns, pos, size);
             }

@@ -32,6 +32,13 @@ pub struct ColumnFragment {
     pub flow_end: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ColumnAxes {
+    Horizontal,
+    VerticalRl { block_size: f32 },
+    VerticalLr,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ColumnLayout {
     pub fragments: Vec<ColumnFragment>,
@@ -44,9 +51,131 @@ pub struct ColumnLayout {
     pub height: f32,
     pub is_rtl: bool,
     pub steps: f32,
+    pub axes: ColumnAxes,
 }
 
 impl ColumnLayout {
+    pub fn is_vertical(&self) -> bool {
+        self.axes != ColumnAxes::Horizontal
+    }
+
+    fn logical_box(&self, location: Point<f32>, size: Size<f32>) -> (Point<f32>, Size<f32>) {
+        match self.axes {
+            ColumnAxes::Horizontal => (location, size),
+            ColumnAxes::VerticalLr => (
+                Point {
+                    x: location.y,
+                    y: location.x,
+                },
+                size.transpose(),
+            ),
+            ColumnAxes::VerticalRl { block_size } => (
+                Point {
+                    x: location.y,
+                    y: block_size - location.x - size.width,
+                },
+                size.transpose(),
+            ),
+        }
+    }
+
+    fn physical_box(&self, location: Point<f32>, size: Size<f32>) -> (Point<f32>, Size<f32>) {
+        match self.axes {
+            ColumnAxes::Horizontal => (location, size),
+            ColumnAxes::VerticalLr => (
+                Point {
+                    x: location.y,
+                    y: location.x,
+                },
+                size.transpose(),
+            ),
+            ColumnAxes::VerticalRl { block_size } => (
+                Point {
+                    x: block_size - location.y - size.height,
+                    y: location.x,
+                },
+                size.transpose(),
+            ),
+        }
+    }
+
+    fn physical_shift(&self, shift: Point<f32>) -> Point<f32> {
+        match self.axes {
+            ColumnAxes::Horizontal => shift,
+            ColumnAxes::VerticalLr => Point {
+                x: shift.y,
+                y: shift.x,
+            },
+            ColumnAxes::VerticalRl { .. } => Point {
+                x: -shift.y,
+                y: shift.x,
+            },
+        }
+    }
+
+    pub fn shift(&self, index: usize) -> Point<f32> {
+        self.physical_shift(self.offset(index))
+    }
+
+    pub fn shift_at(&self, location: Point<f32>, size: Size<f32>) -> Point<f32> {
+        let (location, _) = self.logical_box(location, size);
+        self.shift(self.index_at(location.y))
+    }
+
+    pub fn flow_span(&self, index: usize) -> (f32, f32) {
+        let length = self
+            .fragments
+            .get(index)
+            .map_or(0.0, |fragment| fragment.flow_end - fragment.flow_start);
+        let start = if index == 0 { -FAR } else { self.content_top };
+        let end = if index + 1 >= self.fragments.len() {
+            FAR
+        } else {
+            self.content_top + length
+        };
+        match self.axes {
+            ColumnAxes::VerticalRl { block_size } => (block_size - end, block_size - start),
+            ColumnAxes::Horizontal | ColumnAxes::VerticalLr => (start, end),
+        }
+    }
+
+    pub fn rule_span(&self) -> (f32, f32) {
+        let (start, end) = (self.content_top, self.content_top + self.height);
+        match self.axes {
+            ColumnAxes::VerticalRl { block_size } => (block_size - end, block_size - start),
+            ColumnAxes::Horizontal | ColumnAxes::VerticalLr => (start, end),
+        }
+    }
+
+    pub fn flow_point(&self, x: f32, y: f32) -> Option<Point<f32>> {
+        let (point, _) = self.logical_box(Point { x, y }, Size::ZERO);
+        let flow = self.logical_flow_point(point.x, point.y)?;
+        Some(self.physical_box(flow, Size::ZERO).0)
+    }
+
+    pub fn visual_box(&self, location: Point<f32>, size: Size<f32>) -> (Point<f32>, Size<f32>) {
+        let (location, size) = self.logical_box(location, size);
+        let (location, size) = self.logical_visual_box(location, size);
+        self.physical_box(location, size)
+    }
+
+    pub fn first_box(&self, location: Point<f32>, size: Size<f32>) -> (Point<f32>, Size<f32>) {
+        let (location, size) = self.logical_box(location, size);
+        let index = self.index_at(location.y);
+        let (_, end) = self.flow_range(index);
+        let offset = self.offset(index);
+        self.physical_box(
+            Point {
+                x: location.x + offset.x,
+                y: location.y + offset.y,
+            },
+            Size {
+                width: size.width,
+                height: size.height.min(end - location.y).max(0.0),
+            },
+        )
+    }
+
     fn column_x(&self, index: usize) -> f32 {
         let count = f32::from(u16::try_from(index).unwrap_or(u16::MAX));
         let step = (count * self.stride * self.steps).round() / self.steps;
@@ -83,10 +212,6 @@ impl ColumnLayout {
         }
     }
 
-    pub fn offset_at(&self, flow_y: f32) -> Point<f32> {
-        self.offset(self.index_at(flow_y))
-    }
-
     pub fn flow_range(&self, index: usize) -> (f32, f32) {
         let Some(fragment) = self.fragments.get(index) else {
             return (-FAR, FAR);
@@ -104,7 +229,7 @@ impl ColumnLayout {
         (start, end)
     }
 
-    pub fn flow_point(&self, x: f32, y: f32) -> Option<Point<f32>> {
+    fn logical_flow_point(&self, x: f32, y: f32) -> Option<Point<f32>> {
         let last = self.fragments.len().checked_sub(1)?;
         let half_gap = self.gap / 2.0;
         (0..=last).find_map(|index| {
@@ -126,7 +251,7 @@ impl ColumnLayout {
         })
     }
 
-    pub fn visual_box(&self, location: Point<f32>, size: Size<f32>) -> (Point<f32>, Size<f32>) {
+    fn logical_visual_box(&self, location: Point<f32>, size: Size<f32>) -> (Point<f32>, Size<f32>) {
         let first = self.index_at(location.y);
         let bottom = location.y + size.height;
         let last = if size.height > 2.0 * EDGE {
@@ -554,6 +679,23 @@ impl BaseDocument {
 }
 
 impl LayoutPassState<'_> {
+    #[cfg(feature = "writing-mode")]
+    fn column_axes(&self, node_id: NodeId, block_size: f32) -> ColumnAxes {
+        let layout_wm = self.layout_wm_of(node_id);
+        if !layout_wm.is_vertical() {
+            ColumnAxes::Horizontal
+        } else if layout_wm.is_vertical_lr() {
+            ColumnAxes::VerticalLr
+        } else {
+            ColumnAxes::VerticalRl { block_size }
+        }
+    }
+
+    #[cfg(not(feature = "writing-mode"))]
+    fn column_axes(&self, _node_id: NodeId, _block_size: f32) -> ColumnAxes {
+        ColumnAxes::Horizontal
+    }
+
     pub(crate) fn compute_multicol_layout(
         &mut self,
         node_id: NodeId,
@@ -697,6 +839,7 @@ impl LayoutPassState<'_> {
         let content_height = fixed.unwrap_or_else(|| {
             column_height.maybe_max(min_size.height.map(|height| height - edges.height))
         });
+        let axes = self.column_axes(node_id, content_height + edges.height);
         let columns = ColumnLayout {
             fragments,
             column_width,
@@ -705,9 +848,10 @@ impl LayoutPassState<'_> {
             content_left: padding_border.left,
             content_top: padding_border.top,
             content_width,
-            height: column_height,
+            height: content_height.max(column_height),
             is_rtl: column_style.is_rtl,
             steps,
+            axes,
         };
 
         let mut output = flow;

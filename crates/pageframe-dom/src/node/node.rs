@@ -1,5 +1,5 @@
 use crate::Document;
-use crate::document::{ScrollOffsets, ScrollerTop};
+use crate::document::{ScrollOffsets, ScrollerBox};
 use crate::layout::paint_tree::{HoistedPaintChild, StackingContext};
 use bitflags::bitflags;
 use euclid::{Point2D, Rect, Size2D};
@@ -1916,17 +1916,17 @@ impl Node {
 
     /// Computes the Document-relative coordinates of the `Node`
     pub fn absolute_position(&self, x: f32, y: f32) -> crate::util::Point<f32> {
-        self.position_in_document(taffy::Point { x, y }, ScrollerTop::default())
+        self.position_in_document(taffy::Point { x, y }, ScrollerBox::default())
     }
 
     fn position_in_document(
         &self,
         point: taffy::Point<f32>,
-        mut scroller: ScrollerTop,
+        mut scroller: ScrollerBox,
     ) -> crate::util::Point<f32> {
         let location = self.final_layout().location;
         let point = ScrollOffsets::Applied.apply(point, self) + location;
-        scroller.leave(self, location);
+        scroller.leave(self, location, self.final_layout().size);
         let Some(parent) = self.containing_block().map(|id| self.with(id)) else {
             return crate::util::Point {
                 x: point.x,

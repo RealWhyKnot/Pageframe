@@ -169,13 +169,17 @@ fn scrolled_content_stays_in_its_scroller_column_like_chrome() {
 
 #[test]
 fn hidden_boxes_stay_whole_in_columns_like_chrome() {
-    let column = "<div class=\"c\" style=\"width:210px;column-count:2;height:60px;                  column-fill:auto;position:relative;margin-bottom:20px\">                  <div style=\"height:40px\"></div>";
+    let column = "<div class=\"c\" style=\"width:210px;column-count:2;height:60px;\
+                  column-fill:auto;position:relative;margin-bottom:20px\">\
+                  <div style=\"height:40px\"></div>";
     let boxes: String = ["hidden", "clip", "hidden visible"]
         .iter()
         .enumerate()
         .map(|(index, overflow)| {
             format!(
-                "{column}<div id=\"h{index}\" style=\"height:50px;overflow:{overflow}\">                 <div style=\"height:25px\"></div><div id=\"k{index}\" style=\"height:10px\">                 </div><div style=\"height:100px\"></div></div></div>"
+                "{column}<div id=\"h{index}\" style=\"height:50px;overflow:{overflow}\">\
+                 <div style=\"height:25px\"></div><div id=\"k{index}\" style=\"height:10px\">\
+                 </div><div style=\"height:100px\"></div></div></div>"
             )
         })
         .collect();
@@ -230,4 +234,46 @@ fn client_rect(harness: &Harness<Page<()>>, id: &str) -> [f64; 4] {
         .expect("box has a rectangle");
     drop(doc);
     [rect.x, rect.y, rect.width, rect.height]
+}
+
+#[test]
+fn vertical_columns_split_boxes_along_the_inline_axis_like_chrome() {
+    let harness = page(
+        "<style>.m{columns:2;column-gap:20px;column-rule:4px solid #00f;width:200px;\
+         height:120px;margin:4px;float:left;position:relative}.m div{position:relative}</style>\
+         <div class=\"m\" style=\"writing-mode:vertical-rl\"><div id=\"b1\" style=\"width:60px\">\
+         </div><div id=\"b2\" style=\"width:60px\"></div><div id=\"b3\" style=\"width:40px\">\
+         </div></div><div class=\"m\" style=\"writing-mode:vertical-lr\"><div id=\"d1\" \
+         style=\"width:60px\"></div><div id=\"d2\" style=\"width:60px\"></div><div id=\"d3\" \
+         style=\"width:40px\"></div></div>",
+    );
+    for (id, offsets, client) in [
+        ("b1", [140.0, 0.0, 60.0, 50.0], [144.0, 4.0, 60.0, 50.0]),
+        ("b2", [120.0, 0.0, 80.0, 120.0], [124.0, 4.0, 80.0, 120.0]),
+        ("b3", [120.0, 70.0, 40.0, 50.0], [124.0, 74.0, 40.0, 50.0]),
+        ("d1", [0.0, 0.0, 60.0, 50.0], [212.0, 4.0, 60.0, 50.0]),
+        ("d2", [60.0, 0.0, 80.0, 120.0], [212.0, 4.0, 80.0, 120.0]),
+        ("d3", [40.0, 70.0, 40.0, 50.0], [252.0, 74.0, 40.0, 50.0]),
+    ] {
+        assert_eq!(offset(&harness, id).map(f64::round), offsets, "{id}");
+        assert_eq!(client_rect(&harness, id).map(f64::round), client, "{id}");
+    }
+    let doc = harness.base();
+    let id_of = |selector: &str| doc.query_selector_all(selector).expect("valid selector")[0];
+    for (x, y, id) in [
+        (180.0, 30.0, "#b1"),
+        (130.0, 30.0, "#b2"),
+        (180.0, 100.0, "#b2"),
+        (140.0, 100.0, "#b3"),
+        (240.0, 30.0, "#d1"),
+        (280.0, 30.0, "#d2"),
+        (230.0, 100.0, "#d2"),
+        (270.0, 100.0, "#d3"),
+    ] {
+        assert_eq!(
+            doc.hit(x, y).map(|hit| hit.node_id),
+            Some(id_of(id)),
+            "{x},{y}"
+        );
+    }
 }

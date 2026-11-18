@@ -2563,7 +2563,7 @@ impl BaseDocument {
         scrolls: ScrollOffsets,
     ) -> (crate::util::Point<f32>, taffy::Layout) {
         let mut layout = *self.nodes[node_id].unrounded_layout();
-        let (pos, size) = self.column_mapped_box(node_id, layout.size, scrolls);
+        let (pos, size) = self.column_mapped_box(node_id, layout.size, scrolls, FragmentSpan::All);
         layout.size = size;
         (crate::util::Point { x: pos.x, y: pos.y }, layout)
     }
@@ -2574,9 +2574,8 @@ impl BaseDocument {
         node_id: NodeId,
         scrolls: ScrollOffsets,
     ) -> crate::util::Point<f32> {
-        let width = self.nodes[node_id].unrounded_layout().size.width;
-        let line = taffy::Size { width, height: 0.0 };
-        let (pos, _) = self.column_mapped_box(node_id, line, scrolls);
+        let size = self.nodes[node_id].unrounded_layout().size;
+        let (pos, _) = self.column_mapped_box(node_id, size, scrolls, FragmentSpan::First);
         crate::util::Point { x: pos.x, y: pos.y }
     }
 
@@ -2590,10 +2589,11 @@ impl BaseDocument {
         node_id: NodeId,
         size: taffy::Size<f32>,
         scrolls: ScrollOffsets,
+        span: FragmentSpan,
     ) -> (taffy::Point<f32>, taffy::Size<f32>) {
         let node = &self.nodes[node_id];
         let pos = node.unrounded_layout().location;
-        self.column_mapped_content(node.containing_block(), pos, size, scrolls)
+        self.column_mapped_content(node.containing_block(), pos, size, scrolls, span)
     }
 
     fn column_mapped_content(
@@ -2602,8 +2602,9 @@ impl BaseDocument {
         mut pos: taffy::Point<f32>,
         mut size: taffy::Size<f32>,
         scrolls: ScrollOffsets,
+        span: FragmentSpan,
     ) -> (taffy::Point<f32>, taffy::Size<f32>) {
-        let mut scroller = ScrollerTop::default();
+        let mut scroller = ScrollerBox::new(span);
         let mut current = container;
         while let Some(id) = current {
             let node = &self.nodes[id];
@@ -2612,7 +2613,7 @@ impl BaseDocument {
             }
             pos = scrolls.apply(pos, node);
             let location = node.unrounded_layout().location;
-            scroller.leave(node, location);
+            scroller.leave(node, location, node.unrounded_layout().size);
             pos = pos + location;
             current = node.containing_block();
         }
@@ -2806,7 +2807,8 @@ impl BaseDocument {
                 height: rect.bottom - rect.top,
             };
             if in_columns {
-                return self.column_mapped_content(Some(root_id), pos, size, scrolls);
+                let span = FragmentSpan::All;
+                return self.column_mapped_content(Some(root_id), pos, size, scrolls, span);
             }
             let pos = taffy::Point {
                 x: root_pos.x + pos.x,
@@ -3217,29 +3219,56 @@ impl ScrollOffsets {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct ScrollerTop(Option<f32>);
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum FragmentSpan {
+    #[default]
+    All,
+    First,
+}
 
-impl ScrollerTop {
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ScrollerBox {
+    scroller: Option<(taffy::Point<f32>, taffy::Size<f32>)>,
+    span: FragmentSpan,
+}
+
+impl ScrollerBox {
+    pub(crate) fn new(span: FragmentSpan) -> Self {
+        Self {
+            scroller: None,
+            span,
+        }
+    }
+
     pub(crate) fn place(
         &mut self,
         columns: &crate::layout::multicol::ColumnLayout,
         pos: taffy::Point<f32>,
         size: taffy::Size<f32>,
     ) -> (taffy::Point<f32>, taffy::Size<f32>) {
-        let Some(top) = self.0 else {
-            return columns.visual_box(pos, size);
+        let Some((location, extent)) = self.scroller else {
+            return match self.span {
+                FragmentSpan::All => columns.visual_box(pos, size),
+                FragmentSpan::First => columns.first_box(pos, size),
+            };
         };
-        let shift = columns.offset_at(top);
-        self.0 = Some(top + shift.y);
+        let shift = columns.shift_at(location, extent);
+        self.scroller = Some((location + shift, extent));
         (pos + shift, size)
     }
 
-    pub(crate) fn leave(&mut self, container: &Node, location: taffy::Point<f32>) {
+    pub(crate) fn leave(
+        &mut self,
+        container: &Node,
+        location: taffy::Point<f32>,
+        size: taffy::Size<f32>,
+    ) {
         if container.is_scroll_container() {
-            self.0 = Some(0.0);
+            self.scroller = Some((taffy::Point::ZERO, size));
         }
-        self.0 = self.0.map(|top| top + location.y);
+        self.scroller = self
+            .scroller
+            .map(|(origin, extent)| (origin + location, extent));
     }
 }
 

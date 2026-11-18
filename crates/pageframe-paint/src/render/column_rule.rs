@@ -28,14 +28,38 @@ impl ElementCx<'_, '_> {
         let origin = self.transform.translation();
         let snap_x = |x: f64| (origin.x + x).round() - origin.x;
         let snap_y = |y: f64| (origin.y + y).round() - origin.y;
-        let top = snap_y(f64::from(columns.content_top) * self.scale);
-        let bottom = snap_y(f64::from(columns.content_top + columns.height) * self.scale);
+        let is_vertical = columns.is_vertical();
+        let (span_start, span_end) = columns.rule_span();
+        let span_snap = |value: f64| {
+            if is_vertical {
+                snap_x(value)
+            } else {
+                snap_y(value)
+            }
+        };
+        let span_start = span_snap(f64::from(span_start) * self.scale);
+        let span_end = span_snap(f64::from(span_end) * self.scale);
+        let hidden = BorderStyle::None;
         for index in 1..columns.fragments.len() {
             let centre = f64::from(columns.rule_x(index)) * self.scale;
-            let left = snap_x(centre - width / 2.0);
+            let (rect, insets, sides) = if is_vertical {
+                let top = snap_y(centre - width / 2.0);
+                (
+                    Rect::new(span_start, top, span_end, top + width),
+                    Insets::new(0.0, width, 0.0, 0.0),
+                    [style, hidden, hidden, hidden],
+                )
+            } else {
+                let left = snap_x(centre - width / 2.0);
+                (
+                    Rect::new(left, span_start, left + width, span_end),
+                    Insets::new(width, 0.0, 0.0, 0.0),
+                    [hidden, hidden, hidden, style],
+                )
+            };
             let frame = CssBox::new(
-                Rect::new(left, top, left + width, bottom),
-                Insets::new(width, 0.0, 0.0, 0.0),
+                rect,
+                insets,
                 Insets::ZERO,
                 0.0,
                 NonUniformRoundedRectRadii::default(),
@@ -46,8 +70,7 @@ impl ElementCx<'_, '_> {
                 style: Arc::clone(&self.style),
                 ..*self
             };
-            let hidden = BorderStyle::None;
-            rule.draw_sides(scene, [hidden, hidden, hidden, style], [color; 4], false);
+            rule.draw_sides(scene, sides, [color; 4], false);
         }
     }
 }

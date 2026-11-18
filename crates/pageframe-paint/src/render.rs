@@ -967,32 +967,31 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                         cx.draw_column_rules(scene, columns);
                     }
                     let base = cx.transform;
-                    let last = columns.fragments.len().saturating_sub(1);
-                    let origin = base.translation().y;
-                    let top = f64::from(columns.content_top) * self.scale;
-                    for (index, fragment) in columns.fragments.iter().enumerate() {
-                        let offset = columns.offset(index);
+                    let is_vertical = columns.is_vertical();
+                    let translation = base.translation();
+                    let origin = if is_vertical {
+                        translation.x
+                    } else {
+                        translation.y
+                    };
+                    for index in 0..columns.fragments.len() {
+                        let offset = columns.shift(index);
                         let shift = Vec2::new(
                             (f64::from(offset.x) * self.scale).round(),
                             (f64::from(offset.y) * self.scale).round(),
                         );
-                        let length = f64::from(fragment.flow_end - fragment.flow_start);
-                        let local = |edge: f64| (origin + edge).round() - origin - shift.y;
-                        let clip_top = local(top);
-                        let clip = Rect::new(
-                            -COLUMN_CLIP_REACH,
-                            if index == 0 {
-                                -COLUMN_CLIP_REACH
-                            } else {
-                                clip_top
-                            },
-                            COLUMN_CLIP_REACH,
-                            if index == last {
-                                COLUMN_CLIP_REACH
-                            } else {
-                                local(top + length * self.scale)
-                            },
-                        );
+                        let along = if is_vertical { shift.x } else { shift.y };
+                        let local = |edge: f32| {
+                            ((origin + f64::from(edge) * self.scale).round() - origin - along)
+                                .clamp(-COLUMN_CLIP_REACH, COLUMN_CLIP_REACH)
+                        };
+                        let (start, end) = columns.flow_span(index);
+                        let (start, end) = (local(start), local(end));
+                        let clip = if is_vertical {
+                            Rect::new(start, -COLUMN_CLIP_REACH, end, COLUMN_CLIP_REACH)
+                        } else {
+                            Rect::new(-COLUMN_CLIP_REACH, start, COLUMN_CLIP_REACH, end)
+                        };
                         cx.transform = base * Affine::translate(shift);
                         self.layer_manager.maybe_with_layer(
                             scene,
