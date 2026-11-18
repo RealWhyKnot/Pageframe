@@ -1667,8 +1667,18 @@ impl LayoutPassState<'_> {
                         //   box, or below it if in-flow content precedes it on the line (its
                         //   hypothetical box would start a new line after that content).
                         let line_metrics = line.metrics();
-                        let line_top = (line_metrics.block_min_coord / scale) + line_box_top;
-                        let line_bottom = (line_metrics.block_max_coord / scale) + line_box_top;
+                        let (line_top, line_bottom) = if mirrors_lines {
+                            let far_edge = container_pb.top + content_block_size - block_offset;
+                            (
+                                far_edge - line_metrics.block_max_coord / scale,
+                                far_edge - line_metrics.block_min_coord / scale,
+                            )
+                        } else {
+                            (
+                                (line_metrics.block_min_coord / scale) + line_box_top,
+                                (line_metrics.block_max_coord / scale) + line_box_top,
+                            )
+                        };
                         let (inline_area, block_area) = if is_inline_level {
                             let x = (ibox.x / scale) + container_pb.left;
                             (

@@ -376,3 +376,48 @@ fn vertical_spans_report_rotated_rects_and_hits_like_chrome() {
         );
     }
 }
+
+#[test]
+fn absolute_boxes_keep_their_static_line_in_vertical_text_like_chrome() {
+    let row = |id: &str, mode: &str, tail: &str| {
+        format!("<div id=\"{id}\" style=\"writing-mode:{mode}\">aaa bbb{tail}</div>")
+    };
+    let html = format!(
+        "<html><head><style>html,body{{margin:0;font:16px/20px Arial}}\
+         div{{float:left;margin:10px;height:120px;border:2px solid #999;padding:3px 5px;\
+         position:relative}}i{{position:absolute;width:6px;height:6px}}\
+         b{{position:absolute;display:block;width:6px;height:6px}}</style></head><body>{}{}{}{}\
+         <pre></pre></body></html>",
+        row(
+            "d1",
+            "vertical-rl",
+            "<i id=\"a1\"></i> ccc ddd eee fff<i id=\"a2\"></i> ggg"
+        ),
+        row(
+            "d2",
+            "vertical-lr",
+            "<i id=\"a3\"></i> ccc ddd eee fff<i id=\"a4\"></i> ggg"
+        ),
+        row("d3", "vertical-lr", "<b id=\"a5\"></b> ccc ddd eee fff ggg"),
+        row("d4", "vertical-rl", "<b id=\"a6\"></b> ccc ddd eee fff ggg"),
+    );
+    let page = App::new((), &html)
+        .page(640, 400)
+        .expect("test pages have valid selectors");
+    let mut harness = Harness::wrap(page);
+    harness.pump();
+    for (id, chrome) in [
+        ("a1", [51.0, 88.844]),
+        ("a2", [31.0, 74.906]),
+        ("a3", [91.0, 88.844]),
+        ("a4", [111.0, 74.906]),
+        ("a5", [185.0, 31.0]),
+        ("a6", [253.0, 31.0]),
+    ] {
+        let [left, top, ..] = rect(&harness, id);
+        assert!(
+            (left - chrome[0]).abs() < 0.01 && (top - chrome[1]).abs() < 0.01,
+            "{id} at {left},{top}, Chrome {chrome:?}"
+        );
+    }
+}
