@@ -253,7 +253,8 @@ fn scaled_box_edges(style: &str, scale: u16) -> [f64; 4] {
     let buffer = render_at_scale(&mut open(App::new((), &page)), scale);
     let width = usize::try_from(WIDTH * u32::from(scale)).expect("test width fits in usize");
     let height = buffer.len() / 4 / width;
-    let cover = |x: usize, y: usize| f64::from(255 - buffer[(y * width + x) * 4]) / 255.0;
+    let cover =
+        |column: usize, row: usize| f64::from(255 - buffer[(row * width + column) * 4]) / 255.0;
     let span = |values: Vec<f64>| {
         let lit: Vec<usize> = (0..values.len()).filter(|&at| values[at] > 0.02).collect();
         let first = *lit.first().expect("the box is painted");
@@ -262,8 +263,16 @@ fn scaled_box_edges(style: &str, scale: u16) -> [f64; 4] {
         let last_at = f64::from(u32::try_from(last).expect("pixel index fits in u32"));
         (first_at + 1.0 - values[first], last_at + values[last])
     };
-    let columns = (0..width).map(|x| (0..height).map(|y| cover(x, y)).fold(0.0, f64::max));
-    let rows = (0..height).map(|y| (0..width).map(|x| cover(x, y)).fold(0.0, f64::max));
+    let columns = (0..width).map(|column| {
+        (0..height)
+            .map(|row| cover(column, row))
+            .fold(0.0, f64::max)
+    });
+    let rows = (0..height).map(|row| {
+        (0..width)
+            .map(|column| cover(column, row))
+            .fold(0.0, f64::max)
+    });
     let (left, right) = span(columns.collect());
     let (top, bottom) = span(rows.collect());
     [left, top, right, bottom]
@@ -285,6 +294,19 @@ fn scaled_boxes_snap_from_a_whole_pixel_origin_like_chrome() {
                 [40.31, 30.31, 103.314, 63.314],
                 [79.608, 59.608, 202.612, 122.612],
             ],
+        ),
+        (
+            "left:50.4px;top:20.2px;width:30.45px;height:20.45px;\
+             transform:translate(10%,10%) scale(3)",
+            [
+                [22.604, 1.604, 112.608, 61.608],
+                [46.196, 3.196, 229.2, 126.2],
+            ],
+        ),
+        (
+            "left:80.5px;top:50.5px;width:30.5px;height:20.5px;transform:scale(3);\
+             transform-origin:100% 100%",
+            [[20.0, 10.0, 113.0, 73.0], [39.0, 19.0, 222.0, 142.0]],
         ),
     ];
     for (style, chrome) in cases {
