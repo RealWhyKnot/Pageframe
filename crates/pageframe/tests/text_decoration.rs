@@ -1,3 +1,4 @@
+mod scaled;
 mod support;
 
 use pageframe::App;
@@ -362,5 +363,32 @@ fn waves_sit_where_chrome_draws_them_for_every_line_kind() {
         ),
     ] {
         assert_eq!(inked_rows(&body), (Some(rows.0), Some(rows.1)), "{what}");
+    }
+}
+
+#[test]
+fn double_lines_leave_one_device_pixel_between_them_like_chrome() {
+    let html = format!(
+        "<html><head><style>{BASE}</style></head><body><div style=\"font-size:16px;\
+         line-height:40px;text-decoration:underline double red 2px\">aaa</div></body></html>"
+    );
+    for scale in [1, 2] {
+        let mut harness = open(App::new((), &html));
+        harness.pump();
+        let buffer = scaled::render_at_scale(&mut harness, scale);
+        let width =
+            usize::try_from(support::WIDTH).expect("test width fits in usize") * usize::from(scale);
+        let inked: Vec<usize> = (0..80 * usize::from(scale))
+            .filter(|down| {
+                let start = (down * width + 4) * 4;
+                buffer[start..start + 4] != WHITE
+            })
+            .collect();
+        let thick = 2 * usize::from(scale);
+        let first = inked[0];
+        let expected: Vec<usize> = (first..first + thick)
+            .chain(first + thick + 1..first + 2 * thick + 1)
+            .collect();
+        assert_eq!(inked, expected, "at {scale}x");
     }
 }

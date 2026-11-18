@@ -715,18 +715,17 @@ fn draw_decoration_line(
                 scene.stroke(&butt_stroke, transform, brush, None, &line);
             }
         }
-        // Two lines, each `size` thick, separated by a 1px (CSS) gap. This
+        // Two lines, each `size` thick, separated by a 1px (device) gap. This
         // matches Chrome, where the second line is offset by `thickness + 1px`
         // and sits further from the text (below for underline, above for
         // overline).
         TextDecorationStyle::Double => {
-            let one_css_px = scale;
             let away = if matches!(kind, DecorationKind::Overline) {
                 -1.0
             } else {
                 1.0
             };
-            for cy in [y, y + away * (size + one_css_px)] {
+            for cy in [y, y + away * (size + 1.0)] {
                 for &(start, end) in &spans {
                     let line = kurbo::Line::new((start, cy), (end, cy));
                     scene.stroke(&butt_stroke, transform, brush, None, &line);
