@@ -1258,7 +1258,7 @@ rt {
     white-space: nowrap;
 }
 
-rt {
+ruby > rt {
     font-size: 50%;
     -moz-min-font-size-ratio: 50%;
 }
@@ -1282,17 +1282,6 @@ rt {
 rtc:lang(zh),
 rt:lang(zh) {
     ruby-align: center;
-}
-
-rtc:lang(zh-TW),
-rt:lang(zh-TW) {
-    font-size: 30%;
-    /* bopomofo */
-    -moz-min-font-size-ratio: 30%;
-}
-
-rtc>rt {
-    font-size: unset;
 }
 
 ruby,
