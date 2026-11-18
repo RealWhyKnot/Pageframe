@@ -11,6 +11,8 @@ const SPANS: &str = "<html><head><style>html,body{margin:0;background:#fff;font:
     <div><span id=wrap>a <span style='display:inline-block;width:20px;height:50px'></span> b\
     </span></div>\
     <div style='line-height:normal'>e <sub id=sub>sub</sub><sup id=sup>sup</sup></div>\
+    <div><span id=lone><span style='display:inline-block;width:20px;height:40px'></span>\
+    </span></div>\
     </body></html>";
 
 const FONTS: &str = "<html><head><style>html,body{margin:0;background:#fff;font:14px/30px Arial}\
@@ -58,7 +60,7 @@ fn vertical_extents(scale: f32) -> Vec<[f64; 2]> {
         SPANS,
         scale,
         [
-            "plain", "padded", "outer", "inner", "nest", "bold", "wrap", "sub", "sup",
+            "plain", "padded", "outer", "inner", "nest", "bold", "wrap", "sub", "sup", "lone",
         ],
     )
     .iter()
@@ -107,6 +109,7 @@ fn inline_client_rects_cover_the_font_content_area_like_chrome() {
         [178.0, 16.0],
         [214.453_125, 13.0],
         [205.0, 13.0],
+        [258.453_125, 16.0],
     ];
     assert_eq!(vertical_extents(1.0), chrome);
 }
@@ -123,6 +126,7 @@ fn inline_client_rects_round_the_content_area_in_device_pixels_at_2x() {
         [178.5, 15.5],
         [213.960_937_5, 13.0],
         [205.5, 13.0],
+        [258.960_937_5, 15.5],
     ];
     assert_eq!(vertical_extents(2.0), chrome);
 }
