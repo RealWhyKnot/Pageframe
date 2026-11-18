@@ -327,6 +327,34 @@ fn a_ruby_without_a_base_keeps_an_empty_base_line_like_chrome() {
 }
 
 #[test]
+fn annotations_keep_a_normal_line_height_like_chrome() {
+    let mut harness = open(App::new(
+        (),
+        "<!doctype html><style>html,body{margin:0;font:14px Arial}div{width:200px;line-height:40px}</style>\
+<div>ab<ruby>cd<rt>a</rt></ruby>ef</div>",
+    ));
+    assert_boxes(
+        &boxes(&mut harness, "div, ruby, rt"),
+        &[
+            [0.0, 0.0, 200.0, 40.0],
+            [15.58, 12.0, 14.80, 16.0],
+            [15.58, 7.0, 14.78, 7.0],
+        ],
+        "boxes at 1x",
+    );
+    render_at_scale(&mut harness, 2);
+    assert_boxes(
+        &boxes(&mut harness, "div, ruby, rt"),
+        &[
+            [0.0, 0.0, 200.0, 40.0],
+            [15.58, 12.0, 14.79, 15.5],
+            [15.58, 5.5, 14.79, 8.0],
+        ],
+        "boxes at 2x",
+    );
+}
+
+#[test]
 fn a_ruby_over_an_image_leaves_room_for_its_annotation_like_chrome() {
     let mut harness = open(App::new(
         (),
