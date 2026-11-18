@@ -405,7 +405,32 @@ impl BaseDocument {
         &self,
         node_id: crate::NodeId,
     ) -> (crate::util::Point<f32>, Layout) {
-        // Without a vertical box on the containing-block chain there is nothing to physicalise.
+        let mut layout = *self.nodes[node_id].unrounded_layout();
+        let (pos, size) = match self.physical_chain(node_id) {
+            None => self.column_mapped_box(node_id, Point::ZERO, layout.size),
+            Some((chain, placed)) => {
+                layout = placed.first().copied().unwrap_or(layout);
+                self.columns_along_chain(&chain, &placed, layout.size)
+            }
+        };
+        layout.size = size;
+        (crate::util::Point { x: pos.x, y: pos.y }, layout)
+    }
+
+    pub(crate) fn first_fragment_origin(&self, node_id: crate::NodeId) -> crate::util::Point<f32> {
+        let width = self.nodes[node_id].unrounded_layout().size.width;
+        let line = |width| Size { width, height: 0.0 };
+        let (pos, _) = match self.physical_chain(node_id) {
+            None => self.column_mapped_box(node_id, Point::ZERO, line(width)),
+            Some((chain, placed)) => {
+                let width = placed.first().map_or(width, |layout| layout.size.width);
+                self.columns_along_chain(&chain, &placed, line(width))
+            }
+        };
+        crate::util::Point { x: pos.x, y: pos.y }
+    }
+
+    fn physical_chain(&self, node_id: crate::NodeId) -> Option<(Vec<crate::NodeId>, Vec<Layout>)> {
         let mut has_vertical = false;
         let mut current = Some(node_id);
         while let Some(id) = current {
@@ -414,10 +439,7 @@ impl BaseDocument {
             current = node.containing_block();
         }
         if !has_vertical {
-            let mut layout = *self.nodes[node_id].unrounded_layout();
-            let (pos, size) = self.column_mapped_box(node_id, Point::ZERO, layout.size);
-            layout.size = size;
-            return (crate::util::Point { x: pos.x, y: pos.y }, layout);
+            return None;
         }
 
         let root_id = self.try_root_element().map(|root| root.id);
@@ -446,14 +468,18 @@ impl BaseDocument {
             placer_wm = node.layout_data().writing_mode;
             placer_size = layout.size;
         }
+        placed.reverse();
+        Some((chain, placed))
+    }
 
-        let mut layout = placed
-            .last()
-            .copied()
-            .unwrap_or(*self.nodes[node_id].unrounded_layout());
+    fn columns_along_chain(
+        &self,
+        chain: &[crate::NodeId],
+        placed: &[Layout],
+        mut size: Size<f32>,
+    ) -> (Point<f32>, Size<f32>) {
         let mut pos = Point::ZERO;
-        let mut size = layout.size;
-        for (&id, placed) in chain.iter().zip(placed.iter().rev()) {
+        for (&id, placed) in chain.iter().zip(placed) {
             let node = &self.nodes[id];
             pos.x += placed.location.x - node.scroll_offset().x as f32;
             pos.y += placed.location.y - node.scroll_offset().y as f32;
@@ -466,8 +492,7 @@ impl BaseDocument {
                 (pos, size) = columns.visual_box(pos, size);
             }
         }
-        layout.size = size;
-        (crate::util::Point { x: pos.x, y: pos.y }, layout)
+        (pos, size)
     }
 
     pub(crate) fn physical_unrounded_layout(&self, node_id: crate::NodeId) -> Layout {

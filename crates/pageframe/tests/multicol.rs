@@ -148,6 +148,48 @@ fn a_block_split_between_columns_reports_the_union_box() {
     );
 }
 
+fn offset(harness: &Harness<Page<()>>, id: &str) -> [f64; 4] {
+    let doc = harness.base();
+    let node_id = doc
+        .query_selector_all(&format!("#{id}"))
+        .expect("box selector is valid")[0];
+    let rect = doc.offset_rect(node_id).expect("box has an offset rect");
+    drop(doc);
+    [rect.x, rect.y, rect.width, rect.height]
+}
+
+#[test]
+fn offsets_follow_the_first_column_fragment_like_chrome() {
+    let positioned: String = (0..7)
+        .map(|index| format!("<div id=\"q{index}\" class=\"b\"></div>"))
+        .collect();
+    let harness = page(&format!(
+        "<div class=\"c\">{}</div><div class=\"c\" style=\"position:relative;\
+         margin:10px 0 0 5px;border:3px solid\">{positioned}<div id=\"v\" \
+         style=\"writing-mode:vertical-rl;height:30px;width:12px\"></div></div>",
+        blocks(7)
+    ));
+    for (id, expected) in [
+        ("b2", [0.0, 40.0, 210.0, 47.0]),
+        ("b3", [110.0, 13.0, 100.0, 20.0]),
+        ("b4", [110.0, 33.0, 210.0, 47.0]),
+        ("b6", [220.0, 27.0, 100.0, 20.0]),
+        ("q2", [0.0, 40.0, 210.0, 57.0]),
+        ("q3", [110.0, 3.0, 100.0, 20.0]),
+        ("q5", [110.0, 43.0, 210.0, 57.0]),
+        ("v", [220.0, 27.0, 12.0, 30.0]),
+    ] {
+        let actual = offset(&harness, id);
+        assert!(
+            actual
+                .iter()
+                .zip(expected)
+                .all(|(actual, expected)| (actual - expected).abs() < 0.5),
+            "{id}: {actual:?}, expected {expected:?}"
+        );
+    }
+}
+
 #[test]
 fn padding_moves_the_columns_and_a_normal_gap_is_one_em() {
     let harness = page(&format!(

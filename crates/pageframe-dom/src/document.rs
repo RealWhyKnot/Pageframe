@@ -2567,6 +2567,14 @@ impl BaseDocument {
     }
 
     #[cfg(not(feature = "writing-mode"))]
+    pub(crate) fn first_fragment_origin(&self, node_id: NodeId) -> crate::util::Point<f32> {
+        let width = self.nodes[node_id].unrounded_layout().size.width;
+        let line = taffy::Size { width, height: 0.0 };
+        let (pos, _) = self.column_mapped_box(node_id, taffy::Point::ZERO, line);
+        crate::util::Point { x: pos.x, y: pos.y }
+    }
+
+    #[cfg(not(feature = "writing-mode"))]
     pub(crate) fn physical_unrounded_layout(&self, node_id: NodeId) -> taffy::Layout {
         *self.nodes[node_id].unrounded_layout()
     }
@@ -2635,6 +2643,9 @@ impl BaseDocument {
 
         // Nodes with their own layout box: use it directly
         let Some(rects) = self.inline_fragment_rects(node_id) else {
+            if self.has_column_ancestor(node_id) {
+                return Some(self.column_offset_rect(node, node_id));
+            }
             let pos = node.offset_top_left();
             let size = node.unrounded_layout().size;
             #[cfg(feature = "writing-mode")]
@@ -2681,6 +2692,28 @@ impl BaseDocument {
             width: bounds.width,
             height: bounds.height,
         })
+    }
+
+    fn column_offset_rect(&self, node: &Node, node_id: NodeId) -> BoundingRect {
+        let (_, layout) = self.physical_unrounded_geometry(node_id);
+        let origin = self.first_fragment_origin(node_id);
+        let mut x = f64::from(origin.x);
+        let mut y = f64::from(origin.y);
+        if let Some(parent) = node
+            .offset_parent()
+            .filter(|parent| !parent.is_static_body())
+        {
+            let parent_origin = self.first_fragment_origin(parent.id);
+            let border = self.physical_unrounded_layout(parent.id).border;
+            x -= f64::from(parent_origin.x + border.left);
+            y -= f64::from(parent_origin.y + border.top);
+        }
+        BoundingRect {
+            x,
+            y,
+            width: f64::from(layout.size.width),
+            height: f64::from(layout.size.height),
+        }
     }
 
     /// Computes the sizes and positions of the `Node`'s box fragments relative to the
