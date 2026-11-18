@@ -54,8 +54,9 @@ pub fn transform_goes_beyond_a_shift(
     box_styles: &BoxStyleStruct,
     reference_box: Rect<CSSPixelLength>,
 ) -> bool {
-    resolve_3d_transform(box_styles, reference_box)
-        .is_some_and(|matrix| matrix != Transform3D::translation(matrix.m41, matrix.m42, 0.0))
+    resolve_3d_transform(box_styles, reference_box).is_some_and(|matrix| {
+        matrix != Transform3D::translation(matrix.m41, matrix.m42, matrix.m43)
+    })
 }
 
 fn has_perspective(m: &Transform3D<f64>) -> bool {

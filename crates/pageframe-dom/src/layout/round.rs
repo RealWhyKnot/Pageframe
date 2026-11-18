@@ -1,5 +1,6 @@
 use super::LayoutPassState;
 use style::values::computed::CSSPixelLength;
+use style::values::specified::box_::WillChangeBits;
 #[cfg(not(feature = "writing-mode"))]
 use taffy::TraversePartialTree;
 use taffy::{Layout, NodeId, Point, Rect, RoundTree, ScrollableOverflow};
@@ -181,7 +182,12 @@ fn starts_a_snap_root(node: &crate::Node, size: taffy::Size<f32>) -> bool {
             CSSPixelLength::new(size.height),
         ),
     );
-    crate::transform_goes_beyond_a_shift(styles.get_box(), reference_box)
+    let box_styles = styles.get_box();
+    box_styles
+        .will_change
+        .bits
+        .contains(WillChangeBits::TRANSFORM)
+        || crate::transform_goes_beyond_a_shift(box_styles, reference_box)
 }
 
 #[cfg(test)]

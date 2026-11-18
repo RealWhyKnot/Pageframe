@@ -246,9 +246,16 @@ fn rotation_keeps_its_origin_when_the_display_scale_changes() {
 }
 
 fn scaled_box_edges(style: &str, scale: u16) -> [f64; 4] {
+    page_ink_edges(
+        &format!("<div style=\"background:rgb(0,0,255);{style}\"></div>"),
+        scale,
+    )
+}
+
+fn page_ink_edges(body: &str, scale: u16) -> [f64; 4] {
     let page = format!(
-        "<html><body style=\"margin:0;background:white\"><div style=\"position:absolute;\
-         background:rgb(0,0,255);{style}\"></div></body></html>"
+        "<html><head><style>div{{position:absolute}}</style></head>\
+         <body style=\"margin:0;background:white\">{body}</body></html>"
     );
     let buffer = render_at_scale(&mut open(App::new((), &page)), scale);
     let width = usize::try_from(WIDTH * u32::from(scale)).expect("test width fits in usize");
@@ -317,6 +324,43 @@ fn scaled_boxes_snap_from_a_whole_pixel_origin_like_chrome() {
                 .zip(expected)
                 .all(|(edge, want)| (edge - want).abs() < 0.03);
             assert!(close, "{style} at {scale}x: {found:?} vs {expected:?}");
+        }
+    }
+}
+
+#[test]
+fn z_shifts_keep_the_subpixel_grid_and_will_change_restarts_it_like_chrome() {
+    let place = "left:30.3px;top:20.4px;width:20.4px;height:10.4px";
+    let child = "<div style=\"background:rgb(0,0,255);left:0.4px;top:0.4px;width:10.4px;\
+                 height:5.4px\"></div>";
+    let cases = [
+        (
+            format!(
+                "<div style=\"background:rgb(0,0,255);{place};transform:translateZ(5px)\"></div>"
+            ),
+            [[30.0, 20.0, 51.0, 31.0], [61.0, 41.0, 101.0, 62.0]],
+        ),
+        (
+            format!("<div style=\"background:rgb(0,0,255);{place};will-change:transform\"></div>"),
+            [[30.0, 20.0, 50.0, 30.0], [61.0, 41.0, 102.0, 62.0]],
+        ),
+        (
+            format!("<div style=\"{place};transform:translateZ(5px)\">{child}</div>"),
+            [[31.0, 21.0, 41.0, 26.0], [61.0, 42.0, 82.0, 52.0]],
+        ),
+        (
+            format!("<div style=\"{place};will-change:transform\">{child}</div>"),
+            [[30.0, 20.0, 41.0, 26.0], [62.0, 42.0, 83.0, 53.0]],
+        ),
+    ];
+    for (body, chrome) in cases {
+        for (scale, expected) in [1, 2].into_iter().zip(chrome) {
+            let found = page_ink_edges(&body, scale);
+            let close = found
+                .iter()
+                .zip(expected)
+                .all(|(edge, want)| (edge - want).abs() < 0.03);
+            assert!(close, "{body} at {scale}x: {found:?} vs {expected:?}");
         }
     }
 }
