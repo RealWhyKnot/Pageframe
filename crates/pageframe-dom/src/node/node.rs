@@ -869,6 +869,12 @@ impl Node {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct FontExtent {
+    pub(crate) ascent: f32,
+    pub(crate) descent: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum NodeKind {
     Document,
     Element,
@@ -1975,12 +1981,12 @@ impl Node {
         }
     }
 
-    fn block_edges(&self, basis: f32) -> (f32, (f32, f32), (f32, f32)) {
+    fn block_edges(&self, basis: f32) -> taffy::Rect<f32> {
         use style::values::computed::{BorderSideWidth, CSSPixelLength};
         use style::values::specified::border::BorderStyle;
 
         let Some(style) = self.primary_styles() else {
-            return (0.0, (0.0, 0.0), (0.0, 0.0));
+            return taffy::Rect::zero();
         };
         let basis = CSSPixelLength::new(basis);
         let border = style.get_border();
@@ -2000,18 +2006,22 @@ impl Node {
             + padding.padding_left.0.resolve(basis).px();
         let right = width(&border.border_right_width, border.border_right_style)
             + padding.padding_right.0.resolve(basis).px();
-        (
-            style.get_font().font_size.used_size.0.px(),
-            (top, right),
-            (bottom, left),
-        )
+        taffy::Rect {
+            left,
+            right,
+            top,
+            bottom,
+        }
     }
 
     /// The per-line-box fragment boxes of a non-atomic inline element, in CSS pixels relative
     /// to the border box of its inline root.
     ///
     /// Returns `None` for nodes that have their own layout box.
-    pub fn inline_fragment_boxes(&self) -> Option<impl Iterator<Item = taffy::Rect<f32>> + '_> {
+    pub(crate) fn inline_fragment_boxes(
+        &self,
+        font: Option<FontExtent>,
+    ) -> Option<impl Iterator<Item = taffy::Rect<f32>> + '_> {
         use parley::PositionedLayoutItem;
 
         if !self.is_non_atomic_inline() {
@@ -2045,18 +2055,17 @@ impl Node {
         let content_box_inset = root_layout.padding + root_layout.border;
         let block_offset = inline_layout.block_offset;
 
-        let (font_size, over, under) = self.block_edges(inline_layout.percent_basis);
+        let edges = self.block_edges(inline_layout.percent_basis);
         let (over, under) = if inline_root.vertical_line_extent().is_some() {
-            (over.1, under.1)
+            (edges.right, edges.left)
         } else {
-            (over.0, under.0)
+            (edges.top, edges.bottom)
         };
 
         Some(layout.lines().filter_map(move |line| {
             let line_metrics = line.metrics();
             let mut span: Option<(f32, f32)> = None;
-            let mut own: Option<(f32, f32)> = None;
-            let mut borrowed: Option<(f32, f32)> = None;
+            let mut own: Option<(f32, FontExtent)> = None;
 
             for item in line.items() {
                 let (start, end) = match item {
@@ -2065,18 +2074,14 @@ impl Node {
                         if !is_in_target(owner) {
                             continue;
                         }
-                        let run = glyph_run.run();
-                        let metrics = run.font_metrics();
                         if owner == self.id {
-                            let baseline = glyph_run.baseline();
+                            let metrics = glyph_run.run().font_metrics();
                             own.get_or_insert((
-                                baseline - metrics.ascent.round(),
-                                baseline + metrics.descent.round(),
-                            ));
-                        } else if run.font_size() > 0.0 {
-                            borrowed.get_or_insert((
-                                metrics.ascent / run.font_size(),
-                                metrics.descent / run.font_size(),
+                                glyph_run.baseline(),
+                                FontExtent {
+                                    ascent: metrics.ascent,
+                                    descent: metrics.descent,
+                                },
                             ));
                         }
                         let start = glyph_run.offset();
@@ -2094,18 +2099,16 @@ impl Node {
                 }));
             }
 
-            let size = font_size * scale;
-            let baseline = line_metrics.baseline;
-            let (top, bottom) = own
-                .or_else(|| {
-                    borrowed.map(|(ascent, descent)| {
-                        (
-                            baseline - (ascent * size).round(),
-                            baseline + (descent * size).round(),
-                        )
-                    })
-                })
-                .unwrap_or((line_metrics.block_min_coord, line_metrics.block_max_coord));
+            let baseline = own.map_or(line_metrics.baseline, |(baseline, _)| baseline);
+            let (top, bottom) = font.or(own.map(|(_, extent)| extent)).map_or(
+                (line_metrics.block_min_coord, line_metrics.block_max_coord),
+                |extent| {
+                    (
+                        baseline - extent.ascent.round(),
+                        baseline + extent.descent.round(),
+                    )
+                },
+            );
             span.map(|(left, right)| taffy::Rect {
                 left,
                 top: top - over * scale,
@@ -2140,7 +2143,7 @@ impl Node {
         // Non-atomic inlines have no layout box of their own: start from the first
         // fragment box (relative to the inline root's border box) and continue the
         // walk from the inline root.
-        if let Some(mut fragments) = self.inline_fragment_boxes() {
+        if let Some(mut fragments) = self.inline_fragment_boxes(None) {
             if let Some(first) = fragments.next() {
                 x += first.left;
                 y += first.top;

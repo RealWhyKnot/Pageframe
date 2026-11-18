@@ -2784,6 +2784,22 @@ impl BaseDocument {
         }))
     }
 
+    fn primary_font_extent(&self, node: &Node) -> Option<crate::node::FontExtent> {
+        let style = node.primary_styles()?;
+        let font = style.get_font();
+        let mut font_ctx = self.font_ctx.lock().ok()?;
+        let metrics = crate::font_metrics::form_control_metrics(
+            &mut font_ctx,
+            font,
+            font.font_size.used_size.0.px(),
+            self.viewport().scale(),
+        )?;
+        Some(crate::node::FontExtent {
+            ascent: metrics.ascent,
+            descent: metrics.descent,
+        })
+    }
+
     fn inline_fragment_boxes_mapped(
         &self,
         node_id: NodeId,
@@ -2793,7 +2809,7 @@ impl BaseDocument {
 
         // Only non-atomic inline elements lack their own layout box: they are
         // flattened into the containing inline root's text layout as style spans.
-        let fragments = node.inline_fragment_boxes()?;
+        let fragments = node.inline_fragment_boxes(self.primary_font_extent(node))?;
         let inline_root = node.inline_root_ancestor()?;
 
         // Fragment boxes are relative to the inline root's border box.

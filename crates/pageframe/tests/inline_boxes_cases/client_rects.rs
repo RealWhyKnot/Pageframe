@@ -13,8 +13,23 @@ const SPANS: &str = "<html><head><style>html,body{margin:0;background:#fff;font:
     <div style='line-height:normal'>e <sub id=sub>sub</sub><sup id=sup>sup</sup></div>\
     </body></html>";
 
-fn vertical_extents(scale: f32) -> Vec<[f64; 2]> {
-    let mut harness = open(App::new((), SPANS));
+const FONTS: &str = "<html><head><style>html,body{margin:0;background:#fff;font:14px/30px Arial}\
+    div{margin-bottom:4px}</style></head><body>\
+    <div><span id=fallback>漢字 text</span> x</div>\
+    <div><span id=borrow><code>mono</code></span> x</div>\
+    <div><span id=larger><span style='font:20px Georgia'>big</span></span> x</div>\
+    <div style='writing-mode:vertical-lr;height:80px'>ab <span id=lr \
+    style='padding:2px 4px 6px 8px;border-left:3px solid #000'>vert</span></div>\
+    <div style='writing-mode:vertical-rl;height:80px'>ab <span id=rl \
+    style='padding:2px 4px 6px 8px;border-left:3px solid #000'>vert</span></div>\
+    </body></html>";
+
+fn client_rects<const COUNT: usize>(
+    html: &str,
+    scale: f32,
+    ids: [&str; COUNT],
+) -> Vec<pageframe_dom::BoundingRect> {
+    let mut harness = open(App::new((), html));
     {
         let mut doc = harness.base_mut();
         let color_scheme = doc.get_viewport().color_scheme;
@@ -27,20 +42,46 @@ fn vertical_extents(scale: f32) -> Vec<[f64; 2]> {
     }
     harness.pump();
     let doc = harness.base_mut();
-    [
-        "plain", "padded", "outer", "inner", "nest", "bold", "wrap", "sub", "sup",
-    ]
-    .map(|id| {
+    ids.map(|id| {
         let node = doc
             .query_selector(&format!("#{id}"))
             .expect("valid selector")
             .expect("the span exists");
-        let rect = doc
-            .get_client_bounding_rect(node)
-            .expect("the span is laid out");
-        [rect.y, rect.height]
+        doc.get_client_bounding_rect(node)
+            .expect("the span is laid out")
     })
     .to_vec()
+}
+
+fn vertical_extents(scale: f32) -> Vec<[f64; 2]> {
+    client_rects(
+        SPANS,
+        scale,
+        [
+            "plain", "padded", "outer", "inner", "nest", "bold", "wrap", "sub", "sup",
+        ],
+    )
+    .iter()
+    .map(|rect| [rect.y, rect.height])
+    .collect()
+}
+
+#[test]
+fn inline_client_rects_use_the_primary_font_like_chrome() {
+    let chrome = [
+        (1.0, [[7.0, 16.0], [41.0, 16.0], [76.0, 16.0]], [-4.0, 31.0]),
+        (2.0, [[7.0, 15.5], [41.0, 15.5], [75.0, 15.5]], [-3.5, 30.5]),
+    ];
+    for (scale, horizontal, vertical) in chrome {
+        let rects = client_rects(FONTS, scale, ["fallback", "borrow", "larger", "lr", "rl"]);
+        let found: Vec<[f64; 2]> = rects[..3]
+            .iter()
+            .map(|rect| [rect.y, rect.height])
+            .collect();
+        assert_eq!(found, horizontal, "scale {scale}");
+        let found: Vec<[f64; 2]> = rects[3..].iter().map(|rect| [rect.x, rect.width]).collect();
+        assert_eq!(found, [vertical, vertical], "scale {scale}");
+    }
 }
 
 #[test]
