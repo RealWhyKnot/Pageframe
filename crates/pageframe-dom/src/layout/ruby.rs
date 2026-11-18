@@ -113,6 +113,23 @@ impl LayoutPassState<'_> {
         Some((font_size * scale - metrics.descent.round()) / scale)
     }
 
+    fn atomic_top(&self, base: NodeId) -> Option<f32> {
+        let node = &self.nodes[base];
+        if !node.flags.is_inline_root() {
+            return Some(0.0);
+        }
+        node.layout_children
+            .borrow()
+            .iter()
+            .flatten()
+            .filter(|&&child| !self.nodes[child].is_out_of_flow())
+            .map(|&child| {
+                let layout = self.nodes[child].unrounded_layout();
+                layout.location.y - layout.margin.top
+            })
+            .reduce(f32::min)
+    }
+
     fn empty_base_extent(&self, node: NodeId) -> Option<(f32, f32)> {
         let style = self.nodes[node].primary_styles()?;
         let font_size = style.slow_clone_font_size().used_size().px();
@@ -314,7 +331,9 @@ impl LayoutPassState<'_> {
                     .em_above_baseline(base.measured.node)
                     .or_else(|| self.em_above_baseline(node_id))
                     .unwrap_or(own_baseline);
-                base.location.y + own_baseline - em_above_baseline
+                let em_top = base.location.y + own_baseline - em_above_baseline;
+                self.atomic_top(base.measured.node)
+                    .map_or(em_top, |top| em_top.min(base.location.y + top))
             }));
         }
         let fallback_em_top = em_tops

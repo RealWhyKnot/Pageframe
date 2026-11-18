@@ -326,6 +326,38 @@ fn a_ruby_without_a_base_keeps_an_empty_base_line_like_chrome() {
     );
 }
 
+#[test]
+fn a_ruby_over_an_image_leaves_room_for_its_annotation_like_chrome() {
+    let mut harness = open(App::new(
+        (),
+        "<!doctype html><style>html,body{margin:0;font:14px Arial}div{border:1px solid #999;margin:3px;width:200px}</style>\
+<div><span>ab</span><ruby><img width=20 height=40><rt>a</rt></ruby><span>cd</span></div>",
+    ));
+    assert_boxes(
+        &boxes(&mut harness, "div, span, ruby, img"),
+        &[
+            [3.0, 3.0, 202.0, 52.0],
+            [4.0, 38.0, 15.58, 16.0],
+            [19.58, 38.0, 20.0, 16.0],
+            [19.58, 11.0, 20.0, 40.0],
+            [39.58, 38.0, 14.80, 16.0],
+        ],
+        "boxes at 1x",
+    );
+    render_at_scale(&mut harness, 2);
+    assert_boxes(
+        &boxes(&mut harness, "div, span, ruby, img"),
+        &[
+            [3.0, 3.0, 202.0, 52.5],
+            [4.0, 38.5, 15.58, 15.5],
+            [19.58, 38.5, 20.0, 15.5],
+            [19.58, 11.0, 20.0, 40.0],
+            [39.58, 38.5, 14.79, 15.5],
+        ],
+        "boxes at 2x",
+    );
+}
+
 fn scroll_to_ruby<S: 'static>(
     harness: &mut Harness<Page<S>>,
     position: ScrollLogicalPosition,
