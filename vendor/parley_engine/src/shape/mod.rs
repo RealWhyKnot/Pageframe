@@ -7,6 +7,7 @@ pub(crate) mod atom;
 mod cache;
 mod cluster;
 mod data;
+mod han_kerning;
 pub(crate) mod shaped_text;
 pub(crate) mod shaper;
 

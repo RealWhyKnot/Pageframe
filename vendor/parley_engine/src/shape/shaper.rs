@@ -15,7 +15,7 @@ use crate::{
     Analysis, CharInfo, ShapedText,
     itemize::{Item, Segment, TextRange},
     lru_cache::LruCache,
-    shape::{CharCluster, cache},
+    shape::{CharCluster, cache, han_kerning},
 };
 
 /// Shaping options for one item.
@@ -114,7 +114,19 @@ pub struct Shaper {
     shape_plan_cache: LruCache<cache::ShapePlanId, harfrust::ShapePlan>,
     unicode_buffer: Option<harfrust::UnicodeBuffer>,
     features: Vec<harfrust::Feature>,
+    han_spacing_cache: LruCache<HanSpacingKey, Option<han_kerning::FontSpacing>>,
+    han_kerned: Vec<usize>,
+    plan_features: Vec<harfrust::Feature>,
+    run_features: Vec<harfrust::Feature>,
     char_cluster: CharCluster,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct HanSpacingKey {
+    font_blob_id: u64,
+    font_index: u32,
+    flow: han_kerning::Flow,
+    language: Option<harfrust::Language>,
 }
 
 impl Default for Shaper {
@@ -126,6 +138,10 @@ impl Default for Shaper {
             shape_plan_cache: LruCache::new(MAX_ENTRIES),
             unicode_buffer: Some(harfrust::UnicodeBuffer::new()),
             features: Vec::new(),
+            han_spacing_cache: LruCache::new(MAX_ENTRIES),
+            han_kerned: Vec::new(),
+            plan_features: Vec::new(),
+            run_features: Vec::new(),
             char_cluster: CharCluster::default(),
         }
     }
@@ -330,6 +346,59 @@ fn shape_segment(
             .shaper(&font_ref)
             .instance(Some(instance))
             .build();
+
+        let run_text = &text[range.byte_range.clone()];
+        let flow = if upright {
+            han_kerning::Flow::Vertical
+        } else {
+            han_kerning::Flow::Horizontal
+        };
+        scx.han_kerned.clear();
+        if han_kerning::may_apply(run_text) && !han_kerning::has_exclusive_feature(&scx.features)
+        {
+            let key = HanSpacingKey {
+                font_blob_id: font.font.data.id(),
+                font_index: font.font.index,
+                flow,
+                language: language.clone(),
+            };
+            let spacing = scx.han_spacing_cache.entry(key, || {
+                let font = skrifa::FontRef::from_index(font.font.data.as_ref(), font.font.index);
+                han_kerning::font_spacing(&harf_shaper, &font.ok()?, flow, language.as_ref())
+            });
+            if let Some(spacing) = spacing {
+                spacing.kerned_indices(
+                    run_text,
+                    text[..range.byte_range.start].chars().next_back(),
+                    text[range.byte_range.end..].chars().next(),
+                    &mut scx.han_kerned,
+                );
+            }
+        }
+        let (plan_features, run_features) = if scx.han_kerned.is_empty() {
+            (&scx.features, &scx.features)
+        } else {
+            let tag = flow.alternate_tag();
+            scx.plan_features.clone_from(&scx.features);
+            scx.plan_features.push(harfrust::Feature {
+                tag,
+                value: 1,
+                start: 0,
+                end: 1,
+            });
+            scx.run_features.clone_from(&scx.features);
+            scx.run_features.extend(scx.han_kerned.iter().filter_map(|&index| {
+                let start = u32::try_from(index).ok()?;
+                Some(harfrust::Feature {
+                    tag,
+                    value: 1,
+                    start,
+                    end: start.checked_add(1)?,
+                })
+            }));
+            (&scx.plan_features, &scx.run_features)
+        };
+
         let shaper_plan = scx.shape_plan_cache.entry(
             cache::ShapePlanKey::new(
                 font.font.data.id(),
@@ -338,7 +407,7 @@ fn shape_segment(
                 direction,
                 hb_script,
                 language.clone(),
-                &scx.features,
+                plan_features,
                 Some(options.variations),
             ),
             || {
@@ -347,7 +416,7 @@ fn shape_segment(
                     direction,
                     Some(hb_script),
                     language.as_ref(),
-                    &scx.features,
+                    plan_features,
                 )
             },
         );
@@ -358,7 +427,6 @@ fn shape_segment(
         buffer.set_cluster_level(harfrust::BufferClusterLevel::MonotoneCharacters);
 
         // Use the entire run text including newlines.
-        let run_text = &text[range.byte_range.clone()];
         buffer.reserve(run_text.len());
         #[expect(clippy::cast_possible_truncation, reason = "Deferred")]
         for (i, ch) in run_text.chars().enumerate() {
@@ -385,7 +453,7 @@ fn shape_segment(
             buffer,
             HarfShapeOptions::new()
                 .plan(Some(shaper_plan))
-                .features(&scx.features)
+                .features(run_features)
                 .point_size(Some(options.font_size)),
         );
 
