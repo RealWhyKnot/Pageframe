@@ -1683,7 +1683,7 @@ impl ElementCx<'_, '_> {
                 let reach = SPAN_GROUP_REACH * self.scale;
                 self.context.layer_manager.maybe_with_layer(
                     scene,
-                    true,
+                    opacity < 1.0,
                     peniko::Mix::Normal.into(),
                     opacity,
                     transform,

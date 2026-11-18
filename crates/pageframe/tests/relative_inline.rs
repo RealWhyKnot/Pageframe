@@ -170,6 +170,42 @@ fn relative_inline_offsets_measure_from_the_first_fragment_like_chrome() {
 }
 
 #[test]
+fn a_relative_span_paints_over_the_text_after_it_like_chrome() {
+    let page = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial;color:#f00}</style>\
+<div>ab<span style=\"position:relative;left:40px;background:#0f0;color:#00f\">cd</span>WWW</div>";
+    let mut harness = open(App::new((), page));
+    let frame = render(&mut harness);
+    let covered: Vec<[u8; 4]> = (57..70)
+        .flat_map(|column| (2..14).map(move |row| (column, row)))
+        .map(|(column, row)| pixel(&frame, column, row))
+        .collect();
+    let red = covered
+        .iter()
+        .filter(|[red, green, blue, _]| *red > 128 && *green < 128 && *blue < 128)
+        .count();
+    let blue = covered
+        .iter()
+        .filter(|[red, green, blue, _]| *red < 128 && *green < 128 && *blue > 128)
+        .count();
+    assert_eq!(red, 0, "the span covers the text it moved over");
+    assert!(blue > 0, "the span's own text is painted");
+}
+
+#[test]
+fn a_faded_span_inside_a_relative_span_stays_faded() {
+    let page = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}</style>\
+<div><span style=\"position:relative;left:2px\"><span style=\"opacity:0.5;background:#000;color:#000\">ab</span></span></div>";
+    let mut harness = open(App::new((), page));
+    let frame = render(&mut harness);
+    let [red, green, blue, _] = pixel(&frame, 5, 1);
+    assert!(
+        (120..=136).contains(&red) && red == green && green == blue,
+        "half-transparent black over white: {:?}",
+        [red, green, blue]
+    );
+}
+
+#[test]
 fn vertical_percentages_need_a_definite_height_like_chrome() {
     let page = "<!doctype html><style>html,body{margin:0;font:14px Arial}p{margin:0;width:200px;height:50%}</style>\
 <div style=\"width:200px;height:100px\">ab<span id=fix style=\"position:relative;top:10%;left:5%\">cd</span></div>\

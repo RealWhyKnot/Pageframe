@@ -71,6 +71,7 @@ struct InlineAncestor {
     font_size: f64,
     shift: Vec2,
     is_faded: bool,
+    is_positioned: bool,
 }
 
 fn inline_ancestors(
@@ -108,6 +109,7 @@ fn inline_ancestors(
             font_size: f64::from(styles.get_font().font_size.used_size.0.px()),
             shift: relative_shift(node),
             is_faded: styles.get_effects().opacity < 1.0,
+            is_positioned: is_positioned(&styles),
         });
     }
     ancestors
@@ -280,19 +282,27 @@ pub(crate) fn inline_fragments<'a>(
             let mut outer_shift = ancestors
                 .iter()
                 .fold(Vec2::ZERO, |sum, ancestor| sum + ancestor.shift);
-            let faded = ancestors
-                .iter()
-                .enumerate()
-                .rev()
-                .find(|(_, ancestor)| ancestor.is_faded)
-                .map(|(at, ancestor)| (at, ancestor.node_id));
-            for (index, ancestor) in ancestors.into_iter().enumerate() {
+            let groups: Vec<Option<NodeId>> = (0..ancestors.len())
+                .map(|index| {
+                    let outer = ancestors.get(index..).unwrap_or_default();
+                    let outermost = |pick: fn(&InlineAncestor) -> bool| {
+                        outer
+                            .iter()
+                            .rev()
+                            .find(|ancestor| pick(ancestor))
+                            .map(|ancestor| ancestor.node_id)
+                    };
+                    outermost(|ancestor| ancestor.is_faded)
+                        .or_else(|| outermost(|ancestor| ancestor.is_positioned))
+                })
+                .collect();
+            for ((index, ancestor), group) in ancestors.into_iter().enumerate().zip(groups) {
                 let shift = outer_shift * scale;
                 outer_shift -= ancestor.shift;
-                let group = faded
-                    .filter(|(at, _)| index <= *at)
-                    .map(|(_, node_id)| node_id);
-                if ancestor.color == Color::TRANSPARENT && !ancestor.is_boxed && !ancestor.is_faded
+                if ancestor.color == Color::TRANSPARENT
+                    && !ancestor.is_boxed
+                    && !ancestor.is_faded
+                    && !ancestor.is_positioned
                 {
                     continue;
                 }
@@ -470,7 +480,14 @@ struct DecorationStackEntry {
     /// This node's (inherited) `text-shadow` list, in CSS pixels.
     shadows: Vec<ResolvedTextShadow>,
     shift: Vec2,
-    group: Option<NodeId>,
+    fade_group: Option<NodeId>,
+    move_group: Option<NodeId>,
+}
+
+impl DecorationStackEntry {
+    fn group(&self) -> Option<NodeId> {
+        self.fade_group.or(self.move_group)
+    }
 }
 
 struct ResolvedTextShadow {
@@ -488,7 +505,8 @@ fn resolve_decoration_entry(doc: &BaseDocument, node_id: NodeId) -> DecorationSt
             decoration: None,
             shadows: Vec::new(),
             shift: Vec2::ZERO,
-            group: None,
+            fade_group: None,
+            move_group: None,
         };
     };
 
@@ -560,8 +578,13 @@ fn resolve_decoration_entry(doc: &BaseDocument, node_id: NodeId) -> DecorationSt
             Some(node) if is_inline => relative_shift(node),
             _ => Vec2::ZERO,
         },
-        group: (is_inline && styles.get_effects().opacity < 1.0).then_some(node_id),
+        fade_group: (is_inline && styles.get_effects().opacity < 1.0).then_some(node_id),
+        move_group: (is_inline && is_positioned(&styles)).then_some(node_id),
     }
+}
+
+fn is_positioned(styles: &style::properties::ComputedValues) -> bool {
+    styles.get_box().position != style::computed_values::position::T::Static
 }
 
 /// The run-dependent geometry used to position and size a decoration, captured from a
@@ -1488,16 +1511,18 @@ pub(crate) fn stroke_text<'a>(
                     let mut entry = resolve_decoration_entry(doc, node_id);
                     if node_id == inline_root_id || flat_ancestors {
                         entry.shift = Vec2::ZERO;
-                        entry.group = None;
+                        entry.fade_group = None;
+                        entry.move_group = None;
                     } else if let Some(outer) = stack.last() {
                         entry.shift = outer.shift + entry.shift * scale;
-                        entry.group = outer.group.or(entry.group);
+                        entry.fade_group = outer.fade_group.or(entry.fade_group);
+                        entry.move_group = outer.move_group.or(entry.move_group);
                     } else {
                         entry.shift *= scale;
                     }
                     stack.push(entry);
                 }
-                if stack.last().and_then(|entry| entry.group) != group {
+                if stack.last().and_then(DecorationStackEntry::group) != group {
                     let start = f64::from(glyph_run.offset());
                     holes.push((start, start + f64::from(glyph_run.advance())));
                     continue;
