@@ -1655,29 +1655,28 @@ impl ElementCx<'_, '_> {
                 &text_layout.text,
                 self.scale,
             );
+            let mut groups: Vec<(NodeId, Rect)> = Vec::new();
+            for fragment in &fragments {
+                let Some(group) = fragment.group else {
+                    continue;
+                };
+                match groups.iter_mut().find(|(id, _)| *id == group) {
+                    Some((_, bounds)) => *bounds = bounds.union(fragment.rect),
+                    None => groups.push((group, fragment.rect)),
+                }
+            }
             fragments
                 .retain(|fragment| !crate::text::is_invisible(self.context.dom, fragment.node_id));
             let cut = (visible_lines, ellipsis);
             self.draw_inline_group(scene, transform, &fragments, None, cut);
-            let mut groups: Vec<NodeId> = Vec::new();
-            for group in fragments.iter().filter_map(|fragment| fragment.group) {
-                if !groups.contains(&group) {
-                    groups.push(group);
-                }
-            }
-            for group in groups {
-                let bounds = fragments
-                    .iter()
-                    .filter(|fragment| fragment.group == Some(group))
-                    .map(|fragment| fragment.rect)
-                    .reduce(|bounds, rect| bounds.union(rect));
-                let opacity = self
+            for (group, bounds) in groups {
+                let Some(opacity) = self
                     .context
                     .dom
                     .get_node(group)
                     .and_then(|node| node.primary_styles())
-                    .map(|style| style.get_effects().opacity);
-                let (Some(bounds), Some(opacity)) = (bounds, opacity) else {
+                    .map(|style| style.get_effects().opacity)
+                else {
                     continue;
                 };
                 let reach = SPAN_GROUP_REACH * self.scale;
@@ -1745,16 +1744,23 @@ impl ElementCx<'_, '_> {
         for fragment in fragments.iter().filter(|fragment| fragment.group == group) {
             self.draw_inline_fragment(scene, transform, fragment);
         }
-        if group.is_none()
-            && let Some(&(sel_start, sel_end)) = self.context.selection_ranges.get(&self.node.id)
-        {
+        if let Some(&range) = self.context.selection_ranges.get(&self.node.id) {
+            let runs = crate::text::grouped_runs(
+                &text_layout.layout,
+                self.context.dom,
+                self.node.id,
+                self.scale,
+            );
             crate::text::draw_text_selection(
                 scene,
                 &text_layout.layout,
                 transform,
-                sel_start,
-                sel_end,
-                visible_lines,
+                crate::text::SelectionPaint {
+                    range,
+                    visible_lines,
+                    runs: &runs,
+                    group,
+                },
             );
         }
         let mut draw_text_context = self.context.draw_text_context.borrow_mut();

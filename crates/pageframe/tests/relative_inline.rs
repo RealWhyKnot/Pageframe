@@ -229,3 +229,48 @@ fn vertical_percentages_need_a_definite_height_like_chrome() {
         ]
     );
 }
+
+#[test]
+fn a_visible_child_of_a_hidden_relative_span_still_paints() {
+    let page = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}</style>\
+<div>ab<span style=\"position:relative;left:10px;visibility:hidden\">xx<span style=\"visibility:visible;color:#00f\">cd</span></span></div>";
+    let mut harness = open(App::new((), page));
+    let frame = render(&mut harness);
+    let blue = (0..80)
+        .flat_map(|column| (0..16).map(move |row| (column, row)))
+        .map(|(column, row)| pixel(&frame, column, row))
+        .filter(|[red, green, blue, _]| *red < 128 && *green < 128 && *blue > 128)
+        .count();
+    assert!(blue > 0, "the visible child's text is painted");
+}
+
+#[test]
+fn the_selection_moves_with_a_relative_span_and_stays_over_its_background() {
+    let page = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial;color:#fff}</style>\
+<div>ab<span style=\"position:relative;left:20px;background:#0f0\">cd</span></div>";
+    let mut harness = open(App::new((), page));
+    let mut doc = harness.base_mut();
+    let div = doc
+        .query_selector("div")
+        .expect("valid selector")
+        .expect("the div exists");
+    doc.set_text_selection(div, 0, div, usize::MAX);
+    drop(doc);
+    let frame = render(&mut harness);
+    let highlight = [180, 213, 255, 255];
+    assert_eq!(
+        pixel(&frame, 2, 1),
+        highlight,
+        "the unmoved text is selected"
+    );
+    assert_eq!(
+        pixel(&frame, 38, 1),
+        highlight,
+        "the moved text's highlight covers the span background"
+    );
+    assert_eq!(
+        pixel(&frame, 18, 1),
+        [255, 255, 255, 255],
+        "no highlight where the span sat"
+    );
+}
