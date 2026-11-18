@@ -2012,13 +2012,12 @@ fn reset_trailing_whitespace_level<B: Brush>(
         && is_invisible_item(layout, &lines.line_items[target_idx - 1])
     {
         target_idx -= 1;
-        lines.line_items[target_idx].bidi_level = base_level;
     }
     if target_idx == start_item_idx {
         return;
     }
-    let last = &mut lines.line_items[target_idx - 1];
-    if last.kind != LayoutItemKind::TextRun || last.bidi_level == base_level {
+    let last = &lines.line_items[target_idx - 1];
+    if last.kind != LayoutItemKind::TextRun {
         return;
     }
     let shaped_text = &layout.data.shaped_text;
@@ -2035,6 +2034,13 @@ fn reset_trailing_whitespace_level<B: Brush>(
         split = atom.shaped_clusters_range().start;
     }
     if split == last.shaped_cluster_range.end {
+        return;
+    }
+    for mark in &mut lines.line_items[target_idx..] {
+        mark.bidi_level = base_level;
+    }
+    let last = &mut lines.line_items[target_idx - 1];
+    if last.bidi_level == base_level {
         return;
     }
     if split <= last.shaped_cluster_range.start {

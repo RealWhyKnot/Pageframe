@@ -254,12 +254,17 @@ const SPAN_ENDS: &str = "<html><head><style>html,body{margin:0;background:#fff;\
     <div><span id=outer><span style='box-decoration-break:clone;padding:0 4px 0 8px'>\
     ab cd ef gh ij</span></span></div>\
     <div><span id=outer2>xy <span style='box-decoration-break:clone;padding:0 4px 0 8px'>\
-    ab cd ef gh</span> z</span></div></body></html>";
+    ab cd ef gh</span> z</span></div>\
+    <div style=text-align:right><span id=lright>quick brown </span>fox jumps</div>\
+    <div><span id=deep><span><span style='box-decoration-break:clone;padding-left:8px'>\
+    ab cd ef gh ij kl mn</span></span></span></div></body></html>";
 
 #[test]
 fn spaces_before_span_ends_hang_and_clone_insets_reach_outer_spans_like_chrome() {
-    let expected: [(&str, &[[f64; 2]]); 3] = [
+    let expected: [(&str, &[[f64; 2]]); 5] = [
         ("rend", &[[15.296_875, 74.703_125]]),
+        ("lright", &[[15.296_875, 74.703_125]]),
+        ("deep", &[[0.0, 87.390_625], [0.0, 41.453_125]]),
         ("outer", &[[0.0, 81.281_25], [0.0, 18.234_375]]),
         ("outer2", &[[0.0, 79.718_75], [0.0, 38.468_75]]),
     ];

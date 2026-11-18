@@ -46,6 +46,8 @@ pub fn hung_space(
     (width > 0.0).then_some((left, width))
 }
 
+const HUNG_SLACK: f32 = 1.0 / 128.0;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LineTrim {
     inked_left: f32,
@@ -110,9 +112,9 @@ impl LineTrim {
             return false;
         }
         if self.is_rtl {
-            right <= self.inked_left
+            right <= self.inked_left + HUNG_SLACK
         } else {
-            left >= self.inked_right
+            left >= self.inked_right - HUNG_SLACK
         }
     }
 
@@ -192,36 +194,42 @@ pub fn settle_line_spans<T: Float + From<f32>>(
         .map(|(index, span)| (depth_of(span.node_id), index))
         .collect();
     order.sort_by(|first, second| second.cmp(first));
+    let mut grown: SmallVec<[bool; 8]> = SmallVec::from_elem(false, spans.len());
     for (_, index) in order {
         let span = &mut spans[index];
         let node = tree.get(span.node_id);
-        let Some(insets) = node.and_then(|node| inline_clone_insets(node, basis)) else {
-            continue;
+        let outer = match node.and_then(|node| inline_clone_insets(node, basis)) {
+            Some(insets) => {
+                let start_scale = if span.is_start { 0.0 } else { scale };
+                let end_scale = if span.is_end { 0.0 } else { scale };
+                let (left, right) = (span.left, span.right);
+                (span.left, span.right) = grow(
+                    left,
+                    right,
+                    start_scale * insets.start(),
+                    end_scale * insets.end(),
+                    insets.is_rtl,
+                );
+                span.is_start = true;
+                span.is_end = true;
+                grow(
+                    left,
+                    right,
+                    start_scale * insets.outer_start(),
+                    end_scale * insets.outer_end(),
+                    insets.is_rtl,
+                )
+            }
+            None if grown[index] => (span.left, span.right),
+            None => continue,
         };
-        let start_scale = if span.is_start { 0.0 } else { scale };
-        let end_scale = if span.is_end { 0.0 } else { scale };
-        let (left, right) = (span.left, span.right);
-        (span.left, span.right) = grow(
-            left,
-            right,
-            start_scale * insets.start(),
-            end_scale * insets.end(),
-            insets.is_rtl,
-        );
-        let outer = grow(
-            left,
-            right,
-            start_scale * insets.outer_start(),
-            end_scale * insets.outer_end(),
-            insets.is_rtl,
-        );
-        span.is_start = true;
-        span.is_end = true;
         let mut cursor = node.and_then(|node| node.parent);
         while let Some(parent) = cursor.filter(|parent| *parent != root.id) {
-            if let Some(ancestor) = spans.iter_mut().find(|span| span.node_id == parent) {
+            if let Some(at) = spans.iter().position(|span| span.node_id == parent) {
+                let ancestor = &mut spans[at];
                 ancestor.left = ancestor.left.min(outer.0);
                 ancestor.right = ancestor.right.max(outer.1);
+                grown[at] = true;
                 break;
             }
             cursor = tree.get(parent).and_then(|node| node.parent);
