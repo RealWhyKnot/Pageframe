@@ -2044,6 +2044,9 @@ impl Node {
         let Some(styles) = self.primary_styles() else {
             return false;
         };
+        if styles.get_box().display.is_contents() {
+            return false;
+        }
         if styles.get_box().position != Position::Static {
             return true;
         }
@@ -2066,9 +2069,18 @@ impl Node {
 
     /// CSSOM View's `offsetParent`.
     pub fn offset_parent(&self) -> Option<&Node> {
-        let position = self
-            .primary_styles()
-            .map_or(Position::Static, |styles| styles.get_box().position);
+        self.containing_block()?;
+        if self.data.is_element_with_tag_name(&local_name!("body"))
+            || self.data.is_element_with_tag_name(&local_name!("html"))
+        {
+            return None;
+        }
+        let styles = self.primary_styles()?;
+        let display = styles.get_box().display;
+        if display.is_none() || display.is_contents() {
+            return None;
+        }
+        let position = styles.get_box().position;
         if position == Position::Fixed {
             return None;
         }
@@ -2175,13 +2187,24 @@ impl Node {
     /// CSSOM View's `offsetLeft`/`offsetTop`: the offset of this node's border box from the
     /// padding edge of its [`offset_parent`](Self::offset_parent).
     pub fn offset_top_left(&self) -> crate::util::Point<f32> {
+        let target = self
+            .offset_parent()
+            .filter(|parent| !parent.is_static_body());
+        if let Some(span) = target.filter(|parent| parent.is_non_atomic_inline()) {
+            let own = self.offset_from(None);
+            let base = span.offset_from(None);
+            return crate::util::Point {
+                x: own.x - base.x,
+                y: own.y - base.y,
+            };
+        }
+        self.offset_from(target.map(|parent| parent.id))
+    }
+
+    fn offset_from(&self, target: Option<NodeId>) -> crate::util::Point<f32> {
         let mut x = 0.0;
         let mut y = 0.0;
         let mut current = self;
-        let target = self
-            .offset_parent()
-            .filter(|parent| !parent.is_static_body())
-            .map(|parent| parent.id);
 
         // Non-atomic inlines have no layout box of their own: start from the first
         // fragment box (relative to the inline root's border box) and continue the

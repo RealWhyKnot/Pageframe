@@ -11,7 +11,25 @@ padding:4px 6px;left:2px\">c<span id=b5 style=\"display:inline-block;width:6px;h
 </span></span></div>\
 <div><div id=b6 style=\"position:fixed;top:5px;left:300px\">f</div><table id=t6><tr>\
 <td id=c6>g<span id=b7 style=\"display:inline-block;width:4px;height:4px\"></span></td>\
-</tr></table></div>";
+</tr></table></div>\
+<div id=n8 style=\"display:none\"><span id=k8>x</span></div>\
+<div id=body-kid style=\"display:contents;position:relative\"><span id=k9 \
+style=\"display:inline-block;width:5px;height:5px\"></span></div>\
+<table id=t10><caption id=p10>c</caption><tr><td>z</td></tr></table>\
+<div id=d11 style=\"position:relative\">q<div id=k11 style=\"display:contents\">\
+<span id=j11>w</span></div></div>";
+
+fn boxless(harness: &mut Harness<Page<()>>, id: &str) -> bool {
+    let doc = harness.base_mut();
+    let node = doc
+        .query_selector(&format!("#{id}"))
+        .expect("valid selector")
+        .expect("the element exists");
+    let parent = doc.get_node(node).and_then(|node| node.offset_parent());
+    let is_boxless = parent.is_none() && doc.offset_rect(node).is_none();
+    drop(doc);
+    is_boxless
+}
 
 fn offsets(harness: &mut Harness<Page<()>>, id: &str) -> (f64, f64, Option<String>) {
     let doc = harness.base_mut();
@@ -62,4 +80,20 @@ fn table_parts_and_fixed_boxes_pick_the_offset_parent_like_chrome() {
     assert_eq!(offsets(&mut harness, "c6"), expected(2.0, 2.0, "t6"));
     assert_eq!(offsets(&mut harness, "b7"), expected(9.0, 10.0, "c6"));
     assert_eq!(offsets(&mut harness, "b6"), (300.0, 5.0, None));
+}
+
+#[test]
+fn elements_without_a_box_have_no_offset_parent_like_chrome() {
+    let mut harness = open();
+    assert!(boxless(&mut harness, "n8"));
+    assert!(boxless(&mut harness, "k8"));
+    assert!(boxless(&mut harness, "k11"));
+}
+
+#[test]
+fn display_contents_ancestors_never_become_the_offset_parent_like_chrome() {
+    let mut harness = open();
+    assert_eq!(offsets(&mut harness, "k9").2.as_deref(), None);
+    assert_eq!(offsets(&mut harness, "j11").2.as_deref(), Some("d11"));
+    assert_eq!(offsets(&mut harness, "p10").2.as_deref(), Some("t10"));
 }

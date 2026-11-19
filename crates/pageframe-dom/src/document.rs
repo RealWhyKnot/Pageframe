@@ -2675,6 +2675,10 @@ impl BaseDocument {
     /// their `offsetParent` is resolved from the containing inline root.
     pub fn offset_rect(&self, node_id: NodeId) -> Option<BoundingRect> {
         let node = self.get_node(node_id)?;
+        let display = node.primary_styles()?.get_box().display;
+        if display.is_none() || display.is_contents() {
+            return None;
+        }
 
         // Nodes with their own layout box: use it directly
         let Some(fragments) = self.inline_fragment_boxes_mapped(node_id, ScrollOffsets::Ignored)
@@ -2682,20 +2686,7 @@ impl BaseDocument {
             if self.has_column_ancestor(node_id) {
                 return Some(self.column_offset_rect(node, node_id));
             }
-            let pos = match node
-                .offset_parent()
-                .filter(|parent| parent.is_non_atomic_inline())
-            {
-                Some(parent) => {
-                    let origin = self.first_fragment_origin(node_id, ScrollOffsets::Ignored);
-                    let base = self.offset_parent_padding_origin(parent);
-                    crate::util::Point {
-                        x: origin.x - base.x,
-                        y: origin.y - base.y,
-                    }
-                }
-                None => node.offset_top_left(),
-            };
+            let pos = node.offset_top_left();
             let size = node.unrounded_layout().size;
             #[cfg(feature = "writing-mode")]
             let size = match node.containing_block() {
