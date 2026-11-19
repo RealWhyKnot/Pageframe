@@ -21,6 +21,8 @@ font:10px/10px monospace}div{height:20px}</style>\
 
 const POINTS: [(usize, usize); 4] = [(0, 5), (0, 64), (0, 104), (0, 131)];
 
+const CHROME_LAYERS: [[u8; 3]; 4] = [[255, 255, 0], [255, 0, 255], [136, 136, 136], [128, 0, 126]];
+
 fn open(page: &str) -> Harness<Page<()>> {
     let page = App::new((), page)
         .page(WIDTH, HEIGHT)
@@ -64,16 +66,7 @@ fn hit_id(harness: &Harness<Page<()>>, (x, y): (usize, usize)) -> Option<String>
 #[test]
 fn inline_layers_paint_in_tree_order_with_positioned_blocks_like_chrome() {
     let buffer = render(&mut open(LAYERS));
-    let chrome: [[u8; 3]; 4] = [[255, 255, 0], [255, 0, 255], [136, 136, 136], [128, 0, 126]];
-    for (&point, expected) in POINTS.iter().zip(chrome) {
-        let [red, green, blue, _] = pixel(&buffer, point);
-        let ours = [red, green, blue];
-        let near = ours
-            .iter()
-            .zip(expected)
-            .all(|(&ours, theirs)| ours.abs_diff(theirs) <= 2);
-        assert!(near, "{point:?} is {ours:?}, Chrome {expected:?}");
-    }
+    assert_colors(&buffer, &POINTS, &CHROME_LAYERS);
 }
 
 #[test]
@@ -88,4 +81,96 @@ fn inline_layers_are_hit_in_tree_order_with_positioned_blocks_like_chrome() {
         .map(|id| Some((*id).to_string()))
         .collect();
     assert_eq!(ids, expected);
+}
+
+const CLIPPED: &str = "<!doctype html><style>html,body{margin:0;background:#fff;\
+font:10px/10px monospace}div{height:20px}</style>\
+<div id=a style=\"position:relative;background:#00f\"></div>\
+<div style=\"overflow:hidden\"><span id=s style=\"position:relative;top:-5px;background:#ff0\">\
+aaaa</span></div><div style=\"background:#0f0\"></div>\
+<div style=\"overflow:hidden;height:10px\">\
+<span id=u style=\"position:relative;top:8px;background:#f80\">aaaa</span></div>";
+
+fn assert_colors(buffer: &[u8], points: &[(usize, usize)], chrome: &[[u8; 3]]) {
+    for (&point, &expected) in points.iter().zip(chrome) {
+        let [red, green, blue, _] = pixel(buffer, point);
+        let ours = [red, green, blue];
+        let near = ours
+            .iter()
+            .zip(expected)
+            .all(|(&ours, theirs)| ours.abs_diff(theirs) <= 2);
+        assert!(near, "{point:?} is {ours:?}, Chrome {expected:?}");
+    }
+}
+
+#[test]
+fn inline_layers_stay_inside_a_clipping_block_like_chrome() {
+    let mut harness = open(CLIPPED);
+    let points = [(1, 18), (1, 24), (1, 68), (1, 72)];
+    let buffer = render(&mut harness);
+    assert_colors(
+        &buffer,
+        &points,
+        &[[0, 0, 255], [255, 255, 0], [255, 136, 0], [255, 255, 255]],
+    );
+    let ids: Vec<Option<String>> = points
+        .iter()
+        .map(|&point| hit_id(&harness, point))
+        .collect();
+    let expected = [Some("a"), Some("s"), Some("u"), None];
+    assert_eq!(ids, expected.map(|id| id.map(str::to_string)));
+}
+
+#[test]
+fn inline_layers_follow_style_changes_like_chrome() {
+    let mut harness = open(LAYERS);
+    let spans = ["s", "t", "u", "v"];
+    let styles: Vec<String> = spans.iter().map(|id| style_of(&harness, id)).collect();
+    for id in spans {
+        set_style(&mut harness, id, "");
+    }
+    for (id, style) in spans.iter().zip(&styles) {
+        set_style(&mut harness, id, style);
+    }
+    let buffer = render(&mut harness);
+    assert_colors(&buffer, &POINTS, &CHROME_LAYERS);
+    let ids: Vec<Option<String>> = POINTS
+        .iter()
+        .map(|&point| hit_id(&harness, point))
+        .collect();
+    let expected: Vec<Option<String>> = ["s", "t", "g", "v"]
+        .iter()
+        .map(|id| Some((*id).to_string()))
+        .collect();
+    assert_eq!(ids, expected);
+}
+
+fn span(harness: &Harness<Page<()>>, id: &str) -> pageframe_dom::NodeId {
+    harness
+        .base()
+        .query_selector(&format!("#{id}"))
+        .expect("valid selector")
+        .expect("the span exists")
+}
+
+fn style_of(harness: &Harness<Page<()>>, id: &str) -> String {
+    let doc = harness.base();
+    doc.get_node(span(harness, id))
+        .and_then(|node| node.attr(pageframe_dom::local_name!("style")))
+        .expect("the span has a style")
+        .to_string()
+}
+
+fn set_style(harness: &mut Harness<Page<()>>, id: &str, style: &str) {
+    let node = span(harness, id);
+    harness.base_mut().mutate().set_attribute(
+        node,
+        pageframe_dom::QualName::new(
+            None,
+            pageframe_dom::ns!(),
+            pageframe_dom::local_name!("style"),
+        ),
+        style,
+    );
+    harness.pump();
 }

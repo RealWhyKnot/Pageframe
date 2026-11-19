@@ -335,6 +335,9 @@ impl BaseDocument {
             }
         }
 
+        self.nodes[node_id]
+            .flags
+            .remove(NodeFlags::HOISTS_INLINE_LAYERS);
         let Some(display) = self.nodes[node_id].display_style() else {
             return;
         };
