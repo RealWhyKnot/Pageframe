@@ -73,6 +73,49 @@ fn holds(rect: &taffy::Rect<f32>, x: f32, y: f32) -> bool {
 }
 
 impl Node {
+    pub(crate) fn inline_hit_reach(&self) -> f32 {
+        self.span_geometry()
+            .map_or(0.0, |geometry| self.hit_reach(geometry.basis))
+    }
+
+    fn hit_reach(&self, span_basis: f32) -> f32 {
+        let basis = self.inset_basis();
+        let tree = self.tree();
+        let kids = |node: &Node| {
+            node.before()
+                .into_iter()
+                .chain(node.children.iter().copied())
+                .chain(node.after())
+                .collect::<SmallVec<[NodeId; 8]>>()
+        };
+        let font_size = |node: &Node| {
+            node.primary_styles()
+                .map_or(0.0, |style| style.get_font().font_size.computed_size().px())
+        };
+        let mut reach = font_size(self) * 2.0;
+        let mut pending: Vec<(NodeId, (f32, f32))> =
+            kids(self).into_iter().map(|id| (id, (0.0, 0.0))).collect();
+        while let Some((id, shift)) = pending.pop() {
+            let Some(node) = tree.get(id) else {
+                continue;
+            };
+            let Some(style) = node.primary_styles() else {
+                continue;
+            };
+            if !node.is_non_atomic_inline() && !style.get_box().display.is_contents() {
+                continue;
+            }
+            let (across, down) = crate::util::inline_relative_offset(&style, basis);
+            let shift = (shift.0 + across, shift.1 + down);
+            let edges = node.block_edges(span_basis);
+            let edge = edges.left.max(edges.right).max(edges.top).max(edges.bottom);
+            let size = style.get_font().font_size.computed_size().px();
+            reach = reach.max(shift.0.abs() + shift.1.abs() + edge + size * 2.0);
+            pending.extend(kids(node).into_iter().map(|kid| (kid, shift)));
+        }
+        reach
+    }
+
     pub(super) fn span_geometry(&self) -> Option<SpanGeometry> {
         let inline_layout = self.element_data()?.inline_layout_data.as_ref()?;
         let root_layout = self.unrounded_layout();
@@ -316,7 +359,33 @@ impl Node {
                 best = Some((key, hit));
             }
         };
-        for (line_index, line) in layout.lines().enumerate() {
+        let reach = self.layout_data().inline_hit_reach * geometry.scale;
+        let (_, block) = self.inline_layout_point(
+            geometry.block_offset,
+            x - geometry.inset.left,
+            y - geometry.inset.top,
+        );
+        let block = block * geometry.scale;
+        let mut low = 0;
+        let mut high = layout.len();
+        while low < high {
+            let middle = low + (high - low) / 2;
+            let is_above = layout
+                .get(middle)
+                .is_some_and(|line| line.metrics().block_max_coord + reach < block);
+            if is_above {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
+        }
+        for line_index in low..layout.len() {
+            let Some(line) = layout.get(line_index) else {
+                break;
+            };
+            if line.metrics().block_min_coord - reach > block {
+                break;
+            }
             for (index, item) in line.items().enumerate() {
                 let PositionedLayoutItem::GlyphRun(glyph_run) = item else {
                     continue;

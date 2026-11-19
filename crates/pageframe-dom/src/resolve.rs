@@ -263,6 +263,10 @@ impl BaseDocument {
             ));
         }
         *self.nodes[node_id].scrollable_overflow_mut() = overflow;
+        if self.nodes[node_id].flags.is_inline_root() {
+            let reach = self.nodes[node_id].inline_hit_reach();
+            self.nodes[node_id].layout_data_mut().inline_hit_reach = reach;
+        }
         *self.nodes[node_id].layout_children.get_mut() = layout_children;
 
         let scaled_x = self.nodes[node_id].final_layout().location.x as f64 * scale;

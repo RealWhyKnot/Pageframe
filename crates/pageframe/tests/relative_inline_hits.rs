@@ -20,6 +20,15 @@ div{height:40px}</style>\
 <div id=outer>ab<span id=mid style=\"position:relative;left:20px\">cd<span id=inner \
 style=\"position:relative;top:16px\">efgh</span></span></div>";
 
+const MIXED: &str = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}\
+div{height:30px;width:120px}</style>\
+<div id=d1 style=\"direction:rtl\">ab<span id=s1 style=\"position:relative;left:-20px;top:8px\">\
+cdef</span>gh</div>\
+<div id=d2>ab<span id=s2 style=\"position:relative;left:10px;top:4px\">c<button id=b2 \
+style=\"font:10px Arial;padding:0 4px\">Go</button>d</span></div>\
+<div id=d3 style=\"writing-mode:vertical-rl;height:60px;width:60px\">ab<span id=s3 \
+style=\"position:relative;left:-12px;top:10px\">cdef</span></div>";
+
 fn hit_id(harness: &Harness<Page<()>>, x: f32, y: f32) -> Option<String> {
     let doc = harness.base();
     let hit = doc.hit(x, y)?;
@@ -65,6 +74,24 @@ fn a_span_moved_over_an_earlier_block_is_hit_above_it_like_chrome() {
 fn the_old_place_of_a_moved_span_hits_its_block_like_chrome() {
     let points = [(40.25, 70.25), (40.25, 80.25), (5.25, 70.25)];
     assert_eq!(ids_at(PAGE, &points), expected(&["d6", "d6", "d6"]));
+}
+
+#[test]
+fn moved_spans_hit_like_chrome_in_rtl_vertical_text_and_around_buttons() {
+    let points = [
+        (70.25, 14.25),
+        (96.25, 4.25),
+        (20.25, 42.25),
+        (44.25, 42.25),
+        (60.25, 42.25),
+        (40.25, 96.25),
+        (52.25, 80.25),
+        (52.25, 96.25),
+    ];
+    assert_eq!(
+        ids_at(MIXED, &points),
+        expected(&["s1", "d1", "d2", "b2", "s2", "s3", "d3", "d3"])
+    );
 }
 
 #[test]

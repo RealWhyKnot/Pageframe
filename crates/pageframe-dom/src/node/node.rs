@@ -1774,7 +1774,7 @@ impl Node {
         }
     }
 
-    fn inset_basis(&self) -> crate::util::InsetBasis {
+    pub(super) fn inset_basis(&self) -> crate::util::InsetBasis {
         let layout = self.unrounded_layout();
         let content = layout.content_box_size();
         let scale = self
@@ -1901,7 +1901,7 @@ impl Node {
         }
     }
 
-    fn inline_layout_point(&self, block_offset: f32, x: f32, y: f32) -> (f32, f32) {
+    pub(super) fn inline_layout_point(&self, block_offset: f32, x: f32, y: f32) -> (f32, f32) {
         let (inline, block) = match self.line_axes() {
             LineAxes::Clockwise(extent) => (y, extent - x),
             LineAxes::CounterClockwise(extent) => (extent - y, x),
