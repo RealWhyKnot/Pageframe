@@ -133,6 +133,38 @@ const STATIC_2X: [(&str, [f64; 4]); 52] = [
     ("r2", [18197.0, 21600.0, 498.5, 992.0]),
 ];
 
+const EDGES: &str = "\
+<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}body{width:300px}div{min-height:24px}</style>\n\
+<div id=\"a0\" dir=\"auto\">&#8295;<i id=\"a1\">b</i>&#8297;<i id=\"a2\">&#1488;</i><i id=\"a3\">c</i></div>\n\
+<div dir=\"ltr\"><bdi id=\"b0\" dir=\"x\"><i id=\"b1\">&#1488;</i><i id=\"b2\">b</i></bdi></div>\n\
+<div dir=\"ltr\"><bdi id=\"c0\" dir=\"\"><i id=\"c1\">&#1488;</i><i id=\"c2\">b</i></bdi></div>";
+
+const EDGES_1X: [(&str, [f64; 4]); 10] = [
+    ("a0", [0.0, 0.0, 19200.0, 1536.0]),
+    ("a1", [0.0, 0.0, 499.0, 1024.0]),
+    ("a2", [499.0, 0.0, 505.0, 1024.0]),
+    ("a3", [1004.0, 0.0, 448.0, 1024.0]),
+    ("b0", [0.0, 1536.0, 1004.0, 1024.0]),
+    ("b1", [499.0, 1536.0, 505.0, 1024.0]),
+    ("b2", [0.0, 1536.0, 499.0, 1024.0]),
+    ("c0", [0.0, 3072.0, 1004.0, 1024.0]),
+    ("c1", [499.0, 3072.0, 505.0, 1024.0]),
+    ("c2", [0.0, 3072.0, 499.0, 1024.0]),
+];
+
+const EDGES_2X: [(&str, [f64; 4]); 10] = [
+    ("a0", [0.0, 0.0, 19200.0, 1536.0]),
+    ("a1", [0.0, 0.0, 498.5, 992.0]),
+    ("a2", [498.5, 0.0, 504.5, 992.0]),
+    ("a3", [1003.0, 0.0, 448.0, 992.0]),
+    ("b0", [0.0, 1536.0, 1003.0, 992.0]),
+    ("b1", [498.5, 1536.0, 504.5, 992.0]),
+    ("b2", [0.0, 1536.0, 498.5, 992.0]),
+    ("c0", [0.0, 3072.0, 1003.0, 992.0]),
+    ("c1", [498.5, 3072.0, 504.5, 992.0]),
+    ("c2", [0.0, 3072.0, 498.5, 992.0]),
+];
+
 const DYNAMIC: &str = "\
 <!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}body{width:300px}div{min-height:24px}</style>\n\
 <div id=\"t0\" dir=\"auto\"><i id=\"t1\">b</i><i id=\"t2\">c</i></div>\n\
@@ -310,4 +342,10 @@ fn dir_auto_input_follows_what_is_typed() {
     harness.type_text("\u{5d0}");
     assert_eq!(direction(&harness, "r"), Direction::Ltr);
     assert_eq!(direction(&harness, "s"), Direction::Ltr);
+}
+
+#[test]
+fn bdi_with_an_invalid_dir_is_auto_and_isolated_text_still_counts_like_chrome() {
+    compare(&open_at(EDGES, 1), 1, &EDGES_1X);
+    compare(&open_at(EDGES, 2), 2, &EDGES_2X);
 }

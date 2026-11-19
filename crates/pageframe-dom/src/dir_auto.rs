@@ -6,10 +6,19 @@ use style::computed_values::direction::T as Direction;
 use crate::node::{ElementData, Node, NodeData};
 
 pub(crate) fn has_auto_direction(element: &ElementData) -> bool {
-    match element.attr(local_name!("dir")) {
+    match element
+        .attr(local_name!("dir"))
+        .filter(|dir| is_valid_dir(dir))
+    {
         Some(dir) => dir.eq_ignore_ascii_case("auto"),
         None => element.name.local == local_name!("bdi"),
     }
+}
+
+fn is_valid_dir(dir: &str) -> bool {
+    ["ltr", "rtl", "auto"]
+        .iter()
+        .any(|valid| dir.eq_ignore_ascii_case(valid))
 }
 
 pub(crate) fn auto_direction(node: &Node) -> Direction {
@@ -28,11 +37,7 @@ pub(crate) fn blocks_auto_direction(element: &ElementData) -> bool {
     matches!(
         element.name.local,
         local_name!("bdi") | local_name!("script") | local_name!("style") | local_name!("textarea")
-    ) || element.attr(local_name!("dir")).is_some_and(|dir| {
-        ["ltr", "rtl", "auto"]
-            .iter()
-            .any(|valid| dir.eq_ignore_ascii_case(valid))
-    })
+    ) || element.attr(local_name!("dir")).is_some_and(is_valid_dir)
 }
 
 fn contained_direction(node: &Node) -> Option<Direction> {
