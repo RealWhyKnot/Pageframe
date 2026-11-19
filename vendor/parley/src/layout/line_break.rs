@@ -16,7 +16,7 @@ use crate::layout::spacing::{EffectiveSpacing, Justification, is_word_separator}
 use crate::layout::style_metrics::{
     BoxMetrics, InlineBoxPlacement, StyleMetrics, inline_box_placement, layout_unit_round,
 };
-use crate::layout::whitespace::{atom_hanging_advance, whitespace_hangs};
+use crate::layout::whitespace::atom_hanging_advance;
 use crate::layout::{
     BreakReason, Layout, LayoutData, LayoutItem, LayoutItemKind, LineData, LineItemData,
     LineMetrics, Run,
@@ -1025,7 +1025,7 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                 .ceil_split_text_items(self.state.line.clusters.clone(), 64.0);
             let clusters = self.state.line.clusters.clone();
             let items = self.state.line.items.clone();
-            let hung = last_cluster_before_hanging(self.layout, items, clusters.clone())
+            let hung = last_cluster_before_trailing_spaces(self.layout, items, clusters.clone())
                 .and_then(|last| {
                     self.layout
                         .data
@@ -2111,11 +2111,11 @@ fn is_invisible_atom(atom: &Atom<'_>, spacing: EffectiveSpacing) -> bool {
             .all(|cluster| cluster.advance == 0.)
 }
 
-/// The last visible cluster of a line that ends in hanging whitespace.
+/// The last visible cluster of a line that ends in collapsible spaces.
 ///
-/// As in Blink, a text item whose trailing whitespace hangs measures as if that whitespace were
+/// As in Blink, a text item whose trailing collapsible spaces end a line measures as if they were
 /// removed, so its remaining clusters snap up to a layout unit on their own.
-fn last_cluster_before_hanging<B: Brush>(
+fn last_cluster_before_trailing_spaces<B: Brush>(
     layout: &Layout<B>,
     items: Range<usize>,
     clusters: Range<u32>,
@@ -2150,14 +2150,20 @@ fn last_cluster_before_hanging<B: Brush>(
                 }
                 return hangs.then_some(index);
             }
-            let all_hang = characters.iter().all(|character| {
-                layout
-                    .data
-                    .styles
-                    .get(usize::from(character.style_index))
-                    .is_some_and(|style| whitespace_hangs(character.whitespace, style))
+            let all_collapse = characters.iter().all(|character| {
+                character.whitespace == Whitespace::Space
+                    && layout
+                        .data
+                        .styles
+                        .get(usize::from(character.style_index))
+                        .is_some_and(|style| {
+                            matches!(
+                                style.white_space_collapse,
+                                WhiteSpaceCollapse::Collapse | WhiteSpaceCollapse::PreserveBreaks
+                            )
+                        })
             });
-            if !all_hang {
+            if !all_collapse {
                 return None;
             }
             hangs = true;

@@ -26,6 +26,12 @@ const HUNG_SPACES: &str = "<!doctype html><style>html,body{margin:0;background:#
 <div dir=\"rtl\" style=\"unicode-bidi:plaintext;width:60px\"><i id=\"ln1\">12</i><i id=\"ld1\"> - </i><i id=\"ln2\">34</i><i id=\"ld2\"> - </i><i id=\"ln3\">56</i><i id=\"ld3\"> - </i><i id=\"ln4\">78</i> <i id=\"ls\">abc</i></div>\
 <div dir=\"ltr\" style=\"unicode-bidi:plaintext;width:60px\"><i id=\"m0\">&#1488;</i><br><i id=\"mn1\">12</i><i id=\"md1\"> - </i><i id=\"mn2\">34</i><i id=\"md2\"> - </i><i id=\"mn3\">56</i><i id=\"md3\"> - </i><i id=\"mn4\">78</i> <i id=\"ms\"></i></div>";
 
+const PRESERVED_SPACES: &str = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}body{width:300px}div{margin:0}</style>\
+<div style=\"white-space:pre-wrap\"><i id=\"a\"> - </i><br><i id=\"b\">x</i></div>\
+<div style=\"white-space:pre-wrap;width:20px\"><i id=\"c\"> - </i><i id=\"d\">xx</i></div>\
+<div style=\"white-space:pre-line;width:20px\"><i id=\"e\"> - </i><i id=\"f\">xx</i></div>\
+<div style=\"white-space:break-spaces;width:20px\"><i id=\"g\"> - </i><i id=\"h\">xx</i></div>";
+
 type Ratio = (u16, u16);
 
 fn boxes_in_units<S: 'static>(harness: &mut Harness<Page<S>>, ids: &[&str]) -> Vec<[f64; 4]> {
@@ -233,6 +239,44 @@ fn text_before_a_hung_space_snaps_up_to_a_layout_unit_like_chrome() {
                     [3292.5, 7168.0, 547.5, 992.0],
                     [2790.5, 9216.0, 547.5, 992.0],
                     [0.0, 13312.0, 547.5, 992.0],
+                ],
+            ),
+        ],
+    );
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+#[test]
+fn preserved_spaces_keep_their_item_rounding_like_chrome() {
+    let wrong = check(
+        PRESERVED_SPACES,
+        &["a", "c", "e", "g"],
+        &[
+            (
+                (1, 1),
+                vec![
+                    [0.0, 0.0, 797.0, 1024.0],
+                    [0.0, 2048.0, 797.0, 1024.0],
+                    [0.0, 4096.0, 299.0, 1024.0],
+                    [0.0, 6144.0, 797.0, 1024.0],
+                ],
+            ),
+            (
+                (7, 4),
+                vec![
+                    [0.0, 0.0, 796.5715, 987.4286],
+                    [0.0, 2048.0, 796.5715, 987.4286],
+                    [0.0, 4096.0, 298.8571, 987.4286],
+                    [0.0, 6144.0005, 796.5715, 987.4286],
+                ],
+            ),
+            (
+                (2, 1),
+                vec![
+                    [0.0, 0.0, 796.5, 992.0],
+                    [0.0, 2048.0, 796.5, 992.0],
+                    [0.0, 4096.0, 298.5, 992.0],
+                    [0.0, 6144.0, 796.5, 992.0],
                 ],
             ),
         ],
