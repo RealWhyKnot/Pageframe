@@ -16,7 +16,7 @@ use crate::layout::spacing::{EffectiveSpacing, Justification, is_word_separator}
 use crate::layout::style_metrics::{
     BoxMetrics, InlineBoxPlacement, StyleMetrics, inline_box_placement, layout_unit_round,
 };
-use crate::layout::whitespace::atom_hanging_advance;
+use crate::layout::whitespace::{atom_hanging_advance, whitespace_hangs};
 use crate::layout::{
     BreakReason, Layout, LayoutData, LayoutItem, LayoutItemKind, LineData, LineItemData,
     LineMetrics, Run,
@@ -1023,7 +1023,16 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                 .data
                 .shaped_text
                 .ceil_split_text_items(self.state.line.clusters.clone(), 64.0);
-            for growth in growths.into_iter().flatten() {
+            let clusters = self.state.line.clusters.clone();
+            let items = self.state.line.items.clone();
+            let hung = last_cluster_before_hanging(self.layout, items, clusters.clone())
+                .and_then(|last| {
+                    self.layout
+                        .data
+                        .shaped_text
+                        .ceil_hung_text_item(last, clusters, 64.0)
+                });
+            for growth in growths.into_iter().chain([hung]).flatten() {
                 self.state.line.x += growth.extra();
                 self.layout.data.split_item_ceils.push((line, growth));
             }
@@ -2100,6 +2109,61 @@ fn is_invisible_atom(atom: &Atom<'_>, spacing: EffectiveSpacing) -> bool {
             .shaped_clusters()
             .iter()
             .all(|cluster| cluster.advance == 0.)
+}
+
+/// The last visible cluster of a line that ends in hanging whitespace.
+///
+/// As in Blink, a text item whose trailing whitespace hangs measures as if that whitespace were
+/// removed, so its remaining clusters snap up to a layout unit on their own.
+fn last_cluster_before_hanging<B: Brush>(
+    layout: &Layout<B>,
+    items: Range<usize>,
+    clusters: Range<u32>,
+) -> Option<usize> {
+    let shaped_text = &layout.data.shaped_text;
+    let items = items.start..items.end.min(layout.data.items.len());
+    let mut hangs = false;
+    for item in layout.data.items.get(items)?.iter().rev() {
+        if item.kind == LayoutItemKind::InlineBox {
+            let inline_box = &layout.data.inline_boxes.get(item.index)?.inline_box;
+            if inline_box.kind == InlineBoxKind::InFlow {
+                return None;
+            }
+            continue;
+        }
+        let run = shaped_text.runs().get(item.index)?;
+        let start = run.shaped_clusters_range.start.max(clusters.start);
+        let end = run.shaped_clusters_range.end.min(clusters.end);
+        for index in (start..end).rev() {
+            let index = usize::try_from(index).ok()?;
+            let cluster = shaped_text.shaped_clusters().get(index)?;
+            let range = cluster.chars_range();
+            let characters = shaped_text
+                .characters()
+                .get(usize::try_from(range.start).ok()?..usize::try_from(range.end).ok()?)?;
+            if characters
+                .iter()
+                .all(|character| character.whitespace == Whitespace::None)
+            {
+                if cluster.advance == 0. {
+                    continue;
+                }
+                return hangs.then_some(index);
+            }
+            let all_hang = characters.iter().all(|character| {
+                layout
+                    .data
+                    .styles
+                    .get(usize::from(character.style_index))
+                    .is_some_and(|style| whitespace_hangs(character.whitespace, style))
+            });
+            if !all_hang {
+                return None;
+            }
+            hangs = true;
+        }
+    }
+    None
 }
 
 fn is_invisible_item<B: Brush>(layout: &Layout<B>, item: &LineItemData) -> bool {

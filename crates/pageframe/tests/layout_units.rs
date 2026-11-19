@@ -19,6 +19,13 @@ const GRID_AND_INLINE: &str = "<!doctype html><style>html,body{margin:0;font:14p
 <div id=g style=\"display:grid;grid-template-columns:30.31px 10px;grid-template-rows:5.49px;column-gap:0\"><div id=g1></div><div id=g2></div></div>\
 <div style=\"width:200px\">ab<span id=sp style=\"padding-left:0.49px;padding-right:1.99px;margin-left:0.99px\">cd</span><span id=sq>ef</span></div>";
 
+const HUNG_SPACES: &str = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}body{width:300px}div{margin:0}</style>\
+<div dir=\"rtl\" style=\"unicode-bidi:plaintext;width:60px\"><i id=\"h0\">&#1488;</i><br><i id=\"hn1\">12</i><i id=\"hd1\"> - </i><i id=\"hn2\">34</i><i id=\"hd2\"> - </i><i id=\"hn3\">56</i><i id=\"hd3\"> - </i><i id=\"hn4\">78</i> <i id=\"hs\">abc</i></div>\
+<div dir=\"rtl\" style=\"unicode-bidi:plaintext\"><i id=\"i0\">&#1488;</i><br><i id=\"in1\">12</i><i id=\"id1\"> - </i><i id=\"in2\">34</i><i id=\"id2\"> - </i><i id=\"in3\">56</i><i id=\"id3\"> - </i><i id=\"in4\">78</i> <i id=\"is\">abc</i></div>\
+<div dir=\"ltr\" style=\"unicode-bidi:plaintext;width:60px\"><i id=\"k0\">abc</i><br><i id=\"kn1\">12</i><i id=\"kd1\"> - </i><i id=\"kn2\">34</i><i id=\"kd2\"> - </i><i id=\"kn3\">56</i><i id=\"kd3\"> - </i><i id=\"kn4\">78</i> <i id=\"ks\">&#1488;</i></div>\
+<div dir=\"rtl\" style=\"unicode-bidi:plaintext;width:60px\"><i id=\"ln1\">12</i><i id=\"ld1\"> - </i><i id=\"ln2\">34</i><i id=\"ld2\"> - </i><i id=\"ln3\">56</i><i id=\"ld3\"> - </i><i id=\"ln4\">78</i> <i id=\"ls\">abc</i></div>\
+<div dir=\"ltr\" style=\"unicode-bidi:plaintext;width:60px\"><i id=\"m0\">&#1488;</i><br><i id=\"mn1\">12</i><i id=\"md1\"> - </i><i id=\"mn2\">34</i><i id=\"md2\"> - </i><i id=\"mn3\">56</i><i id=\"md3\"> - </i><i id=\"mn4\">78</i> <i id=\"ms\"></i></div>";
+
 type Ratio = (u16, u16);
 
 fn boxes_in_units<S: 'static>(harness: &mut Harness<Page<S>>, ids: &[&str]) -> Vec<[f64; 4]> {
@@ -173,4 +180,62 @@ fn grid_tracks_and_inline_edges_truncate_like_chrome() {
         let wrong = mismatches(&found, &want, &["sp", "sq"], ratio);
         assert!(wrong.is_empty(), "{}", wrong.join("\n"));
     }
+}
+
+#[test]
+fn text_before_a_hung_space_snaps_up_to_a_layout_unit_like_chrome() {
+    let wrong = check(
+        HUNG_SPACES,
+        &[
+            "hn1", "hd1", "hn2", "hd2", "kn1", "kd1", "kn2", "kd2", "ld2", "md2",
+        ],
+        &[
+            (
+                (1, 1),
+                vec![
+                    [2342.0, 1024.0, 997.0, 1024.0],
+                    [1545.0, 1024.0, 797.0, 1024.0],
+                    [548.0, 1024.0, 997.0, 1024.0],
+                    [0.0, 1024.0, 548.0, 1024.0],
+                    [501.0, 7168.0, 997.0, 1024.0],
+                    [1498.0, 7168.0, 797.0, 1024.0],
+                    [2295.0, 7168.0, 997.0, 1024.0],
+                    [3292.0, 7168.0, 548.0, 1024.0],
+                    [2791.0, 9216.0, 548.0, 1024.0],
+                    [0.0, 13312.0, 548.0, 1024.0],
+                ],
+            ),
+            (
+                (7, 4),
+                vec![
+                    [2341.1431, 1024.0, 997.1429, 987.4286],
+                    [1544.5715, 1024.0, 796.5715, 987.4286],
+                    [547.4286, 1024.0, 997.1429, 987.4286],
+                    [0.0, 1024.0, 547.4286, 987.4286],
+                    [501.7143, 7168.0005, 997.1429, 987.4286],
+                    [1498.8572, 7168.0005, 796.5715, 987.4286],
+                    [2295.4287, 7168.0005, 997.1429, 987.4286],
+                    [3292.5715, 7168.0005, 547.4286, 987.4286],
+                    [2790.8572, 9216.0, 547.4286, 987.4286],
+                    [0.0, 13312.001, 547.4286, 987.4286],
+                ],
+            ),
+            (
+                (2, 1),
+                vec![
+                    [2341.0, 1024.0, 997.0, 992.0],
+                    [1544.5, 1024.0, 796.5, 992.0],
+                    [547.5, 1024.0, 997.0, 992.0],
+                    [0.0, 1024.0, 547.5, 992.0],
+                    [502.0, 7168.0, 997.0, 992.0],
+                    [1499.0, 7168.0, 796.5, 992.0],
+                    [2295.5, 7168.0, 997.0, 992.0],
+                    [3292.5, 7168.0, 547.5, 992.0],
+                    [2790.5, 9216.0, 547.5, 992.0],
+                    [0.0, 13312.0, 547.5, 992.0],
+                ],
+            ),
+        ],
+    );
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }

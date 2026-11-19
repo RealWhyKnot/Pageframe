@@ -428,6 +428,31 @@ impl ShapedText {
     }
 
     #[doc(hidden)]
+    pub fn ceil_hung_text_item(
+        &mut self,
+        last: usize,
+        line_clusters: Range<u32>,
+        steps_per_unit: f32,
+    ) -> Option<ClusterGrowth> {
+        let start = usize::try_from(line_clusters.start).ok()?;
+        let end = usize::try_from(line_clusters.end).ok()?;
+        let item = self
+            .text_item_at(last)
+            .filter(|item| item.last_cluster > last && item.last_cluster < end)?;
+        let floor = item.first_cluster.max(start);
+        let width: f32 = self
+            .shaped_clusters
+            .get(floor..=last)?
+            .iter()
+            .map(|cluster| cluster.advance)
+            .sum();
+        let remainder = (width * steps_per_unit).ceil() / steps_per_unit - width;
+        (remainder > 0.0)
+            .then(|| self.grow_cluster(last, remainder))
+            .flatten()
+    }
+
+    #[doc(hidden)]
     pub fn grow_cluster(&mut self, index: usize, extra: f32) -> Option<ClusterGrowth> {
         let cluster = *self.shaped_clusters.get(index)?;
         let cluster_number = u32::try_from(index).ok()?;
