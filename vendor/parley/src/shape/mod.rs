@@ -238,11 +238,8 @@ pub(crate) fn shape_text<'a, B: Brush>(
         let run_style_index = char_style_indices[shaped_run.range.char_range.start];
         let run_style = &styles[usize::from(run_style_index)];
 
-        // Push inline boxes positioned before the start of this item.
-        //
-        // TODO: this lets the inline box take the bidi level of the previous run, but in principle
-        // inline boxes should be included in bidi analysis as an object replacement character
-        // (U+FFFC). The box should then take the bidi level of that character.
+        // Push inline boxes positioned before the start of this item. In-flow boxes take the level
+        // bidi analysis resolved for them as U+FFFC; other boxes take the previous run's level.
         let prev_bidi_level = if shaped_run_idx > 0 {
             layout.data.shaped_text.runs()[&shaped_run_idx - 1].bidi_level
         } else {
@@ -274,7 +271,7 @@ pub(crate) fn shape_text<'a, B: Brush>(
 
     // Process any remaining inline boxes whose index is greater than the length of the text
     //
-    // Give the box the same bidi level as the last text run (or else default to 0 if there is no
+    // Out-of-flow boxes take the level of the last text run (or else default to 0 if there is no
     // text run).
     let bidi_level = layout
         .data

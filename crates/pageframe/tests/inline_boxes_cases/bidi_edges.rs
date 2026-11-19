@@ -110,6 +110,9 @@ fn an_inline_block_takes_its_own_bidi_level_like_chrome() {
         ("rtl", "abcd ", "", 56),
         ("rtl", "\u{5d0}\u{5d1}\u{5d2} ", " abcd", 65),
         ("ltr", "abc ", " \u{5d0}\u{5d1}\u{5d2}", 26),
+        ("rtl", "ab", "\u{5d0}\u{5d1}\u{5d2}", 74),
+        ("ltr", "\u{5d0}\u{5d1}\u{5d2}", "ab", 21),
+        ("rtl", "ab", "", 74),
     ] {
         let buffer = draw(&format!(
             "<div dir=\"{direction}\" style=\"font:14px/40px Arial;width:100px;color:transparent\">\
