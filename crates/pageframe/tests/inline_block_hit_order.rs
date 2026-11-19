@@ -83,9 +83,112 @@ const AT_2X: [Row; 6] = [
     },
 ];
 
-fn open(scale: f32) -> Harness<Page<()>> {
-    let page = App::new((), PAGE)
-        .page(160, 200)
+const MIXED: &str = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}\
+div{height:30px;width:60px}b{display:inline-block;width:20.3px;height:8px;background:#0f0}</style>\
+<div id=m1>a<span id=p1 style=\"position:relative;left:20px\">q</span>b<b id=b1></b>\
+<span id=t1>cdef</span></div><div id=m2>ab<b id=b2></b>\
+<span id=g2 style=\"background:#ff0;margin-left:-10px\">cd</span></div>\
+<div id=m3>ab<b id=b3></b>cd<span id=p3 style=\"position:relative;left:-30px\">ef</span></div>\
+<div id=m4>ab<b id=b4 style=\"height:auto\"><span id=s4 style=\"position:relative;top:2px\">xy\
+</span></b><span id=t4 style=\"margin-left:-12px\">cd</span></div>\
+<div id=m5>ab<b id=b5 style=\"height:auto\">xy</b>\
+<span id=t5 style=\"position:relative;left:-12px\">cd</span></div>\
+<div id=m6 dir=rtl>ab<b id=b6 style=\"height:auto\">xy</b>\
+<span id=t6 style=\"margin-right:-12px\">cd</span></div>\
+<div id=m7>ab<b id=b7 style=\"height:auto\">xy</b>\
+<span id=t7 style=\"margin-left:-12px\">\u{5d0}\u{5d1}</span></div>\
+<div id=m8 dir=rtl>\u{5d0}<b id=b8 style=\"height:auto\">xy</b>\
+<span id=t8 style=\"margin-right:-12px\">\u{5d1}\u{5d2}</span></div>";
+
+const MIXED_1X: [Row; 8] = [
+    Row {
+        id: "m1",
+        y: 9.0,
+        changes: &[(1434, "b1"), (1729, "p1"), (2304, "b1"), (2796, "m1")],
+    },
+    Row {
+        id: "m2",
+        y: 39.0,
+        changes: &[(934, "b2"), (1601, "g2")],
+    },
+    Row {
+        id: "m3",
+        y: 69.0,
+        changes: &[(934, "b3"), (2296, "m3")],
+    },
+    Row {
+        id: "m4",
+        y: 100.0,
+        changes: &[(934, "b4"), (961, "s4"), (1984, "t4")],
+    },
+    Row {
+        id: "m5",
+        y: 128.0,
+        changes: &[(934, "b5"), (1473, "t5"), (2496, "m5")],
+    },
+    Row {
+        id: "m6",
+        y: 158.0,
+        changes: &[(2299, "b6"), (3585, "t6")],
+    },
+    Row {
+        id: "m7",
+        y: 188.0,
+        changes: &[(934, "b7"), (1473, "t7"), (2496, "m7")],
+    },
+    Row {
+        id: "m8",
+        y: 218.0,
+        changes: &[(1921, "t8"), (1973, "b8"), (3265, "m8")],
+    },
+];
+
+const MIXED_2X: [Row; 8] = [
+    Row {
+        id: "m1",
+        y: 9.0,
+        changes: &[(1464, "b1"), (1761, "p1"), (2272, "b1"), (2795, "m1")],
+    },
+    Row {
+        id: "m2",
+        y: 39.0,
+        changes: &[(966, "b2"), (1633, "g2"), (2592, "m2")],
+    },
+    Row {
+        id: "m3",
+        y: 69.0,
+        changes: &[(966, "b3"), (2296, "m3")],
+    },
+    Row {
+        id: "m4",
+        y: 100.0,
+        changes: &[(961, "s4"), (1984, "t4"), (2464, "m4")],
+    },
+    Row {
+        id: "m5",
+        y: 128.0,
+        changes: &[(966, "b5"), (1505, "t5"), (2464, "m5")],
+    },
+    Row {
+        id: "m6",
+        y: 158.0,
+        changes: &[(2331, "b6"), (3617, "t6")],
+    },
+    Row {
+        id: "m7",
+        y: 188.0,
+        changes: &[(966, "b7"), (1505, "t7"), (2528, "m7")],
+    },
+    Row {
+        id: "m8",
+        y: 218.0,
+        changes: &[(1921, "t8"), (2005, "b8"), (3297, "m8")],
+    },
+];
+
+fn open(html: &str, scale: f32) -> Harness<Page<()>> {
+    let page = App::new((), html)
+        .page(160, 240)
         .expect("test pages have valid selectors");
     let mut harness = Harness::wrap(page);
     {
@@ -95,7 +198,7 @@ fn open(scale: f32) -> Harness<Page<()>> {
             num_traits::ToPrimitive::to_u32(&(f32::from(css) * scale))
                 .expect("test viewports fit in u32")
         };
-        doc.set_viewport(Viewport::new(size(160), size(200), scale, color_scheme));
+        doc.set_viewport(Viewport::new(size(160), size(240), scale, color_scheme));
     }
     harness.pump();
     harness
@@ -113,8 +216,8 @@ fn hit_id(harness: &Harness<Page<()>>, x: f32, y: f32) -> Option<String> {
     }
 }
 
-fn check(scale: f32, rows: &[Row]) {
-    let harness = open(scale);
+fn check(html: &str, scale: f32, rows: &[Row]) {
+    let harness = open(html, scale);
     for row in rows {
         let mut before = row.id;
         for &(at, id) in row.changes {
@@ -136,10 +239,16 @@ fn check(scale: f32, rows: &[Row]) {
 
 #[test]
 fn later_text_hits_above_an_earlier_inline_block_like_chrome() {
-    check(1.0, &AT_1X);
+    check(PAGE, 1.0, &AT_1X);
 }
 
 #[test]
 fn later_text_hits_above_an_earlier_inline_block_at_2x_like_chrome() {
-    check(2.0, &AT_2X);
+    check(PAGE, 2.0, &AT_2X);
+}
+
+#[test]
+fn positioned_and_rtl_neighbours_keep_chrome_hit_order() {
+    check(MIXED, 1.0, &MIXED_1X);
+    check(MIXED, 2.0, &MIXED_2X);
 }
