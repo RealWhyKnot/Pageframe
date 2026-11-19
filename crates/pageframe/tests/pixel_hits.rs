@@ -156,6 +156,26 @@ fn a_point_tests_the_box_before_it_snaps_to_pixels_like_chrome() {
         expected(&[miss, hit, hit, miss, miss, hit]),
         "layout units"
     );
+    assert_eq!(
+        ids_at(&unit, 2.0, &[(8.0, 3.1), (8.0, 3.102)]),
+        expected(&[miss, hit]),
+        "device layout units"
+    );
+    for (width, scale, ids) in [
+        ("0.02px", 1.0, [hit, hit]),
+        ("0.01px", 1.0, [miss, miss]),
+        ("0.01px", 2.0, [miss, hit]),
+    ] {
+        let tiny = BOX.replace(
+            "left:10.5px;top:20.5px;width:10px",
+            &format!("left:30px;top:20.5px;width:{width}"),
+        );
+        assert_eq!(
+            ids_at(&tiny, scale, &[(29.5, 25.0), (30.0, 25.0)]),
+            expected(&ids),
+            "{width} at {scale}x"
+        );
+    }
     let thin = BOX.replace(
         "left:10.5px;top:20.5px;width:10px",
         "left:30.5px;top:20.5px;width:0.6px",

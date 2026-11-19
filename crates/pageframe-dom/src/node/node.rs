@@ -1511,7 +1511,11 @@ impl Node {
         scale: f64,
         control: &mut Option<crate::node::OverflowControl>,
     ) -> Option<HitResult> {
-        let layout_unit = |value: f32| (value * 64.0).floor() / 64.0;
+        let units = num_traits::ToPrimitive::to_f32(&scale)
+            .filter(|scale| scale.is_finite() && *scale > 0.0)
+            .unwrap_or(1.0)
+            * crate::layout::round::LAYOUT_UNITS;
+        let layout_unit = |value: f32| (value * units).floor() / units;
         self.hit_phased(
             layout_unit(x),
             layout_unit(y),

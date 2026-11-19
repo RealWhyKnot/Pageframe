@@ -5,7 +5,7 @@ use style::values::specified::box_::WillChangeBits;
 use taffy::TraversePartialTree;
 use taffy::{Layout, NodeId, Point, Rect, RoundTree, ScrollableOverflow};
 
-const LAYOUT_UNITS: f32 = 64.0;
+pub(crate) const LAYOUT_UNITS: f32 = 64.0;
 const UNIT_SLACK: f32 = 1.0 / 32.0;
 const NOISE_ULPS: f32 = 4.0;
 
