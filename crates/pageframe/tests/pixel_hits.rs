@@ -124,6 +124,51 @@ fn a_point_hits_every_box_its_device_pixel_overlaps_like_chrome() {
 }
 
 #[test]
+fn a_point_tests_the_box_before_it_snaps_to_pixels_like_chrome() {
+    let (hit, miss) = (Some("b"), None);
+    let points = [
+        (9.4, 25.0),
+        (9.5, 25.0),
+        (9.9, 25.0),
+        (20.4, 25.0),
+        (20.5, 25.0),
+        (15.0, 19.5),
+        (15.0, 19.6),
+        (15.0, 20.0),
+        (15.0, 30.25),
+        (15.0, 30.5),
+    ];
+    assert_eq!(
+        ids_at(BOX, 1.0, &points),
+        expected(&[miss, miss, hit, hit, miss, miss, hit, hit, hit, miss]),
+    );
+    let unit = BOX.replace("left:10.5px;top:20.5px", "left:3.6px;top:3.6px");
+    let points = [
+        (8.0, 2.608),
+        (8.0, 2.61),
+        (8.0, 13.593),
+        (8.0, 13.594),
+        (2.605, 8.0),
+        (2.61, 8.0),
+    ];
+    assert_eq!(
+        ids_at(&unit, 1.0, &points),
+        expected(&[miss, hit, hit, miss, miss, hit]),
+        "layout units"
+    );
+    let thin = BOX.replace(
+        "left:10.5px;top:20.5px;width:10px",
+        "left:30.5px;top:20.5px;width:0.6px",
+    );
+    let points = [(29.1, 25.0), (29.6, 25.0), (30.6, 25.0), (31.1, 25.0)];
+    assert_eq!(
+        ids_at(&thin, 1.0, &points),
+        expected(&[miss, hit, hit, miss]),
+        "thinner than a pixel"
+    );
+}
+
+#[test]
 fn a_collapsed_space_at_a_line_end_is_not_hit_like_chrome() {
     let points = [
         (6.0, 8.0),

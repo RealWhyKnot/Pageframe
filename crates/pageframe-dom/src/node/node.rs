@@ -1511,9 +1511,10 @@ impl Node {
         scale: f64,
         control: &mut Option<crate::node::OverflowControl>,
     ) -> Option<HitResult> {
+        let layout_unit = |value: f32| (value * 64.0).floor() / 64.0;
         self.hit_phased(
-            x,
-            y,
+            layout_unit(x),
+            layout_unit(y),
             super::hit_probe::HitProbe::device_pixel(scale),
             control,
         )
@@ -1585,14 +1586,15 @@ impl Node {
         x += scroll_x;
         y += scroll_y;
 
-        let size = self.final_layout().size;
+        let unsnapped = self.layout_data().unsnapped;
+        let (left, top) = (unsnapped.offset.x + scroll_x, unsnapped.offset.y + scroll_y);
         let span = probe.span(x, y);
-        let matches_self = size.width > 0.0
-            && size.height > 0.0
-            && !(span.right <= scroll_x
-                || span.left >= size.width + scroll_x
-                || span.bottom <= scroll_y
-                || span.top >= size.height + scroll_y);
+        let matches_self = unsnapped.size.width > 0.0
+            && unsnapped.size.height > 0.0
+            && !(span.right <= left
+                || span.left >= unsnapped.size.width + left
+                || span.bottom <= top
+                || span.top >= unsnapped.size.height + top);
 
         let layout = self.final_layout();
         let overflow_rect = layout.scrollable_overflow_rect;
