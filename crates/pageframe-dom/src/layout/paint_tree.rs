@@ -173,9 +173,12 @@ impl HoistedPaintChild {
         visit(&self.clippers.borrow())
     }
 
-    pub fn is_clipped_at(&self, tree: &NodeTree, sc_root_id: NodeId, x: f32, y: f32) -> bool {
+    pub fn is_clipped_at(&self, tree: &NodeTree, sc_root_id: NodeId, span: Rect<f32>) -> bool {
         self.clip(tree, sc_root_id).is_some_and(|clip| {
-            x < clip.left || x >= clip.right || y < clip.top || y >= clip.bottom
+            span.right <= clip.left
+                || span.left >= clip.right
+                || span.bottom <= clip.top
+                || span.top >= clip.bottom
         })
     }
 
@@ -584,19 +587,56 @@ impl BaseDocument {
 }
 
 impl Node {
+    pub(crate) fn hit_clip(&self) -> Option<HitClip> {
+        let layers = self.overflow_clip_bounds()?;
+        let is_root_element = self
+            .parent
+            .and_then(|parent| self.tree().get(parent))
+            .is_none_or(|parent| parent.parent.is_none());
+        if is_root_element {
+            return None;
+        }
+        if !self.is_hit_layer() {
+            return Some(HitClip {
+                layers,
+                flow: layers,
+            });
+        }
+        let size = self.final_layout().size;
+        let edge = |clipped: f32, outer: f32| match clipped.is_finite() {
+            true => outer,
+            false => clipped,
+        };
+        let flow = Rect {
+            left: edge(layers.left, 0.0),
+            right: edge(layers.right, size.width),
+            top: edge(layers.top, 0.0),
+            bottom: edge(layers.bottom, size.height),
+        };
+        Some(HitClip { layers, flow })
+    }
+
+    pub(crate) fn is_hit_layer(&self) -> bool {
+        self.primary_styles()
+            .is_some_and(|style| style.clone_position() != Position::Static)
+            || self.is_stacking_context_root(false)
+    }
+
     fn overflow_clip_bounds(&self) -> Option<Rect<f32>> {
         use style::values::computed::{Contain, Overflow};
 
         let style = self.primary_styles()?;
         let box_style = style.get_box();
         let display = box_style.display;
-        let is_table_part = display.outside() == DisplayOutside::InternalTable
-            && display.inside() != DisplayInside::TableCell;
-        let contains_paint = box_style.slow_clone_contain().contains(Contain::PAINT)
+        let overflows_x = box_style.overflow_x != Overflow::Visible;
+        let overflows_y = box_style.overflow_y != Overflow::Visible;
+        let contains_paint = (!overflows_x || !overflows_y)
+            && box_style.slow_clone_contain().contains(Contain::PAINT)
             && !display.is_inline_flow()
-            && !is_table_part;
-        let clips_x = contains_paint || box_style.overflow_x != Overflow::Visible;
-        let clips_y = contains_paint || box_style.overflow_y != Overflow::Visible;
+            && !(display.outside() == DisplayOutside::InternalTable
+                && display.inside() != DisplayInside::TableCell);
+        let clips_x = contains_paint || overflows_x;
+        let clips_y = contains_paint || overflows_y;
         if !clips_x && !clips_y {
             return None;
         }
@@ -834,7 +874,7 @@ impl Node {
         let is_svg_or_frame = self.element_data().is_some_and(|element| {
             &*element.name.local == "svg" || element.sub_doc_data().is_some()
         });
-        if style.clone_position() != Position::Static || self.is_stacking_context_root(false) {
+        if self.is_hit_layer() {
             return Some(HitPhase::Positioned);
         }
         if in_flex_or_grid
@@ -862,6 +902,12 @@ impl Node {
             Some(_) => Some(hoisted_child_position(self.tree(), painter_id, self.id)),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct HitClip {
+    pub(crate) layers: Rect<f32>,
+    pub(crate) flow: Rect<f32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]

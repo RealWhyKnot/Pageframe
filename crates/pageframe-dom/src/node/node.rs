@@ -1502,17 +1502,23 @@ impl Node {
         scale: f64,
         control: &mut Option<crate::node::OverflowControl>,
     ) -> Option<HitResult> {
-        self.hit_phased(x, y, scale, control).map(|(hit, _)| hit)
+        self.hit_phased(
+            x,
+            y,
+            super::hit_probe::HitProbe::device_pixel(scale),
+            control,
+        )
+        .map(|(hit, _)| hit)
     }
 
     fn hit_phased(
         &self,
         x: f32,
         y: f32,
-        scale: f64,
+        probe: super::hit_probe::HitProbe,
         control: &mut Option<crate::node::OverflowControl>,
     ) -> Option<(HitResult, HitPhase)> {
-        let (hit, phase) = self.hit_unphased(x, y, scale, control)?;
+        let (hit, phase) = self.hit_unphased(x, y, probe, control)?;
         let phase = match phase {
             HitPhase::Positioned => HitPhase::Positioned,
             inner => self.hit_phase().unwrap_or(inner),
@@ -1524,7 +1530,7 @@ impl Node {
         &self,
         x: f32,
         y: f32,
-        scale: f64,
+        probe: super::hit_probe::HitProbe,
         control: &mut Option<crate::node::OverflowControl>,
     ) -> Option<(HitResult, HitPhase)> {
         use style::computed_values::pointer_events::T as PointerEvents;
@@ -1549,10 +1555,10 @@ impl Node {
         let mut x = x - self.final_layout().location.x;
         let mut y = y - self.final_layout().location.y;
 
-        if let Some(t) = self.transform().as_deref() {
-            let p = t.inverse() * kurbo::Point::new(x as f64 * scale, y as f64 * scale);
-            x = (p.x / scale) as f32;
-            y = (p.y / scale) as f32;
+        let scale = probe.scale;
+        let mut probe = probe;
+        if let Some(transform) = self.transform().as_deref() {
+            (x, y, probe) = probe.through(transform.inverse(), x, y);
         }
 
         if self
@@ -1562,18 +1568,20 @@ impl Node {
             return None;
         }
 
-        x += self.scroll_offset().x as f32;
-        y += self.scroll_offset().y as f32;
+        let scroll = self.scroll_offset();
+        let (scroll_x, scroll_y) = (
+            num_traits::ToPrimitive::to_f32(&scroll.x).unwrap_or(0.0),
+            num_traits::ToPrimitive::to_f32(&scroll.y).unwrap_or(0.0),
+        );
+        x += scroll_x;
+        y += scroll_y;
 
         let size = self.final_layout().size;
-        let pixel = num_traits::ToPrimitive::to_f32(&scale.recip())
-            .filter(|pixel| pixel.is_finite())
-            .unwrap_or(1.0);
-        let (reach_x, reach_y) = (x + pixel, y + pixel);
-        let matches_self = !(reach_x <= self.scroll_offset().x as f32
-            || x >= size.width + self.scroll_offset().x as f32
-            || reach_y <= self.scroll_offset().y as f32
-            || y >= size.height + self.scroll_offset().y as f32);
+        let span = probe.span(x, y);
+        let matches_self = !(span.right <= scroll_x
+            || span.left >= size.width + scroll_x
+            || span.bottom <= scroll_y
+            || span.top >= size.height + scroll_y);
 
         let layout = self.final_layout();
         let overflow_rect = layout.scrollable_overflow_rect;
@@ -1604,17 +1612,20 @@ impl Node {
             } else {
                 0.0
             };
-        let matches_content = !(reach_x < overflow_rect.left() + client_x
-            || x > overflow_rect.right() + client_x
-            || reach_y < overflow_rect.top() + client_y
-            || y > overflow_rect.bottom() + client_y);
+        let matches_content = !(span.right < overflow_rect.left() + client_x
+            || span.left > overflow_rect.right() + client_x
+            || span.bottom < overflow_rect.top() + client_y
+            || span.top > overflow_rect.bottom() + client_y);
 
         let matches_hoisted_content = match &self.stacking_context {
             Some(sc) => {
                 // Both the point (after the scroll adjustment above) and the
                 // bbox are in this node's unscrolled content coordinates.
                 let bbox = sc.hoisted_content_bbox(self.tree(), self.id, scale);
-                reach_x >= bbox.left && x <= bbox.right && reach_y >= bbox.top && y <= bbox.bottom
+                span.right >= bbox.left
+                    && span.left <= bbox.right
+                    && span.bottom >= bbox.top
+                    && span.top <= bbox.bottom
             }
             None => false,
         };
@@ -1623,10 +1634,11 @@ impl Node {
         // coordinates here are in CSS pixels, so unscale it before comparing.
         let overflow = *self.scrollable_overflow();
 
-        let matches_overflow = reach_x >= (overflow.x0 / scale) as f32
-            && x <= (overflow.x1 / scale) as f32
-            && reach_y >= (overflow.y0 / scale) as f32
-            && y <= (overflow.y1 / scale) as f32;
+        let unscaled = |edge: f64| num_traits::ToPrimitive::to_f32(&(edge / scale)).unwrap_or(0.0);
+        let matches_overflow = span.right >= unscaled(overflow.x0)
+            && span.left <= unscaled(overflow.x1)
+            && span.bottom >= unscaled(overflow.y0)
+            && span.top <= unscaled(overflow.y1);
 
         if !matches_self && !matches_content && !matches_hoisted_content && !matches_overflow {
             return None;
@@ -1643,6 +1655,16 @@ impl Node {
                 *control = Some(crate::node::OverflowControl::Scrollbar(sb));
             }
         }
+
+        let reaches = |clip: taffy::Rect<f32>| {
+            span.right > clip.left + scroll_x
+                && span.left < clip.right + scroll_x
+                && span.bottom > clip.top + scroll_y
+                && span.top < clip.bottom + scroll_y
+        };
+        let clip = self.hit_clip();
+        let reaches_layers = clip.is_none_or(|clip| reaches(clip.layers));
+        let reaches_flow = clip.is_none_or(|clip| reaches(clip.flow));
 
         // Text clusters and callers of the returned coordinates work in the
         // inline root's content box, but embedded boxes store border-box
@@ -1674,9 +1696,23 @@ impl Node {
         } else {
             taffy::Point { x: 0.0, y: 0.0 }
         };
+        let own_hit = || {
+            (matches_self && !pointer_events_none).then_some((
+                HitResult {
+                    node_id: self.id,
+                    x: x - content_box_offset.x,
+                    y: y - content_box_offset.y,
+                    is_text: false,
+                },
+                HitPhase::BlockBackground,
+            ))
+        };
+        if !reaches_layers && !reaches_flow {
+            return own_hit();
+        }
 
         // Positive z_index hoisted children
-        if matches_hoisted_content {
+        if matches_hoisted_content && reaches_layers {
             if let Some(hoisted) = &self.stacking_context {
                 for hoisted_child in hoisted.pos_z_hoisted_children().rev() {
                     let Some(child) = self.tree().get(hoisted_child.node_id) else {
@@ -1685,10 +1721,10 @@ impl Node {
                     let pos = hoisted_child.position(self.tree(), self.id);
                     let x = x - pos.x;
                     let y = y - pos.y;
-                    if hoisted_child.is_clipped_at(self.tree(), self.id, x, y) {
+                    if hoisted_child.is_clipped_at(self.tree(), self.id, probe.span(x, y)) {
                         continue;
                     }
-                    if let Some((hit, _)) = child.hit_phased(x, y, scale, control) {
+                    if let Some((hit, _)) = child.hit_phased(x, y, probe, control) {
                         return Some((hit, HitPhase::Positioned));
                     }
                 }
@@ -1705,7 +1741,14 @@ impl Node {
             if is_inline_root && child.is_float_under_text() {
                 continue;
             }
-            let Some((hit, phase)) = self.hit_paint_child(child, x, y, scale, control) else {
+            let is_reached = match child.is_hit_layer() {
+                true => reaches_layers,
+                false => reaches_flow,
+            };
+            if !is_reached {
+                continue;
+            }
+            let Some((hit, phase)) = self.hit_paint_child(child, x, y, probe, control) else {
                 continue;
             };
             if phase >= HitPhase::Foreground {
@@ -1720,7 +1763,7 @@ impl Node {
         }
 
         // Negative z_index hoisted children
-        if matches_hoisted_content {
+        if matches_hoisted_content && reaches_layers {
             if let Some(hoisted) = &self.stacking_context {
                 for hoisted_child in hoisted.neg_z_hoisted_children().rev() {
                     let Some(child) = self.tree().get(hoisted_child.node_id) else {
@@ -1729,10 +1772,10 @@ impl Node {
                     let pos = hoisted_child.position(self.tree(), self.id);
                     let x = x - pos.x;
                     let y = y - pos.y;
-                    if hoisted_child.is_clipped_at(self.tree(), self.id, x, y) {
+                    if hoisted_child.is_clipped_at(self.tree(), self.id, probe.span(x, y)) {
                         continue;
                     }
-                    if let Some((hit, _)) = child.hit_phased(x, y, scale, control) {
+                    if let Some((hit, _)) = child.hit_phased(x, y, probe, control) {
                         return Some((hit, HitPhase::Positioned));
                     }
                 }
@@ -1743,7 +1786,9 @@ impl Node {
         if self.flags.is_inline_root() {
             let x = x - content_box_offset.x;
             let y = y - content_box_offset.y;
-            if let Some(hit) = self.inline_hit(x + content_box_offset.x, y + content_box_offset.y) {
+            if let Some(hit) =
+                self.inline_hit(x + content_box_offset.x, y + content_box_offset.y, &probe)
+            {
                 let hit = HitResult {
                     node_id: hit.node_id,
                     x,
@@ -1751,37 +1796,30 @@ impl Node {
                     is_text: hit.is_text,
                 };
                 let phase = self.inline_hit_phase(&hit);
-                return Some((hit, phase));
+                let is_reached = match phase {
+                    HitPhase::Positioned => reaches_layers,
+                    _ => reaches_flow,
+                };
+                if is_reached {
+                    return Some((hit, phase));
+                }
             }
             for child_id in self.paint_children.borrow().iter().flatten().rev() {
                 let Some(child) = self.tree().get(*child_id) else {
                     continue;
                 };
-                if !child.is_float_under_text() {
+                if !child.is_float_under_text() || !reaches_flow {
                     continue;
                 }
                 let child_x = x + content_box_offset.x;
                 let child_y = y + content_box_offset.y;
-                if let Some(hit) = self.hit_paint_child(child, child_x, child_y, scale, control) {
+                if let Some(hit) = self.hit_paint_child(child, child_x, child_y, probe, control) {
                     return Some(hit);
                 }
             }
         }
 
-        // Self (this node)
-        if matches_self && !pointer_events_none {
-            return Some((
-                HitResult {
-                    node_id: self.id,
-                    x: x - content_box_offset.x,
-                    y: y - content_box_offset.y,
-                    is_text: false,
-                },
-                HitPhase::BlockBackground,
-            ));
-        }
-
-        None
+        own_hit()
     }
 
     fn inline_hit_phase(&self, hit: &HitResult) -> HitPhase {
@@ -1807,7 +1845,7 @@ impl Node {
         child: &Node,
         x: f32,
         y: f32,
-        scale: f64,
+        probe: super::hit_probe::HitProbe,
         control: &mut Option<crate::node::OverflowControl>,
     ) -> Option<(HitResult, HitPhase)> {
         let child_position = child.taffy_position();
@@ -1823,7 +1861,7 @@ impl Node {
             child_x -= offset.x;
             child_y -= offset.y;
         }
-        child.hit_phased(child_x, child_y, scale, control)
+        child.hit_phased(child_x, child_y, probe, control)
     }
 
     /// Find the inline root ancestor of this node (or self if this is an inline root).

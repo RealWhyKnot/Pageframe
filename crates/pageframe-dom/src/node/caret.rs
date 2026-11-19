@@ -314,7 +314,11 @@ impl Node {
         };
         let (x, y) = (x + geometry.inset.left, y + geometry.inset.top);
         if let Some(node) = self
-            .inline_hit(x, y)
+            .inline_hit(
+                x,
+                y,
+                &super::hit_probe::HitProbe::device_pixel(f64::from(geometry.scale)),
+            )
             .filter(|hit| hit.is_text)
             .and_then(|hit| self.tree().get(hit.node_id))
         {

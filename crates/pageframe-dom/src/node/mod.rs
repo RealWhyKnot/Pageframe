@@ -5,6 +5,7 @@ mod caret;
 #[cfg(feature = "custom-widget")]
 mod custom_widget;
 mod element;
+mod hit_probe;
 mod inline_hit;
 mod node;
 pub(crate) mod resizer;

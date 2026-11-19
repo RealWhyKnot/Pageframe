@@ -68,10 +68,6 @@ fn union(first: taffy::Rect<f32>, second: taffy::Rect<f32>) -> taffy::Rect<f32> 
     }
 }
 
-fn holds(rect: &taffy::Rect<f32>, x: f32, y: f32, pixel: f32) -> bool {
-    x + pixel > rect.left && x < rect.right && y + pixel > rect.top && y < rect.bottom
-}
-
 impl Node {
     pub(crate) fn inline_hit_reach(&self) -> f32 {
         self.span_geometry()
@@ -350,7 +346,12 @@ impl Node {
         Some(chain)
     }
 
-    pub(crate) fn inline_hit(&self, x: f32, y: f32) -> Option<InlineHit> {
+    pub(crate) fn inline_hit(
+        &self,
+        x: f32,
+        y: f32,
+        probe: &super::hit_probe::HitProbe,
+    ) -> Option<InlineHit> {
         let inline_layout = self.element_data()?.inline_layout_data.as_ref()?;
         let layout = &inline_layout.layout;
         let geometry = self.span_geometry()?;
@@ -375,7 +376,6 @@ impl Node {
             }
         };
         let reach = self.layout_data().inline_hit_reach * geometry.scale;
-        let pixel = geometry.scale.recip();
         let (_, block) = self.inline_layout_point(
             geometry.block_offset,
             x - geometry.inset.left,
@@ -434,7 +434,7 @@ impl Node {
                 let extent = trim.clamp(start, end, false);
                 let shift = node.inline_relative_shift();
                 let rect = self.glyph_span_rect(&geometry, &glyph_run, extent, shift);
-                if holds(&rect, x, y, pixel) {
+                if probe.holds(&rect, x, y) {
                     let mut key = order(owner, line_index, index);
                     key.depth += 1;
                     offer(
@@ -461,7 +461,7 @@ impl Node {
                     (span.left, span.right),
                     &geometry,
                 );
-                if holds(&rect, x, y, pixel) {
+                if probe.holds(&rect, x, y) {
                     let key = order(span.node_id, line_index, *first);
                     offer(
                         key,
