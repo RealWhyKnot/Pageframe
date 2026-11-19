@@ -164,3 +164,24 @@ fn a_span_moved_over_earlier_lines_is_hit_at_half_and_double_scale() {
         );
     }
 }
+
+const VERTICAL_LR: &str = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}</style>\
+<div id=d1 style=\"writing-mode:vertical-lr;height:40px\">xx<span id=w1 \
+style=\"position:relative;top:6px\">aaaa</span> <span id=w2>bbbb</span> \
+<span id=w3>cccc</span> <span id=w4>dddd</span></div>";
+
+#[test]
+fn every_vertical_lr_line_is_hit_like_chrome() {
+    let points = [
+        (4.25, 30.25),
+        (20.25, 10.25),
+        (36.25, 10.25),
+        (36.25, 30.25),
+        (50.25, 10.25),
+        (62.25, 4.25),
+    ];
+    assert_eq!(
+        ids_at(VERTICAL_LR, &points),
+        expected(&["w1", "w2", "w3", "d1", "w4", "w4"])
+    );
+}

@@ -366,12 +366,26 @@ impl Node {
             y - geometry.inset.top,
         );
         let block = block * geometry.scale;
+        let count = layout.len();
+        let is_mirrored = layout
+            .get(0)
+            .zip(count.checked_sub(1).and_then(|last| layout.get(last)))
+            .is_some_and(|(first, last)| {
+                first.metrics().block_min_coord > last.metrics().block_min_coord
+            });
+        let line_index_at = |position: usize| {
+            if is_mirrored {
+                count.saturating_sub(position + 1)
+            } else {
+                position
+            }
+        };
         let mut low = 0;
-        let mut high = layout.len();
+        let mut high = count;
         while low < high {
             let middle = low + (high - low) / 2;
             let is_above = layout
-                .get(middle)
+                .get(line_index_at(middle))
                 .is_some_and(|line| line.metrics().block_max_coord + reach < block);
             if is_above {
                 low = middle + 1;
@@ -379,7 +393,8 @@ impl Node {
                 high = middle;
             }
         }
-        for line_index in low..layout.len() {
+        for position in low..count {
+            let line_index = line_index_at(position);
             let Some(line) = layout.get(line_index) else {
                 break;
             };

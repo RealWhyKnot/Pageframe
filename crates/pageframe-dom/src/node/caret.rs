@@ -110,10 +110,7 @@ impl Node {
             y - geometry.inset.top,
         );
         let block = block * geometry.scale;
-        let line = layout
-            .lines()
-            .find(|line| block < line.metrics().block_max_coord)
-            .or_else(|| layout.lines().last())?;
+        let (_, line) = layout.line_for_offset(block)?;
         let axes = self.line_axes();
         let tree = self.tree();
         let mut runs = Vec::new();

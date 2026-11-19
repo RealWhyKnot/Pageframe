@@ -280,7 +280,7 @@ impl<B: Brush> Layout<B> {
     /// The offset is specified in the direction orthogonal to line direction.
     /// For horizontal text, this is a vertical or y offset. If the offset is
     /// on a line boundary, it is considered to be contained by the later line.
-    pub(crate) fn line_for_offset(&self, offset: f32) -> Option<(usize, Line<'_, B>)> {
+    pub fn line_for_offset(&self, offset: f32) -> Option<(usize, Line<'_, B>)> {
         let lines = &self.data.lines;
         let is_mirrored = lines
             .first()

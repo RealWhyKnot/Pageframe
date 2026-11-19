@@ -62,3 +62,31 @@ fn clicks_on_and_around_moved_spans_find_the_offsets_chrome_reports() {
         );
     }
 }
+
+#[test]
+fn clicks_on_vertical_lr_lines_find_the_offsets_chrome_reports() {
+    let html = "<!doctype html><style>html,body{margin:0;font:14px Arial}div{width:150px}</style>\
+                <div id=d1 style=\"writing-mode:vertical-lr;height:40px\">xx<span \
+                style=\"position:relative;top:6px\">aaaa</span> <span>bbbb</span> \
+                <span>cccc</span> <span>dddd</span></div>";
+    let page = App::new((), html)
+        .page(640, 400)
+        .expect("test pages have valid selectors");
+    let mut harness = Harness::wrap(page);
+    harness.pump();
+    let doc = harness.base();
+    let root = doc.query_selector_all("#d1").expect("selector is valid")[0];
+    for (x, y, offset) in [
+        (2.25, 24.25, 3),
+        (20.25, 14.25, 9),
+        (56.25, 14.25, 19),
+        (56.25, 20.25, 20),
+        (90.25, 28.25, 21),
+    ] {
+        assert_eq!(
+            doc.find_text_position(x, y),
+            Some((root, offset)),
+            "{x},{y}"
+        );
+    }
+}
