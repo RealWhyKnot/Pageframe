@@ -58,7 +58,7 @@ use style::servo_arc::Arc as ServoArc;
 use style::values::GenericAtomIdent;
 use style::values::computed::UserSelect;
 use style::values::computed::ui::CursorKind;
-use style::values::specified::box_::DisplayInside;
+use style::values::specified::box_::{DisplayInside, DisplayOutside};
 use style::{
     device::Device,
     dom::{TDocument, TNode},
@@ -3001,8 +3001,33 @@ impl BaseDocument {
             let y = hit.y - scroll.y.to_f32()?;
             return self.nearest_text_position(hit_node, x, y);
         };
-        let byte_offset = inline_root.text_offset_at_point(hit.x, hit.y)?;
+        let display = hit_node.display_constructed_as();
+        let is_inline_span =
+            display.outside() == DisplayOutside::Inline && display.inside() == DisplayInside::Flow;
+        let (x, y) = if hit.is_text || hit_node.id == inline_root.id || is_inline_span {
+            (hit.x, hit.y)
+        } else {
+            self.point_in_inline_root(hit_node, inline_root, hit.x, hit.y)?
+        };
+        let byte_offset = inline_root.text_offset_at_point(x, y)?;
         Some((inline_root.id, byte_offset))
+    }
+
+    fn point_in_inline_root(&self, from: &Node, root: &Node, x: f32, y: f32) -> Option<(f32, f32)> {
+        let (mut x, mut y) = (x, y);
+        let mut node = from;
+        while node.id != root.id {
+            let scroll = node.scroll_offset();
+            let location = node.final_layout().location;
+            x += location.x - scroll.x.to_f32()?;
+            y += location.y - scroll.y.to_f32()?;
+            node = self.get_node(node.layout_parent.get()?)?;
+        }
+        let layout = root.final_layout();
+        Some((
+            x - layout.padding.left - layout.border.left,
+            y - layout.padding.top - layout.border.top,
+        ))
     }
 
     fn nearest_text_position(&self, node: &Node, x: f32, y: f32) -> Option<(NodeId, usize)> {

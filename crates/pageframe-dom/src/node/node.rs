@@ -1879,6 +1879,12 @@ impl Node {
         let (inline, block) =
             self.inline_layout_point(inline_layout.block_offset, x - across, y - down);
 
+        if let Some((_, line)) = layout.line_for_offset(block * scale)
+            && let Some(edge) = super::caret::edge_beyond_line(&line, inline * scale)
+        {
+            return self.line_edge_offset(&line, edge);
+        }
+
         // Use Parley's cluster hit testing (from_point is more forgiving than from_point_exact)
         let (cluster, side) = Cluster::from_point(layout, inline * scale, block * scale)?;
 
@@ -1894,7 +1900,9 @@ impl Node {
         } else {
             None
         };
-        if let Some(edge) = edge {
+        if let Some(edge) = edge
+            && super::caret::glyphs_reach_edge(&cluster.line(), edge)
+        {
             return self.line_edge_offset(&cluster.line(), edge);
         }
         let offset = if cluster.is_rtl() {
@@ -1912,7 +1920,9 @@ impl Node {
             }
         };
 
-        Some(self.before_hung_space(&cluster.line(), &inline_layout.text, offset))
+        let line = cluster.line();
+        let offset = super::caret::base_run_offset(&line, layout.is_rtl(), inline * scale, offset);
+        Some(self.before_hung_space(&line, &inline_layout.text, offset))
     }
 
     pub(super) fn line_axes(&self) -> LineAxes {

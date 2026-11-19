@@ -263,7 +263,8 @@ fn clicks_beside_padded_flex_grid_and_scrolled_boxes_find_the_offsets_chrome_rep
 fn clicks_at_line_edges_follow_the_paragraph_direction_like_chrome() {
     let html = "<!doctype html><meta charset=utf-8>\
         <style>html,body{margin:0;font:14px Arial}div{width:200px;height:30px}\
-        .narrow{width:60px;height:60px}</style>\
+        .narrow{width:60px;height:60px}\
+        .box{display:inline-block;width:10px;height:10px}</style>\
         <div id=e1>אבגד הוזח</div>\
         <div id=e2 dir=rtl>abcd efgh</div>\
         <div id=e3>abc אבג</div>\
@@ -275,9 +276,13 @@ fn clicks_at_line_edges_follow_the_paragraph_direction_like_chrome() {
         <div id=e9 dir=rtl>xx<span style=\"position:relative;left:30px\">abcdef</span>yy</div>\
         <div id=e10 dir=rtl class=narrow>aaaa bbbb \
         <span style=\"position:relative;left:4px\">cccc</span></div>\
-        <div id=e11>אבגד <span style=\"position:relative;left:4px\">הוזח</span></div>";
+        <div id=e11>אבגד <span style=\"position:relative;left:4px\">הוזח</span></div>\
+        <div id=e12><span class=box></span> abcd</div>\
+        <div id=e13 dir=rtl>abcd <span class=box></span></div>\
+        <div id=e14 dir=rtl><span class=box></span> abcd</div>\
+        <div id=e15>abcd <span class=box></span></div>";
     let page = App::new((), html)
-        .page(640, 500)
+        .page(640, 600)
         .expect("test pages have valid selectors");
     let mut harness = Harness::wrap(page);
     harness.pump();
@@ -302,6 +307,15 @@ fn clicks_at_line_edges_follow_the_paragraph_direction_like_chrome() {
         (58.25, 354.25, "e10", 5),
         (2.25, 398.25, "e11", 0),
         (196.25, 398.25, "e11", 9),
+        (2.25, 428.25, "e12", 0),
+        (196.25, 428.25, "e12", 5),
+        (2.25, 458.25, "e13", 5),
+        (196.25, 458.25, "e13", 0),
+        (2.25, 488.25, "e14", 5),
+        (196.25, 488.25, "e14", 0),
+        (400.25, 488.25, "e14", 0),
+        (196.25, 518.25, "e15", 5),
+        (400.25, 518.25, "e15", 5),
     ] {
         let root = doc
             .query_selector_all(&format!("#{id}"))
@@ -343,6 +357,46 @@ fn text_overflowing_into_a_later_block_is_hit_before_its_background_like_chrome(
             "{x},{y}"
         );
     }
+}
+
+#[test]
+fn clicks_at_bidi_run_boundaries_land_in_the_base_direction_run_like_chrome() {
+    let html = "<!doctype html><meta charset=utf-8>\
+        <style>html,body{margin:0;font:14px Arial}div{width:200px;height:30px}\
+        .box{display:inline-block;width:20px;height:10px}</style>\
+        <div id=b5 dir=rtl><span class=box></span> abcd</div>\
+        <div id=b6 dir=rtl>abcd <span class=box></span></div>\
+        <div id=b7>abcd <span class=box></span></div>\
+        <div id=d3 dir=rtl style=\"width:60px;height:40px\">bbbb cccc dd ee</div>";
+    let page = App::new((), html)
+        .page(640, 400)
+        .expect("test pages have valid selectors");
+    let mut harness = Harness::wrap(page);
+    harness.pump();
+    let doc = harness.base();
+    for (x, y, id, offset) in [
+        (150.25, 8.25, "b5", 2),
+        (172.25, 8.25, "b5", 1),
+        (176.25, 8.25, "b5", 1),
+        (182.25, 8.25, "b5", 0),
+        (160.25, 38.25, "b6", 5),
+        (170.25, 38.25, "b6", 4),
+        (174.25, 38.25, "b6", 1),
+        (28.25, 68.25, "b7", 4),
+        (36.25, 68.25, "b7", 5),
+        (40.25, 68.25, "b7", 5),
+        (30.25, 94.25, "d3", 4),
+        (14.25, 110.25, "d3", 12),
+    ] {
+        let root = doc
+            .query_selector_all(&format!("#{id}"))
+            .expect("selector is valid")[0];
+        let found = doc
+            .find_text_position(x, y)
+            .map(|(node, byte)| (node, byte_chars(&doc, node, byte)));
+        assert_eq!(found, Some((root, offset)), "{x},{y}");
+    }
+    drop(doc);
 }
 
 fn byte_chars(

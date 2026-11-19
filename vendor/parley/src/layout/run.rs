@@ -158,6 +158,15 @@ impl<'a, B: Brush> Run<'a, B> {
         self.shaped.bidi_level.is_rtl()
     }
 
+    /// Returns `true` if the run is placed right-to-left on its line.
+    ///
+    /// This differs from [`Self::is_rtl`] for trailing whitespace reset to the paragraph level.
+    pub fn is_line_rtl(&self) -> bool {
+        self.line_data
+            .map_or(self.shaped.bidi_level, |data| data.bidi_level)
+            .is_rtl()
+    }
+
     pub fn inline_edge(&self) -> Option<crate::InlineEdge> {
         self.data.inline_edge
     }

@@ -3,7 +3,7 @@ use super::inline_hit::{SpanChain, SpanGeometry};
 use super::node::{LineAxes, Node};
 use crate::inline_trim::collapses_spaces;
 use pageframe_traits::node_id::NodeId;
-use parley::{BreakReason, Line, PositionedLayoutItem};
+use parley::{BreakReason, InlineBoxKind, Line, PositionedLayoutItem};
 use std::ops::Range;
 
 pub(super) enum CaretTarget {
@@ -111,6 +111,136 @@ fn pick(runs: &[&CaretRun], depth: usize, point: f32) -> Option<Picked> {
     } else {
         text_start
     }))
+}
+
+#[derive(Clone, Copy)]
+struct EdgeItem {
+    left: f32,
+    right: f32,
+    is_glyphs: bool,
+}
+
+fn edge_items(line: &Line<'_, TextBrush>) -> Option<(EdgeItem, EdgeItem)> {
+    let mut items = line.items().filter_map(|item| match item {
+        PositionedLayoutItem::GlyphRun(glyph_run) => Some(EdgeItem {
+            left: glyph_run.offset(),
+            right: glyph_run.offset() + glyph_run.advance(),
+            is_glyphs: true,
+        }),
+        PositionedLayoutItem::InlineBox(inline_box) if inline_box.kind == InlineBoxKind::InFlow => {
+            Some(EdgeItem {
+                left: inline_box.x,
+                right: inline_box.x + inline_box.width,
+                is_glyphs: false,
+            })
+        }
+        PositionedLayoutItem::InlineBox(_) => None,
+    });
+    let first = items.next()?;
+    let last = items.last().unwrap_or(first);
+    Some((first, last))
+}
+
+pub(super) fn edge_beyond_line(line: &Line<'_, TextBrush>, inline: f32) -> Option<LineEdge> {
+    let (first, last) = edge_items(line)?;
+    let left = if first.is_glyphs {
+        first.left
+    } else {
+        first.right
+    };
+    let right = if last.is_glyphs {
+        last.right
+    } else {
+        last.left
+    };
+    if inline < left {
+        Some(LineEdge::Left)
+    } else if inline >= right {
+        Some(LineEdge::Right)
+    } else {
+        None
+    }
+}
+
+struct RunSpan {
+    left: f32,
+    right: f32,
+    text: std::ops::Range<usize>,
+    is_rtl: Option<bool>,
+}
+
+impl RunSpan {
+    fn offset_at(&self, side: LineEdge) -> Option<usize> {
+        let is_rtl = self.is_rtl?;
+        Some(if (side == LineEdge::Left) == is_rtl {
+            self.text.end
+        } else {
+            self.text.start
+        })
+    }
+}
+
+pub(super) fn base_run_offset(
+    line: &Line<'_, TextBrush>,
+    base_is_rtl: bool,
+    inline: f32,
+    offset: usize,
+) -> usize {
+    let spans: Vec<RunSpan> = line
+        .items()
+        .filter_map(|item| match item {
+            PositionedLayoutItem::GlyphRun(glyph_run) => Some(RunSpan {
+                left: glyph_run.offset(),
+                right: glyph_run.offset() + glyph_run.advance(),
+                text: glyph_run.text_range(),
+                is_rtl: Some(glyph_run.run().is_line_rtl()),
+            }),
+            PositionedLayoutItem::InlineBox(inline_box)
+                if inline_box.kind == InlineBoxKind::InFlow =>
+            {
+                Some(RunSpan {
+                    left: inline_box.x,
+                    right: inline_box.x + inline_box.width,
+                    text: 0..0,
+                    is_rtl: None,
+                })
+            }
+            PositionedLayoutItem::InlineBox(_) => None,
+        })
+        .collect();
+    let Some(index) = spans
+        .iter()
+        .position(|span| span.left <= inline && inline < span.right)
+    else {
+        return offset;
+    };
+    let hit = &spans[index];
+    let Some(hit_is_rtl) = hit.is_rtl else {
+        return offset;
+    };
+    if hit_is_rtl == base_is_rtl {
+        return offset;
+    }
+    let neighbour = if hit.offset_at(LineEdge::Left) == Some(offset) {
+        index.checked_sub(1).map(|before| (before, LineEdge::Right))
+    } else if hit.offset_at(LineEdge::Right) == Some(offset) {
+        Some((index + 1, LineEdge::Left))
+    } else {
+        None
+    };
+    neighbour
+        .and_then(|(index, side)| {
+            let span = spans.get(index)?;
+            (span.is_rtl? == base_is_rtl).then(|| span.offset_at(side))?
+        })
+        .unwrap_or(offset)
+}
+
+pub(super) fn glyphs_reach_edge(line: &Line<'_, TextBrush>, edge: LineEdge) -> bool {
+    edge_items(line).is_some_and(|(first, last)| match edge {
+        LineEdge::Left => first.is_glyphs,
+        LineEdge::Right => last.is_glyphs,
+    })
 }
 
 impl Node {
