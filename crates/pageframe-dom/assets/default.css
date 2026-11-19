@@ -453,10 +453,10 @@ output {
     unicode-bidi: isolate;
 }
 
-/* We need the "bdo:-moz-has-dir-attr" bit because "bdo" has lower
-   specificity than the ":-moz-has-dir-attr" selector above. */
+/* We need the "bdo[dir]" bit because "bdo" has lower
+   specificity than the "[dir]" selectors above. */
 bdo,
-bdo:-moz-has-dir-attr {
+bdo[dir] {
     unicode-bidi: isolate-override;
 }
 

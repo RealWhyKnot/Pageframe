@@ -132,7 +132,14 @@ fn push_spacer(
 ) {
     let is_start =
         spacer == crate::util::INLINE_EDGE_START || spacer == crate::util::INLINE_MARGIN_START;
-    let run_mark = if is_start { 1.0 } else { 2.0 };
+    let is_margin =
+        spacer == crate::util::INLINE_MARGIN_START || spacer == crate::util::INLINE_MARGIN_END;
+    let run_mark = match (is_start, is_margin) {
+        (true, false) => 1.0,
+        (false, false) => 2.0,
+        (true, true) => 3.0,
+        (false, true) => 4.0,
+    };
     builder.push_style_modification_span(&[
         parley::StyleProperty::LetterSpacing(width),
         parley::StyleProperty::WordSpacing(run_mark),
@@ -254,6 +261,12 @@ pub(crate) fn build_inline_layout_into(
             style.clone_direction(),
             style.clone_unicode_bidi(),
         ));
+        if let Some(control) = stylo_to_parley::block_bidi_override(
+            style.clone_direction(),
+            style.clone_unicode_bidi(),
+        ) {
+            builder.push_text(control);
+        }
     }
 
     let text_transform = root_node_style
@@ -457,6 +470,15 @@ pub(crate) fn build_inline_layout_into(
                             builder.pop_style_span();
                             text_transformer.word_break(builder);
                         } else {
+                            let bidi = style.and_then(|s| {
+                                stylo_to_parley::inline_bidi_controls(
+                                    s.clone_direction(),
+                                    s.clone_unicode_bidi(),
+                                )
+                            });
+                            if let Some((open, _)) = bidi {
+                                builder.push_text(open);
+                            }
                             let edges = node.primary_styles().map(|s| {
                                 inline_edges(
                                     &s,
@@ -540,6 +562,11 @@ pub(crate) fn build_inline_layout_into(
                                     crate::util::INLINE_MARGIN_END,
                                     edges.margin_end,
                                 );
+                            }
+                            if let Some((_, close)) = bidi {
+                                builder.push_text(close);
+                            }
+                            if let Some(edges) = &edges {
                                 if edges.has_end_mark()
                                     && trailing_space(nodes, node_id) == Some(true)
                                 {

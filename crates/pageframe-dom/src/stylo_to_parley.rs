@@ -325,6 +325,40 @@ pub(crate) fn base_direction(
     }
 }
 
+pub(crate) fn inline_bidi_controls(
+    direction: stylo::Direction,
+    unicode_bidi: stylo::UnicodeBidi,
+) -> Option<(&'static str, &'static str)> {
+    let is_rtl = direction == stylo::Direction::Rtl;
+    let pick = |rtl: &'static str, ltr: &'static str| if is_rtl { rtl } else { ltr };
+    match unicode_bidi {
+        stylo::UnicodeBidi::Normal => None,
+        stylo::UnicodeBidi::Embed => Some((pick("\u{202b}", "\u{202a}"), "\u{202c}")),
+        stylo::UnicodeBidi::Isolate => Some((pick("\u{2067}", "\u{2066}"), "\u{2069}")),
+        stylo::UnicodeBidi::BidiOverride => Some((pick("\u{202e}", "\u{202d}"), "\u{202c}")),
+        stylo::UnicodeBidi::IsolateOverride => Some((
+            pick("\u{2068}\u{202e}", "\u{2068}\u{202d}"),
+            "\u{202c}\u{2069}",
+        )),
+        stylo::UnicodeBidi::Plaintext => Some(("\u{2068}", "\u{2069}")),
+    }
+}
+
+pub(crate) fn block_bidi_override(
+    direction: stylo::Direction,
+    unicode_bidi: stylo::UnicodeBidi,
+) -> Option<&'static str> {
+    match unicode_bidi {
+        stylo::UnicodeBidi::BidiOverride | stylo::UnicodeBidi::IsolateOverride => {
+            Some(match direction {
+                stylo::Direction::Rtl => "\u{202e}",
+                stylo::Direction::Ltr => "\u{202d}",
+            })
+        }
+        _ => None,
+    }
+}
+
 pub(crate) fn text_align(input: stylo::TextAlignKeyword) -> parley::Alignment {
     match input {
         stylo::TextAlignKeyword::Start => parley::Alignment::Start,
@@ -707,5 +741,42 @@ mod tests {
         assert_eq!(flat, vec![(*b"tnum", 1), (*b"tnum", 0)]);
         let last_tnum = flat.iter().rev().find(|(tag, _)| tag == b"tnum").unwrap();
         assert_eq!(last_tnum.1, 0);
+    }
+
+    #[test]
+    fn unicode_bidi_maps_to_the_css_control_codes() {
+        let rtl = stylo::Direction::Rtl;
+        let ltr = stylo::Direction::Ltr;
+        let controls = inline_bidi_controls;
+        assert_eq!(controls(rtl, stylo::UnicodeBidi::Normal), None);
+        assert_eq!(
+            controls(ltr, stylo::UnicodeBidi::Embed),
+            Some(("\u{202a}", "\u{202c}"))
+        );
+        assert_eq!(
+            controls(rtl, stylo::UnicodeBidi::Isolate),
+            Some(("\u{2067}", "\u{2069}"))
+        );
+        assert_eq!(
+            controls(rtl, stylo::UnicodeBidi::BidiOverride),
+            Some(("\u{202e}", "\u{202c}"))
+        );
+        assert_eq!(
+            controls(ltr, stylo::UnicodeBidi::IsolateOverride),
+            Some(("\u{2068}\u{202d}", "\u{202c}\u{2069}"))
+        );
+        assert_eq!(
+            controls(rtl, stylo::UnicodeBidi::Plaintext),
+            Some(("\u{2068}", "\u{2069}"))
+        );
+        assert_eq!(block_bidi_override(rtl, stylo::UnicodeBidi::Isolate), None);
+        assert_eq!(
+            block_bidi_override(rtl, stylo::UnicodeBidi::BidiOverride),
+            Some("\u{202e}")
+        );
+        assert_eq!(
+            block_bidi_override(ltr, stylo::UnicodeBidi::IsolateOverride),
+            Some("\u{202d}")
+        );
     }
 }

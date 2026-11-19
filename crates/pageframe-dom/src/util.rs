@@ -359,16 +359,21 @@ pub const INLINE_MARGIN_START: &str = "\u{2064}";
 pub const INLINE_MARGIN_END: &str = "\u{feff}";
 pub const INLINE_BREAK: &str = "\u{200b}";
 
+pub fn is_bidi_control(ch: char) -> bool {
+    matches!(ch, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+}
+
 pub fn is_inline_spacer(ch: char) -> bool {
-    [
-        INLINE_EDGE_START,
-        INLINE_EDGE_END,
-        INLINE_MARGIN_START,
-        INLINE_MARGIN_END,
-        INLINE_BREAK,
-    ]
-    .iter()
-    .any(|spacer| spacer.contains(ch))
+    is_bidi_control(ch)
+        || [
+            INLINE_EDGE_START,
+            INLINE_EDGE_END,
+            INLINE_MARGIN_START,
+            INLINE_MARGIN_END,
+            INLINE_BREAK,
+        ]
+        .iter()
+        .any(|spacer| spacer.contains(ch))
 }
 
 pub(crate) static LINE_BREAK_OVERRIDE: &parley::LineBreakOverrideFn =
