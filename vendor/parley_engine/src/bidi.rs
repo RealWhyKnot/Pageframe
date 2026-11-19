@@ -19,6 +19,9 @@ pub(crate) struct BidiResolver {
     runs: Vec<Run>,
     indices: Vec<usize>,
     flags: u16,
+    /// Level of the preceding paragraph, which sets the start-of-sequence type of
+    /// a run that begins the paragraph at the paragraph level.
+    context_level: Option<BidiLevel>,
 }
 
 impl core::fmt::Debug for BidiResolver {
@@ -34,6 +37,49 @@ impl BidiResolver {
     /// Returns the base level of the text.
     pub(crate) fn base_level(&self) -> BidiLevel {
         self.base_level
+    }
+
+    /// Resolves text that may hold several paragraphs.
+    ///
+    /// With [`BaseDirection::Auto`], each paragraph (ending after a paragraph
+    /// separator) takes its own base level from its first strong character
+    /// (UAX #9 P2/P3), and the levels of all paragraphs are concatenated.
+    /// Returns the base level of each paragraph in order.
+    pub(crate) fn resolve_paragraphs(
+        &mut self,
+        chars: impl Iterator<Item = (char, (BidiClass, BidiMirroringGlyph))>,
+        base_direction: BaseDirection,
+        paragraph_levels: &mut Vec<BidiLevel>,
+    ) {
+        paragraph_levels.clear();
+        if base_direction != BaseDirection::Auto {
+            self.resolve(chars, base_direction);
+            paragraph_levels.push(self.base_level);
+            return;
+        }
+        let chars: Vec<_> = chars.collect();
+        if !chars
+            .iter()
+            .any(|(_, (class, _))| *class == BidiClass::ParagraphSeparator)
+        {
+            self.resolve(chars.into_iter(), base_direction);
+            paragraph_levels.push(self.base_level);
+            return;
+        }
+        let mut levels = Vec::with_capacity(chars.len());
+        for paragraph in
+            chars.split_inclusive(|(_, (class, _))| *class == BidiClass::ParagraphSeparator)
+        {
+            let context_level = paragraph_levels.last().copied();
+            self.resolve_in_context(paragraph.iter().copied(), base_direction, context_level);
+            levels.extend_from_slice(&self.levels);
+            paragraph_levels.push(self.base_level);
+        }
+        self.levels = levels;
+        self.base_level = paragraph_levels
+            .first()
+            .copied()
+            .unwrap_or(BidiLevel::new(0));
     }
 
     /// Clears the resolver state.
@@ -54,8 +100,22 @@ impl BidiResolver {
         chars: impl Iterator<Item = (char, (BidiClass, BidiMirroringGlyph))>,
         base_direction: BaseDirection,
     ) {
+        self.resolve_in_context(chars, base_direction, None);
+    }
+
+    /// Resolves a paragraph that follows a paragraph resolved at `context_level`.
+    ///
+    /// As in Chromium, a run that starts the paragraph at the paragraph
+    /// level takes its start-of-sequence type from the preceding paragraph's level.
+    fn resolve_in_context(
+        &mut self,
+        chars: impl Iterator<Item = (char, (BidiClass, BidiMirroringGlyph))>,
+        base_direction: BaseDirection,
+        context_level: Option<BidiLevel>,
+    ) {
         self.clear();
-        let mut needs_bidi = false;
+        self.context_level = context_level;
+        let mut needs_bidi = context_level.is_some_and(|level| level.is_rtl());
         let mut len = 0;
         for (i, (ch, (t, bracket))) in chars.enumerate() {
             self.initial_types.push(t);
@@ -342,14 +402,14 @@ impl BidiResolver {
             if self.types[run.start] == BidiClass::PopDirectionalIsolate {
                 run.starts_with_pdi = true;
             }
-            let mut prev_level = self.base_level;
-            for i in (0..run.start).rev() {
-                if !is_removed_by_x9(self.types[i]) {
-                    prev_level = self.levels[i];
-                    break;
-                }
-            }
-            run.sos = type_from_level(prev_level.max(run.level));
+            let prev_level = (0..run.start)
+                .rev()
+                .find(|&i| !is_removed_by_x9(self.types[i]))
+                .map(|i| self.levels[i]);
+            run.sos = match (prev_level, self.context_level) {
+                (None, Some(context)) if run.level == self.base_level => type_from_level(context),
+                _ => type_from_level(prev_level.unwrap_or(self.base_level).max(run.level)),
+            };
             if is_isolate_initiator(self.initial_types[run.end - 1]) {
                 run.ends_with_isolate = true;
                 run.eos = type_from_level(self.base_level.max(run.level));

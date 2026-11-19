@@ -58,7 +58,8 @@ pub struct LineTrim {
 }
 
 impl LineTrim {
-    pub fn new(root: &Node, line: &Line<'_, TextBrush>, text: &str, is_rtl: bool) -> Self {
+    pub fn new(root: &Node, line: &Line<'_, TextBrush>, text: &str) -> Self {
+        let is_rtl = line.is_rtl();
         let mut line_left = f32::MAX;
         let mut line_right = f32::MIN;
         let mut hung = None;

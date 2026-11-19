@@ -2022,7 +2022,10 @@ fn reset_trailing_whitespace_level<B: Brush>(
     lines: &mut LineLayout,
     start_item_idx: usize,
 ) {
-    let base_level = layout.data.base_level;
+    let Some(first_item) = lines.line_items.get(start_item_idx) else {
+        return;
+    };
+    let base_level = layout.data.paragraph_level_at(first_item.text_range.start);
     let shaped_text = &layout.data.shaped_text;
     let mut end_idx = lines.line_items.len();
     let (target_idx, split, run_slice) = loop {
@@ -2154,7 +2157,11 @@ fn hanging_whitespace<B: Brush>(
                 // reordering. `reset_trailing_whitespace_level` moves the last item's trailing
                 // whitespace to the paragraph level (UAX #9 L1), so only items that match the
                 // paragraph level are guaranteed to be at that edge.
-                if line_item.bidi_level != layout.data.base_level {
+                if line_item.bidi_level
+                    != layout
+                        .data
+                        .paragraph_level_at(line_item.text_range.start)
+                {
                     break;
                 }
 

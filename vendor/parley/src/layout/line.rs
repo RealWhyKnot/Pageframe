@@ -36,6 +36,14 @@ impl<'a, B: Brush> Line<'a, B> {
         self.data.text_range.clone()
     }
 
+    /// Returns `true` if the bidi paragraph holding this line is right-to-left.
+    pub fn is_rtl(&self) -> bool {
+        self.layout
+            .data
+            .paragraph_level_at(self.data.text_range.start)
+            .is_rtl()
+    }
+
     /// Returns the number of items in the line.
     pub fn len(&self) -> usize {
         self.data.item_range.len()

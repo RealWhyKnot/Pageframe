@@ -210,20 +210,16 @@ pub(crate) fn inline_fragments<'a>(
     let Some(root) = doc.get_node(inline_root_id) else {
         return fragments;
     };
-    let (clone_basis, is_rtl, scale_f32) = root
+    let (clone_basis, scale_f32) = root
         .element_data()
         .and_then(|element| element.inline_layout_data.as_ref())
-        .map_or((0.0, false, 1.0), |layout| {
-            (
-                layout.percent_basis,
-                layout.layout.is_rtl(),
-                layout.layout.scale(),
-            )
+        .map_or((0.0, 1.0), |layout| {
+            (layout.percent_basis, layout.layout.scale())
         });
     for line in lines {
         let line_baseline = f64::from(line.metrics().baseline);
         let mut boxes: Vec<SpanBox> = Vec::new();
-        let trim = LineTrim::new(root, &line, text, is_rtl);
+        let trim = LineTrim::new(root, &line, text);
         for item in line.items() {
             let (start, span_item) = match item {
                 PositionedLayoutItem::GlyphRun(glyph_run) => {

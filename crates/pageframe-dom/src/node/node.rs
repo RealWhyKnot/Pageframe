@@ -2090,7 +2090,7 @@ impl Node {
         };
 
         let line = cluster.line();
-        let offset = super::caret::base_run_offset(&line, layout.is_rtl(), inline * scale, offset);
+        let offset = super::caret::base_run_offset(&line, line.is_rtl(), inline * scale, offset);
         Some(self.before_hung_space(&line, &inline_layout.text, offset))
     }
 
@@ -2398,12 +2398,11 @@ impl Node {
             }
         };
 
-        let is_rtl = layout.is_rtl();
         let text = inline_layout.text.as_str();
 
         Some(layout.lines().filter_map(move |line| {
             let metrics = line.metrics();
-            let trim = crate::inline_trim::LineTrim::new(inline_root, &line, text, is_rtl);
+            let trim = crate::inline_trim::LineTrim::new(inline_root, &line, text);
             let found = inline_root.collect_line_spans(&line, &trim, &geometry, chain_to);
             let span = found.spans.iter().find(|span| span.node_id == self.id)?;
             let own = found.own(self.id);

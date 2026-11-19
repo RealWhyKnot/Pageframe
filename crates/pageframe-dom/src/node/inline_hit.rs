@@ -361,9 +361,8 @@ impl Node {
             return bounds;
         }
         let text = inline_layout.text.as_str();
-        let is_rtl = layout.is_rtl();
         for line in layout.lines() {
-            let trim = LineTrim::new(self, &line, text, is_rtl);
+            let trim = LineTrim::new(self, &line, text);
             let found = self.collect_line_spans(&line, &trim, &geometry, |id| self.span_chain(id));
             for span in &found.spans {
                 let Some(node) = tree
@@ -406,7 +405,6 @@ impl Node {
         let layout = &inline_layout.layout;
         let geometry = self.span_geometry()?;
         let text = inline_layout.text.as_str();
-        let is_rtl = layout.is_rtl();
         let tree = self.tree();
         let order = |id: NodeId, line: usize, item: usize| {
             let chain = self.span_chain(id).unwrap_or_default();
@@ -500,7 +498,7 @@ impl Node {
             if line.metrics().block_min_coord - reach > block {
                 break;
             }
-            let trim = LineTrim::new(self, &line, text, is_rtl);
+            let trim = LineTrim::new(self, &line, text);
             let line_box = intersection(
                 shifted(
                     self.inline_item_rect(

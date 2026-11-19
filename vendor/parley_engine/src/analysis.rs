@@ -49,6 +49,9 @@ pub struct Analysis {
 
     /// The base bidi level of the paragraph of text.
     pub(crate) paragraph_level: BidiLevel,
+
+    /// The byte offset where each paragraph starts and its base bidi level.
+    pub(crate) paragraphs: Vec<(usize, BidiLevel)>,
 }
 
 impl Analysis {
@@ -66,6 +69,7 @@ impl Analysis {
         self.levels.clear();
         self.object_levels.clear();
         self.paragraph_level = BidiLevel::new(0);
+        self.paragraphs.clear();
     }
 
     /// The per-character info in source order.
@@ -94,6 +98,15 @@ impl Analysis {
     #[inline(always)]
     pub fn paragraph_level(&self) -> BidiLevel {
         self.paragraph_level
+    }
+
+    /// The byte offset where each paragraph starts and its base bidi level.
+    ///
+    /// Holds one entry per paragraph when [`BaseDirection::Auto`] resolves
+    /// paragraphs separately, and a single entry otherwise.
+    #[inline(always)]
+    pub fn paragraph_levels(&self) -> &[(usize, BidiLevel)] {
+        &self.paragraphs
     }
 }
 
@@ -583,6 +596,7 @@ pub(crate) fn analyze_text(
             .bidi
             .resolve(core::iter::empty(), options.base_direction);
         analysis.paragraph_level = analyzer.bidi.base_level();
+        analysis.paragraphs.push((0, analysis.paragraph_level));
         return;
     }
 
@@ -916,7 +930,7 @@ pub(crate) fn analyze_text(
                 }
                 core::iter::repeat_n(OBJECT_REPLACEMENT, count).chain(ch)
             });
-        analyzer.bidi.resolve(
+        analyzer.bidi.resolve_paragraphs(
             sequence.map(|ch| {
                 let bidi_class = data_sources.properties(ch).bidi_class();
                 // TODO: maybe extend Properties to u64 to fit BidiMirroringGlyph
@@ -924,10 +938,27 @@ pub(crate) fn analyze_text(
                 (ch, (bidi_class, bracket))
             }),
             options.base_direction,
+            &mut analyzer.paragraph_levels,
         );
         core::mem::swap(&mut analysis.levels, &mut analyzer.bidi.levels);
         analysis.paragraph_level = analyzer.bidi.base_level();
         split_object_levels(text, options.objects, analysis);
+        let mut starts = core::iter::once(0).chain(
+            text.char_indices()
+                .filter(|(_, ch)| {
+                    data_sources.properties(*ch).bidi_class()
+                        == icu_properties::props::BidiClass::ParagraphSeparator
+                })
+                .map(|(byte, ch)| byte + ch.len_utf8()),
+        );
+        analysis.paragraphs.extend(
+            analyzer
+                .paragraph_levels
+                .iter()
+                .map_while(|level| Some((starts.next()?, *level))),
+        );
+    } else {
+        analysis.paragraphs.push((0, analysis.paragraph_level));
     }
 }
 

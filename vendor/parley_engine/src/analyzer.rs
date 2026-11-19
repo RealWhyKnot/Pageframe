@@ -15,6 +15,7 @@ use crate::analysis::{Analysis, analyze_text};
 #[derive(Default)]
 pub struct Analyzer {
     pub(crate) bidi: BidiResolver,
+    pub(crate) paragraph_levels: alloc::vec::Vec<parlance::BidiLevel>,
 }
 
 impl core::fmt::Debug for Analyzer {
@@ -216,6 +217,58 @@ mod tests {
 
         assert_eq!(plain.bidi_levels(), with_objects.bidi_levels());
         assert_eq!(with_objects.object_bidi_levels().len(), 4);
+    }
+
+    fn paragraphs(analysis: &Analysis) -> alloc::vec::Vec<(usize, u8)> {
+        analysis
+            .paragraph_levels()
+            .iter()
+            .map(|(start, level)| (*start, level.to_u8()))
+            .collect()
+    }
+
+    #[test]
+    fn auto_direction_resolves_each_paragraph_from_its_own_text() {
+        let analysis = analyze("\u{5d0}b\nc\u{5d1}\n123", BaseDirection::Auto);
+        let levels: alloc::vec::Vec<u8> = analysis
+            .bidi_levels()
+            .iter()
+            .map(|level| level.to_u8())
+            .collect();
+
+        assert_eq!(paragraphs(&analysis), [(0, 1), (4, 0), (8, 0)]);
+        assert_eq!(levels, [1, 2, 1, 0, 1, 0, 0, 0, 0]);
+        assert!(analysis.paragraph_level().is_rtl());
+    }
+
+    #[test]
+    fn auto_paragraphs_start_from_the_previous_paragraph_level() {
+        let levels = |text: &str| -> alloc::vec::Vec<u8> {
+            analyze(text, BaseDirection::Auto)
+                .bidi_levels()
+                .iter()
+                .map(|level| level.to_u8())
+                .collect()
+        };
+
+        assert_eq!(levels("\u{5d0}\n1 - 2"), [1, 1, 2, 1, 1, 1, 2]);
+        assert_eq!(levels("\u{5d0} a\n1 - 2"), [1, 1, 2, 1, 2, 1, 1, 1, 2]);
+        assert_eq!(levels("a\n1 - 2 \u{5d0}"), [0, 0, 2, 2, 2, 2, 2, 1, 1]);
+        assert_eq!(levels("\u{5d0}\n\n1 - 2"), [1, 1, 0, 0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn explicit_direction_keeps_one_paragraph_level() {
+        let analysis = analyze("a\n\u{5d0}", BaseDirection::Rtl);
+
+        assert_eq!(paragraphs(&analysis), [(0, 1)]);
+    }
+
+    #[test]
+    fn auto_direction_without_separators_keeps_one_paragraph_level() {
+        assert_eq!(paragraphs(&analyze("a \u{5d0}", BaseDirection::Auto)), [(0, 0)]);
+        assert_eq!(paragraphs(&analyze("\u{5d0} a", BaseDirection::Auto)), [(0, 1)]);
+        assert_eq!(paragraphs(&analyze("", BaseDirection::Auto)), [(0, 0)]);
     }
 
     #[test]

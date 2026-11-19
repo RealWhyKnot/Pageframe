@@ -294,7 +294,7 @@ impl Node {
     ) -> Option<usize> {
         let inline_layout = self.element_data()?.inline_layout_data.as_ref()?;
         let range = line.text_range();
-        let is_start = matches!(edge, LineEdge::Left) != inline_layout.layout.is_rtl();
+        let is_start = matches!(edge, LineEdge::Left) != line.is_rtl();
         if is_start {
             return Some(range.start);
         }

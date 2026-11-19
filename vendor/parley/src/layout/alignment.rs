@@ -74,10 +74,14 @@ pub(crate) fn align<B: Brush>(
 ) {
     layout.alignment = Some(alignment);
 
-    let is_rtl = layout.base_level.is_rtl();
-
     // Apply alignment to line items
     for line in &mut layout.lines {
+        let is_rtl = super::data::paragraph_level_at(
+            &layout.paragraph_levels,
+            layout.base_level,
+            line.text_range.start,
+        )
+        .is_rtl();
         line.justification.amount_per_opportunity = 0.;
 
         let indent = line.metrics.indent;

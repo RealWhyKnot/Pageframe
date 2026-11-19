@@ -219,6 +219,8 @@ pub(crate) struct LayoutData<B: Brush> {
     pub(crate) quantize: bool,
     /// The `BiDi` base level
     pub(crate) base_level: BidiLevel,
+    /// The byte offset where each bidi paragraph starts and its base level.
+    pub(crate) paragraph_levels: Vec<(usize, BidiLevel)>,
     /// The length of the text in the layout
     pub(crate) text_len: usize,
     /// Byte offsets of the bidi controls pushed with `TreeBuilder::push_bidi_control`. They
@@ -275,6 +277,7 @@ impl<B: Brush> Default for LayoutData<B> {
             scale: 1.,
             quantize: true,
             base_level: BidiLevel::new(0),
+            paragraph_levels: Vec::new(),
             text_len: 0,
             bidi_controls: Vec::new(),
             width: 0.,
@@ -300,11 +303,26 @@ impl<B: Brush> Default for LayoutData<B> {
     }
 }
 
+/// The base level of the paragraph in `paragraphs` (start offsets with levels) holding byte
+/// `index`, or `base_level` when there are none.
+pub(crate) fn paragraph_level_at(
+    paragraphs: &[(usize, BidiLevel)],
+    base_level: BidiLevel,
+    index: usize,
+) -> BidiLevel {
+    let count = paragraphs.partition_point(|(start, _)| *start <= index);
+    count
+        .checked_sub(1)
+        .and_then(|last| paragraphs.get(last))
+        .map_or(base_level, |(_, level)| *level)
+}
+
 impl<B: Brush> LayoutData<B> {
     pub(crate) fn clear(&mut self) {
         self.scale = 1.;
         self.quantize = true;
         self.base_level = BidiLevel::new(0);
+        self.paragraph_levels.clear();
         self.text_len = 0;
         self.bidi_controls.clear();
         self.width = 0.;
@@ -326,6 +344,11 @@ impl<B: Brush> LayoutData<B> {
         self.line_items.clear();
         self.aligned_subtree_offsets.clear();
         self.alignment = None;
+    }
+
+    /// The base level of the bidi paragraph holding the text at byte `index`.
+    pub(crate) fn paragraph_level_at(&self, index: usize) -> BidiLevel {
+        paragraph_level_at(&self.paragraph_levels, self.base_level, index)
     }
 
     /// Push an inline box to the list of items
@@ -630,7 +653,9 @@ impl ContentWidthsMeasurer {
                     // bidi reordering. We don't currently apply UAX #9 L1 (resetting trailing
                     // whitespace to paragraph level), so only logically-last items that match the
                     // paragraph level are guaranteed to be at that edge.
-                    let can_hang = item.bidi_level == layout_data.base_level;
+                    let can_hang = item.bidi_level
+                        == layout_data
+                            .paragraph_level_at(slice.text_byte_range(slice.char_range()).start);
                     let is_rtl = item.bidi_level.is_rtl();
 
                     if run.spacing.is_zero() {
