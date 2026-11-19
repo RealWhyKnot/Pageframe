@@ -51,6 +51,7 @@ pub(crate) enum InlineScope {
     All,
     Flow,
     Layer(NodeId),
+    Above(NodeId),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -419,7 +420,7 @@ impl Node {
             }
         };
         let in_scope = |id: NodeId| match scope {
-            InlineScope::All => true,
+            InlineScope::All | InlineScope::Above(_) => true,
             InlineScope::Flow => !self
                 .span_chain(id)
                 .unwrap_or_default()
@@ -427,6 +428,7 @@ impl Node {
                 .any(|id| tree.get(*id).is_some_and(Node::starts_inline_layer)),
             InlineScope::Layer(layer) => self.span_chain(id).unwrap_or_default().contains(&layer),
         };
+        let mut box_key: Option<HitOrder> = None;
         let mut best: Option<(HitOrder, InlineHit)> = None;
         let mut offer = |key: HitOrder, hit: InlineHit| {
             if !in_scope(hit.node_id) {
@@ -515,8 +517,15 @@ impl Node {
                 content,
             );
             for (index, item) in line.items().enumerate() {
-                let PositionedLayoutItem::GlyphRun(glyph_run) = item else {
-                    continue;
+                let glyph_run = match item {
+                    PositionedLayoutItem::GlyphRun(glyph_run) => glyph_run,
+                    PositionedLayoutItem::InlineBox(inline_box) => {
+                        let id = NodeId::from_u64(inline_box.id);
+                        if matches!(scope, InlineScope::Above(above) if above == id) {
+                            box_key = Some(order(id, line_index, index));
+                        }
+                        continue;
+                    }
                 };
                 let owner = glyph_run.style().brush.id;
                 let Some(node) = tree.get(owner).filter(|node| takes_pointer(node)) else {
@@ -597,6 +606,11 @@ impl Node {
                 }
             }
         }
-        best.map(|(_, hit)| hit)
+        match scope {
+            InlineScope::Above(_) => best
+                .filter(|(key, _)| box_key.is_some_and(|above| *key > above))
+                .map(|(_, hit)| hit),
+            _ => best.map(|(_, hit)| hit),
+        }
     }
 }

@@ -1768,6 +1768,36 @@ impl Node {
             let Some((hit, phase)) = self.hit_paint_child(child, x, y, probe, control) else {
                 continue;
             };
+            let is_line_box = is_inline_root
+                && child.layout_parent.get() == Some(self.id)
+                && !child.is_hit_layer()
+                && child.display_constructed_as().outside()
+                    == style::values::specified::box_::DisplayOutside::Inline;
+            let later_text = is_line_box
+                .then(|| {
+                    self.inline_hit(
+                        x,
+                        y,
+                        &probe,
+                        super::inline_hit::InlineScope::Above(child.id),
+                    )
+                })
+                .flatten()
+                .map(|found| {
+                    let hit = HitResult {
+                        node_id: found.node_id,
+                        x: x - content_box_offset.x,
+                        y: y - content_box_offset.y,
+                        is_text: found.is_text,
+                    };
+                    let phase = self.inline_hit_phase(&hit);
+                    (hit, phase)
+                })
+                .filter(|(_, phase)| match phase {
+                    HitPhase::Positioned => reaches_layers,
+                    _ => reaches_flow,
+                });
+            let (hit, phase) = later_text.unwrap_or((hit, phase));
             if phase >= HitPhase::Foreground {
                 return Some((hit, phase));
             }
