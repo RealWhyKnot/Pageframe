@@ -2040,7 +2040,7 @@ impl Node {
 
     /// Whether this node can act as an [`offset_parent`](Self::offset_parent): a positioned
     /// element, or one of the elements that always qualify (`body`, `td`, `th`).
-    pub(crate) fn is_offset_parent(&self) -> bool {
+    fn is_offset_parent_of(&self, is_static: bool) -> bool {
         let Some(styles) = self.primary_styles() else {
             return false;
         };
@@ -2048,8 +2048,10 @@ impl Node {
             return true;
         }
         self.data.is_element_with_tag_name(&local_name!("body"))
-            || self.data.is_element_with_tag_name(&local_name!("td"))
-            || self.data.is_element_with_tag_name(&local_name!("th"))
+            || is_static
+                && (self.data.is_element_with_tag_name(&local_name!("td"))
+                    || self.data.is_element_with_tag_name(&local_name!("th"))
+                    || self.data.is_element_with_tag_name(&local_name!("table")))
     }
 
     /// Whether this node is a non-positioned `body` element. When such an element is the
@@ -2062,16 +2064,24 @@ impl Node {
                 .is_some_and(|styles| styles.get_box().position == Position::Static)
     }
 
-    /// The nearest layout ancestor that [is an offset parent](Self::is_offset_parent), as in
     /// CSSOM View's `offsetParent`.
     pub fn offset_parent(&self) -> Option<&Node> {
-        let mut node = self;
-        loop {
-            node = self.with(node.containing_block()?);
-            if node.is_offset_parent() {
+        let position = self
+            .primary_styles()
+            .map_or(Position::Static, |styles| styles.get_box().position);
+        if position == Position::Fixed {
+            return None;
+        }
+        let is_static = position == Position::Static;
+        let mut ancestor = self.parent;
+        while let Some(id) = ancestor {
+            let node = self.with(id);
+            if node.is_offset_parent_of(is_static) {
                 return Some(node);
             }
+            ancestor = node.parent;
         }
+        None
     }
 
     pub(super) fn block_edges(&self, basis: f32) -> taffy::Rect<f32> {
@@ -2168,6 +2178,10 @@ impl Node {
         let mut x = 0.0;
         let mut y = 0.0;
         let mut current = self;
+        let target = self
+            .offset_parent()
+            .filter(|parent| !parent.is_static_body())
+            .map(|parent| parent.id);
 
         // Non-atomic inlines have no layout box of their own: start from the first
         // fragment box (relative to the inline root's border box) and continue the
@@ -2180,7 +2194,7 @@ impl Node {
             let Some(inline_root) = self.inline_root_ancestor() else {
                 return crate::util::Point { x, y };
             };
-            if inline_root.is_offset_parent() && !inline_root.is_static_body() {
+            if Some(inline_root.id) == target {
                 let border = inline_root.final_layout().border;
                 return crate::util::Point {
                     x: x - border.left,
@@ -2199,7 +2213,7 @@ impl Node {
                 break;
             };
             let parent = self.with(parent_id);
-            if parent.is_offset_parent() && !parent.is_static_body() {
+            if Some(parent_id) == target {
                 let border = parent.final_layout().border;
                 x -= border.left;
                 y -= border.top;

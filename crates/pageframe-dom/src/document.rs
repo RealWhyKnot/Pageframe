@@ -2682,7 +2682,20 @@ impl BaseDocument {
             if self.has_column_ancestor(node_id) {
                 return Some(self.column_offset_rect(node, node_id));
             }
-            let pos = node.offset_top_left();
+            let pos = match node
+                .offset_parent()
+                .filter(|parent| parent.is_non_atomic_inline())
+            {
+                Some(parent) => {
+                    let origin = self.first_fragment_origin(node_id, ScrollOffsets::Ignored);
+                    let base = self.offset_parent_padding_origin(parent);
+                    crate::util::Point {
+                        x: origin.x - base.x,
+                        y: origin.y - base.y,
+                    }
+                }
+                None => node.offset_top_left(),
+            };
             let size = node.unrounded_layout().size;
             #[cfg(feature = "writing-mode")]
             let size = match node.containing_block() {
@@ -2766,10 +2779,9 @@ impl BaseDocument {
             .offset_parent()
             .filter(|parent| !parent.is_static_body())
         {
-            let parent_origin = self.first_fragment_origin(parent.id, ScrollOffsets::Ignored);
-            let border = self.physical_unrounded_layout(parent.id).border;
-            x -= f64::from(parent_origin.x + border.left);
-            y -= f64::from(parent_origin.y + border.top);
+            let base = self.offset_parent_padding_origin(parent);
+            x -= f64::from(base.x);
+            y -= f64::from(base.y);
         }
         let (top, height) = self
             .inline_ruby_extent(node)
