@@ -14,7 +14,7 @@ use smallvec::SmallVec;
 use super::layout::Layout;
 use super::resolve::{ResolveContext, ResolvedStyle};
 use super::style::{Brush, FontFeature};
-use crate::inline_box::LayoutInlineBox;
+use crate::inline_box::{InlineBox, InlineBoxKind, LayoutInlineBox};
 use crate::util::{nearly_eq, nearly_zero};
 use crate::{FontContext, FontData, Spacing};
 
@@ -217,6 +217,16 @@ pub(crate) fn shape_text<'a, B: Brush>(
             .ceil_text_item_advances(64.0, &item_starts);
     }
 
+    let mut object_levels = analysis.object_bidi_levels().iter().copied();
+    let mut box_level = |inline_box: &InlineBox, fallback: BidiLevel| {
+        if inline_box.kind == InlineBoxKind::InFlow {
+            object_levels
+                .next()
+                .unwrap_or_else(|| analysis.paragraph_level())
+        } else {
+            fallback
+        }
+    };
     let mut inline_box_iter = inline_boxes
         .iter()
         .map(|b| &b.inline_box)
@@ -240,7 +250,9 @@ pub(crate) fn shape_text<'a, B: Brush>(
         };
         while let Some((box_idx, inline_box)) = inline_box_iter.peek() {
             if inline_box.index <= run_text_byte_start {
-                layout.data.push_inline_box(*box_idx, prev_bidi_level);
+                layout
+                    .data
+                    .push_inline_box(*box_idx, box_level(inline_box, prev_bidi_level));
                 inline_box_iter.next();
             } else {
                 break;
@@ -271,8 +283,10 @@ pub(crate) fn shape_text<'a, B: Brush>(
         .last()
         .map(|r| r.bidi_level)
         .unwrap_or(BidiLevel::new(0));
-    for (box_idx, _inline_box) in inline_box_iter {
-        layout.data.push_inline_box(box_idx, bidi_level);
+    for (box_idx, inline_box) in inline_box_iter {
+        layout
+            .data
+            .push_inline_box(box_idx, box_level(inline_box, bidi_level));
     }
 }
 

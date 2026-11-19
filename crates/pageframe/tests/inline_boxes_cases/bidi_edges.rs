@@ -101,3 +101,22 @@ fn a_one_sided_margin_span_still_wraps_at_the_space_after_it() {
     assert_eq!(wrapped("margin-left:9px"), both);
     assert_eq!(wrapped("margin-right:9px"), both);
 }
+
+#[test]
+fn an_inline_block_takes_its_own_bidi_level_like_chrome() {
+    let block = "<i style=\"display:inline-block;width:10px;height:10px;background:#00f\"></i>";
+    for (direction, before, after, left) in [
+        ("rtl", "", " abcd", 90),
+        ("rtl", "abcd ", "", 56),
+        ("rtl", "\u{5d0}\u{5d1}\u{5d2} ", " abcd", 65),
+        ("ltr", "abc ", " \u{5d0}\u{5d1}\u{5d2}", 26),
+    ] {
+        let buffer = draw(&format!(
+            "<div dir=\"{direction}\" style=\"font:14px/40px Arial;width:100px;color:transparent\">\
+             {before}{block}{after}</div>"
+        ));
+        let blue = columns_where(&row_of(&buffer, 100), BLUE);
+        assert_eq!(blue.first(), Some(&left), "{direction} {before}|{after}");
+        assert_eq!(blue.len(), 10, "{direction} {before}|{after}");
+    }
+}

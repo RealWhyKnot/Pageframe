@@ -45,6 +45,8 @@ pub struct Analysis {
     /// Empty if the text is all LTR.
     pub(crate) levels: Vec<BidiLevel>,
 
+    pub(crate) object_levels: Vec<BidiLevel>,
+
     /// The base bidi level of the paragraph of text.
     pub(crate) paragraph_level: BidiLevel,
 }
@@ -62,6 +64,7 @@ impl Analysis {
     pub(crate) fn clear(&mut self) {
         self.info.clear();
         self.levels.clear();
+        self.object_levels.clear();
         self.paragraph_level = BidiLevel::new(0);
     }
 
@@ -77,6 +80,14 @@ impl Analysis {
     #[inline(always)]
     pub fn bidi_levels(&self) -> &[BidiLevel] {
         &self.levels
+    }
+
+    /// The bidi level of each object in [`AnalysisOptions::objects`](crate::AnalysisOptions).
+    ///
+    /// Empty when the whole paragraph is left-to-right.
+    #[inline(always)]
+    pub fn object_bidi_levels(&self) -> &[BidiLevel] {
+        &self.object_levels
     }
 
     /// The base bidi level of the paragraph of text.
@@ -893,8 +904,20 @@ pub(crate) fn analyze_text(
     }
 
     if needs_bidi_resolution || options.base_direction == BaseDirection::Rtl {
+        let mut objects = options.objects.iter().copied().peekable();
+        let sequence = text
+            .char_indices()
+            .map(|(byte, ch)| (byte, Some(ch)))
+            .chain(core::iter::once((usize::MAX, None)))
+            .flat_map(|(byte, ch)| {
+                let mut count = 0;
+                while objects.next_if(|&offset| offset <= byte).is_some() {
+                    count += 1;
+                }
+                core::iter::repeat_n(OBJECT_REPLACEMENT, count).chain(ch)
+            });
         analyzer.bidi.resolve(
-            text.chars().map(|ch| {
+            sequence.map(|ch| {
                 let bidi_class = data_sources.properties(ch).bidi_class();
                 // TODO: maybe extend Properties to u64 to fit BidiMirroringGlyph
                 let bracket = data_sources.brackets().get(ch);
@@ -904,7 +927,37 @@ pub(crate) fn analyze_text(
         );
         core::mem::swap(&mut analysis.levels, &mut analyzer.bidi.levels);
         analysis.paragraph_level = analyzer.bidi.base_level();
+        split_object_levels(text, options.objects, analysis);
     }
+}
+
+const OBJECT_REPLACEMENT: char = '\u{FFFC}';
+
+fn split_object_levels(text: &str, objects: &[usize], analysis: &mut Analysis) {
+    if objects.is_empty() {
+        return;
+    }
+    let mut chars = text.char_indices().peekable();
+    let mut chars_before = 0;
+    let mut positions = Vec::with_capacity(objects.len());
+    for (rank, &offset) in objects.iter().enumerate() {
+        while chars.next_if(|&(byte, _)| byte < offset).is_some() {
+            chars_before += 1;
+        }
+        positions.push(chars_before + rank);
+    }
+    analysis.object_levels.extend(
+        positions
+            .iter()
+            .filter_map(|&position| analysis.levels.get(position).copied()),
+    );
+    let mut next = positions.iter().copied().peekable();
+    let mut position = 0;
+    analysis.levels.retain(|_| {
+        let is_object = next.next_if_eq(&position).is_some();
+        position += 1;
+        !is_object
+    });
 }
 
 /// All characters contribute to shaping except:

@@ -1,7 +1,7 @@
 // Copyright 2026 the Parley Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::{Brush, LayoutContext, WhiteSpaceCollapse};
+use crate::{Brush, InlineBoxKind, LayoutContext, WhiteSpaceCollapse};
 
 use parley_engine::break_overrides::LineBreakOverrideFn;
 
@@ -50,10 +50,18 @@ pub(crate) fn analyze_text<B: Brush>(
         }
     }
 
+    lcx.objects.clear();
+    lcx.objects.extend(
+        lcx.inline_boxes
+            .iter()
+            .filter(|layout_box| layout_box.inline_box.kind == InlineBoxKind::InFlow)
+            .map(|layout_box| layout_box.inline_box.index),
+    );
     let options = AnalysisOptions {
         base_direction,
         line_break: &lcx.line_break,
         break_spaces: &lcx.break_spaces,
+        objects: &lcx.objects,
         line_break_override,
     };
     lcx.analyzer.analyze(text, &options, &mut lcx.analysis);

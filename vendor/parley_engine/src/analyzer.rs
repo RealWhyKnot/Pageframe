@@ -86,6 +86,12 @@ pub struct AnalysisOptions<'a> {
     /// [uax-14-algorithm]: https://unicode.org/reports/tr14/#Algorithm
     pub break_spaces: &'a [Range<usize>],
 
+    /// Sorted byte offsets of objects, such as inline boxes, that take part in bidi resolution as
+    /// an object replacement character placed before the character at that offset.
+    ///
+    /// Their resolved levels are in [`Analysis::object_bidi_levels`](crate::Analysis).
+    pub objects: &'a [usize],
+
     /// The callback which will be called as a first provider of line breaking decisions.
     ///
     /// See [`LineBreakOverrideFn`] for more details.
@@ -98,6 +104,7 @@ impl core::fmt::Debug for AnalysisOptions<'_> {
             .field("base_direction", &self.base_direction)
             .field("line_break", &self.line_break)
             .field("break_spaces", &self.break_spaces)
+            .field("objects", &self.objects)
             .finish_non_exhaustive()
     }
 }
@@ -161,6 +168,54 @@ mod tests {
 
         assert!(analysis.paragraph_level().is_rtl());
         assert!(analysis.bidi_levels().iter().all(|level| level.is_ltr()));
+    }
+
+    fn object_levels(text: &str, base_direction: BaseDirection, objects: &[usize]) -> Analysis {
+        let mut analysis = Analysis::new();
+        Analyzer::new().analyze(
+            text,
+            &AnalysisOptions {
+                base_direction,
+                objects,
+                ..AnalysisOptions::default()
+            },
+            &mut analysis,
+        );
+        analysis
+    }
+
+    #[test]
+    fn objects_resolve_like_object_replacement_characters() {
+        let level = |text: &str, base_direction, objects: &[usize]| {
+            let analysis = object_levels(text, base_direction, objects);
+            assert_eq!(analysis.bidi_levels().len(), text.chars().count());
+            analysis
+                .object_bidi_levels()
+                .iter()
+                .map(|level| level.to_u8())
+                .collect::<alloc::vec::Vec<_>>()
+        };
+
+        assert_eq!(level(" abcd", BaseDirection::Rtl, &[0]), [1]);
+        assert_eq!(level("abcd ", BaseDirection::Rtl, &[5]), [1]);
+        assert_eq!(level("ab cd", BaseDirection::Rtl, &[2, 3]), [2, 2]);
+        assert_eq!(
+            level("\u{5d0} \u{5d1}", BaseDirection::Ltr, &[2, 3]),
+            [1, 1]
+        );
+        assert_eq!(level("ab \u{5d0}", BaseDirection::Ltr, &[3, 99]), [0, 0]);
+        let plain = object_levels("abc", BaseDirection::Ltr, &[1]);
+        assert!(plain.object_bidi_levels().is_empty());
+    }
+
+    #[test]
+    fn objects_leave_character_levels_unchanged() {
+        let text = "abc \u{5d0}\u{5d1} 12";
+        let plain = object_levels(text, BaseDirection::Rtl, &[]);
+        let with_objects = object_levels(text, BaseDirection::Rtl, &[0, 4, 4, text.len()]);
+
+        assert_eq!(plain.bidi_levels(), with_objects.bidi_levels());
+        assert_eq!(with_objects.object_bidi_levels().len(), 4);
     }
 
     #[test]
