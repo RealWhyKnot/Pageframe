@@ -105,3 +105,59 @@ fn a_body_whose_overflow_goes_to_the_viewport_is_no_formatting_root_like_chrome(
     set_style(&mut harness, "html", "contain:paint");
     assert_eq!(body_box(&harness), (0.0, 90.0));
 }
+
+const TALL: &str = "<!doctype html><style>body{margin:0}</style>\
+<div id=h style=\"overflow:hidden;width:100px;height:100px\"><div style=\"height:300px\"></div></div>\
+<div style=\"width:3000px;height:3000px\"></div>";
+
+fn scroll(harness: &Harness<Page<()>>) -> (f64, f64) {
+    let offset = harness.base().viewport_scroll();
+    (offset.x, offset.y)
+}
+
+fn script_scroll(harness: &mut Harness<Page<()>>, selector: &str, (x, y): (f64, f64)) {
+    let node = node(harness, selector);
+    harness
+        .base_mut()
+        .scroll_to(node, x, y, pageframe_dom::ScrollBehavior::Instant);
+}
+
+#[test]
+fn a_hidden_viewport_ignores_the_wheel_but_scrolls_from_script_like_chrome() {
+    let mut harness = open(TALL);
+    harness.wheel_at(200.0, 150.0, -40.0, -60.0);
+    assert_eq!(scroll(&harness), (40.0, 60.0));
+    for (selector, style) in [
+        ("html", "overflow:hidden"),
+        ("body", "overflow:hidden"),
+        ("html", "overflow:clip"),
+    ] {
+        script_scroll(&mut harness, "html", (0.0, 0.0));
+        set_style(&mut harness, selector, style);
+        script_scroll(&mut harness, "html", (100.0, 200.0));
+        assert_eq!(scroll(&harness), (100.0, 200.0), "{selector} {style}");
+        harness.wheel_at(200.0, 150.0, -40.0, -60.0);
+        assert_eq!(scroll(&harness), (100.0, 200.0), "{selector} {style}");
+        harness.set_viewport_size(330, 250);
+        harness.set_viewport_size(320, 240);
+        assert_eq!(scroll(&harness), (100.0, 200.0), "{selector} {style}");
+        set_style(&mut harness, selector, "");
+    }
+    set_style(&mut harness, "html", "overflow-x:hidden");
+    harness.wheel_at(200.0, 150.0, -40.0, -60.0);
+    assert_eq!(scroll(&harness), (100.0, 260.0));
+}
+
+#[test]
+fn the_wheel_leaves_a_hidden_box_where_script_scrolled_it() {
+    let mut harness = open(TALL);
+    script_scroll(&mut harness, "#h", (0.0, 50.0));
+    harness.wheel_at(50.0, 50.0, 0.0, -30.0);
+    let offset = harness
+        .base()
+        .get_node(node(&harness, "#h"))
+        .expect("the box exists")
+        .scroll_offset()
+        .y;
+    assert_eq!((offset, scroll(&harness).1), (50.0, 30.0));
+}

@@ -2367,7 +2367,7 @@ impl BaseDocument {
             self.media_type.clone(),
             self.font_ctx.clone(),
         ));
-        self.scroll_viewport_by(0.0, 0.0); // Clamp scroll offset
+        self.clamp_viewport_scroll();
         self.nodes.set_device_scale(self.viewport.scale());
 
         // Text is shaped at a specific scale factor, so cached inline layouts

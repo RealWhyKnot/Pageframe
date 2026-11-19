@@ -459,47 +459,73 @@ impl BaseDocument {
                 let scale = self.viewport.scale() as f64;
                 let window_width = self.viewport.window_size.0 as f64 / scale;
                 let window_height = self.viewport.window_size.1 as f64 / scale;
-                let max = Point {
-                    x: (content_width - window_width).max(0.0),
-                    y: (content_height - window_height).max(0.0),
+                let current = self.viewport_scroll();
+                let (overflow_x, overflow_y) = self.viewport_overflow();
+                let range = |content: f64, window: f64, overflow: Overflow, current: f64| {
+                    match include_hidden || !matches!(overflow, Overflow::Hidden | Overflow::Clip) {
+                        true => (0.0, (content - window).max(0.0)),
+                        false => (current, current),
+                    }
                 };
-                (self.viewport_scroll(), Point::ZERO, max)
+                let (min_x, max_x) = range(content_width, window_width, overflow_x, current.x);
+                let (min_y, max_y) = range(content_height, window_height, overflow_y, current.y);
+                let min = Point { x: min_x, y: min_y };
+                let max = Point { x: max_x, y: max_y };
+                (current, min, max)
             }
             ScrollTarget::Node(node_id) => {
                 let Some(node) = self.nodes.get(node_id) else {
                     return (Point::ZERO, Point::ZERO, Point::ZERO);
                 };
 
-                // An axis with a non-scrolling overflow value has no scrollable range, even
-                // when its content overflows.
-                let scrollable = |overflow| match overflow {
-                    Overflow::Scroll | Overflow::Auto => true,
-                    Overflow::Hidden => include_hidden,
-                    _ => false,
-                };
-                let (can_x_scroll, can_y_scroll) = node
-                    .used_overflow()
-                    .map_or((false, false), |(overflow_x, overflow_y)| {
-                        (scrollable(overflow_x), scrollable(overflow_y))
-                    });
+                let current = *node.scroll_offset();
                 let (min, max) = node.scroll_range();
-                let min = Point {
-                    x: if can_x_scroll { min.x } else { 0.0 },
-                    y: if can_y_scroll { min.y } else { 0.0 },
+                let (overflow_x, overflow_y) = node
+                    .used_overflow()
+                    .unwrap_or((Overflow::Visible, Overflow::Visible));
+                let range = |overflow: Overflow, min: f64, max: f64, current: f64| match overflow {
+                    Overflow::Scroll | Overflow::Auto => (min, max),
+                    Overflow::Hidden if include_hidden => (min, max),
+                    Overflow::Hidden => (current, current),
+                    _ => (0.0, 0.0),
                 };
-                let max = Point {
-                    x: match can_x_scroll {
-                        true => max.x,
-                        false => 0.0,
-                    },
-                    y: match can_y_scroll {
-                        true => max.y,
-                        false => 0.0,
-                    },
-                };
-                (*node.scroll_offset(), min, max)
+                let (min_x, max_x) = range(overflow_x, min.x, max.x, current.x);
+                let (min_y, max_y) = range(overflow_y, min.y, max.y, current.y);
+                let min = Point { x: min_x, y: min_y };
+                let max = Point { x: max_x, y: max_y };
+                (current, min, max)
             }
         }
+    }
+
+    fn viewport_overflow(&self) -> (Overflow, Overflow) {
+        let visible = (Overflow::Visible, Overflow::Visible);
+        let Some(root) = self.try_root_element() else {
+            return visible;
+        };
+        let styled = |node: &crate::Node| {
+            node.primary_styles()
+                .map(|style| (style.clone_overflow_x(), style.clone_overflow_y()))
+        };
+        match styled(root) {
+            Some(own) if own != visible => own,
+            _ => root
+                .children
+                .iter()
+                .filter_map(|&child| self.nodes.get(child))
+                .find(|child| child.overflow_goes_to_viewport())
+                .and_then(styled)
+                .unwrap_or(visible),
+        }
+    }
+
+    pub(crate) fn clamp_viewport_scroll(&mut self) {
+        let (current, min, max) = self.scroll_state(ScrollTarget::Viewport, true);
+        let clamped = Point {
+            x: current.x.clamp(min.x, max.x),
+            y: current.y.clamp(min.y, max.y),
+        };
+        self.set_viewport_scroll(clamped);
     }
 
     /// Start a smooth (animated) scroll towards the given absolute scroll offset. The
