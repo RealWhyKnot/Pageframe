@@ -42,6 +42,8 @@ style=\"width:50px;height:30px;overflow:hidden;border:2px solid #888;opacity:0.9
 style=\"position:absolute;left:100px;top:100px;width:50px;height:30px;overflow:hidden;\
 border:2px solid #888\"><div id=k4 style=\"width:140px;height:12px;position:relative\"></div></div>";
 
+const HUNG_SPACES: &str = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}div{margin-left:60px;width:44px;white-space:pre-wrap}</style><div id=d1>x<span id=s1>aaa    bbbb</span></div><div id=d2 style=\"text-align:right\">x<span id=s2>aaa    bbbb</span></div><div id=d3 style=\"text-align:center\">x<span id=s3>aaa    bbbb</span></div><div id=d4 style=\"direction:rtl\">x<span id=s4>aaa    bbbb</span></div><div id=d5 style=\"white-space:break-spaces\">x<span id=s5>aaa    bbbb</span></div>";
+
 fn open(page: &str, scale: f32) -> Harness<Page<()>> {
     let page = App::new((), page)
         .page(160, 120)
@@ -285,6 +287,43 @@ fn a_layer_clips_flow_children_at_its_border_box_like_chrome() {
             Some("k4"),
             Some("c4"),
             Some("c4"),
+        ])
+    );
+}
+
+#[test]
+fn pre_wrap_spaces_hung_past_the_box_are_hit_like_chrome() {
+    let points = [
+        (103.5, 8.0),
+        (104.5, 8.0),
+        (106.0, 8.0),
+        (106.0, 40.0),
+        (112.0, 40.0),
+        (106.0, 72.0),
+        (112.0, 72.0),
+        (55.0, 104.0),
+        (58.0, 104.0),
+        (104.5, 104.0),
+        (100.0, 136.0),
+        (103.5, 136.0),
+        (104.5, 136.0),
+    ];
+    assert_eq!(
+        ids_at(HUNG_SPACES, 1.0, &points),
+        expected(&[
+            Some("s1"),
+            Some("s1"),
+            None,
+            Some("s2"),
+            Some("s2"),
+            Some("s3"),
+            Some("s3"),
+            None,
+            Some("s4"),
+            None,
+            Some("s5"),
+            Some("d5"),
+            None
         ])
     );
 }

@@ -254,7 +254,7 @@ impl BaseDocument {
             overflow = overflow.union(child_rect_in_self);
         }
 
-        if let Some(bounds) = self.nodes[node_id].shifted_inline_bounds() {
+        if let Some(bounds) = self.nodes[node_id].inline_overflow_bounds() {
             overflow = overflow.union(Rect::new(
                 f64::from(bounds.left) * scale,
                 f64::from(bounds.top) * scale,

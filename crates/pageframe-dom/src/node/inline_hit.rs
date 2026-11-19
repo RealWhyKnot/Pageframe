@@ -288,29 +288,40 @@ impl Node {
         )
     }
 
-    pub(crate) fn shifted_inline_bounds(&self) -> Option<taffy::Rect<f32>> {
+    pub(crate) fn inline_overflow_bounds(&self) -> Option<taffy::Rect<f32>> {
         let inline_layout = self.element_data()?.inline_layout_data.as_ref()?;
         let layout = &inline_layout.layout;
         let geometry = self.span_geometry()?;
         let tree = self.tree();
+        let size = self.final_layout().size;
         let is_moved = |node: &Node| node.inline_relative_shift() != (0.0, 0.0);
+        let overhangs = |rect: &taffy::Rect<f32>| {
+            rect.left < 0.0
+                || rect.top < 0.0
+                || rect.right > size.width
+                || rect.bottom > size.height
+        };
         let mut bounds: Option<taffy::Rect<f32>> = None;
+        let mut has_moved = false;
         for line in layout.lines() {
             for item in line.items() {
                 let PositionedLayoutItem::GlyphRun(glyph_run) = item else {
                     continue;
                 };
-                let Some(node) = tree
+                let shift = tree
                     .get(glyph_run.style().brush.id)
-                    .filter(|node| is_moved(node))
-                else {
-                    continue;
-                };
-                let rect = self.glyph_run_rect(&geometry, &glyph_run, node.inline_relative_shift());
-                bounds = Some(bounds.map_or(rect, |known| union(known, rect)));
+                    .map_or((0.0, 0.0), Node::inline_relative_shift);
+                let is_shifted = shift != (0.0, 0.0);
+                has_moved |= is_shifted;
+                let rect = self.glyph_run_rect(&geometry, &glyph_run, shift);
+                if is_shifted || overhangs(&rect) {
+                    bounds = Some(bounds.map_or(rect, |known| union(known, rect)));
+                }
             }
         }
-        bounds?;
+        if !has_moved {
+            return bounds;
+        }
         let text = inline_layout.text.as_str();
         let is_rtl = layout.is_rtl();
         for line in layout.lines() {
