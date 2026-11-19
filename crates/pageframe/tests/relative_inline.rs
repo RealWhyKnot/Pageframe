@@ -347,3 +347,37 @@ style=\"display:inline-block;width:10px;height:10px;background:#f00\"></span>d</
     );
     assert_ne!(pixel(&frame, 28, 12), [255, 0, 0, 255], "where the box sat");
 }
+
+#[test]
+fn a_selection_across_nested_moved_and_faded_spans_matches_chrome() {
+    let frame = selected_frame(
+        "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial;color:transparent}</style>\
+<div>ab<span style=\"position:relative;left:20px\">c<span style=\"position:relative;left:20px;opacity:.5\">d\
+<span style=\"position:relative;top:6px\">e</span></span>f</span>g</div>",
+    );
+    let full = [180, 213, 255];
+    let faded = [218, 234, 255];
+    let white = [255, 255, 255];
+    let close = |found: [u8; 4], expected: [u8; 3]| {
+        found
+            .iter()
+            .zip(expected)
+            .all(|(value, wanted)| value.abs_diff(wanted) <= 2)
+    };
+    let samples = [
+        (5, 1, full, "ab"),
+        (20, 1, white, "where c sat"),
+        (38, 1, full, "c moved once"),
+        (46, 1, full, "g"),
+        (53, 1, white, "between g and f"),
+        (60, 1, full, "f moved once"),
+        (66, 1, faded, "d moved twice and faded"),
+        (66, 18, white, "below d"),
+        (73, 18, faded, "e moved down inside the faded span"),
+        (90, 1, white, "past the end"),
+    ];
+    for (column, row, expected, label) in samples {
+        let found = pixel(&frame, column, row);
+        assert!(close(found, expected), "{label}: {found:?}");
+    }
+}

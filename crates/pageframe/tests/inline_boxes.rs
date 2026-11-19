@@ -534,22 +534,31 @@ fn a_span_background_covers_a_preserved_space_that_hangs() {
 
 #[test]
 fn an_inline_block_fades_with_the_spans_around_it_like_chrome() {
-    let darkest = |open: &str, close: &str| {
-        let buffer = draw(&format!(
-            "<div style=\"line-height:40px\">{open}<i style=\"display:inline-block;\
-             width:20px;height:10px;background:#000\"></i>{close}</div>"
-        ));
+    let darkest_in = |html: &str| {
+        let buffer = draw(&format!("<div style=\"line-height:40px\">{html}</div>"));
         (0..40)
             .flat_map(|row| painted(&buffer, row))
             .map(|(_, colour)| colour[0])
             .min()
     };
+    let darkest = |open: &str, close: &str| {
+        darkest_in(&format!(
+            "{open}<i style=\"display:inline-block;width:20px;height:10px;background:#000\"></i>{close}"
+        ))
+    };
+    let faded = |value: Option<u8>| value.is_some_and(|value| (126..=129).contains(&value));
+    let float = darkest_in(
+        "<span style=\"opacity:.5\"><i style=\"float:left;width:20px;height:10px;background:#000\"></i></span>",
+    );
+    assert!(faded(float), "float {float:?}");
+    let nested = darkest_in(
+        "<span style=\"opacity:.5\"><i style=\"display:inline-block\"><b style=\"display:inline-block;\
+         width:20px;height:10px;background:#000\"></b></i></span>",
+    );
+    assert!(faded(nested), "nested {nested:?}");
     assert_eq!(darkest("", ""), Some(0));
     let half = darkest("<span style=\"opacity:.5\">", "</span>");
-    assert!(
-        half.is_some_and(|value| (126..=129).contains(&value)),
-        "{half:?}"
-    );
+    assert!(faded(half), "{half:?}");
     let quarter = darkest(
         "<span style=\"opacity:.5\"><span style=\"opacity:.5\">",
         "</span></span>",
