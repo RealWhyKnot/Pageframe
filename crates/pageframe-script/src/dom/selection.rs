@@ -198,6 +198,7 @@ fn rendered_point(doc: &BaseDocument, point: Point) -> Option<Point> {
             doc,
             root,
             text: &layout.text,
+            layout,
             cursor: 0,
             collapsed_space: false,
             point,
@@ -261,6 +262,7 @@ struct OffsetMapper<'a> {
     doc: &'a BaseDocument,
     root: NodeId,
     text: &'a str,
+    layout: &'a pageframe_dom::node::TextLayout,
     cursor: usize,
     collapsed_space: bool,
     point: Point,
@@ -342,11 +344,14 @@ impl OffsetMapper<'_> {
     }
 
     fn advance(&mut self, c: char, transform: TextTransform, whitespace: WhiteSpaceCollapse) {
-        if !pageframe_dom::util::is_inline_spacer(c) {
-            self.cursor += self.text[self.cursor..]
-                .chars()
-                .take_while(|rendered| pageframe_dom::util::is_inline_spacer(*rendered))
-                .map(char::len_utf8)
+        if !pageframe_dom::util::is_inline_spacer(c) || pageframe_dom::util::is_bidi_control(c) {
+            let start = self.cursor;
+            self.cursor += self.text[start..]
+                .char_indices()
+                .take_while(|&(offset, rendered)| {
+                    self.layout.is_generated_char(start + offset, rendered)
+                })
+                .map(|(_, rendered)| rendered.len_utf8())
                 .sum::<usize>();
         }
         let remaining = &self.text[self.cursor..];

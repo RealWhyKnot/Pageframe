@@ -282,3 +282,28 @@ fn span_padding_does_not_shift_offsets_or_leak_into_text() {
         ["f", "bcde", "abcdef"]
     );
 }
+
+#[test]
+fn author_bidi_controls_survive_text_while_css_ones_do_not() {
+    assert_eq!(
+        select(
+            "<div id='t'>a <span dir='rtl' id='s'>b\u{2068}c\u{2069} d</span>\u{2067}e</div>\
+             <div id='u' dir='rtl' style='unicode-bidi:bidi-override'>x<br>y</div>",
+            r#"
+        __pageframe_send_message(t.innerText);
+        const text = s.firstChild;
+        getSelection().setBaseAndExtent(text, 1, text, 4);
+        __pageframe_send_message(String(getSelection()));
+        getSelection().setBaseAndExtent(t, 0, t, t.childNodes.length);
+        __pageframe_send_message(String(getSelection()));
+        __pageframe_send_message(u.innerText);
+    "#
+        ),
+        [
+            "a b\u{2068}c\u{2069} d\u{2067}e",
+            "\u{2068}c\u{2069}",
+            "a b\u{2068}c\u{2069} d\u{2067}e",
+            "x\ny",
+        ]
+    );
+}

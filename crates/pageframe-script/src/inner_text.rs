@@ -220,10 +220,11 @@ impl InnerTextCollector {
                         self.visit_inline_box(root, ibox.id, filter);
                     }
                     if range.start >= marker_len && include(&cluster.style().brush) {
+                        let start = range.start;
                         let cluster_text = &text[range];
                         if !cluster_text
-                            .chars()
-                            .all(pageframe_dom::util::is_inline_spacer)
+                            .char_indices()
+                            .all(|(offset, ch)| layout.is_generated_char(start + offset, ch))
                         {
                             self.push_str(cluster_text);
                         }

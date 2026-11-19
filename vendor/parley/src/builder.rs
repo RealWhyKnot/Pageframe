@@ -266,6 +266,15 @@ impl<'b, B: Brush> TreeBuilder<'b, B> {
         self.lcx.tree_style_builder.push_text(text);
     }
 
+    /// Pushes bidi control characters that take no part in white space processing.
+    ///
+    /// Collapsible whitespace on either side of them still collapses into a single space, which
+    /// is placed before them. Their byte offsets are available from
+    /// [`LayoutContext::bidi_control_offsets`] once the layout is built.
+    pub fn push_bidi_control(&mut self, text: &str) {
+        self.lcx.tree_style_builder.push_bidi_control(text);
+    }
+
     /// Returns the pushed text so far, after whitespace processing, but excluding any trailing
     /// collapsible whitespace.
     ///

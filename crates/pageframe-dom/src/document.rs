@@ -3239,8 +3239,9 @@ impl BaseDocument {
             }
             result.extend(
                 inline_layout.text[*start..*end]
-                    .chars()
-                    .filter(|ch| !crate::util::is_inline_spacer(*ch)),
+                    .char_indices()
+                    .filter(|&(offset, ch)| !inline_layout.is_generated_char(start + offset, ch))
+                    .map(|(_, ch)| ch),
             );
         }
 

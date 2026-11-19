@@ -50,6 +50,14 @@ pub(crate) struct TreeStyleBuilder<B: Brush> {
     /// Whether the most recently pushed item is an inline box, in which case pending collapsible
     /// whitespace is not at the start of the inline formatting context.
     last_item_is_inline_box: bool,
+    /// Bidi control characters pushed while collapsible whitespace was pending, with their spans.
+    ///
+    /// They are committed after the pending whitespace, so that they don't split it.
+    pending_controls: Vec<(usize, char)>,
+    /// Byte offsets of the bidi control characters pushed with `push_bidi_control`.
+    control_offsets: Vec<usize>,
+    /// The end of the last committed text that is not a pushed bidi control.
+    content_end: usize,
 }
 
 impl<B: Brush> Default for TreeStyleBuilder<B> {
@@ -62,6 +70,9 @@ impl<B: Brush> Default for TreeStyleBuilder<B> {
             current_span: usize::MAX,
             pending_whitespace: None,
             last_item_is_inline_box: false,
+            pending_controls: Vec::new(),
+            control_offsets: Vec::new(),
+            content_end: 0,
         }
     }
 }
@@ -82,6 +93,9 @@ impl<B: Brush> TreeStyleBuilder<B> {
         self.text.clear();
         self.pending_whitespace = None;
         self.last_item_is_inline_box = false;
+        self.pending_controls.clear();
+        self.control_offsets.clear();
+        self.content_end = 0;
 
         // The root style is always materialised at index 0 so that it can act as the parent of
         // every other style (and as the strut for otherwise empty lines).
@@ -117,7 +131,7 @@ impl<B: Brush> TreeStyleBuilder<B> {
                     // Pending whitespace is always from a `WhiteSpaceCollapse::Collapse` or
                     // `WhiteSpaceCollapse::PreserveBreaks` span, and following CSS Text 4 § 4.3.1 Rule 1
                     // must be removed if it immediately precedes a preserved segment break.
-                    self.pending_whitespace = None;
+                    self.discard_pending_whitespace();
                 }
                 self.flush_pending_whitespace();
                 self.commit_text(span, text);
@@ -146,7 +160,7 @@ impl<B: Brush> TreeStyleBuilder<B> {
                         // reach this point, so only `LS` and `PS` are treated as forced breaks. In
                         // `PreserveBreaks` mode `CR` and `LF` are not collapsible and are also
                         // preserved as forced breaks.
-                        self.pending_whitespace = None;
+                        self.discard_pending_whitespace();
                         let break_len = rest.chars().next().unwrap().len_utf8();
                         self.commit_text(span, &rest[..break_len]);
                         rest = &rest[break_len..];
@@ -172,18 +186,63 @@ impl<B: Brush> TreeStyleBuilder<B> {
 
         // Whitespace at the start of the inline formatting context is removed, as is whitespace
         // immediately following a preserved segment break. Whitespace following a preserved space
-        // or tab is retained, as only collapsible whitespace collapses.
-        let is_at_start = self.text.is_empty() && !self.last_item_is_inline_box;
-        if is_at_start || self.text.ends_with(is_segment_break) {
-            return;
+        // or tab is retained, as only collapsible whitespace collapses. Pushed bidi controls are
+        // invisible to both checks.
+        let content = &self.text[..self.content_end];
+        let is_at_start = content.is_empty() && !self.last_item_is_inline_box;
+        if !is_at_start && !content.ends_with(is_segment_break) {
+            let style_index = if pending.wrappable {
+                self.resolve_wrappable_style_id(pending.span)
+            } else {
+                self.resolve_style_id(pending.span)
+            };
+            self.commit_styled_text(style_index, " ");
         }
+        self.commit_pending_controls();
+    }
 
-        let style_index = if pending.wrappable {
-            self.resolve_wrappable_style_id(pending.span)
+    /// Drops a pending collapsible whitespace sequence, keeping the bidi controls pushed after it.
+    fn discard_pending_whitespace(&mut self) {
+        self.pending_whitespace = None;
+        self.commit_pending_controls();
+    }
+
+    /// Pushes bidi control characters (such as the ones CSS `unicode-bidi` maps to) into the
+    /// current span. They take no part in white space processing: collapsible whitespace on either
+    /// side of them still collapses into one space, which is placed before them.
+    pub(crate) fn push_bidi_control(&mut self, text: &str) {
+        let span = self.current_span;
+        if self.pending_whitespace.is_some() {
+            self.pending_controls
+                .extend(text.chars().map(|control| (span, control)));
         } else {
-            self.resolve_style_id(pending.span)
-        };
-        self.commit_styled_text(style_index, " ");
+            self.commit_control(span, text);
+        }
+    }
+
+    fn commit_pending_controls(&mut self) {
+        let mut pending = core::mem::take(&mut self.pending_controls);
+        for (span, control) in pending.drain(..) {
+            let mut bytes = [0; 4];
+            self.commit_control(span, control.encode_utf8(&mut bytes));
+        }
+        self.pending_controls = pending;
+    }
+
+    fn commit_control(&mut self, span: usize, text: &str) {
+        let start = self.text.len();
+        self.control_offsets
+            .extend(text.char_indices().map(|(offset, _)| start + offset));
+        let content_end = self.content_end;
+        let last_item_is_inline_box = self.last_item_is_inline_box;
+        self.commit_text(span, text);
+        self.content_end = content_end;
+        self.last_item_is_inline_box = last_item_is_inline_box;
+    }
+
+    /// Byte offsets of the bidi control characters pushed with [`Self::push_bidi_control`].
+    pub(crate) fn control_offsets(&self) -> &[usize] {
+        &self.control_offsets
     }
 
     /// The style table index of the span that text is currently being pushed into.
@@ -215,6 +274,7 @@ impl<B: Brush> TreeStyleBuilder<B> {
             }),
         }
         self.last_item_is_inline_box = false;
+        self.content_end = self.text.len();
     }
 
     /// The index of `span`'s style in the style table, adding it (and any ancestors that have not
@@ -308,6 +368,7 @@ impl<B: Brush> TreeStyleBuilder<B> {
         while self.tree[self.current_span].parent.is_some() {
             self.pop_style_span();
         }
+        self.discard_pending_whitespace();
 
         style_table.clear();
         style_runs.clear();
@@ -622,5 +683,67 @@ mod tests {
         assert_eq!(builder.text(), "a b");
         assert!(!builder.has_pending_whitespace());
         builder.pop_style_span();
+    }
+
+    fn build_with_controls(pieces: &[(bool, &str)]) -> (String, Vec<usize>) {
+        let mut builder = TreeStyleBuilder::<u32>::default();
+        builder.begin(ResolvedStyle {
+            white_space_collapse: WhiteSpaceCollapse::Collapse,
+            ..ResolvedStyle::default()
+        });
+        for (is_control, piece) in pieces {
+            if *is_control {
+                builder.push_bidi_control(piece);
+            } else {
+                builder.push_text(piece);
+            }
+        }
+        let text = builder.finish(&mut Vec::new(), &mut Vec::new());
+        (text, builder.control_offsets().to_vec())
+    }
+
+    #[test]
+    fn bidi_controls_do_not_split_collapsible_whitespace() {
+        let (text, offsets) =
+            build_with_controls(&[(false, "a "), (true, "\u{2067}"), (false, " b")]);
+        assert_eq!(text, "a \u{2067}b");
+        assert_eq!(offsets, [2]);
+
+        let (text, offsets) = build_with_controls(&[
+            (false, "a "),
+            (true, "\u{202e}"),
+            (false, " b "),
+            (true, "\u{202c}"),
+            (false, " c"),
+        ]);
+        assert_eq!(text, "a \u{202e}b \u{202c}c");
+        assert_eq!(offsets, [2, 7]);
+    }
+
+    #[test]
+    fn bidi_controls_do_not_count_as_content_for_leading_or_trailing_whitespace() {
+        let (text, offsets) = build_with_controls(&[(true, "\u{2067}"), (false, " b ")]);
+        assert_eq!(text, "\u{2067}b");
+        assert_eq!(offsets, [0]);
+
+        let (text, offsets) =
+            build_with_controls(&[(false, "a "), (true, "\u{2069}"), (false, " ")]);
+        assert_eq!(text, "a\u{2069}");
+        assert_eq!(offsets, [1]);
+    }
+
+    #[test]
+    fn bidi_controls_after_a_preserved_break_keep_following_whitespace_collapsed() {
+        let mut builder = TreeStyleBuilder::<u32>::default();
+        builder.begin(ResolvedStyle {
+            white_space_collapse: WhiteSpaceCollapse::PreserveBreaks,
+            ..ResolvedStyle::default()
+        });
+        builder.push_text("a\n");
+        builder.push_bidi_control("\u{202e}");
+        builder.push_text(" b");
+        let text = builder.finish(&mut Vec::new(), &mut Vec::new());
+        assert_eq!(text, "a\n\u{202e}b");
+        assert_eq!(builder.control_offsets(), [2]);
     }
 }

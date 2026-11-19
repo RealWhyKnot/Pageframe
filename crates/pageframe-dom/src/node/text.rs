@@ -48,6 +48,7 @@ pub struct TextLayout {
     pub percent_basis: f32,
     pub has_percent_edges: bool,
     pub has_clone_spans: bool,
+    pub bidi_controls: Vec<usize>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,6 +60,14 @@ pub struct LineBudget {
 impl TextLayout {
     pub fn new() -> Self {
         Default::default()
+    }
+
+    pub fn is_generated_char(&self, offset: usize, ch: char) -> bool {
+        if crate::util::is_bidi_control(ch) {
+            self.bidi_controls.binary_search(&offset).is_ok()
+        } else {
+            crate::util::is_inline_spacer(ch)
+        }
     }
 
     pub fn content_widths(&mut self) -> ContentWidths {

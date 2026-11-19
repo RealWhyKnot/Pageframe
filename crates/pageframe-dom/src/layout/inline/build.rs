@@ -5,6 +5,7 @@ use parley::{
 };
 use style::{
     computed_values::position::T as PositionProperty,
+    computed_values::white_space_collapse::T as StyloWhiteSpaceCollapse,
     properties::ComputedValues,
     values::{
         computed::{BoxDecorationBreak, Display, Float},
@@ -84,16 +85,47 @@ fn trailing_space(nodes: &crate::NodeTree, node_id: NodeId) -> Option<bool> {
     }
 }
 
-struct EdgeBasis {
+struct BuildState {
     width: f32,
     has_percent: bool,
     has_clone: bool,
+    bidi_contexts: Vec<(&'static str, &'static str)>,
+}
+
+fn push_forced_break(builder: &mut TreeBuilder<TextBrush>, state: &BuildState, text: &str) {
+    for (_, close) in state.bidi_contexts.iter().rev() {
+        builder.push_bidi_control(close);
+    }
+    builder.push_text(text);
+    for (open, _) in &state.bidi_contexts {
+        builder.push_bidi_control(open);
+    }
+}
+
+fn push_text_with_breaks(
+    builder: &mut TreeBuilder<TextBrush>,
+    state: &BuildState,
+    text: &str,
+    preserves_breaks: bool,
+) {
+    if !preserves_breaks || state.bidi_contexts.is_empty() {
+        builder.push_text(text);
+        return;
+    }
+    let mut lines = text.split('\n');
+    if let Some(first) = lines.next() {
+        builder.push_text(first);
+    }
+    for line in lines {
+        push_forced_break(builder, state, "\n");
+        builder.push_text(line);
+    }
 }
 
 fn inline_edges(
     style: &ComputedValues,
     owner: u64,
-    basis: &mut EdgeBasis,
+    basis: &mut BuildState,
     scale: f32,
 ) -> InlineEdges {
     basis.has_clone |= style.get_border().box_decoration_break == BoxDecorationBreak::Clone;
@@ -256,6 +288,7 @@ pub(crate) fn build_inline_layout_into(
     // Create a parley tree builder
     let mut builder = layout_ctx.tree_builder(font_ctx, scale, true, &parley_style);
     builder.set_line_break_override(Some(crate::util::LINE_BREAK_OVERRIDE));
+    let mut bidi_contexts = Vec::new();
     if let Some(style) = root_node_style.as_deref() {
         builder.set_base_direction(stylo_to_parley::base_direction(
             style.clone_direction(),
@@ -265,7 +298,8 @@ pub(crate) fn build_inline_layout_into(
             style.clone_direction(),
             style.clone_unicode_bidi(),
         ) {
-            builder.push_text(control);
+            builder.push_bidi_control(control);
+            bidi_contexts.push((control, "\u{202c}"));
         }
     }
 
@@ -313,10 +347,11 @@ pub(crate) fn build_inline_layout_into(
     // The marker is a separate box, so words in the content don't continue from it.
     let mut text_transformer = TextTransformer::default();
     text_transformer.word_break(&builder);
-    let mut edge_basis = EdgeBasis {
+    let mut state = BuildState {
         width: text_layout.percent_basis,
         has_percent: false,
         has_clone: false,
+        bidi_contexts,
     };
 
     if let Some(before_id) = root_node.before() {
@@ -326,7 +361,7 @@ pub(crate) fn build_inline_layout_into(
             nodes,
             before_id,
             &text_transform,
-            &mut edge_basis,
+            &mut state,
         );
     }
     for child_id in root_node.children.iter().copied() {
@@ -336,7 +371,7 @@ pub(crate) fn build_inline_layout_into(
             nodes,
             child_id,
             &text_transform,
-            &mut edge_basis,
+            &mut state,
         );
     }
     if let Some(after_id) = root_node.after() {
@@ -346,18 +381,22 @@ pub(crate) fn build_inline_layout_into(
             nodes,
             after_id,
             &text_transform,
-            &mut edge_basis,
+            &mut state,
         );
     }
 
     text_layout.text = builder.build_into(&mut text_layout.layout);
+    text_layout.bidi_controls.clear();
+    text_layout
+        .bidi_controls
+        .extend_from_slice(layout_ctx.bidi_control_offsets());
     for inline_box in text_layout.layout.inline_boxes_mut() {
         if let parley::BaselineShift::Length(length) = inline_box.vertical_align.shift {
             inline_box.vertical_align.shift = parley::BaselineShift::Length(length * scale);
         }
     }
-    text_layout.has_percent_edges = edge_basis.has_percent;
-    text_layout.has_clone_spans = edge_basis.has_clone;
+    text_layout.has_percent_edges = state.has_percent;
+    text_layout.has_clone_spans = state.has_clone;
     return;
 
     fn build_inline_layout_recursive(
@@ -366,7 +405,7 @@ pub(crate) fn build_inline_layout_into(
         nodes: &crate::NodeTree,
         node_id: NodeId,
         parent_text_transform: &CaseTransform,
-        edge_basis: &mut EdgeBasis,
+        state: &mut BuildState,
     ) {
         let node = &nodes[node_id];
 
@@ -432,7 +471,7 @@ pub(crate) fn build_inline_layout_into(
                                 nodes,
                                 child_id,
                                 &text_transform,
-                                edge_basis,
+                                state,
                             );
                         }
                         builder.pop_style_span();
@@ -466,7 +505,7 @@ pub(crate) fn build_inline_layout_into(
                                     WhiteSpaceCollapse::Preserve,
                                 ),
                             ]);
-                            builder.push_text("\n");
+                            push_forced_break(builder, state, "\n");
                             builder.pop_style_span();
                             text_transformer.word_break(builder);
                         } else {
@@ -476,14 +515,15 @@ pub(crate) fn build_inline_layout_into(
                                     s.clone_unicode_bidi(),
                                 )
                             });
-                            if let Some((open, _)) = bidi {
-                                builder.push_text(open);
+                            if let Some((open, close)) = bidi {
+                                builder.push_bidi_control(open);
+                                state.bidi_contexts.push((open, close));
                             }
                             let edges = node.primary_styles().map(|s| {
                                 inline_edges(
                                     &s,
                                     node_id.as_u64(),
-                                    edge_basis,
+                                    state,
                                     node.tree().device_scale(),
                                 )
                             });
@@ -520,7 +560,7 @@ pub(crate) fn build_inline_layout_into(
                                     nodes,
                                     before_id,
                                     &text_transform,
-                                    edge_basis,
+                                    state,
                                 );
                             }
 
@@ -531,7 +571,7 @@ pub(crate) fn build_inline_layout_into(
                                     nodes,
                                     child_id,
                                     &text_transform,
-                                    edge_basis,
+                                    state,
                                 );
                             }
                             if let Some(after_id) = node.after() {
@@ -541,7 +581,7 @@ pub(crate) fn build_inline_layout_into(
                                     nodes,
                                     after_id,
                                     &text_transform,
-                                    edge_basis,
+                                    state,
                                 );
                             }
 
@@ -564,7 +604,8 @@ pub(crate) fn build_inline_layout_into(
                                 );
                             }
                             if let Some((_, close)) = bidi {
-                                builder.push_text(close);
+                                state.bidi_contexts.pop();
+                                builder.push_bidi_control(close);
                             }
                             if let Some(edges) = &edges {
                                 if edges.has_end_mark()
@@ -618,7 +659,17 @@ pub(crate) fn build_inline_layout_into(
                 if !in_closed_details {
                     let text =
                         text_transformer.transform(&data.content, parent_text_transform, builder);
-                    builder.push_text(text);
+                    let preserves_breaks = node
+                        .parent
+                        .and_then(|parent_id| nodes[parent_id].primary_styles())
+                        .is_some_and(|s| {
+                            !matches!(
+                                s.clone_white_space_collapse(),
+                                StyloWhiteSpaceCollapse::Collapse
+                                    | StyloWhiteSpaceCollapse::PreserveSpaces
+                            )
+                        });
+                    push_text_with_breaks(builder, state, text, preserves_breaks);
                 }
             }
             NodeData::Comment { .. } => {

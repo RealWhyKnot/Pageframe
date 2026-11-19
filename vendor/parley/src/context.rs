@@ -185,6 +185,13 @@ impl<B: Brush> LayoutContext<B> {
         }
     }
 
+    /// Byte offsets of the bidi control characters pushed with
+    /// [`TreeBuilder::push_bidi_control`] into the text of the last layout built from a tree
+    /// builder.
+    pub fn bidi_control_offsets(&self) -> &[usize] {
+        self.tree_style_builder.control_offsets()
+    }
+
     fn begin(&mut self) {
         self.rcx.clear();
         self.style_table.clear();
