@@ -1,7 +1,7 @@
 use super::inline_hit::{SpanChain, SpanGeometry};
 use super::node::{LineAxes, Node};
 use pageframe_traits::node_id::NodeId;
-use parley::PositionedLayoutItem;
+use parley::{BreakReason, Brush, Line, PositionedLayoutItem};
 use std::ops::Range;
 
 pub(super) enum CaretTarget {
@@ -85,6 +85,25 @@ fn pick(runs: &[&CaretRun], depth: usize, point: f32) -> Option<CaretTarget> {
     }))
 }
 
+pub(super) fn before_hung_space<B: Brush>(line: &Line<'_, B>, text: &str, offset: usize) -> usize {
+    let range = line.text_range();
+    let is_soft_break = matches!(
+        line.break_reason(),
+        BreakReason::Regular | BreakReason::Emergency
+    );
+    if !is_soft_break || offset != range.end {
+        return offset;
+    }
+    let ends_in_space = text
+        .get(range)
+        .is_some_and(|line_text| line_text.ends_with(' '));
+    if ends_in_space {
+        offset.saturating_sub(1)
+    } else {
+        offset
+    }
+}
+
 impl Node {
     pub(super) fn caret_target(&self, x: f32, y: f32) -> CaretTarget {
         let Some(geometry) = self.span_geometry() else {
@@ -144,6 +163,12 @@ impl Node {
             LineAxes::CounterClockwise(_) => -y,
         };
         let refs: Vec<&CaretRun> = runs.iter().collect();
-        pick(&refs, 0, point)
+        let text = &self.element_data()?.inline_layout_data.as_ref()?.text;
+        match pick(&refs, 0, point)? {
+            CaretTarget::Offset(offset) => {
+                Some(CaretTarget::Offset(before_hung_space(&line, text, offset)))
+            }
+            shift @ CaretTarget::Shift(_) => Some(shift),
+        }
     }
 }

@@ -118,3 +118,44 @@ fn clicks_past_a_wrapped_line_land_before_its_trailing_space_like_chrome() {
         );
     }
 }
+
+#[test]
+fn clicks_past_rtl_and_shifted_wrapped_lines_land_before_the_trailing_space_like_chrome() {
+    let html = "<!doctype html><style>html,body{margin:0;font:14px Arial}\
+                div{width:60px;height:60px}</style>\
+                <div id=d1 dir=rtl>אבגד הוזח טיכל מנסע</div>\
+                <div id=d2>bbbb <span style=\"position:relative;left:3px\">cc</span> dddd eeee</div>";
+    let page = App::new((), html)
+        .page(640, 400)
+        .expect("test pages have valid selectors");
+    let mut harness = Harness::wrap(page);
+    harness.pump();
+    let doc = harness.base();
+    let rtl = doc.query_selector_all("#d1").expect("selector is valid")[0];
+    let shifted = doc.query_selector_all("#d2").expect("selector is valid")[0];
+    for (x, y, root, offset) in [
+        (0.25, 4.25, rtl, 9),
+        (56.25, 64.25, shifted, 7),
+        (56.25, 80.25, shifted, 12),
+    ] {
+        let found = doc
+            .find_text_position(x, y)
+            .map(|(node, byte)| (node, byte_chars(&doc, node, byte)));
+        assert_eq!(found, Some((root, offset)), "{x},{y}");
+    }
+    drop(doc);
+}
+
+fn byte_chars(
+    doc: &pageframe_dom::BaseDocument,
+    node: pageframe_dom::NodeId,
+    byte: usize,
+) -> usize {
+    doc.get_node(node)
+        .and_then(|node| node.element_data())
+        .and_then(|element| element.inline_layout_data.as_ref())
+        .and_then(|data| data.text.get(..byte))
+        .map_or(0, |text| {
+            text.chars().filter(|ch| u32::from(*ch) < 0x2000).count()
+        })
+}

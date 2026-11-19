@@ -1862,9 +1862,7 @@ impl Node {
         // For RTL text: left side = end of cluster, right side = start of cluster
         // Also, explicit line breaks should always use start to avoid cursor appearing on next line
         let is_leading = side == ClusterSide::Left;
-        let offset = if cluster.is_soft_line_break() && cluster.is_space_or_nbsp() {
-            cluster.text_range().start
-        } else if cluster.is_rtl() {
+        let offset = if cluster.is_rtl() {
             if is_leading {
                 cluster.text_range().end
             } else {
@@ -1879,7 +1877,11 @@ impl Node {
             }
         };
 
-        Some(offset)
+        Some(super::caret::before_hung_space(
+            &cluster.line(),
+            &inline_layout.text,
+            offset,
+        ))
     }
 
     pub(super) fn line_axes(&self) -> LineAxes {
