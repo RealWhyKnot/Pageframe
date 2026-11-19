@@ -452,6 +452,34 @@ fn later_siblings_hit_in_chrome_paint_phase_order() {
             "<div id=l style=\"position:relative;height:50px\"></div>",
             false,
         ),
+        (
+            "<div style=\"float:left;width:50px\"><div id=l style=\"position:relative;height:50px\"></div></div>",
+            false,
+        ),
+        (
+            "<div style=\"float:left;width:50px\"><div id=l style=\"opacity:0.5;height:50px\"></div></div>",
+            false,
+        ),
+        (
+            "<div style=\"position:relative\"><div style=\"float:left;width:50px;height:50px\"><div id=l style=\"position:absolute;width:50px;height:50px\"></div></div></div>",
+            false,
+        ),
+        (
+            "<div style=\"float:left;width:50px\"><span id=l style=\"display:inline-block;width:50px;height:40px\"></span></div>",
+            true,
+        ),
+        (
+            "<div style=\"float:left;width:50px\"><div style=\"display:flex\"><div id=l style=\"width:50px;height:50px\"></div></div></div>",
+            true,
+        ),
+        (
+            "<ul id=l style=\"margin:0;padding-left:40px\"><li style=\"height:50px\"></li></ul>",
+            true,
+        ),
+        (
+            "<button id=l style=\"display:block;width:50px;height:40px;margin:0\"></button>",
+            true,
+        ),
     ] {
         let html = format!(
             "<!doctype html><style>html,body{{margin:0;font:14px Arial}}</style>{text}{later}"

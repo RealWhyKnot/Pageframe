@@ -1502,6 +1502,31 @@ impl Node {
         scale: f64,
         control: &mut Option<crate::node::OverflowControl>,
     ) -> Option<HitResult> {
+        self.hit_phased(x, y, scale, control).map(|(hit, _)| hit)
+    }
+
+    fn hit_phased(
+        &self,
+        x: f32,
+        y: f32,
+        scale: f64,
+        control: &mut Option<crate::node::OverflowControl>,
+    ) -> Option<(HitResult, HitPhase)> {
+        let (hit, phase) = self.hit_unphased(x, y, scale, control)?;
+        let phase = match phase {
+            HitPhase::Positioned => HitPhase::Positioned,
+            inner => self.hit_phase().unwrap_or(inner),
+        };
+        Some((hit, phase))
+    }
+
+    fn hit_unphased(
+        &self,
+        x: f32,
+        y: f32,
+        scale: f64,
+        control: &mut Option<crate::node::OverflowControl>,
+    ) -> Option<(HitResult, HitPhase)> {
         use style::computed_values::pointer_events::T as PointerEvents;
         use style::computed_values::visibility::T as Visibility;
 
@@ -1624,12 +1649,15 @@ impl Node {
         let (x, y) = match self.columns().map(|columns| columns.flow_point(x, y)) {
             Some(Some(point)) => (point.x, point.y),
             Some(None) => {
-                return (matches_self && !pointer_events_none).then_some(HitResult {
-                    node_id: self.id,
-                    x,
-                    y,
-                    is_text: false,
-                });
+                return (matches_self && !pointer_events_none).then_some((
+                    HitResult {
+                        node_id: self.id,
+                        x,
+                        y,
+                        is_text: false,
+                    },
+                    HitPhase::BlockBackground,
+                ));
             }
             None => (x, y),
         };
@@ -1656,8 +1684,8 @@ impl Node {
                     if hoisted_child.is_clipped_at(self.tree(), self.id, x, y) {
                         continue;
                     }
-                    if let Some(hit) = child.hit_inner(x, y, scale, control) {
-                        return Some(hit);
+                    if let Some((hit, _)) = child.hit_phased(x, y, scale, control) {
+                        return Some((hit, HitPhase::Positioned));
                     }
                 }
             }
@@ -1673,19 +1701,18 @@ impl Node {
             if is_inline_root && child.is_float_under_text() {
                 continue;
             }
-            let Some(hit) = self.hit_paint_child(child, x, y, scale, control) else {
+            let Some((hit, phase)) = self.hit_paint_child(child, x, y, scale, control) else {
                 continue;
             };
-            let phase = self.hit_phase_below(&hit);
-            if phase == HitPhase::Foreground {
-                return Some(hit);
+            if phase >= HitPhase::Foreground {
+                return Some((hit, phase));
             }
             if deferred.as_ref().is_none_or(|(kept, _)| phase > *kept) {
                 deferred = Some((phase, hit));
             }
         }
-        if let Some((_, hit)) = deferred {
-            return Some(hit);
+        if let Some((phase, hit)) = deferred {
+            return Some((hit, phase));
         }
 
         // Negative z_index hoisted children
@@ -1701,8 +1728,8 @@ impl Node {
                     if hoisted_child.is_clipped_at(self.tree(), self.id, x, y) {
                         continue;
                     }
-                    if let Some(hit) = child.hit_inner(x, y, scale, control) {
-                        return Some(hit);
+                    if let Some((hit, _)) = child.hit_phased(x, y, scale, control) {
+                        return Some((hit, HitPhase::Positioned));
                     }
                 }
             }
@@ -1713,12 +1740,14 @@ impl Node {
             let x = x - content_box_offset.x;
             let y = y - content_box_offset.y;
             if let Some(hit) = self.inline_hit(x + content_box_offset.x, y + content_box_offset.y) {
-                return Some(HitResult {
+                let hit = HitResult {
                     node_id: hit.node_id,
                     x,
                     y,
                     is_text: hit.is_text,
-                });
+                };
+                let phase = self.inline_hit_phase(&hit);
+                return Some((hit, phase));
             }
             for child_id in self.paint_children.borrow().iter().flatten().rev() {
                 let Some(child) = self.tree().get(*child_id) else {
@@ -1737,34 +1766,36 @@ impl Node {
 
         // Self (this node)
         if matches_self && !pointer_events_none {
-            return Some(HitResult {
-                node_id: self.id,
-                x: x - content_box_offset.x,
-                y: y - content_box_offset.y,
-                is_text: false,
-            });
+            return Some((
+                HitResult {
+                    node_id: self.id,
+                    x: x - content_box_offset.x,
+                    y: y - content_box_offset.y,
+                    is_text: false,
+                },
+                HitPhase::BlockBackground,
+            ));
         }
 
         None
     }
 
-    fn hit_phase_below(&self, hit: &HitResult) -> HitPhase {
+    fn inline_hit_phase(&self, hit: &HitResult) -> HitPhase {
         let mut phase = if hit.is_text {
             HitPhase::Foreground
         } else {
             HitPhase::BlockBackground
         };
         let mut current = self.tree().get(hit.node_id);
-        while let Some(node) = current {
-            if node.id == self.id {
-                return phase;
-            }
-            if let Some(own) = node.hit_phase() {
-                phase = own;
+        while let Some(node) = current.filter(|node| node.id != self.id) {
+            match node.hit_phase() {
+                Some(HitPhase::Positioned) => return HitPhase::Positioned,
+                Some(own) => phase = own,
+                None => {}
             }
             current = node.layout_parent.get().and_then(|id| self.tree().get(id));
         }
-        HitPhase::Foreground
+        phase
     }
 
     fn hit_paint_child(
@@ -1774,7 +1805,7 @@ impl Node {
         y: f32,
         scale: f64,
         control: &mut Option<crate::node::OverflowControl>,
-    ) -> Option<HitResult> {
+    ) -> Option<(HitResult, HitPhase)> {
         let child_position = child.taffy_position();
         let mut child_x = x;
         let mut child_y = y;
@@ -1788,7 +1819,7 @@ impl Node {
             child_x -= offset.x;
             child_y -= offset.y;
         }
-        child.hit_inner(child_x, child_y, scale, control)
+        child.hit_phased(child_x, child_y, scale, control)
     }
 
     /// Find the inline root ancestor of this node (or self if this is an inline root).

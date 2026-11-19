@@ -834,9 +834,10 @@ impl Node {
         let is_svg_or_frame = self.element_data().is_some_and(|element| {
             &*element.name.local == "svg" || element.sub_doc_data().is_some()
         });
-        if style.clone_position() != Position::Static
-            || in_flex_or_grid
-            || self.is_stacking_context_root(false)
+        if style.clone_position() != Position::Static || self.is_stacking_context_root(false) {
+            return Some(HitPhase::Positioned);
+        }
+        if in_flex_or_grid
             || self.display_constructed_as().outside() == DisplayOutside::Inline
             || is_svg_or_frame
         {
@@ -868,6 +869,7 @@ pub(crate) enum HitPhase {
     BlockBackground,
     Float,
     Foreground,
+    Positioned,
 }
 
 #[inline(always)]
