@@ -1,6 +1,7 @@
 #![cfg(target_os = "windows")]
 
 use pageframe::App;
+use pageframe_dom::ScrollBehavior;
 use pageframe_test_harness::Harness;
 
 #[test]
@@ -201,6 +202,61 @@ fn clicks_below_vertical_lr_text_find_the_offsets_chrome_reports() {
             "{x},{y}"
         );
     }
+}
+
+#[test]
+fn clicks_beside_padded_flex_grid_and_scrolled_boxes_find_the_offsets_chrome_reports() {
+    let html = "<!doctype html><style>html,body{margin:0;font:14px Arial}</style>\
+        <div id=f1 style=\"width:200px;height:60px;overflow:hidden\">\
+        <div id=e1a style=\"width:60px;height:40px\">aaaa</div>\
+        <div id=e1b style=\"width:60px;height:40px\">bbbb</div>\
+        <div id=e1c style=\"width:60px;height:40px\">cccc</div></div>\
+        <div id=e2 style=\"width:100px;padding:20px 10px;border:5px solid #000;height:98px;\
+        box-sizing:border-box\">aaaa bbbb cccc dddd eeee ffff</div>\
+        <div style=\"display:flex;justify-content:center;width:300px;height:30px;margin-top:2px\">\
+        <div id=e3a>aaaa</div><div id=e3b>bbbb</div></div>\
+        <div style=\"display:grid;grid-template-columns:100px 100px;width:300px\">\
+        <div id=e4a style=\"height:20px\">aaaa</div><div id=e4b style=\"height:40px\">bbbb</div></div>\
+        <div id=e5 style=\"width:100px;height:30px;transform:translateY(30px)\">aaaa bbbb</div>\
+        <div id=e5s style=\"height:40px;width:100px\">ssss</div>\
+        <div style=\"writing-mode:vertical-rl;height:100px;width:200px\">\
+        <div id=e6a style=\"height:50px\">aaaa</div><div id=e6b style=\"height:50px\">bbbb</div></div>";
+    let page = App::new((), html)
+        .page(640, 400)
+        .expect("test pages have valid selectors");
+    let mut harness = Harness::wrap(page);
+    harness.pump();
+    {
+        let mut doc = harness.base_mut();
+        let scroller = doc.query_selector_all("#f1").expect("selector is valid")[0];
+        doc.scroll_to(scroller, 0.0, 50.0, ScrollBehavior::Instant);
+    }
+    harness.pump();
+    let doc = harness.base();
+    let node = |id: &str| {
+        doc.query_selector_all(&format!("#{id}"))
+            .expect("selector is valid")[0]
+    };
+    for (x, y, id, offset) in [
+        (150.25, 8.25, "e1b", 4),
+        (300.25, 90.25, "e2", 9),
+        (300.25, 104.25, "e2", 19),
+        (2.25, 168.25, "e3a", 0),
+        (298.25, 168.25, "e3b", 4),
+        (50.25, 225.25, "e4a", 4),
+        (300.25, 238.25, "e5", 9),
+        (300.25, 268.25, "e5s", 4),
+        (190.25, 390.25, "e6a", 4),
+        (176.25, 390.25, "e6b", 4),
+        (100.25, 330.25, "e6b", 4),
+    ] {
+        assert_eq!(
+            doc.find_text_position(x, y),
+            Some((node(id), offset)),
+            "{x},{y}"
+        );
+    }
+    drop(doc);
 }
 
 fn byte_chars(

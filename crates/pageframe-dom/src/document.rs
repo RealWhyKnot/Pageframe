@@ -58,6 +58,7 @@ use style::servo_arc::Arc as ServoArc;
 use style::values::GenericAtomIdent;
 use style::values::computed::UserSelect;
 use style::values::computed::ui::CursorKind;
+use style::values::specified::box_::DisplayInside;
 use style::{
     device::Device,
     dom::{TDocument, TNode},
@@ -2995,19 +2996,28 @@ impl BaseDocument {
         };
         let hit_node = self.get_node(hit.node_id)?;
         let Some(inline_root) = hit_node.inline_root_ancestor() else {
-            return self.nearest_text_position(hit_node, hit.x, hit.y);
+            let scroll = hit_node.scroll_offset();
+            let x = hit.x - scroll.x.to_f32()?;
+            let y = hit.y - scroll.y.to_f32()?;
+            return self.nearest_text_position(hit_node, x, y);
         };
         let byte_offset = inline_root.text_offset_at_point(hit.x, hit.y)?;
         Some((inline_root.id, byte_offset))
     }
 
     fn nearest_text_position(&self, node: &Node, x: f32, y: f32) -> Option<(NodeId, usize)> {
-        if node.flags.is_inline_root() {
-            return Some((node.id, node.text_offset_at_point(x, y)?));
-        }
         let scroll = node.scroll_offset();
         let x = x + scroll.x.to_f32()?;
         let y = y + scroll.y.to_f32()?;
+        if node.flags.is_inline_root() {
+            let layout = node.final_layout();
+            let inset_x = layout.padding.left + layout.border.left;
+            let inset_y = layout.padding.top + layout.border.top;
+            return Some((
+                node.id,
+                node.text_offset_at_point(x - inset_x, y - inset_y)?,
+            ));
+        }
         let writing_mode = node.primary_styles().map(|style| style.writing_mode);
         let is_vertical = writing_mode.is_some_and(|mode| mode.is_vertical());
         let is_flipped = is_vertical && !writing_mode.is_some_and(|mode| mode.is_vertical_lr());
@@ -3040,7 +3050,19 @@ impl BaseDocument {
                 .collect()
         };
         let last = *candidates.last()?;
-        let chosen = if point >= block_span(last).0 {
+        let is_block_flow = matches!(
+            node.display_constructed_as().inside(),
+            DisplayInside::Flow | DisplayInside::FlowRoot
+        );
+        let chosen = if !is_block_flow {
+            candidates
+                .iter()
+                .copied()
+                .min_by(|first, second| {
+                    distance_to(first, x, y).total_cmp(&distance_to(second, x, y))
+                })
+                .unwrap_or(last)
+        } else if point >= block_span(last).0 {
             last
         } else {
             candidates
@@ -3420,6 +3442,15 @@ fn snap_to_layout_unit(value: f64, scale: f64) -> f64 {
         64.0
     };
     (value * steps).round() / steps
+}
+
+fn distance_to(node: &Node, x: f32, y: f32) -> f32 {
+    let layout = node.final_layout();
+    let left = layout.location.x;
+    let top = layout.location.y;
+    let across = (left - x).max(x - left - layout.size.width).max(0.0);
+    let down = (top - y).max(y - top - layout.size.height).max(0.0);
+    across * across + down * down
 }
 
 fn is_caret_candidate(node: &Node) -> bool {
