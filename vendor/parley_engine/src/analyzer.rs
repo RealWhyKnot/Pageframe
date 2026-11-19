@@ -258,6 +258,14 @@ mod tests {
     }
 
     #[test]
+    fn a_trailing_separator_starts_an_empty_ltr_paragraph() {
+        let paragraph_starts = |text: &str| paragraphs(&analyze(text, BaseDirection::Auto));
+
+        assert_eq!(paragraph_starts("\u{5d0}\n"), [(0, 1), (3, 0)]);
+        assert_eq!(paragraph_starts("\u{5d0}\n\n"), [(0, 1), (3, 0), (4, 0)]);
+    }
+
+    #[test]
     fn explicit_direction_keeps_one_paragraph_level() {
         let analysis = analyze("a\n\u{5d0}", BaseDirection::Rtl);
 

@@ -44,7 +44,8 @@ impl BidiResolver {
     /// With [`BaseDirection::Auto`], each paragraph (ending after a paragraph
     /// separator) takes its own base level from its first strong character
     /// (UAX #9 P2/P3), and the levels of all paragraphs are concatenated.
-    /// Returns the base level of each paragraph in order.
+    /// Returns the base level of each paragraph in order; text that ends in a
+    /// paragraph separator ends with an empty left-to-right paragraph.
     pub(crate) fn resolve_paragraphs(
         &mut self,
         chars: impl Iterator<Item = (char, (BidiClass, BidiMirroringGlyph))>,
@@ -74,6 +75,12 @@ impl BidiResolver {
             self.resolve_in_context(paragraph.iter().copied(), base_direction, context_level);
             levels.extend_from_slice(&self.levels);
             paragraph_levels.push(self.base_level);
+        }
+        if chars
+            .last()
+            .is_some_and(|(_, (class, _))| *class == BidiClass::ParagraphSeparator)
+        {
+            paragraph_levels.push(BidiLevel::new(0));
         }
         self.levels = levels;
         self.base_level = paragraph_levels
