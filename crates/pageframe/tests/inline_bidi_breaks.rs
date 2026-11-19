@@ -113,6 +113,64 @@ const SPACES_2X: [(&str, [f64; 4]); 14] = [
     ("d3", [1495.0, 4608.0, 448.0, 992.0]),
     ("e0", [0.0, 7168.0, 997.0, 992.0]),
 ];
+const EMPTY: &str = "\
+<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}body{width:300px}.o{unicode-bidi:bidi-override}f{float:left;width:20px;height:10px;background:#0f0}p{position:absolute;width:5px;height:5px;margin:0}</style>\n\
+<div dir=\"rtl\" class=\"o\" id=\"a0\"><f id=\"a1\"></f></div>\n\
+<div dir=\"rtl\" class=\"o\" id=\"b0\"><p id=\"b1\"></p></div>\n\
+<div dir=\"rtl\" class=\"o\" id=\"c0\"><span id=\"c1\"></span></div>\n\
+<div dir=\"rtl\" class=\"o\" id=\"d0\"> </div>\n\
+<div dir=\"rtl\" class=\"o\" id=\"e0\"><f id=\"e1\"></f><i id=\"e2\">ab</i></div>\n\
+<div id=\"f0\"><span dir=\"rtl\" id=\"f1\"></span></div>\n\
+<div id=\"g0\"><bdo dir=\"rtl\" id=\"g1\"> </bdo></div>\n\
+<div id=\"z0\">z</div>";
+
+const EMPTY_1X: [(&str, [f64; 4]); 12] = [
+    ("a0", [0.0, 0.0, 19200.0, 0.0]),
+    ("a1", [0.0, 0.0, 1280.0, 640.0]),
+    ("b0", [0.0, 0.0, 19200.0, 0.0]),
+    ("b1", [18880.0, 0.0, 320.0, 320.0]),
+    ("c0", [0.0, 0.0, 19200.0, 0.0]),
+    ("d0", [0.0, 0.0, 19200.0, 0.0]),
+    ("e0", [0.0, 0.0, 19200.0, 1024.0]),
+    ("e1", [1280.0, 0.0, 1280.0, 640.0]),
+    ("e2", [18203.0, 0.0, 997.0, 1024.0]),
+    ("f0", [0.0, 1024.0, 19200.0, 0.0]),
+    ("g0", [0.0, 1024.0, 19200.0, 0.0]),
+    ("z0", [0.0, 1024.0, 19200.0, 1024.0]),
+];
+
+const EMPTY_2X: [(&str, [f64; 4]); 12] = [
+    ("a0", [0.0, 0.0, 19200.0, 0.0]),
+    ("a1", [0.0, 0.0, 1280.0, 640.0]),
+    ("b0", [0.0, 0.0, 19200.0, 0.0]),
+    ("b1", [18880.0, 0.0, 320.0, 320.0]),
+    ("c0", [0.0, 0.0, 19200.0, 0.0]),
+    ("d0", [0.0, 0.0, 19200.0, 0.0]),
+    ("e0", [0.0, 0.0, 19200.0, 1024.0]),
+    ("e1", [1280.0, 0.0, 1280.0, 640.0]),
+    ("e2", [18203.0, 0.0, 997.0, 992.0]),
+    ("f0", [0.0, 1024.0, 19200.0, 0.0]),
+    ("g0", [0.0, 1024.0, 19200.0, 0.0]),
+    ("z0", [0.0, 1024.0, 19200.0, 1024.0]),
+];
+
+const AUTHORED: &str = "\
+<!doctype html><style>html,body{margin:0;font:14px Arial}body{width:300px}</style>\n\
+<div id=\"a0\">&#x202e;</div><div id=\"b0\">&#x2067;&#x2069;</div><div id=\"c0\"><span>&#x202e;</span></div><div id=\"d0\">x</div>";
+
+const AUTHORED_1X: [(&str, [f64; 4]); 4] = [
+    ("a0", [0.0, 0.0, 19200.0, 1024.0]),
+    ("b0", [0.0, 1024.0, 19200.0, 1024.0]),
+    ("c0", [0.0, 2048.0, 19200.0, 1024.0]),
+    ("d0", [0.0, 3072.0, 19200.0, 1024.0]),
+];
+
+const AUTHORED_2X: [(&str, [f64; 4]); 4] = [
+    ("a0", [0.0, 0.0, 19200.0, 1024.0]),
+    ("b0", [0.0, 1024.0, 19200.0, 1024.0]),
+    ("c0", [0.0, 2048.0, 19200.0, 1024.0]),
+    ("d0", [0.0, 3072.0, 19200.0, 1024.0]),
+];
 fn open_at(page: &'static str, scale: u16) -> Harness<Page<()>> {
     let page = App::new((), page)
         .page(320, 480)
@@ -183,4 +241,20 @@ fn bidi_controls_leave_collapsible_spaces_alone_like_chrome() {
 #[test]
 fn bidi_controls_leave_collapsible_spaces_alone_at_2x_like_chrome() {
     check(SPACES, 2, &SPACES_2X);
+}
+
+#[test]
+fn css_bidi_controls_alone_make_no_line_box_like_chrome() {
+    check(EMPTY, 1, &EMPTY_1X);
+}
+
+#[test]
+fn css_bidi_controls_alone_make_no_line_box_at_2x_like_chrome() {
+    check(EMPTY, 2, &EMPTY_2X);
+}
+
+#[test]
+fn authored_bidi_controls_alone_still_make_a_line_box_like_chrome() {
+    check(AUTHORED, 1, &AUTHORED_1X);
+    check(AUTHORED, 2, &AUTHORED_2X);
 }

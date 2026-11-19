@@ -70,6 +70,16 @@ impl TextLayout {
         }
     }
 
+    pub fn has_text(&self) -> bool {
+        let injected: usize = self
+            .bidi_controls
+            .iter()
+            .filter_map(|&offset| self.text.get(offset..)?.chars().next())
+            .map(char::len_utf8)
+            .sum();
+        self.text.len() > injected
+    }
+
     pub fn content_widths(&mut self) -> ContentWidths {
         *self
             .content_widths

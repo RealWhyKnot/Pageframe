@@ -347,6 +347,10 @@ impl<'b, B: Brush> TreeBuilder<'b, B> {
 
         // Call generic layout builder method
         build_into_layout(layout, &text, self.lcx, self.fcx, self.options);
+        layout
+            .data
+            .bidi_controls
+            .extend_from_slice(self.lcx.tree_style_builder.control_offsets());
 
         text
     }

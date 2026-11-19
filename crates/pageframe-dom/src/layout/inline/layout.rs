@@ -964,7 +964,7 @@ impl LayoutPassState<'_> {
 
         // Short circuit if inline context contains no text or inline boxes
         if !has_styles_preventing_being_collapsed_through
-            && inline_layout.text.is_empty()
+            && !inline_layout.has_text()
             && inline_layout.layout.inline_boxes().len() == 0
         {
             // Put layout back
@@ -1633,7 +1633,7 @@ impl LayoutPassState<'_> {
         // but a line box containing no text, inline boxes or other in-flow content is a
         // zero-height line box in CSS (CSS2 §9.4.2).
         let has_inline_content =
-            !inline_layout.text.is_empty() || inline_layout.layout.inline_boxes().len() > 0;
+            inline_layout.has_text() || inline_layout.layout.inline_boxes().len() > 0;
 
         let mut height = if has_inline_content {
             inline_layout.layout.height()

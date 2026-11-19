@@ -221,6 +221,9 @@ pub(crate) struct LayoutData<B: Brush> {
     pub(crate) base_level: BidiLevel,
     /// The length of the text in the layout
     pub(crate) text_len: usize,
+    /// Byte offsets of the bidi controls pushed with `TreeBuilder::push_bidi_control`. They
+    /// order the text around them but, like Blink's opaque items, never make a line visible.
+    pub(crate) bidi_controls: Vec<usize>,
 
     // Output of style resolution (input to line breaking)
     pub(crate) styles: Vec<Style<B>>,
@@ -273,6 +276,7 @@ impl<B: Brush> Default for LayoutData<B> {
             quantize: true,
             base_level: BidiLevel::new(0),
             text_len: 0,
+            bidi_controls: Vec::new(),
             width: 0.,
             full_width: 0.,
             height: 0.,
@@ -302,6 +306,7 @@ impl<B: Brush> LayoutData<B> {
         self.quantize = true;
         self.base_level = BidiLevel::new(0);
         self.text_len = 0;
+        self.bidi_controls.clear();
         self.width = 0.;
         self.full_width = 0.;
         self.height = 0.;

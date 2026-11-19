@@ -402,6 +402,16 @@ impl LineBoxMetrics {
         contributed: &mut Vec<u16>,
         subtrees: &mut SubtreeHistory,
     ) {
+        if !data.bidi_controls.is_empty()
+            && !characters.is_empty()
+            && characters.iter().all(|character| {
+                data.bidi_controls
+                    .binary_search(&character.text_byte_range().start)
+                    .is_ok()
+            })
+        {
+            return;
+        }
         // In quirks mode a forced break on a line that so far holds only inline boxes brings no
         // strut with it.
         if data.strut_needs_text {
