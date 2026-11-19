@@ -1665,6 +1665,7 @@ impl Node {
 
         // Call `.hit()` on each child in turn. If any return `Some` then return that value. Else return `Some(self.id).
         let is_inline_root = self.flags.is_inline_root();
+        let mut background = None;
         for child_id in self.paint_children.borrow().iter().flatten().rev() {
             let Some(child) = self.tree().get(*child_id) else {
                 continue;
@@ -1672,9 +1673,16 @@ impl Node {
             if is_inline_root && child.is_float_under_text() {
                 continue;
             }
-            if let Some(hit) = self.hit_paint_child(child, x, y, scale, control) {
+            let Some(hit) = self.hit_paint_child(child, x, y, scale, control) else {
+                continue;
+            };
+            if !self.is_block_background_hit(&hit) {
                 return Some(hit);
             }
+            background.get_or_insert(hit);
+        }
+        if background.is_some() {
+            return background;
         }
 
         // Negative z_index hoisted children
@@ -1735,6 +1743,23 @@ impl Node {
         }
 
         None
+    }
+
+    fn is_block_background_hit(&self, hit: &HitResult) -> bool {
+        if hit.is_text {
+            return false;
+        }
+        let mut current = self.tree().get(hit.node_id);
+        while let Some(node) = current {
+            if node.id == self.id {
+                return true;
+            }
+            if !node.paints_with_block_backgrounds() {
+                return false;
+            }
+            current = node.layout_parent.get().and_then(|id| self.tree().get(id));
+        }
+        false
     }
 
     fn hit_paint_child(

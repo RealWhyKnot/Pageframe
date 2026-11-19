@@ -314,6 +314,37 @@ fn clicks_at_line_edges_follow_the_paragraph_direction_like_chrome() {
     drop(doc);
 }
 
+#[test]
+fn text_overflowing_into_a_later_block_is_hit_before_its_background_like_chrome() {
+    let html = "<!doctype html><style>html,body{margin:0;font:14px Arial}\
+                div{width:60px;height:40px}</style>\
+                <div id=d1>bbbb cccc dd<span>ee ff</span> gggg</div>\
+                <div id=d2 style=\"text-align:right\">bbbb cccc dd ee</div>";
+    let page = App::new((), html)
+        .page(640, 400)
+        .expect("test pages have valid selectors");
+    let mut harness = Harness::wrap(page);
+    harness.pump();
+    let doc = harness.base();
+    let first = doc.query_selector_all("#d1").expect("selector is valid")[0];
+    let second = doc.query_selector_all("#d2").expect("selector is valid")[0];
+    for (x, y, root, offset) in [
+        (0.25, 40.25, first, 10),
+        (12.25, 44.25, first, 12),
+        (4.25, 50.25, first, 19),
+        (24.25, 52.25, first, 21),
+        (8.25, 58.25, first, 19),
+        (34.25, 44.25, second, 1),
+        (16.25, 60.25, second, 6),
+    ] {
+        assert_eq!(
+            doc.find_text_position(x, y),
+            Some((root, offset)),
+            "{x},{y}"
+        );
+    }
+}
+
 fn byte_chars(
     doc: &pageframe_dom::BaseDocument,
     node: pageframe_dom::NodeId,

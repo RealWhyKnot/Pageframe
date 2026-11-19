@@ -818,6 +818,16 @@ impl Node {
                 .is_some_and(|style| style.clone_float() != Float::None)
     }
 
+    pub fn paints_with_block_backgrounds(&self) -> bool {
+        self.is_static()
+            && !self.is_stacking_context_root(false)
+            && !self.is_paint_layer_root()
+            && self.display_constructed_as().outside() == DisplayOutside::Block
+            && self
+                .primary_styles()
+                .is_some_and(|style| style.clone_float() == Float::None)
+    }
+
     fn is_static(&self) -> bool {
         self.primary_styles()
             .is_some_and(|style| style.clone_position() == Position::Static)
