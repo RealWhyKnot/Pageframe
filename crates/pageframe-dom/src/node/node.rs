@@ -2371,6 +2371,11 @@ impl Node {
                         | style::values::specified::box_::DisplayInside::Contents
                 )
             })
+            && !std::iter::successors(self.parent, |id| self.with(*id).parent).any(|id| {
+                self.with(id)
+                    .display_style()
+                    .is_some_and(|display| display.is_none())
+            })
     }
 
     /// Creates a synthetic click event
