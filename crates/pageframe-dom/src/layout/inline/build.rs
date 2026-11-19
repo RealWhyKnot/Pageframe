@@ -115,13 +115,7 @@ fn inline_edges(
     InlineEdges {
         owner,
         is_rtl: !writing_mode.is_bidi_ltr(),
-        has_edge_marks: crate::util::inline_box_is_decorated(style)
-            || style
-                .get_background()
-                .background_color
-                .resolve_to_absolute(&style.clone_color())
-                .alpha
-                > 0.0,
+        has_edge_marks: crate::util::inline_box_paints(style),
         margin_start: start.margin,
         inset_start: start.inset,
         inset_end: end.inset,

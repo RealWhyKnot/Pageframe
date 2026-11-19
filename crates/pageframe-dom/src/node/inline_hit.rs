@@ -75,6 +75,36 @@ fn union(first: taffy::Rect<f32>, second: taffy::Rect<f32>) -> taffy::Rect<f32> 
     }
 }
 
+fn intersection(first: taffy::Rect<f32>, second: taffy::Rect<f32>) -> taffy::Rect<f32> {
+    taffy::Rect {
+        left: first.left.max(second.left),
+        top: first.top.max(second.top),
+        right: first.right.min(second.right),
+        bottom: first.bottom.min(second.bottom),
+    }
+}
+
+fn shifted(rect: taffy::Rect<f32>, by: taffy::Point<f32>) -> taffy::Rect<f32> {
+    taffy::Rect {
+        left: rect.left + by.x,
+        top: rect.top + by.y,
+        right: rect.right + by.x,
+        bottom: rect.bottom + by.y,
+    }
+}
+
+fn device_snapped(rect: taffy::Rect<f32>, scale: f32) -> taffy::Rect<f32> {
+    let snap = |edge: f32| (edge * scale + 0.5).floor() / scale;
+    taffy::Rect {
+        left: snap(rect.left),
+        top: snap(rect.top),
+        right: snap(rect.right),
+        bottom: snap(rect.bottom),
+    }
+}
+
+const LINE_REACH: f32 = 1.0e9;
+
 impl Node {
     pub(crate) fn inline_hit_reach(&self) -> f32 {
         self.span_geometry()
@@ -413,6 +443,26 @@ impl Node {
             y - geometry.inset.top,
         );
         let block = block * geometry.scale;
+        let offset = self.layout_data().unsnapped.offset;
+        let device_scale = num_traits::ToPrimitive::to_f32(&probe.scale)
+            .filter(|scale| scale.is_finite() && *scale > 0.0)
+            .unwrap_or(1.0);
+        let unrounded = self.unrounded_layout();
+        let content = shifted(
+            taffy::Rect {
+                left: geometry.inset.left,
+                top: geometry.inset.top,
+                right: unrounded.size.width - unrounded.padding.right - unrounded.border.right,
+                bottom: unrounded.size.height - unrounded.padding.bottom - unrounded.border.bottom,
+            },
+            offset,
+        );
+        let is_layered = |id: NodeId| {
+            self.span_chain(id)
+                .unwrap_or_default()
+                .iter()
+                .any(|id| tree.get(*id).is_some_and(Node::starts_inline_layer))
+        };
         let count = layout.len();
         let is_mirrored = layout
             .get(0)
@@ -449,6 +499,21 @@ impl Node {
                 break;
             }
             let trim = LineTrim::new(self, &line, text, is_rtl);
+            let line_box = intersection(
+                shifted(
+                    self.inline_item_rect(
+                        &geometry,
+                        (-LINE_REACH, LINE_REACH),
+                        (
+                            line.metrics().block_min_coord,
+                            line.metrics().block_max_coord,
+                        ),
+                        (0.0, 0.0),
+                    ),
+                    offset,
+                ),
+                content,
+            );
             for (index, item) in line.items().enumerate() {
                 let PositionedLayoutItem::GlyphRun(glyph_run) = item else {
                     continue;
@@ -457,6 +522,12 @@ impl Node {
                 let Some(node) = tree.get(owner).filter(|node| takes_pointer(node)) else {
                     continue;
                 };
+                let is_spacer = text
+                    .get(glyph_run.run().text_range())
+                    .is_some_and(|run| run.chars().all(crate::util::is_inline_spacer));
+                if is_spacer {
+                    continue;
+                }
                 let start = glyph_run.offset();
                 let end = start + glyph_run.advance();
                 if trim.is_hung(start, end) {
@@ -464,7 +535,15 @@ impl Node {
                 }
                 let extent = trim.clamp(start, end, false);
                 let shift = node.inline_relative_shift();
-                let rect = self.glyph_span_rect(&geometry, &glyph_run, extent, shift);
+                let rect = shifted(
+                    self.glyph_span_rect(&geometry, &glyph_run, extent, shift),
+                    offset,
+                );
+                let snapped = device_snapped(rect, device_scale);
+                let rect = match is_layered(owner) {
+                    true => snapped,
+                    false => intersection(snapped, union(line_box, rect)),
+                };
                 if probe.holds(&rect, x, y) {
                     let mut key = order(owner, line_index, index);
                     key.depth += 1;
@@ -485,13 +564,24 @@ impl Node {
                 else {
                     continue;
                 };
-                let rect = node.line_span_rect(
-                    self,
-                    line.metrics(),
-                    found.own(span.node_id),
-                    (span.left, span.right),
-                    &geometry,
+                let rect = shifted(
+                    node.line_span_rect(
+                        self,
+                        line.metrics(),
+                        found.own(span.node_id),
+                        (span.left, span.right),
+                        &geometry,
+                    ),
+                    offset,
                 );
+                let has_box = node.starts_inline_layer()
+                    || node
+                        .primary_styles()
+                        .is_some_and(|style| crate::util::inline_box_has_fragment(&style));
+                let rect = match has_box {
+                    true => intersection(device_snapped(rect, device_scale), rect),
+                    false => rect,
+                };
                 if probe.holds(&rect, x, y) {
                     let key = order(span.node_id, line_index, *first);
                     offer(

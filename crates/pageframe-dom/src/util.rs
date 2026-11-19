@@ -475,6 +475,34 @@ pub fn inline_box_is_decorated(style: &style::properties::ComputedValues) -> boo
     has_border || has_padding || has_radius || has_image || has_outline || has_shadow
 }
 
+pub(crate) fn inline_box_paints(style: &style::properties::ComputedValues) -> bool {
+    use stylo_taffy::CopyStyleGetters;
+    inline_box_is_decorated(style)
+        || style
+            .get_background()
+            .background_color
+            .resolve_to_absolute(&style.clone_color())
+            .alpha
+            > 0.0
+}
+
+pub(crate) fn inline_box_has_fragment(style: &style::properties::ComputedValues) -> bool {
+    use style::values::generics::length::GenericMargin;
+    let margins = style.get_margin();
+    let has_margin = [
+        &margins.margin_top,
+        &margins.margin_right,
+        &margins.margin_bottom,
+        &margins.margin_left,
+    ]
+    .iter()
+    .any(|margin| match margin {
+        GenericMargin::LengthPercentage(value) => !style::Zero::is_zero(value),
+        _ => false,
+    });
+    has_margin || inline_box_paints(style)
+}
+
 pub fn clamp_hides_lines(style: &style::properties::ComputedValues) -> bool {
     let style_box = style.get_box();
     !style_box.line_clamp.webkit_legacy
