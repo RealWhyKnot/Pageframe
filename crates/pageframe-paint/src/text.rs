@@ -4,7 +4,7 @@ use kurbo::{
 };
 use num_traits::ToPrimitive;
 use pageframe_dom::CopyStyleGetters;
-use pageframe_dom::inline_trim::{LineSpan, LineTrim, hung_space, is_end_mark, settle_line_spans};
+use pageframe_dom::inline_trim::{LineSpan, LineTrim, settle_line_spans};
 use pageframe_dom::{BaseDocument, NodeId, node::TextBrush, util::ToColorColor};
 use parley::{Affinity, Cursor, Layout, Line, PositionedLayoutItem, Selection};
 use peniko::Fill;
@@ -1414,12 +1414,10 @@ pub(crate) fn stroke_text<'a>(
     stack.clear();
     path_scratch.clear();
     deco_boxes.clear();
-    let is_rtl = !flat_ancestors
-        && doc
-            .get_node(inline_root_id)
-            .and_then(|node| node.element_data())
-            .and_then(|element| element.inline_layout_data.as_ref())
-            .is_some_and(|layout| layout.layout.is_rtl());
+    let trim_root = doc
+        .get_node(inline_root_id)
+        .zip(layout_text)
+        .filter(|_| !flat_ancestors);
 
     // Persistent stack mirroring the ancestor path (inline root -> current run's
     // node) as we walk the runs. The `text-decoration-*` properties are *not*
@@ -1447,8 +1445,11 @@ pub(crate) fn stroke_text<'a>(
         // run. Clearing preserves the allocation for the next line and inline context.
         deco_boxes.clear();
         let mut holes: SmallVec<[(f64, f64); 2]> = SmallVec::new();
-        let mut hung: Option<(f64, f64)> = None;
-        let mut has_text = false;
+        if let Some((left, right)) = trim_root
+            .and_then(|(root, text)| LineTrim::new(root, &line, text).hung_span())
+        {
+            holes.push((f64::from(left), f64::from(right)));
+        }
 
         for (item_index, item) in line.items().enumerate() {
             if let PositionedLayoutItem::InlineBox(inline_box) = &item
@@ -1456,7 +1457,6 @@ pub(crate) fn stroke_text<'a>(
             {
                 let left = f64::from(inline_box.x);
                 holes.push((left, left + f64::from(inline_box.width)));
-                hung = None;
             }
             if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
                 let run = glyph_run.run();
@@ -1466,15 +1466,6 @@ pub(crate) fn stroke_text<'a>(
                 let snap_origin = covers_its_start(doc, glyph_run.style().brush.id, run.is_rtl())
                     .then(|| transform.translation().x);
                 push_spacer_holes(&glyph_run, run_text, snap_origin, &mut holes);
-                let body = run_text.trim_end_matches(is_end_mark);
-                if !body.is_empty() && !(is_rtl && has_text) {
-                    hung = doc
-                        .get_node(glyph_run.style().brush.id)
-                        .and_then(|owner| hung_space(&glyph_run, run_text, owner))
-                        .filter(|_| !is_rtl || body.chars().all(|ch| ch == ' '))
-                        .map(|(left, width)| (f64::from(left), f64::from(width)));
-                    has_text = true;
-                }
                 if is_invisible(doc, glyph_run.style().brush.id) {
                     let left = f64::from(glyph_run.offset());
                     holes.push((left, left + f64::from(glyph_run.advance())));
@@ -1734,11 +1725,6 @@ pub(crate) fn stroke_text<'a>(
             }
         }
 
-        if let Some((left, width)) = hung
-            && line.metrics().hanging_advance > 0.0
-        {
-            holes.push((left, left + width));
-        }
         holes.sort_by(|a, b| a.0.total_cmp(&b.0));
         flush_line_decorations(
             scene,

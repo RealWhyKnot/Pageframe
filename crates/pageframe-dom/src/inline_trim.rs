@@ -6,7 +6,7 @@ use parley::{GlyphRun, InlineBoxKind, Line, PositionedLayoutItem};
 use smallvec::SmallVec;
 use style::computed_values::white_space_collapse::T as WhiteSpaceCollapse;
 
-pub fn is_end_mark(character: char) -> bool {
+fn is_end_mark(character: char) -> bool {
     INLINE_EDGE_END.contains(character)
         || INLINE_MARGIN_END.contains(character)
         || INLINE_BREAK.contains(character)
@@ -21,7 +21,7 @@ pub fn collapses_spaces(owner: &Node) -> bool {
     })
 }
 
-pub fn hung_space(
+fn hung_space(
     glyph_run: &GlyphRun<'_, TextBrush>,
     run_text: &str,
     owner: &Node,
@@ -117,6 +117,17 @@ impl LineTrim {
         } else {
             left >= self.inked_right - HUNG_SLACK
         }
+    }
+
+    pub fn hung_span(&self) -> Option<(f32, f32)> {
+        if self.hanging <= 0.0 {
+            return None;
+        }
+        Some(if self.is_rtl {
+            (self.inked_left - self.hanging, self.inked_left)
+        } else {
+            (self.inked_right, self.inked_right + self.hanging)
+        })
     }
 
     fn hung_edge(&self) -> f32 {

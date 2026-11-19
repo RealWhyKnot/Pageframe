@@ -395,3 +395,37 @@ fn double_lines_leave_one_device_pixel_between_them_like_chrome() {
         }
     }
 }
+
+fn line_underlines(dir: &str, bidi: &str, text: &str) -> Vec<Vec<usize>> {
+    let buffer = draw(&format!(
+        "<div dir=\"{dir}\" style=\"font:10px/20px Arial;text-decoration:underline red;\
+         width:16px;unicode-bidi:{bidi}\">{text}</div>"
+    ));
+    (0..4)
+        .map(|line| {
+            let band = line * 20..line * 20 + 20;
+            band.map(|down| {
+                (0..40)
+                    .filter(|across| pixel(&buffer, *across, down) != WHITE)
+                    .collect::<Vec<usize>>()
+            })
+            .find(|columns| !columns.is_empty())
+            .unwrap_or_default()
+        })
+        .collect()
+}
+
+#[test]
+fn underlines_stop_before_hung_spaces_in_each_paragraph_direction() {
+    let hebrew = "\u{5d0}\u{5d1} \u{5d2}\u{5d3}";
+    let rtl_word = line_underlines("rtl", "normal", "\u{5d0}\u{5d1}")[0].clone();
+    let ltr_word = line_underlines("ltr", "normal", "aa")[0].clone();
+    assert!(!rtl_word.is_empty() && !ltr_word.is_empty());
+    assert_eq!(line_underlines("rtl", "normal", hebrew)[0], rtl_word);
+    assert_eq!(line_underlines("ltr", "normal", "aa bb")[0], ltr_word);
+
+    let rtl_first = line_underlines("ltr", "plaintext", &format!("{hebrew}<br>aa bb"));
+    assert_eq!([&rtl_first[0], &rtl_first[2]], [&rtl_word, &ltr_word]);
+    let ltr_first = line_underlines("rtl", "plaintext", &format!("aa bb<br>{hebrew}"));
+    assert_eq!([&ltr_first[0], &ltr_first[2]], [&ltr_word, &rtl_word]);
+}
