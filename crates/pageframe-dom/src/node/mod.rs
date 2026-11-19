@@ -1,6 +1,7 @@
 #![allow(clippy::module_inception)]
 
 mod attributes;
+mod caret;
 #[cfg(feature = "custom-widget")]
 mod custom_widget;
 mod element;

@@ -257,7 +257,7 @@ impl Node {
         )
     }
 
-    fn glyph_run_rect(
+    pub(super) fn glyph_run_rect(
         &self,
         geometry: &SpanGeometry,
         glyph_run: &parley::GlyphRun<'_, TextBrush>,

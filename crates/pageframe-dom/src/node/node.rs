@@ -1847,7 +1847,12 @@ impl Node {
         let inline_layout = element_data.inline_layout_data.as_ref()?;
         let layout = &inline_layout.layout;
         let scale = layout.scale();
-        let (inline, block) = self.inline_layout_point(inline_layout.block_offset, x, y);
+        let (across, down) = match self.caret_target(x, y) {
+            super::caret::CaretTarget::Offset(offset) => return Some(offset),
+            super::caret::CaretTarget::Shift(shift) => shift,
+        };
+        let (inline, block) =
+            self.inline_layout_point(inline_layout.block_offset, x - across, y - down);
 
         // Use Parley's cluster hit testing (from_point is more forgiving than from_point_exact)
         let (cluster, side) = Cluster::from_point(layout, inline * scale, block * scale)?;

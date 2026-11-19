@@ -331,6 +331,11 @@ impl<'a, B: Brush> GlyphRun<'a, B> {
         self.advance
     }
 
+    pub fn text_range(&self) -> Range<usize> {
+        let slice = self.run.full_slice().narrow(self.shaped_clusters.clone());
+        slice.text_byte_range(slice.char_range())
+    }
+
     /// Returns an iterator over the glyphs in the run.
     pub fn glyphs(&'a self) -> impl Iterator<Item = Glyph> + 'a + Clone {
         self.run.glyphs_in(self.shaped_clusters.clone())
