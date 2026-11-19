@@ -11,6 +11,18 @@ pub(super) enum CaretTarget {
     Offset(usize),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum LineEdge {
+    Left,
+    Right,
+}
+
+enum Picked {
+    Leaf((f32, f32)),
+    Offset(usize),
+    Edge(LineEdge),
+}
+
 struct CaretRun {
     chain: SpanChain,
     start: f32,
@@ -18,6 +30,8 @@ struct CaretRun {
     text: Range<usize>,
     shift: (f32, f32),
     is_rtl: bool,
+    edge: Option<LineEdge>,
+    is_lone: bool,
 }
 
 struct CaretGroup<'runs> {
@@ -55,14 +69,14 @@ fn group_at<'runs>(runs: &[&'runs CaretRun], depth: usize) -> Vec<CaretGroup<'ru
     groups.into_iter().map(|(_, group)| group).collect()
 }
 
-fn pick(runs: &[&CaretRun], depth: usize, point: f32) -> Option<CaretTarget> {
+fn pick(runs: &[&CaretRun], depth: usize, point: f32) -> Option<Picked> {
     let groups = group_at(runs, depth);
     if let Some(group) = groups
         .iter()
         .find(|group| point >= group.start && point < group.end)
     {
         if group.is_leaf {
-            return group.runs.first().map(|run| CaretTarget::Shift(run.shift));
+            return group.runs.first().map(|run| Picked::Leaf(run.shift));
         }
         return pick(&group.runs, depth + 1, point);
     }
@@ -80,7 +94,19 @@ fn pick(runs: &[&CaretRun], depth: usize, point: f32) -> Option<CaretTarget> {
     let text_end = nearest.runs.iter().map(|run| run.text.end).max()?;
     let is_rtl = nearest.runs.first().is_some_and(|run| run.is_rtl);
     let is_before = point < nearest.start;
-    Some(CaretTarget::Offset(if is_before == is_rtl {
+    let wanted = if is_before {
+        LineEdge::Left
+    } else {
+        LineEdge::Right
+    };
+    let at_edge = nearest
+        .runs
+        .iter()
+        .any(|run| run.is_lone || run.edge == Some(wanted));
+    if at_edge {
+        return Some(Picked::Edge(wanted));
+    }
+    Some(Picked::Offset(if is_before == is_rtl {
         text_end
     } else {
         text_start
@@ -122,6 +148,27 @@ impl Node {
         }
     }
 
+    pub(super) fn line_edge_offset(
+        &self,
+        line: &Line<'_, TextBrush>,
+        edge: LineEdge,
+    ) -> Option<usize> {
+        let inline_layout = self.element_data()?.inline_layout_data.as_ref()?;
+        let range = line.text_range();
+        let is_start = matches!(edge, LineEdge::Left) != inline_layout.layout.is_rtl();
+        if is_start {
+            return Some(range.start);
+        }
+        let text = &inline_layout.text;
+        let ends_in_break = text
+            .get(range.clone())
+            .is_some_and(|line_text| line_text.ends_with('\n'));
+        if ends_in_break {
+            return Some(range.end.saturating_sub(1));
+        }
+        Some(self.before_hung_space(line, text, range.end))
+    }
+
     pub(super) fn caret_target(&self, x: f32, y: f32) -> CaretTarget {
         let Some(geometry) = self.span_geometry() else {
             return CaretTarget::Shift((0.0, 0.0));
@@ -150,9 +197,17 @@ impl Node {
         let axes = self.line_axes();
         let tree = self.tree();
         let mut runs = Vec::new();
-        for item in line.items() {
+        let last_index = line.items().count().saturating_sub(1);
+        for (index, item) in line.items().enumerate() {
             let PositionedLayoutItem::GlyphRun(glyph_run) = item else {
                 continue;
+            };
+            let edge = if index == 0 {
+                Some(LineEdge::Left)
+            } else if index == last_index {
+                Some(LineEdge::Right)
+            } else {
+                None
             };
             let owner = glyph_run.style().brush.id;
             let shift = tree.get(owner)?.inline_relative_shift();
@@ -169,6 +224,8 @@ impl Node {
                 text: glyph_run.text_range(),
                 shift: inline_shift,
                 is_rtl: glyph_run.run().is_rtl(),
+                edge,
+                is_lone: last_index == 0,
             });
         }
         if runs.iter().all(|run| run.shift == (0.0, 0.0)) {
@@ -182,10 +239,11 @@ impl Node {
         let refs: Vec<&CaretRun> = runs.iter().collect();
         let text = &self.element_data()?.inline_layout_data.as_ref()?.text;
         match pick(&refs, 0, point)? {
-            CaretTarget::Offset(offset) => Some(CaretTarget::Offset(
+            Picked::Offset(offset) => Some(CaretTarget::Offset(
                 self.before_hung_space(&line, text, offset),
             )),
-            shift @ CaretTarget::Shift(_) => Some(shift),
+            Picked::Edge(edge) => Some(CaretTarget::Offset(self.line_edge_offset(&line, edge)?)),
+            Picked::Leaf(shift) => Some(CaretTarget::Shift(shift)),
         }
     }
 }

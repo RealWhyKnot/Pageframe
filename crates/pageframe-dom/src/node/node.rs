@@ -1862,6 +1862,16 @@ impl Node {
         // For RTL text: left side = end of cluster, right side = start of cluster
         // Also, explicit line breaks should always use start to avoid cursor appearing on next line
         let is_leading = side == ClusterSide::Left;
+        let edge = if is_leading && cluster.is_start_of_line() {
+            Some(super::caret::LineEdge::Left)
+        } else if !is_leading && cluster.is_end_of_line() {
+            Some(super::caret::LineEdge::Right)
+        } else {
+            None
+        };
+        if let Some(edge) = edge {
+            return self.line_edge_offset(&cluster.line(), edge);
+        }
         let offset = if cluster.is_rtl() {
             if is_leading {
                 cluster.text_range().end

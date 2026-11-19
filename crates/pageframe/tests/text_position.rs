@@ -259,6 +259,61 @@ fn clicks_beside_padded_flex_grid_and_scrolled_boxes_find_the_offsets_chrome_rep
     drop(doc);
 }
 
+#[test]
+fn clicks_at_line_edges_follow_the_paragraph_direction_like_chrome() {
+    let html = "<!doctype html><meta charset=utf-8>\
+        <style>html,body{margin:0;font:14px Arial}div{width:200px;height:30px}\
+        .narrow{width:60px;height:60px}</style>\
+        <div id=e1>אבגד הוזח</div>\
+        <div id=e2 dir=rtl>abcd efgh</div>\
+        <div id=e3>abc אבג</div>\
+        <div id=e4>אבג abc</div>\
+        <div id=e5 dir=rtl>abc אבג</div>\
+        <div id=e6 dir=rtl>אבג abc</div>\
+        <div id=e7 dir=rtl class=narrow>aaaa bbbb cccc</div>\
+        <div id=e8 class=narrow>אבגד הוזח טיכל</div>\
+        <div id=e9 dir=rtl>xx<span style=\"position:relative;left:30px\">abcdef</span>yy</div>\
+        <div id=e10 dir=rtl class=narrow>aaaa bbbb \
+        <span style=\"position:relative;left:4px\">cccc</span></div>\
+        <div id=e11>אבגד <span style=\"position:relative;left:4px\">הוזח</span></div>";
+    let page = App::new((), html)
+        .page(640, 500)
+        .expect("test pages have valid selectors");
+    let mut harness = Harness::wrap(page);
+    harness.pump();
+    let doc = harness.base();
+    for (x, y, id, offset) in [
+        (2.25, 8.25, "e1", 0),
+        (196.25, 8.25, "e1", 9),
+        (2.25, 38.25, "e2", 9),
+        (196.25, 38.25, "e2", 0),
+        (196.25, 68.25, "e3", 7),
+        (2.25, 98.25, "e4", 0),
+        (400.25, 128.25, "e5", 0),
+        (2.25, 158.25, "e6", 7),
+        (58.25, 188.25, "e7", 0),
+        (58.25, 204.25, "e7", 5),
+        (2.25, 248.25, "e8", 0),
+        (2.25, 264.25, "e8", 10),
+        (58.25, 264.25, "e8", 14),
+        (2.25, 308.25, "e9", 10),
+        (400.25, 308.25, "e9", 8),
+        (58.25, 338.25, "e10", 0),
+        (58.25, 354.25, "e10", 5),
+        (2.25, 398.25, "e11", 0),
+        (196.25, 398.25, "e11", 9),
+    ] {
+        let root = doc
+            .query_selector_all(&format!("#{id}"))
+            .expect("selector is valid")[0];
+        let found = doc
+            .find_text_position(x, y)
+            .map(|(node, byte)| (node, byte_chars(&doc, node, byte)));
+        assert_eq!(found, Some((root, offset)), "{x},{y}");
+    }
+    drop(doc);
+}
+
 fn byte_chars(
     doc: &pageframe_dom::BaseDocument,
     node: pageframe_dom::NodeId,
