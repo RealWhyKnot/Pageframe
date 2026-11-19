@@ -540,6 +540,9 @@ impl Node {
                     offset,
                 );
                 let snapped = device_snapped(rect, device_scale);
+                if !probe.holds(&snapped, x, y) {
+                    continue;
+                }
                 let rect = match is_layered(owner) {
                     true => snapped,
                     false => intersection(snapped, union(line_box, rect)),
