@@ -1,6 +1,7 @@
 use num_traits::ToPrimitive;
 use pageframe::{App, Page};
 use pageframe_test_harness::Harness;
+use pageframe_traits::shell::Viewport;
 
 fn open(app: App<()>) -> Harness<Page<()>> {
     let page = app.page(120, 100).expect("test pages have valid selectors");
@@ -117,4 +118,49 @@ fn nested_moved_spans_are_hit_at_their_summed_offsets() {
     assert_eq!(hit_id(&harness, x, y).as_deref(), Some("inner"));
     assert_eq!(hit_id(&harness, x, y - 16.0).as_deref(), Some("mid"));
     assert_eq!(hit_id(&harness, x + 30.0, y).as_deref(), Some("outer"));
+}
+
+const LATE: &str = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}\
+</style><div id=late>l1<br>l2<br>l3<br>l4<br><span id=m>move</span></div>";
+
+#[test]
+fn a_span_moved_after_layout_is_hit_over_earlier_lines() {
+    let mut harness = open(App::new((), LATE));
+    assert_eq!(hit_id(&harness, 20.25, 8.25).as_deref(), Some("late"));
+    let span = harness
+        .base()
+        .query_selector("#m")
+        .expect("valid selector")
+        .expect("the span exists");
+    harness.base_mut().mutate().set_attribute(
+        span,
+        pageframe_dom::QualName::new(
+            None,
+            pageframe_dom::ns!(),
+            pageframe_dom::local_name!("style"),
+        ),
+        "position:relative;top:-60px",
+    );
+    harness.pump();
+    assert_eq!(hit_id(&harness, 20.25, 8.25).as_deref(), Some("m"));
+    assert_eq!(hit_id(&harness, 20.25, 70.25).as_deref(), Some("late"));
+}
+
+#[test]
+fn a_span_moved_over_earlier_lines_is_hit_at_half_and_double_scale() {
+    let page = LATE.replace("id=m>", "id=m style=\"position:relative;top:-60px\">");
+    for scale in [0.5, 2.0] {
+        let mut harness = open(App::new((), &page));
+        {
+            let mut doc = harness.base_mut();
+            let color_scheme = doc.get_viewport().color_scheme;
+            doc.set_viewport(Viewport::new(240, 200, scale, color_scheme));
+        }
+        harness.pump();
+        assert_eq!(
+            hit_id(&harness, 20.25, 8.25).as_deref(),
+            Some("m"),
+            "scale {scale}"
+        );
+    }
 }
