@@ -285,8 +285,9 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                 || element.and_then(|e| e.sub_doc_data()).is_some()
                 || element.and_then(|e| e.text_input_data()).is_some()
                 || contain_paint
-                || !matches!(box_style.overflow_x, Overflow::Visible)
-                || !matches!(box_style.overflow_y, Overflow::Visible))
+                || node
+                    .used_overflow()
+                    .is_some_and(|overflow| overflow != (Overflow::Visible, Overflow::Visible)))
     }
 
     fn draw_text_mask(

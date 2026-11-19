@@ -22,7 +22,7 @@ bitflags! {
     /// Flags for style information that Taffy needs but which is not part of the
     /// stylo [`ComputedValues`]
     #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
-    pub struct StyleFlags: u8 {
+    pub struct StyleFlags: u16 {
         /// Whether the node is a replaced element (e.g. an image or form control)
         const IS_REPLACED = 1 << 0;
         /// Whether an inline span laid out by the node (an inline root) is a containing block
@@ -38,6 +38,7 @@ bitflags! {
         const IS_COMPRESSIBLE_REPLACED = 1 << 5;
         const IS_FIELDSET = 1 << 6;
         const IS_NATIVE_TOGGLE = 1 << 7;
+        const OVERFLOW_TO_VIEWPORT = 1 << 8;
     }
 }
 
@@ -178,6 +179,12 @@ impl<T: Deref<Target = ComputedValues>> From<TaffyStyloStyle<T>> for taffy::Styl
         let mut style = convert::to_taffy_style(&value.style, value.device_scale);
         value.layout_wm().transpose_style(&mut style);
         style.item_is_replaced = value.flags.contains(StyleFlags::IS_REPLACED);
+        if value.flags.contains(StyleFlags::OVERFLOW_TO_VIEWPORT) {
+            style.overflow = taffy::Point {
+                x: taffy::Overflow::Visible,
+                y: taffy::Overflow::Visible,
+            };
+        }
         style.item_is_compressible_replaced = value
             .flags
             .intersects(StyleFlags::IS_REPLACED | StyleFlags::IS_COMPRESSIBLE_REPLACED);
@@ -226,6 +233,12 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
 
     #[inline]
     fn overflow(&self) -> taffy::Point<taffy::Overflow> {
+        if self.flags.contains(StyleFlags::OVERFLOW_TO_VIEWPORT) {
+            return taffy::Point {
+                x: taffy::Overflow::Visible,
+                y: taffy::Overflow::Visible,
+            };
+        }
         let box_styles = self.style.get_box();
         let overflow = taffy::Point {
             x: convert::overflow(box_styles.overflow_x),

@@ -53,9 +53,8 @@ impl Node {
                 Overflow::Hidden | Overflow::Scroll | Overflow::Auto
             )
         };
-        self.primary_styles().is_some_and(|style| {
-            scrolls(style.clone_overflow_x()) || scrolls(style.clone_overflow_y())
-        })
+        self.used_overflow()
+            .is_some_and(|(overflow_x, overflow_y)| scrolls(overflow_x) || scrolls(overflow_y))
     }
 
     pub fn resizer_on_left(&self) -> bool {

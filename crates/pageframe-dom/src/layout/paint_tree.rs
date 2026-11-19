@@ -616,6 +616,61 @@ impl Node {
         Some(HitClip { layers, flow })
     }
 
+    pub fn used_overflow(
+        &self,
+    ) -> Option<(
+        style::values::computed::Overflow,
+        style::values::computed::Overflow,
+    )> {
+        use style::values::computed::Overflow;
+
+        let style = self.primary_styles()?;
+        match self.overflow_goes_to_viewport() {
+            true => Some((Overflow::Visible, Overflow::Visible)),
+            false => Some((style.clone_overflow_x(), style.clone_overflow_y())),
+        }
+    }
+
+    pub(crate) fn overflow_goes_to_viewport(&self) -> bool {
+        use style::values::computed::Overflow;
+
+        let is_named = |node: &Node, name: &markup5ever::LocalName| {
+            node.data
+                .downcast_element()
+                .is_some_and(|element| element.name.local == *name)
+        };
+        let body = markup5ever::local_name!("body");
+        if !is_named(self, &body) {
+            return false;
+        }
+        let tree = self.tree();
+        let Some(root) = self.parent.and_then(|parent| tree.get(parent)) else {
+            return false;
+        };
+        let is_root_element = root
+            .parent
+            .and_then(|parent| tree.get(parent))
+            .is_some_and(|document| document.parent.is_none());
+        let first_body = root
+            .children
+            .iter()
+            .filter_map(|&child| tree.get(child))
+            .find(|child| is_named(child, &body));
+        let is_uncontained = |node: &Node| {
+            node.primary_styles()
+                .is_some_and(|style| style.clone_contain().is_empty())
+        };
+        is_root_element
+            && is_named(root, &markup5ever::local_name!("html"))
+            && first_body.is_some_and(|body| body.id == self.id)
+            && is_uncontained(self)
+            && root.primary_styles().is_some_and(|style| {
+                style.clone_overflow_x() == Overflow::Visible
+                    && style.clone_overflow_y() == Overflow::Visible
+                    && style.clone_contain().is_empty()
+            })
+    }
+
     pub(crate) fn is_hit_layer(&self) -> bool {
         self.primary_styles()
             .is_some_and(|style| style.clone_position() != Position::Static)
@@ -628,8 +683,9 @@ impl Node {
         let style = self.primary_styles()?;
         let box_style = style.get_box();
         let display = box_style.display;
-        let overflows_x = box_style.overflow_x != Overflow::Visible;
-        let overflows_y = box_style.overflow_y != Overflow::Visible;
+        let (overflow_x, overflow_y) = self.used_overflow()?;
+        let overflows_x = overflow_x != Overflow::Visible;
+        let overflows_y = overflow_y != Overflow::Visible;
         let contains_paint = (!overflows_x || !overflows_y)
             && box_style.slow_clone_contain().contains(Contain::PAINT)
             && !display.is_inline_flow()
@@ -730,9 +786,12 @@ impl Node {
             return true;
         };
         let box_style = style.get_box();
+        let (overflow_x, overflow_y) = self
+            .used_overflow()
+            .unwrap_or((Overflow::Visible, Overflow::Visible));
         style.clone_position() != Position::Static
-            || !matches!(box_style.overflow_x, Overflow::Visible)
-            || !matches!(box_style.overflow_y, Overflow::Visible)
+            || !matches!(overflow_x, Overflow::Visible)
+            || !matches!(overflow_y, Overflow::Visible)
             || box_style.slow_clone_contain().contains(Contain::PAINT)
             || self.element_data().is_some_and(|e| {
                 e.raster_image_data().is_some()

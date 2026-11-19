@@ -1,4 +1,3 @@
-#[cfg(feature = "svg")]
 use markup5ever::local_name;
 use pageframe_traits::node_id::NodeId;
 use stylo_taffy::CopyStyleGetters;
@@ -54,6 +53,29 @@ impl BaseDocument {
     /// children. Owned anonymous boxes are refreshed through `anonymous_blocks`,
     /// without revisiting their DOM children. Damage inside an anonymous box
     /// also invalidates its cache by walking `layout_parent` upward.
+    fn relayout_viewport_body(&mut self, root_id: NodeId) {
+        let root = &self.nodes[root_id];
+        if root
+            .parent
+            .is_none_or(|parent| self.nodes[parent].parent.is_some())
+        {
+            return;
+        }
+        let Some(body_id) = root.children.iter().copied().find(|&child| {
+            self.nodes[child]
+                .data
+                .is_element_with_tag_name(&local_name!("body"))
+        }) else {
+            return;
+        };
+        if let Some(mut data) = self.nodes[body_id]
+            .try_stylo_element_data_mut()
+            .and_then(|stylo| stylo.get_mut())
+        {
+            data.damage.insert(RestyleDamage::RELAYOUT);
+        }
+    }
+
     pub(crate) fn propagate_damage_flags(&mut self, node_id: NodeId) -> RestyleDamage {
         let own_damage = if let Some(data) = self.nodes[node_id]
             .try_stylo_element_data_mut()
@@ -74,6 +96,10 @@ impl BaseDocument {
             if damage.is_empty() && !node.has_damaged_descendants() && !node.is_anonymous() {
                 return RestyleDamage::empty();
             }
+        }
+
+        if own_damage.contains(RestyleDamage::RELAYOUT) {
+            self.relayout_viewport_body(node_id);
         }
 
         let mut damage_from_children = RestyleDamage::empty();

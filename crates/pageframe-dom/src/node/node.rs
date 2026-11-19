@@ -1206,6 +1206,9 @@ impl Node {
                 flags |= inline_layout.span_cb_flags;
             }
         }
+        if self.overflow_goes_to_viewport() {
+            flags |= stylo_taffy::StyleFlags::OVERFLOW_TO_VIEWPORT;
+        }
 
         let collapsed_border = self.element_data().and_then(|el| el.collapsed_border);
         #[cfg(feature = "writing-mode")]

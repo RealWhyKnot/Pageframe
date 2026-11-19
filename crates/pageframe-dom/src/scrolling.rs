@@ -478,14 +478,10 @@ impl BaseDocument {
                     _ => false,
                 };
                 let (can_x_scroll, can_y_scroll) = node
-                    .primary_styles()
-                    .map(|styles| {
-                        (
-                            scrollable(styles.clone_overflow_x()),
-                            scrollable(styles.clone_overflow_y()),
-                        )
-                    })
-                    .unwrap_or((false, false));
+                    .used_overflow()
+                    .map_or((false, false), |(overflow_x, overflow_y)| {
+                        (scrollable(overflow_x), scrollable(overflow_y))
+                    });
                 let (min, max) = node.scroll_range();
                 let min = Point {
                     x: if can_x_scroll { min.x } else { 0.0 },
