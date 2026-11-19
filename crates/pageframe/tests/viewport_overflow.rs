@@ -108,7 +108,7 @@ fn a_body_whose_overflow_goes_to_the_viewport_is_no_formatting_root_like_chrome(
 
 const TALL: &str = "<!doctype html><style>body{margin:0}</style>\
 <div id=h style=\"overflow:hidden;width:100px;height:100px\"><div style=\"height:300px\"></div></div>\
-<div style=\"width:3000px;height:3000px\"></div>";
+<div id=big style=\"width:3000px;height:3000px\"></div>";
 
 fn scroll(harness: &Harness<Page<()>>) -> (f64, f64) {
     let offset = harness.base().viewport_scroll();
@@ -149,6 +149,20 @@ fn a_hidden_viewport_ignores_the_wheel_but_scrolls_from_script_like_chrome() {
 }
 
 #[test]
+fn a_hidden_viewport_still_clamps_when_its_content_shrinks() {
+    let mut harness = open(TALL);
+    set_style(&mut harness, "html", "overflow:hidden");
+    script_scroll(&mut harness, "html", (100.0, 200.0));
+    harness.set_viewport_size(320, 3050);
+    assert_eq!(scroll(&harness), (100.0, 50.0));
+    harness.set_viewport_size(320, 240);
+    script_scroll(&mut harness, "html", (100.0, 2500.0));
+    set_style(&mut harness, "#big", "width:3000px;height:1000px");
+    harness.wheel_at(200.0, 150.0, 0.0, -60.0);
+    assert_eq!(scroll(&harness), (100.0, 860.0));
+}
+
+#[test]
 fn the_wheel_leaves_a_hidden_box_where_script_scrolled_it() {
     let mut harness = open(TALL);
     script_scroll(&mut harness, "#h", (0.0, 50.0));
@@ -160,4 +174,25 @@ fn the_wheel_leaves_a_hidden_box_where_script_scrolled_it() {
         .scroll_offset()
         .y;
     assert_eq!((offset, scroll(&harness).1), (50.0, 30.0));
+}
+
+#[test]
+fn paint_containment_on_the_root_or_body_bounds_the_viewport_scroll_like_chrome() {
+    let mut harness = open(TALL);
+    for (selector, style, chrome) in [
+        ("html", "contain:paint", (0.0, 200.0)),
+        ("body", "contain:paint", (0.0, 200.0)),
+        ("html", "contain:paint;overflow:hidden", (0.0, 200.0)),
+        ("body", "contain:paint;overflow:hidden", (0.0, 200.0)),
+        ("body", "contain:paint;height:100px", (0.0, 0.0)),
+        ("html", "contain:paint;height:100px", (0.0, 0.0)),
+        ("html", "contain:layout", (0.0, 200.0)),
+        ("body", "contain:layout", (0.0, 200.0)),
+    ] {
+        set_style(&mut harness, selector, style);
+        script_scroll(&mut harness, "html", (100.0, 200.0));
+        assert_eq!(scroll(&harness), chrome, "{selector} {style}");
+        script_scroll(&mut harness, "html", (0.0, 0.0));
+        set_style(&mut harness, selector, "");
+    }
 }

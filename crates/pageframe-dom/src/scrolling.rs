@@ -1,6 +1,7 @@
 //! Scrolling: user-initiated (interactive) and programmatic scrolling of nodes and the
 //! viewport, and the scroll animations (smooth scrolls and flings) which drive them.
 
+use num_traits::ToPrimitive;
 use pageframe_traits::events::{DomEvent, DomEventData, PageframeScrollEvent};
 use pageframe_traits::node_id::NodeId;
 use style::values::computed::Overflow;
@@ -301,13 +302,13 @@ impl BaseDocument {
 
                 if let Some(root) = self.try_root_element() {
                     let root_id = root.id;
-                    let layout = *root.final_layout();
+                    let content = self.viewport_content_size();
                     let scale = self.viewport.scale() as f64;
                     let event = PageframeScrollEvent {
                         scroll_top: offset.y,
                         scroll_left: offset.x,
-                        scroll_width: layout.size.width.max(root.scroll_width()) as i32,
-                        scroll_height: layout.size.height.max(root.scroll_height()) as i32,
+                        scroll_width: content.width.to_i32().unwrap_or(i32::MAX),
+                        scroll_height: content.height.to_i32().unwrap_or(i32::MAX),
                         client_width: (self.viewport.window_size.0 as f64 / scale) as i32,
                         client_height: (self.viewport.window_size.1 as f64 / scale) as i32,
                     };
@@ -446,25 +447,19 @@ impl BaseDocument {
                 // both the root element itself and any content which overflows it (e.g. when
                 // the root element has a fixed height but its content is taller). A document
                 // without a root element has no scrollable content.
-                let (content_width, content_height) = match self.try_root_element() {
-                    Some(root) => {
-                        let layout = root.final_layout();
-                        (
-                            layout.size.width.max(root.scroll_width()) as f64,
-                            layout.size.height.max(root.scroll_height()) as f64,
-                        )
-                    }
-                    None => (0.0, 0.0),
-                };
+                let content = self.viewport_content_size();
+                let (content_width, content_height) =
+                    (f64::from(content.width), f64::from(content.height));
                 let scale = self.viewport.scale() as f64;
                 let window_width = self.viewport.window_size.0 as f64 / scale;
                 let window_height = self.viewport.window_size.1 as f64 / scale;
                 let current = self.viewport_scroll();
                 let (overflow_x, overflow_y) = self.viewport_overflow();
                 let range = |content: f64, window: f64, overflow: Overflow, current: f64| {
+                    let max = (content - window).max(0.0);
                     match include_hidden || !matches!(overflow, Overflow::Hidden | Overflow::Clip) {
-                        true => (0.0, (content - window).max(0.0)),
-                        false => (current, current),
+                        true => (0.0, max),
+                        false => (current.clamp(0.0, max), current.clamp(0.0, max)),
                     }
                 };
                 let (min_x, max_x) = range(content_width, window_width, overflow_x, current.x);
@@ -486,7 +481,7 @@ impl BaseDocument {
                 let range = |overflow: Overflow, min: f64, max: f64, current: f64| match overflow {
                     Overflow::Scroll | Overflow::Auto => (min, max),
                     Overflow::Hidden if include_hidden => (min, max),
-                    Overflow::Hidden => (current, current),
+                    Overflow::Hidden => (current.clamp(min, max), current.clamp(min, max)),
                     _ => (0.0, 0.0),
                 };
                 let (min_x, max_x) = range(overflow_x, min.x, max.x, current.x);
@@ -495,6 +490,27 @@ impl BaseDocument {
                 let max = Point { x: max_x, y: max_y };
                 (current, min, max)
             }
+        }
+    }
+
+    fn viewport_content_size(&self) -> taffy::Size<f32> {
+        use style::values::computed::Contain;
+
+        let Some(root) = self.try_root_element() else {
+            return taffy::Size::ZERO;
+        };
+        let size = root.final_layout().size;
+        let contained = root.primary_styles().is_some_and(|style| {
+            style
+                .clone_contain()
+                .intersects(Contain::LAYOUT | Contain::PAINT)
+        });
+        match contained {
+            true => size,
+            false => taffy::Size {
+                width: size.width.max(root.scroll_width()),
+                height: size.height.max(root.scroll_height()),
+            },
         }
     }
 
