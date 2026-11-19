@@ -399,6 +399,79 @@ fn clicks_at_bidi_run_boundaries_land_in_the_base_direction_run_like_chrome() {
     drop(doc);
 }
 
+#[test]
+fn later_siblings_hit_in_chrome_paint_phase_order() {
+    let text = "<div id=t style=\"width:60px;height:20px\">aaaa bbbb cccc dddd</div>";
+    for (later, text_wins) in [
+        (
+            "<div><div id=l style=\"float:left;width:50px;height:50px\">ffff ffff</div></div>",
+            true,
+        ),
+        (
+            "<div id=l style=\"overflow:hidden;height:60px;text-align:right\">zz</div>",
+            true,
+        ),
+        (
+            "<div style=\"display:table\"><div id=l style=\"display:table-cell;width:50px;height:50px\"></div></div>",
+            true,
+        ),
+        (
+            "<div style=\"overflow:hidden\"><div id=l style=\"height:50px\"></div></div>",
+            true,
+        ),
+        (
+            "<input id=l style=\"display:block;width:50px;height:40px;margin:0\">",
+            true,
+        ),
+        (
+            "<svg id=l style=\"display:block\" width=50 height=50><rect width=50 height=50 /></svg>",
+            false,
+        ),
+        (
+            "<div style=\"display:flex\"><div id=l style=\"width:50px;height:50px\"></div></div>",
+            false,
+        ),
+        (
+            "<div style=\"display:grid\"><div id=l style=\"width:50px;height:50px\"></div></div>",
+            false,
+        ),
+        (
+            "<div><span id=l style=\"display:inline-block;width:50px;height:40px\"></span></div>",
+            false,
+        ),
+        ("<div id=l style=\"opacity:0.5;height:50px\"></div>", false),
+        (
+            "<div id=l style=\"position:relative;height:50px\"></div>",
+            false,
+        ),
+    ] {
+        let html = format!(
+            "<!doctype html><style>html,body{{margin:0;font:14px Arial}}</style>{text}{later}"
+        );
+        let page = App::new((), &html)
+            .page(640, 400)
+            .expect("test pages have valid selectors");
+        let mut harness = Harness::wrap(page);
+        harness.pump();
+        let doc = harness.base();
+        let owner = doc
+            .hit(4.25, 36.25)
+            .and_then(|hit| {
+                let mut node = doc.get_node(hit.node_id);
+                while let Some(current) = node {
+                    if let Some(id) = current.attr(pageframe_dom::local_name!("id")) {
+                        return Some(id.to_string());
+                    }
+                    node = current.parent.and_then(|parent| doc.get_node(parent));
+                }
+                None
+            })
+            .expect("the point is over an element with an id");
+        assert_eq!(owner == "t", text_wins, "{later}");
+        drop(doc);
+    }
+}
+
 fn byte_chars(
     doc: &pageframe_dom::BaseDocument,
     node: pageframe_dom::NodeId,

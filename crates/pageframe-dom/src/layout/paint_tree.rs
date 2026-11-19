@@ -818,14 +818,31 @@ impl Node {
                 .is_some_and(|style| style.clone_float() != Float::None)
     }
 
-    pub fn paints_with_block_backgrounds(&self) -> bool {
-        self.is_static()
-            && !self.is_stacking_context_root(false)
-            && !self.is_paint_layer_root()
-            && self.display_constructed_as().outside() == DisplayOutside::Block
-            && self
-                .primary_styles()
-                .is_some_and(|style| style.clone_float() == Float::None)
+    pub(crate) fn hit_phase(&self) -> Option<HitPhase> {
+        let style = self.primary_styles()?;
+        let in_flex_or_grid = self
+            .layout_parent
+            .get()
+            .and_then(|id| self.tree().get(id))
+            .and_then(|parent| parent.primary_styles())
+            .is_some_and(|parent| {
+                matches!(
+                    parent.clone_display().inside(),
+                    DisplayInside::Flex | DisplayInside::Grid
+                )
+            });
+        let is_svg_or_frame = self.element_data().is_some_and(|element| {
+            &*element.name.local == "svg" || element.sub_doc_data().is_some()
+        });
+        if style.clone_position() != Position::Static
+            || in_flex_or_grid
+            || self.is_stacking_context_root(false)
+            || self.display_constructed_as().outside() == DisplayOutside::Inline
+            || is_svg_or_frame
+        {
+            return Some(HitPhase::Foreground);
+        }
+        (style.clone_float() != Float::None).then_some(HitPhase::Float)
     }
 
     fn is_static(&self) -> bool {
@@ -844,6 +861,13 @@ impl Node {
             Some(_) => Some(hoisted_child_position(self.tree(), painter_id, self.id)),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum HitPhase {
+    BlockBackground,
+    Float,
+    Foreground,
 }
 
 #[inline(always)]

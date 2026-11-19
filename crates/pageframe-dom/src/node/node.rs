@@ -1,6 +1,6 @@
 use crate::Document;
 use crate::document::{ScrollOffsets, ScrollerBox};
-use crate::layout::paint_tree::{HoistedPaintChild, StackingContext};
+use crate::layout::paint_tree::{HitPhase, HoistedPaintChild, StackingContext};
 use bitflags::bitflags;
 use euclid::{Point2D, Rect, Size2D};
 use keyboard_types::Modifiers;
@@ -1665,7 +1665,7 @@ impl Node {
 
         // Call `.hit()` on each child in turn. If any return `Some` then return that value. Else return `Some(self.id).
         let is_inline_root = self.flags.is_inline_root();
-        let mut background = None;
+        let mut deferred: Option<(HitPhase, HitResult)> = None;
         for child_id in self.paint_children.borrow().iter().flatten().rev() {
             let Some(child) = self.tree().get(*child_id) else {
                 continue;
@@ -1676,13 +1676,16 @@ impl Node {
             let Some(hit) = self.hit_paint_child(child, x, y, scale, control) else {
                 continue;
             };
-            if !self.is_block_background_hit(&hit) {
+            let phase = self.hit_phase_below(&hit);
+            if phase == HitPhase::Foreground {
                 return Some(hit);
             }
-            background.get_or_insert(hit);
+            if deferred.as_ref().is_none_or(|(kept, _)| phase > *kept) {
+                deferred = Some((phase, hit));
+            }
         }
-        if background.is_some() {
-            return background;
+        if let Some((_, hit)) = deferred {
+            return Some(hit);
         }
 
         // Negative z_index hoisted children
@@ -1745,21 +1748,23 @@ impl Node {
         None
     }
 
-    fn is_block_background_hit(&self, hit: &HitResult) -> bool {
-        if hit.is_text {
-            return false;
-        }
+    fn hit_phase_below(&self, hit: &HitResult) -> HitPhase {
+        let mut phase = if hit.is_text {
+            HitPhase::Foreground
+        } else {
+            HitPhase::BlockBackground
+        };
         let mut current = self.tree().get(hit.node_id);
         while let Some(node) = current {
             if node.id == self.id {
-                return true;
+                return phase;
             }
-            if !node.paints_with_block_backgrounds() {
-                return false;
+            if let Some(own) = node.hit_phase() {
+                phase = own;
             }
             current = node.layout_parent.get().and_then(|id| self.tree().get(id));
         }
-        false
+        HitPhase::Foreground
     }
 
     fn hit_paint_child(
