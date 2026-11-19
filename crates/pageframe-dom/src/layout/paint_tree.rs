@@ -744,6 +744,35 @@ impl Node {
         opacity
     }
 
+    pub fn inline_ancestor_opacity(&self) -> f32 {
+        if self.oof_containing_block.get().is_some() {
+            return 1.0;
+        }
+        let layout_parent = self.layout_parent.get();
+        let step = |id: Option<NodeId>| {
+            id.filter(|id| Some(*id) != layout_parent)
+                .map(|id| self.with(id))
+        };
+        let mut opacity = 1.0;
+        let mut part = step(self.parent);
+        while let Some(node) = part {
+            let Some(style) = node.primary_styles() else {
+                break;
+            };
+            let display = style.get_box().display;
+            if display.is_contents() {
+                part = step(node.parent);
+                continue;
+            }
+            if !display.is_inline_flow() {
+                break;
+            }
+            opacity *= style.clone_opacity();
+            part = step(node.parent);
+        }
+        opacity
+    }
+
     pub fn removed_cell_opacity(&self) -> f32 {
         let is_item = Node::is_flex_or_grid_item;
         let is_context = self.is_stacking_context_root(is_item(self));

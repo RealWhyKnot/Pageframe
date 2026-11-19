@@ -531,3 +531,31 @@ fn a_span_background_covers_a_preserved_space_that_hangs() {
         assert!(width("white-space:pre-wrap") >= width("") + 5, "{dir}");
     }
 }
+
+#[test]
+fn an_inline_block_fades_with_the_spans_around_it_like_chrome() {
+    let darkest = |open: &str, close: &str| {
+        let buffer = draw(&format!(
+            "<div style=\"line-height:40px\">{open}<i style=\"display:inline-block;\
+             width:20px;height:10px;background:#000\"></i>{close}</div>"
+        ));
+        (0..40)
+            .flat_map(|row| painted(&buffer, row))
+            .map(|(_, colour)| colour[0])
+            .min()
+    };
+    assert_eq!(darkest("", ""), Some(0));
+    let half = darkest("<span style=\"opacity:.5\">", "</span>");
+    assert!(
+        half.is_some_and(|value| (126..=129).contains(&value)),
+        "{half:?}"
+    );
+    let quarter = darkest(
+        "<span style=\"opacity:.5\"><span style=\"opacity:.5\">",
+        "</span></span>",
+    );
+    assert!(
+        quarter.is_some_and(|value| (189..=193).contains(&value)),
+        "{quarter:?}"
+    );
+}
