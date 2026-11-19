@@ -2653,7 +2653,10 @@ impl BaseDocument {
         if let Some(rects) = self.inline_fragment_rects(node_id) {
             return rects.reduce(BoundingRect::union);
         }
+        self.box_client_rect(node_id)
+    }
 
+    fn box_client_rect(&self, node_id: NodeId) -> Option<BoundingRect> {
         let node = self.get_node(node_id)?;
         let (pos, layout) = self.physical_unrounded_geometry(node_id, ScrollOffsets::Applied);
         let size = layout.size;
@@ -2798,7 +2801,7 @@ impl BaseDocument {
         }
         match self.inline_fragment_rects(node_id) {
             Some(rects) => rects.collect(),
-            None => self.get_client_bounding_rect(node_id).into_iter().collect(),
+            None => self.box_client_rect(node_id).into_iter().collect(),
         }
     }
 

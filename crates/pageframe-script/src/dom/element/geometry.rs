@@ -6,7 +6,6 @@ use boa_engine::js_string;
 use boa_engine::object::{JsObject, ObjectInitializer};
 use boa_engine::property::Attribute as PropAttribute;
 use boa_engine::{Context, JsResult, JsValue};
-use pageframe_dom::NodeId;
 
 // === Geometry ===
 
@@ -200,12 +199,6 @@ fn make_rect_object(context: &mut Context, x: f64, y: f64, width: f64, height: f
         .build()
 }
 
-/// Does the node generate any boxes? (`getClientRects()` returns an empty list
-/// for boxless nodes, e.g. `display: none` or detached elements)
-fn node_has_boxes(doc: &pageframe_dom::BaseDocument, node_id: NodeId) -> bool {
-    doc.get_node(node_id).is_some_and(|node| node.has_boxes())
-}
-
 pub(super) fn get_bounding_client_rect(
     this: &JsValue,
     _: &[JsValue],
@@ -234,14 +227,7 @@ pub(super) fn get_client_rects(
     // One rect per box fragment: a single border-box rect for nodes with their
     // own layout box, one rect per line box for non-atomic inline elements,
     // and an empty list for boxless (e.g. `display: none`) elements
-    let rects = {
-        let doc = ctx.doc.borrow();
-        if node_has_boxes(&doc, node_id) {
-            doc.node_client_rects(node_id)
-        } else {
-            Vec::new()
-        }
-    };
+    let rects = ctx.doc.borrow().node_client_rects(node_id);
 
     let rect_objects: Vec<JsValue> = rects
         .into_iter()
