@@ -6,6 +6,7 @@ use pageframe_traits::{
     SmolStr,
     events::{DomEvent, DomEventData, PageframeInputEvent, PageframeKeyEvent},
 };
+use style::invalidation::element::restyle_hints::RestyleHint;
 
 pub(super) enum KeyboardOrTextInputEvent {
     KeyPress(PageframeKeyEvent),
@@ -130,6 +131,9 @@ impl BaseDocument {
         match event {
             GeneratedTextInputEvent::Input => {
                 let value = input_data.value().to_string();
+                if crate::dir_auto::has_auto_direction(element_data) {
+                    node.set_restyle_hint(RestyleHint::RESTYLE_SELF);
+                }
                 dispatch_event(DomEvent::new(
                     node_id,
                     DomEventData::Input(PageframeInputEvent { value }),

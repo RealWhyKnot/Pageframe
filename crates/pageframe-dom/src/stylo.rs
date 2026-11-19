@@ -985,6 +985,12 @@ impl<'a> TElement for PageframeNode<'a> {
             ));
         };
 
+        if crate::dir_auto::has_auto_direction(elem) {
+            push_style(PropertyDeclaration::Direction(
+                crate::dir_auto::auto_direction(self),
+            ));
+        }
+
         fn parse_color_attr(value: &str) -> Option<(u8, u8, u8, f32)> {
             if !value.starts_with('#') {
                 return None;

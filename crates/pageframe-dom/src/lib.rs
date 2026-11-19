@@ -42,6 +42,7 @@ mod config;
 /// CSSOM stylesheet access (`document.styleSheets`, `CSSStyleSheet`, `CSSRule`)
 mod cssom;
 mod debug;
+mod dir_auto;
 mod disabled;
 mod events;
 mod font_metrics;

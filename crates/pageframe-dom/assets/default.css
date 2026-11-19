@@ -17,8 +17,6 @@
  * spec's bidi rendering section rather than Gecko's internal pseudo-classes
  * (:-moz-dir-attr-rtl and friends), which this engine's selector parser
  * does not know: it dropped these rules, and the dir attribute did nothing.
- * dir=auto keeps its isolation but not the content-based direction, which
- * needs bidi analysis no selector can express.
  */
 
 [dir="ltr" i] {
@@ -460,8 +458,8 @@ bdo[dir] {
     unicode-bidi: isolate-override;
 }
 
-textarea:-moz-dir-attr-like-auto,
-pre:-moz-dir-attr-like-auto {
+textarea[dir="auto" i],
+pre[dir="auto" i] {
     unicode-bidi: plaintext;
 }
 

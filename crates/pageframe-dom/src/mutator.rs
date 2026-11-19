@@ -280,6 +280,9 @@ impl DocumentMutator<'_> {
             }
 
             self.maybe_record_node(parent_id);
+            if node_is_in_document {
+                self.restyle_auto_direction_ancestors(parent_id);
+            }
         }
     }
 
@@ -305,6 +308,9 @@ impl DocumentMutator<'_> {
                 }
                 if let Some(parent_id) = parent_id {
                     self.doc.nodes[parent_id].insert_damage(ALL_DAMAGE);
+                }
+                if node_is_in_document {
+                    self.restyle_auto_direction_ancestors(parent_id);
                 }
                 Ok(())
             }
@@ -757,6 +763,9 @@ impl DocumentMutator<'_> {
     /// whose selectors depend on the attribute. `style`, `class` and `id` reach layout only
     /// through the computed style (whose diff yields the damage); other attributes may not.
     fn restyle_for_attribute_change(&mut self, node_id: NodeId, attr: &LocalName) {
+        if *attr == local_name!("dir") {
+            self.restyle_auto_direction_ancestors(self.doc.nodes[node_id].parent);
+        }
         let node = &mut self.doc.nodes[node_id];
         let is_style = *attr == local_name!("style");
         // Attributes that box construction or layout read directly. Any other attribute only
@@ -884,6 +893,26 @@ impl DocumentMutator<'_> {
         // The traversal only descends into an element flagged as having dirty descendants.
         parent.set_dirty_descendants();
         parent.mark_ancestors_dirty();
+        self.restyle_auto_direction_ancestors(Some(parent_id));
+    }
+
+    fn restyle_auto_direction_ancestors(&mut self, start_id: Option<NodeId>) {
+        let mut current = start_id;
+        while let Some(id) = current {
+            let node = &mut self.doc.nodes[id];
+            let Some(element) = node.element_data() else {
+                break;
+            };
+            let is_auto = crate::dir_auto::has_auto_direction(element);
+            let blocks = crate::dir_auto::blocks_auto_direction(element);
+            if is_auto {
+                node.set_restyle_hint(RestyleHint::RESTYLE_SELF);
+            }
+            if blocks {
+                break;
+            }
+            current = node.parent;
+        }
     }
 
     // Tree mutation methods
