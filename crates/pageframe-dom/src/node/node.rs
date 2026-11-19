@@ -873,7 +873,7 @@ impl Node {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum LineAxes {
+pub(super) enum LineAxes {
     Level,
     Clockwise(f32),
     CounterClockwise(f32),
@@ -1701,30 +1701,13 @@ impl Node {
         if self.flags.is_inline_root() {
             let x = x - content_box_offset.x;
             let y = y - content_box_offset.y;
-            let element_data = &self.element_data().unwrap();
-            if let Some(ild) = element_data.inline_layout_data.as_ref() {
-                let layout = &ild.layout;
-                let scale = layout.scale();
-                let (inline, block) = self.inline_layout_point(ild.block_offset, x, y);
-
-                if let Some((cluster, _side)) =
-                    Cluster::from_point_exact(layout, inline * scale, block * scale)
-                {
-                    let node_id = cluster.style().brush.id;
-                    if let Some(text_node) = self.tree().get(node_id)
-                        && !text_node.primary_styles().is_some_and(|style| {
-                            style.clone_pointer_events() == PointerEvents::None
-                                || style.clone_visibility() != Visibility::Visible
-                        })
-                    {
-                        return Some(HitResult {
-                            node_id,
-                            x,
-                            y,
-                            is_text: true,
-                        });
-                    }
-                }
+            if let Some(hit) = self.inline_hit(x + content_box_offset.x, y + content_box_offset.y) {
+                return Some(HitResult {
+                    node_id: hit.node_id,
+                    x,
+                    y,
+                    is_text: hit.is_text,
+                });
             }
             for child_id in self.paint_children.borrow().iter().flatten().rev() {
                 let Some(child) = self.tree().get(*child_id) else {
@@ -1892,7 +1875,7 @@ impl Node {
         Some(offset)
     }
 
-    fn line_axes(&self) -> LineAxes {
+    pub(super) fn line_axes(&self) -> LineAxes {
         let Some(writing_mode) = self.primary_styles().map(|style| style.writing_mode) else {
             return LineAxes::Level;
         };
@@ -1927,7 +1910,11 @@ impl Node {
         (inline, block - block_offset)
     }
 
-    fn inline_layout_rect(&self, block_offset: f32, rect: taffy::Rect<f32>) -> taffy::Rect<f32> {
+    pub(super) fn inline_layout_rect(
+        &self,
+        block_offset: f32,
+        rect: taffy::Rect<f32>,
+    ) -> taffy::Rect<f32> {
         let top = rect.top + block_offset;
         let bottom = rect.bottom + block_offset;
         match self.line_axes() {
@@ -2087,7 +2074,7 @@ impl Node {
         }
     }
 
-    fn block_edges(&self, basis: f32) -> taffy::Rect<f32> {
+    pub(super) fn block_edges(&self, basis: f32) -> taffy::Rect<f32> {
         use style::values::computed::{BorderSideWidth, CSSPixelLength};
         use style::values::specified::border::BorderStyle;
 
@@ -2128,8 +2115,6 @@ impl Node {
         &self,
         font: Option<FontExtent>,
     ) -> Option<impl Iterator<Item = taffy::Rect<f32>> + '_> {
-        use parley::PositionedLayoutItem;
-
         if !self.is_non_atomic_inline() {
             return None;
         }
@@ -2137,11 +2122,11 @@ impl Node {
         let inline_root = self.inline_root_ancestor()?;
         let inline_layout = inline_root.element_data()?.inline_layout_data.as_ref()?;
         let layout = &inline_layout.layout;
-        let scale = layout.scale();
+        let geometry = inline_root.span_geometry()?;
 
         let inline_root_id = inline_root.id;
-        let chain_to = move |mut id: NodeId| -> Option<smallvec::SmallVec<[NodeId; 4]>> {
-            let mut chain = smallvec::SmallVec::new();
+        let chain_to = move |mut id: NodeId| -> Option<super::inline_hit::SpanChain> {
+            let mut chain = super::inline_hit::SpanChain::new();
             loop {
                 chain.push(id);
                 if id == self.id {
@@ -2154,128 +2139,26 @@ impl Node {
             }
         };
 
-        let root_layout = inline_root.unrounded_layout();
-        let content_box_inset = root_layout.padding + root_layout.border;
-        let block_offset = inline_layout.block_offset;
-
-        let edges = self.block_edges(inline_layout.percent_basis);
-        let (over, under) = match inline_root.line_axes() {
-            LineAxes::Clockwise(_) => (edges.right, edges.left),
-            LineAxes::CounterClockwise(_) => (edges.left, edges.right),
-            LineAxes::Level => (edges.top, edges.bottom),
-        };
-
         let is_rtl = layout.is_rtl();
-        let shift = self.inline_relative_shift();
-        let percent_basis = inline_layout.percent_basis;
         let text = inline_layout.text.as_str();
 
         Some(layout.lines().filter_map(move |line| {
-            let line_metrics = line.metrics();
+            let metrics = line.metrics();
             let trim = crate::inline_trim::LineTrim::new(inline_root, &line, text, is_rtl);
-            let mut spans: smallvec::SmallVec<[crate::inline_trim::LineSpan<f32>; 4]> =
-                smallvec::SmallVec::new();
-            let mut own: Option<(f32, FontExtent)> = None;
-
-            for item in line.items() {
-                let (owner, start, end, run_text) = match item {
-                    PositionedLayoutItem::GlyphRun(glyph_run) => {
-                        let owner = glyph_run.style().brush.id;
-                        let run_text = text.get(glyph_run.run().text_range()).unwrap_or_default();
-                        if owner == self.id {
-                            let metrics = glyph_run.run().font_metrics();
-                            own.get_or_insert((
-                                glyph_run.baseline(),
-                                FontExtent {
-                                    ascent: metrics.ascent,
-                                    descent: metrics.descent,
-                                },
-                            ));
-                        }
-                        let start = glyph_run.offset();
-                        (owner, start, start + glyph_run.advance(), run_text)
-                    }
-                    PositionedLayoutItem::InlineBox(inline_box) => (
-                        NodeId::from_u64(inline_box.id),
-                        inline_box.x,
-                        inline_box.x + inline_box.width,
-                        "",
-                    ),
-                };
-                let Some(chain) = chain_to(owner) else {
-                    continue;
-                };
-                let (start, end) = if trim.is_hung(start, end) {
-                    (f32::INFINITY, f32::NEG_INFINITY)
-                } else {
-                    (start, end)
-                };
-                for (position, node_id) in chain.into_iter().enumerate() {
-                    let index = match spans.iter().position(|span| span.node_id == node_id) {
-                        Some(index) => index,
-                        None => {
-                            spans.push(crate::inline_trim::LineSpan {
-                                node_id,
-                                left: start,
-                                right: end,
-                                is_start: false,
-                                is_end: false,
-                            });
-                            spans.len() - 1
-                        }
-                    };
-                    let span = &mut spans[index];
-                    span.left = span.left.min(start);
-                    span.right = span.right.max(end);
-                    if position == 0 {
-                        span.is_start |= run_text.starts_with(crate::util::INLINE_EDGE_START);
-                        span.is_end |= run_text.ends_with(crate::util::INLINE_EDGE_END);
-                    }
-                }
-            }
-            crate::inline_trim::settle_line_spans(
+            let found = inline_root.collect_line_spans(&line, &trim, &geometry, chain_to);
+            let span = found.spans.iter().find(|span| span.node_id == self.id)?;
+            let own = found.own(self.id);
+            let extent = match font {
+                Some(font) => Some((own.map_or(metrics.baseline, |(baseline, _)| baseline), font)),
+                None => own,
+            };
+            Some(self.line_span_rect(
                 inline_root,
-                &mut spans,
-                &trim,
-                percent_basis,
-                scale,
-            );
-            let span = spans
-                .iter()
-                .find(|span| span.node_id == self.id)
-                .map(|span| (span.left, span.right));
-
-            let baseline = own.map_or(line_metrics.baseline, |(baseline, _)| baseline);
-            let (top, bottom) = font.or(own.map(|(_, extent)| extent)).map_or(
-                (line_metrics.block_min_coord, line_metrics.block_max_coord),
-                |extent| {
-                    (
-                        baseline - extent.ascent.round(),
-                        baseline + extent.descent.round(),
-                    )
-                },
-            );
-            span.map(|(left, right)| taffy::Rect {
-                left,
-                top: top - over * scale,
-                right,
-                bottom: bottom + under * scale,
-            })
-            .map(|rect| {
-                let unscaled = taffy::Rect {
-                    left: rect.left / scale,
-                    top: rect.top / scale,
-                    right: rect.right / scale,
-                    bottom: rect.bottom / scale,
-                };
-                let physical = inline_root.inline_layout_rect(block_offset, unscaled);
-                taffy::Rect {
-                    left: content_box_inset.left + physical.left + shift.0,
-                    top: content_box_inset.top + physical.top + shift.1,
-                    right: content_box_inset.left + physical.right + shift.0,
-                    bottom: content_box_inset.top + physical.bottom + shift.1,
-                }
-            })
+                metrics,
+                extent,
+                (span.left, span.right),
+                &geometry,
+            ))
         }))
     }
 

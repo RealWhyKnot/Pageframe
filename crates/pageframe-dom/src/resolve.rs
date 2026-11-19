@@ -254,6 +254,14 @@ impl BaseDocument {
             overflow = overflow.union(child_rect_in_self);
         }
 
+        if let Some(bounds) = self.nodes[node_id].shifted_inline_bounds() {
+            overflow = overflow.union(Rect::new(
+                f64::from(bounds.left) * scale,
+                f64::from(bounds.top) * scale,
+                f64::from(bounds.right) * scale,
+                f64::from(bounds.bottom) * scale,
+            ));
+        }
         *self.nodes[node_id].scrollable_overflow_mut() = overflow;
         *self.nodes[node_id].layout_children.get_mut() = layout_children;
 
