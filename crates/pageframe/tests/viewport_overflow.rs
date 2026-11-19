@@ -101,4 +101,7 @@ fn a_body_whose_overflow_goes_to_the_viewport_is_no_formatting_root_like_chrome(
     assert_eq!(body_box(&harness), (30.0, 20.0));
     set_style(&mut harness, "body", "contain:paint");
     assert_eq!(body_box(&harness), (0.0, 90.0));
+    set_style(&mut harness, "body", "");
+    set_style(&mut harness, "html", "contain:paint");
+    assert_eq!(body_box(&harness), (0.0, 90.0));
 }

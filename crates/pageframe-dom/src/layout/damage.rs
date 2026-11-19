@@ -44,15 +44,6 @@ pub(crate) const ALL_DAMAGE: RestyleDamage =
     RestyleDamage::from_bits_retain(0b_0000_0000_1110_1111);
 
 impl BaseDocument {
-    /// Union `RestyleDamage` up the tree and clear the layout caches of every
-    /// node whose subtree needs relayout.
-    ///
-    /// Damage is stored on (styled) DOM nodes, so this pass walks the DOM tree
-    /// (`children` + `::before`/`::after`): `display:contents` nodes and the
-    /// inline descendants of inline roots carry damage but are not layout
-    /// children. Owned anonymous boxes are refreshed through `anonymous_blocks`,
-    /// without revisiting their DOM children. Damage inside an anonymous box
-    /// also invalidates its cache by walking `layout_parent` upward.
     fn relayout_viewport_body(&mut self, root_id: NodeId) {
         let root = &self.nodes[root_id];
         if root
@@ -76,6 +67,15 @@ impl BaseDocument {
         }
     }
 
+    /// Union `RestyleDamage` up the tree and clear the layout caches of every
+    /// node whose subtree needs relayout.
+    ///
+    /// Damage is stored on (styled) DOM nodes, so this pass walks the DOM tree
+    /// (`children` + `::before`/`::after`): `display:contents` nodes and the
+    /// inline descendants of inline roots carry damage but are not layout
+    /// children. Owned anonymous boxes are refreshed through `anonymous_blocks`,
+    /// without revisiting their DOM children. Damage inside an anonymous box
+    /// also invalidates its cache by walking `layout_parent` upward.
     pub(crate) fn propagate_damage_flags(&mut self, node_id: NodeId) -> RestyleDamage {
         let own_damage = if let Some(data) = self.nodes[node_id]
             .try_stylo_element_data_mut()
