@@ -1079,7 +1079,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                         DeferredPaint::Element {
                             level: ElementLevel::Positioned,
                             ..
-                        }
+                        } | DeferredPaint::InlineLayer { .. }
                     )
                 });
             let mut batch = if foregrounds.is_empty() {
@@ -1115,6 +1115,22 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                         clip_rect,
                         ..
                     } => self.render_node(scene, node_id, transform, clip_rect),
+                    DeferredPaint::InlineLayer {
+                        root,
+                        layer,
+                        transform,
+                    } => {
+                        let node = &self.dom.as_ref().tree()[root];
+                        let transform = self.node_transform(node, transform);
+                        let layout = *node.final_layout();
+                        let cx = self.element_cx(node, layout, transform, None);
+                        let edges = (layout.padding + layout.border).map(f64::from);
+                        cx.draw_inline_layout_in(
+                            scene,
+                            Point::new(edges.left, edges.top),
+                            Some(layer),
+                        );
+                    }
                 }
             }
         }
@@ -1286,6 +1302,11 @@ pub(crate) enum DeferredPaint {
         transform: Affine,
         clip_rect: Rect,
         level: ElementLevel,
+    },
+    InlineLayer {
+        root: NodeId,
+        layer: NodeId,
+        transform: Affine,
     },
 }
 
@@ -1626,6 +1647,10 @@ impl ElementCx<'_, '_> {
     }
 
     fn draw_inline_layout(&self, scene: &mut impl PaintScene, pos: Point) {
+        self.draw_inline_layout_in(scene, pos, None);
+    }
+
+    fn draw_inline_layout_in(&self, scene: &mut impl PaintScene, pos: Point, only: Option<NodeId>) {
         if self.node.flags.is_inline_root() {
             let text_layout = self.element
                 .inline_layout_data
@@ -1708,8 +1733,18 @@ impl ElementCx<'_, '_> {
                 visible_lines,
                 ellipsis,
             };
-            self.draw_inline_group(scene, transform, pass, None);
-            for group in groups.iter().filter(|group| group.parent.is_none()) {
+            if only.is_none() {
+                self.draw_inline_group(scene, transform, pass, None);
+            }
+            let is_drawn = |group: &&PaintGroup| match only {
+                Some(layer) => group.id == layer,
+                None => !self.node.flags.hoists_inline_layers(),
+            };
+            for group in groups
+                .iter()
+                .filter(|group| group.parent.is_none())
+                .filter(is_drawn)
+            {
                 self.draw_paint_group(scene, transform, pass, &groups, group);
             }
         }
@@ -2332,6 +2367,18 @@ impl ElementCx<'_, '_> {
                 }
                 let child = &self.context.dom.as_ref().tree()[*child_id];
                 if self.is_float_under_text(child) {
+                    continue;
+                }
+                if child.is_hoisted_inline_layer() {
+                    if let Some(root) = child.inline_root_ancestor() {
+                        self.context.deferred_paints.borrow_mut().push(
+                            DeferredPaint::InlineLayer {
+                                root: root.id,
+                                layer: *child_id,
+                                transform: self.child_transform(root, parent_style_transform),
+                            },
+                        );
+                    }
                     continue;
                 }
                 let child_transform = self.child_transform(child, parent_style_transform);

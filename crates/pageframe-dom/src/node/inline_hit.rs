@@ -46,6 +46,13 @@ fn takes_pointer(node: &Node) -> bool {
     })
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum InlineScope {
+    All,
+    Flow,
+    Layer(NodeId),
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct HitOrder {
     is_layered: bool,
@@ -362,6 +369,7 @@ impl Node {
         x: f32,
         y: f32,
         probe: &super::hit_probe::HitProbe,
+        scope: InlineScope,
     ) -> Option<InlineHit> {
         let inline_layout = self.element_data()?.inline_layout_data.as_ref()?;
         let layout = &inline_layout.layout;
@@ -380,8 +388,20 @@ impl Node {
                 depth: chain.len(),
             }
         };
+        let in_scope = |id: NodeId| match scope {
+            InlineScope::All => true,
+            InlineScope::Flow => !self
+                .span_chain(id)
+                .unwrap_or_default()
+                .iter()
+                .any(|id| tree.get(*id).is_some_and(Node::starts_inline_layer)),
+            InlineScope::Layer(layer) => self.span_chain(id).unwrap_or_default().contains(&layer),
+        };
         let mut best: Option<(HitOrder, InlineHit)> = None;
         let mut offer = |key: HitOrder, hit: InlineHit| {
+            if !in_scope(hit.node_id) {
+                return;
+            }
             if best.as_ref().is_none_or(|(known, _)| key >= *known) {
                 best = Some((key, hit));
             }

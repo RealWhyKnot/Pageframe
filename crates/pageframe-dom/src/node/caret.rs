@@ -318,6 +318,7 @@ impl Node {
                 x,
                 y,
                 &super::hit_probe::HitProbe::device_pixel(f64::from(geometry.scale)),
+                super::inline_hit::InlineScope::All,
             )
             .filter(|hit| hit.is_text)
             .and_then(|hit| self.tree().get(hit.node_id))

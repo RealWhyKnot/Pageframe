@@ -113,13 +113,28 @@ fn layout_index(doc: &HtmlDocument, parent: NodeId, child: NodeId) -> usize {
         .borrow()
         .as_ref()
         .and_then(|children| children.iter().position(|id| *id == child))
-        .unwrap_or_else(|| {
-            panic!(
-                "{} is not a layout child of {}",
-                describe(doc, child),
-                describe(doc, parent)
-            )
-        })
+        .unwrap_or_else(|| usize::MAX - inline_index(doc, parent, child))
+}
+
+fn inline_index(doc: &HtmlDocument, parent: NodeId, child: NodeId) -> usize {
+    let is_span = doc
+        .get_node(child)
+        .is_some_and(|node| node.is_non_atomic_inline());
+    let mut stack = vec![parent];
+    let mut index = 0;
+    while let Some(id) = stack.pop() {
+        if id == child && is_span {
+            return index;
+        }
+        index += 1;
+        let node = doc.get_node(id).expect("the walk only visits live nodes");
+        stack.extend(node.children.iter().rev());
+    }
+    panic!(
+        "{} is not a layout child of {}",
+        describe(doc, child),
+        describe(doc, parent)
+    )
 }
 
 /// Layout-tree path (child indices) from `ancestor` down to `node`.

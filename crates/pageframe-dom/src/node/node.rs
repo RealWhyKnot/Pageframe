@@ -63,6 +63,7 @@ bitflags! {
         const IS_IN_DOCUMENT = 0b00000100;
         /// Whether the node is an inline box whose in-flow content is block-level only
         const IS_INLINE_WITH_ONLY_BLOCK_CHILDREN = 0b00001000;
+        const HOISTS_INLINE_LAYERS = 0b00010000;
     }
 }
 
@@ -80,6 +81,11 @@ impl NodeFlags {
     #[inline(always)]
     pub fn is_in_document(&self) -> bool {
         self.contains(Self::IS_IN_DOCUMENT)
+    }
+
+    #[inline(always)]
+    pub fn hoists_inline_layers(&self) -> bool {
+        self.contains(Self::HOISTS_INLINE_LAYERS)
     }
 
     #[inline(always)]
@@ -1791,9 +1797,16 @@ impl Node {
         if self.flags.is_inline_root() {
             let x = x - content_box_offset.x;
             let y = y - content_box_offset.y;
-            if let Some(hit) =
-                self.inline_hit(x + content_box_offset.x, y + content_box_offset.y, &probe)
-            {
+            let scope = match self.flags.hoists_inline_layers() {
+                true => super::inline_hit::InlineScope::Flow,
+                false => super::inline_hit::InlineScope::All,
+            };
+            if let Some(hit) = self.inline_hit(
+                x + content_box_offset.x,
+                y + content_box_offset.y,
+                &probe,
+                scope,
+            ) {
                 let hit = HitResult {
                     node_id: hit.node_id,
                     x,
@@ -1853,6 +1866,9 @@ impl Node {
         probe: super::hit_probe::HitProbe,
         control: &mut Option<crate::node::OverflowControl>,
     ) -> Option<(HitResult, HitPhase)> {
+        if child.is_hoisted_inline_layer() {
+            return self.hit_inline_layer(child, x, y, probe);
+        }
         let child_position = child.taffy_position();
         let mut child_x = x;
         let mut child_y = y;
@@ -1867,6 +1883,37 @@ impl Node {
             child_y -= offset.y;
         }
         child.hit_phased(child_x, child_y, probe, control)
+    }
+
+    fn hit_inline_layer(
+        &self,
+        layer: &Node,
+        x: f32,
+        y: f32,
+        probe: super::hit_probe::HitProbe,
+    ) -> Option<(HitResult, HitPhase)> {
+        let root = layer.inline_root_ancestor()?;
+        let offset = root
+            .lifted_paint_offset(self.id)
+            .unwrap_or(taffy::Point::ZERO);
+        let layout = root.final_layout();
+        let x = x - offset.x - layout.location.x;
+        let y = y - offset.y - layout.location.y;
+        let hit = root.inline_hit(
+            x,
+            y,
+            &probe,
+            super::inline_hit::InlineScope::Layer(layer.id),
+        )?;
+        Some((
+            HitResult {
+                node_id: hit.node_id,
+                x: x - layout.padding.left - layout.border.left,
+                y: y - layout.padding.top - layout.border.top,
+                is_text: hit.is_text,
+            },
+            HitPhase::Positioned,
+        ))
     }
 
     /// Find the inline root ancestor of this node (or self if this is an inline root).
@@ -2092,6 +2139,24 @@ impl Node {
             let display = styles.clone_display();
             display.outside() == DisplayOutside::Inline && display.inside() == DisplayInside::Flow
         })
+    }
+
+    pub fn starts_inline_layer(&self) -> bool {
+        self.is_non_atomic_inline()
+            && self.primary_styles().is_some_and(|style| {
+                style.get_effects().opacity < 1.0
+                    || style.clone_position() != style::computed_values::position::T::Static
+            })
+    }
+
+    pub fn is_hoisted_inline_layer(&self) -> bool {
+        !self.is_inline_with_only_block_children()
+            && self.starts_inline_layer()
+            && self
+                .layout_parent
+                .get()
+                .and_then(|id| self.tree().get(id))
+                .is_some_and(|root| root.flags.hoists_inline_layers())
     }
 
     pub(crate) fn inline_ruby_baseline(&self) -> Option<f32> {

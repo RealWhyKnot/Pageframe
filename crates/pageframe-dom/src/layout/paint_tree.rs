@@ -15,7 +15,7 @@ use stylo_taffy::CopyStyleGetters;
 use thin_vec::ThinVec;
 
 use crate::layout::damage::ALL_DAMAGE;
-use crate::node::SpecialElementData;
+use crate::node::{NodeFlags, SpecialElementData};
 use crate::tree::NodeTree;
 use crate::{BaseDocument, Node};
 use style::properties::generated::longhands::position::computed_value::T as Position;
@@ -411,8 +411,19 @@ impl BaseDocument {
             let is_layer_root = stacking_context.is_none()
                 || (self.nodes[node_id].is_paint_layer_root() && !in_removed_column);
             let keyed_base = self.scratch.keyed_children.len();
+            let layers = match is_layer_root || self.nodes[node_id].columns().is_some() {
+                true => Vec::new(),
+                false => self.inline_layers(node_id).unwrap_or_default(),
+            };
+            let mut next_layer = 0;
 
             for (index, &child_id) in children.iter().enumerate() {
+                while let Some(&(anchor, layer)) = layers.get(next_layer)
+                    && anchor == Some(child_id)
+                {
+                    entries.push(HoistedPaintChild::new(layer, 0));
+                    next_layer += 1;
+                }
                 if owned_here(self, child_id) {
                     let removed_column =
                         self.nodes[node_id].element_data().is_some_and(|element| {
@@ -512,6 +523,12 @@ impl BaseDocument {
             for &(_, hoisted_id) in &hoisted_past_parent[next_hoisted..] {
                 self.attach_hoisted_past_parent(hoisted_id, is_flex_or_grid, &mut entries);
             }
+            for &(_, layer) in layers.get(next_layer..).unwrap_or_default() {
+                entries.push(HoistedPaintChild::new(layer, 0));
+            }
+            self.nodes[node_id]
+                .flags
+                .set(NodeFlags::HOISTS_INLINE_LAYERS, !layers.is_empty());
 
             self.scratch.keyed_children[keyed_base..].sort_by_key(|&(paint_order, _)| paint_order);
 
@@ -542,6 +559,60 @@ impl BaseDocument {
             node.sc_contribution_cache.borrow_mut().clear();
             node.stacking_context = Some(Box::new(StackingContext::from_children(entries)));
         }
+    }
+
+    fn inline_layers(&self, root_id: NodeId) -> Option<Vec<(Option<NodeId>, NodeId)>> {
+        let root = &self.nodes[root_id];
+        if !root.flags.is_inline_root() {
+            return None;
+        }
+        let mut layers: Vec<(Option<NodeId>, NodeId)> = Vec::new();
+        let mut anchored = 0;
+        let mut stack: Vec<(NodeId, bool)> = Vec::new();
+        let push_children = |stack: &mut Vec<(NodeId, bool)>, node: &Node, in_layer: bool| {
+            let children = node
+                .before()
+                .into_iter()
+                .chain(node.children.iter().copied())
+                .chain(node.after());
+            let start = stack.len();
+            stack.extend(children.map(|child| (child, in_layer)));
+            stack[start..].reverse();
+        };
+        push_children(&mut stack, root, false);
+        while let Some((id, in_layer)) = stack.pop() {
+            let Some(node) = self.nodes.get(id) else {
+                continue;
+            };
+            if node.element_data().is_none() {
+                continue;
+            }
+            let display = node.display_style();
+            let outside = display.map(|display| display.outside());
+            let inside = display.map(|display| display.inside());
+            if outside == Some(DisplayOutside::None) {
+                if inside == Some(DisplayInside::Contents) {
+                    push_children(&mut stack, node, in_layer);
+                }
+                continue;
+            }
+            if node.is_non_atomic_inline() {
+                let starts = !in_layer && node.starts_inline_layer();
+                if starts {
+                    layers.push((None, id));
+                }
+                push_children(&mut stack, node, in_layer || starts);
+                continue;
+            }
+            if in_layer {
+                return None;
+            }
+            for layer in layers.get_mut(anchored..).unwrap_or_default() {
+                layer.0 = Some(id);
+            }
+            anchored = layers.len();
+        }
+        (!layers.is_empty()).then_some(layers)
     }
 
     /// The layout child of `node_id` whose subtree contains `id`, following
