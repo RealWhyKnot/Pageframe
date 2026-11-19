@@ -446,3 +446,27 @@ fn an_absolute_box_fades_with_its_relative_span_like_chrome() {
         "left of the box"
     );
 }
+
+#[test]
+fn an_absolute_box_fades_with_every_span_it_escapes_like_chrome() {
+    let page = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial;color:#fff}\
+i{position:absolute;background:#000;width:10px;height:6px}div{position:relative;height:16px}</style>\
+<div><span style=\"opacity:.5\">a<i style=\"left:0;top:8px\"></i></span></div>\
+<div><p style=\"margin:0\"><span style=\"opacity:.5\">a<i style=\"left:20px;top:8px\"></i></span></p></div>\
+<div><span style=\"opacity:.5\"><span style=\"opacity:.5\">a<i style=\"left:40px;top:8px\"></i></span></span></div>\
+<div><span style=\"opacity:.5;position:relative\">a<b style=\"display:inline-block;width:0\">\
+<i style=\"left:60px;top:8px\"></i></b></span></div>\
+<p style=\"margin:0;height:16px\"><span style=\"opacity:.5\">a<i style=\"left:80px;top:70px\"></i></span></p>";
+    let mut harness = open(App::new((), page));
+    let frame = render(&mut harness);
+    let shade = |x: usize, y: usize| pixel(&frame, x, y)[0];
+    let faded = |value: u8| (126..=129).contains(&value);
+    assert!(faded(shade(5, 11)), "block is the containing block");
+    assert!(
+        faded(shade(25, 27)),
+        "an outer block is the containing block"
+    );
+    assert!((189..=193).contains(&shade(45, 43)), "two nested spans");
+    assert!(faded(shade(65, 59)), "escapes an inline-block");
+    assert!(faded(shade(85, 73)), "the viewport is the containing block");
+}

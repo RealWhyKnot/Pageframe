@@ -746,17 +746,12 @@ impl Node {
 
     pub fn inline_ancestor_opacity(&self) -> f32 {
         let layout_parent = self.layout_parent.get();
-        if self
+        let escaped_block = self
             .oof_containing_block
             .get()
-            .is_some_and(|block| Some(block) != layout_parent)
-        {
-            return 1.0;
-        }
-        let step = |id: Option<NodeId>| {
-            id.filter(|id| Some(*id) != layout_parent)
-                .map(|id| self.with(id))
-        };
+            .filter(|block| Some(*block) != layout_parent && !self.stays_in_ancestor_group());
+        let stop = escaped_block.or(layout_parent);
+        let step = |id: Option<NodeId>| id.filter(|id| Some(*id) != stop).map(|id| self.with(id));
         let mut opacity = 1.0;
         let mut part = step(self.parent);
         while let Some(node) = part {
@@ -768,10 +763,11 @@ impl Node {
                 part = step(node.parent);
                 continue;
             }
-            if !display.is_inline_flow() {
+            if display.is_inline_flow() {
+                opacity *= style.clone_opacity();
+            } else if escaped_block.is_none() {
                 break;
             }
-            opacity *= style.clone_opacity();
             part = step(node.parent);
         }
         opacity
