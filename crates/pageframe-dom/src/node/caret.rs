@@ -166,17 +166,16 @@ struct RunSpan {
     left: f32,
     right: f32,
     text: std::ops::Range<usize>,
-    is_rtl: Option<bool>,
+    is_rtl: bool,
 }
 
 impl RunSpan {
-    fn offset_at(&self, side: LineEdge) -> Option<usize> {
-        let is_rtl = self.is_rtl?;
-        Some(if (side == LineEdge::Left) == is_rtl {
+    fn offset_at(&self, side: LineEdge) -> usize {
+        if (side == LineEdge::Left) == self.is_rtl {
             self.text.end
         } else {
             self.text.start
-        })
+        }
     }
 }
 
@@ -193,7 +192,7 @@ pub(super) fn base_run_offset(
                 left: glyph_run.offset(),
                 right: glyph_run.offset() + glyph_run.advance(),
                 text: glyph_run.text_range(),
-                is_rtl: Some(glyph_run.run().is_line_rtl()),
+                is_rtl: glyph_run.run().is_line_rtl(),
             }),
             PositionedLayoutItem::InlineBox(inline_box)
                 if inline_box.kind == InlineBoxKind::InFlow =>
@@ -201,8 +200,8 @@ pub(super) fn base_run_offset(
                 Some(RunSpan {
                     left: inline_box.x,
                     right: inline_box.x + inline_box.width,
-                    text: 0..0,
-                    is_rtl: None,
+                    text: inline_box.index..inline_box.index,
+                    is_rtl: inline_box.is_rtl,
                 })
             }
             PositionedLayoutItem::InlineBox(_) => None,
@@ -215,15 +214,12 @@ pub(super) fn base_run_offset(
         return offset;
     };
     let hit = &spans[index];
-    let Some(hit_is_rtl) = hit.is_rtl else {
-        return offset;
-    };
-    if hit_is_rtl == base_is_rtl {
+    if hit.is_rtl == base_is_rtl {
         return offset;
     }
-    let neighbour = if hit.offset_at(LineEdge::Left) == Some(offset) {
+    let neighbour = if hit.offset_at(LineEdge::Left) == offset {
         index.checked_sub(1).map(|before| (before, LineEdge::Right))
-    } else if hit.offset_at(LineEdge::Right) == Some(offset) {
+    } else if hit.offset_at(LineEdge::Right) == offset {
         Some((index + 1, LineEdge::Left))
     } else {
         None
@@ -231,9 +227,22 @@ pub(super) fn base_run_offset(
     neighbour
         .and_then(|(index, side)| {
             let span = spans.get(index)?;
-            (span.is_rtl? == base_is_rtl).then(|| span.offset_at(side))?
+            (span.is_rtl == base_is_rtl).then(|| span.offset_at(side))
         })
         .unwrap_or(offset)
+}
+
+pub(super) fn inline_box_offset_at(line: &Line<'_, TextBrush>, inline: f32) -> Option<usize> {
+    line.items().find_map(|item| match item {
+        PositionedLayoutItem::InlineBox(inline_box)
+            if inline_box.kind == InlineBoxKind::InFlow
+                && inline_box.x <= inline
+                && inline < inline_box.x + inline_box.width =>
+        {
+            Some(inline_box.index)
+        }
+        _ => None,
+    })
 }
 
 pub(super) fn glyphs_reach_edge(line: &Line<'_, TextBrush>, edge: LineEdge) -> bool {

@@ -280,6 +280,10 @@ pub struct PositionedInlineBox {
     pub baseline: Option<f32>,
     pub id: u64,
     pub kind: InlineBoxKind,
+    /// The byte index in the text at which the box was inserted.
+    pub index: usize,
+    /// Whether the box was placed at a right-to-left bidi level.
+    pub is_rtl: bool,
 }
 
 /// Sequence of fully positioned glyphs with the same style.
@@ -445,9 +449,10 @@ impl<'a, B: Brush> Iterator for GlyphRunIter<'a, B> {
                     let x = self.offset
                         + self.line.data.metrics.inline_min_coord
                         + self.line.data.metrics.offset;
-                    let box_index = self.line.layout.data.line_items
-                        [self.line.data.item_range.start + self.item_index]
-                        .index;
+                    let item_data = &self.line.layout.data.line_items
+                        [self.line.data.item_range.start + self.item_index];
+                    let box_index = item_data.index;
+                    let is_rtl = item_data.is_rtl();
                     let y = self.line.inline_box_top(box_index);
 
                     self.item_index += 1;
@@ -462,6 +467,8 @@ impl<'a, B: Brush> Iterator for GlyphRunIter<'a, B> {
                         baseline: inline_box.baseline,
                         id: inline_box.id,
                         kind: inline_box.kind,
+                        index: inline_box.index,
+                        is_rtl,
                     }));
                 }
                 LineItem::Run(run) => {

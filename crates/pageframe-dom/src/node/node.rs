@@ -1884,10 +1884,13 @@ impl Node {
         let (inline, block) =
             self.inline_layout_point(inline_layout.block_offset, x - across, y - down);
 
-        if let Some((_, line)) = layout.line_for_offset(block * scale)
-            && let Some(edge) = super::caret::edge_beyond_line(&line, inline * scale)
-        {
-            return self.line_edge_offset(&line, edge);
+        if let Some((_, line)) = layout.line_for_offset(block * scale) {
+            if let Some(edge) = super::caret::edge_beyond_line(&line, inline * scale) {
+                return self.line_edge_offset(&line, edge);
+            }
+            if let Some(offset) = super::caret::inline_box_offset_at(&line, inline * scale) {
+                return Some(offset);
+            }
         }
 
         // Use Parley's cluster hit testing (from_point is more forgiving than from_point_exact)

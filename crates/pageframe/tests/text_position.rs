@@ -367,7 +367,9 @@ fn clicks_at_bidi_run_boundaries_land_in_the_base_direction_run_like_chrome() {
         <div id=b5 dir=rtl><span class=box></span> abcd</div>\
         <div id=b6 dir=rtl>abcd <span class=box></span></div>\
         <div id=b7>abcd <span class=box></span></div>\
-        <div id=d3 dir=rtl style=\"width:60px;height:40px\">bbbb cccc dd ee</div>";
+        <div id=d3 dir=rtl style=\"width:60px;height:40px\">bbbb cccc dd ee</div>\
+        <div id=m4>abc <span class=box></span>\u{5d0}\u{5d1}\u{5d2}</div>\
+        <div id=m5>abc \u{5d0}\u{5d1}\u{5d2}<span class=box></span></div>";
     let page = App::new((), html)
         .page(640, 400)
         .expect("test pages have valid selectors");
@@ -387,6 +389,12 @@ fn clicks_at_bidi_run_boundaries_land_in_the_base_direction_run_like_chrome() {
         (40.25, 68.25, "b7", 5),
         (30.25, 94.25, "d3", 4),
         (14.25, 110.25, "d3", 12),
+        (28.25, 138.25, "m4", 4),
+        (44.25, 138.25, "m4", 4),
+        (48.25, 138.25, "m4", 4),
+        (50.25, 138.25, "m4", 6),
+        (30.25, 168.25, "m5", 6),
+        (44.25, 168.25, "m5", 7),
     ] {
         let root = doc
             .query_selector_all(&format!("#{id}"))
