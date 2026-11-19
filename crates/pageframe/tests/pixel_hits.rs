@@ -44,6 +44,8 @@ border:2px solid #888\"><div id=k4 style=\"width:140px;height:12px;position:rela
 
 const HUNG_SPACES: &str = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}div{margin-left:60px;width:44px;white-space:pre-wrap}</style><div id=d1>x<span id=s1>aaa    bbbb</span></div><div id=d2 style=\"text-align:right\">x<span id=s2>aaa    bbbb</span></div><div id=d3 style=\"text-align:center\">x<span id=s3>aaa    bbbb</span></div><div id=d4 style=\"direction:rtl\">x<span id=s4>aaa    bbbb</span></div><div id=d5 style=\"white-space:break-spaces\">x<span id=s5>aaa    bbbb</span></div>";
 
+const EMPTY_BLOCKS: &str = "<!doctype html><style>html,body{margin:0;background:#fff}</style><div id=z1 style=\"margin-left:41px;width:0;height:20px\"></div><div id=z2 style=\"margin-left:41px;width:0;height:20px;position:relative\"></div><div id=z4 style=\"margin-left:41px;width:1px;height:20px\"></div><div id=z3 style=\"position:absolute;top:81px;left:0;width:60px;height:0\"></div>";
+
 fn open(page: &str, scale: f32) -> Harness<Page<()>> {
     let page = App::new((), page)
         .page(160, 120)
@@ -325,5 +327,20 @@ fn pre_wrap_spaces_hung_past_the_box_are_hit_like_chrome() {
             Some("d5"),
             None
         ])
+    );
+}
+
+#[test]
+fn a_block_with_no_width_or_height_is_never_hit_like_chrome() {
+    let points = [
+        (40.25, 10.0),
+        (40.75, 10.0),
+        (40.75, 30.0),
+        (30.0, 80.5),
+        (40.25, 50.0),
+    ];
+    assert_eq!(
+        ids_at(EMPTY_BLOCKS, 1.0, &points),
+        expected(&[None, None, None, None, Some("z4")])
     );
 }

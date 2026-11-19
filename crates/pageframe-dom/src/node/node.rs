@@ -1578,10 +1578,12 @@ impl Node {
 
         let size = self.final_layout().size;
         let span = probe.span(x, y);
-        let matches_self = !(span.right <= scroll_x
-            || span.left >= size.width + scroll_x
-            || span.bottom <= scroll_y
-            || span.top >= size.height + scroll_y);
+        let matches_self = size.width > 0.0
+            && size.height > 0.0
+            && !(span.right <= scroll_x
+                || span.left >= size.width + scroll_x
+                || span.bottom <= scroll_y
+                || span.top >= size.height + scroll_y);
 
         let layout = self.final_layout();
         let overflow_rect = layout.scrollable_overflow_rect;
