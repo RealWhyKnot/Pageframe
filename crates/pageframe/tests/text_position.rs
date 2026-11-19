@@ -82,6 +82,34 @@ fn clicks_on_vertical_lr_lines_find_the_offsets_chrome_reports() {
         (56.25, 14.25, 19),
         (56.25, 20.25, 20),
         (90.25, 28.25, 21),
+        (20.25, 36.25, 11),
+        (36.25, 34.25, 16),
+    ] {
+        assert_eq!(
+            doc.find_text_position(x, y),
+            Some((root, offset)),
+            "{x},{y}"
+        );
+    }
+}
+
+#[test]
+fn clicks_past_a_wrapped_line_land_before_its_trailing_space_like_chrome() {
+    let html = "<!doctype html><style>html,body{margin:0;font:14px Arial}</style>\
+                <div id=d1 style=\"width:60px\">bbbb cccc dd<span>ee ff</span> gggg</div>";
+    let page = App::new((), html)
+        .page(640, 400)
+        .expect("test pages have valid selectors");
+    let mut harness = Harness::wrap(page);
+    harness.pump();
+    let doc = harness.base();
+    let root = doc.query_selector_all("#d1").expect("selector is valid")[0];
+    for (x, y, offset) in [
+        (32.25, 4.25, 4),
+        (50.25, 4.25, 4),
+        (50.25, 20.25, 9),
+        (50.25, 34.25, 17),
+        (2.25, 4.25, 0),
     ] {
         assert_eq!(
             doc.find_text_position(x, y),

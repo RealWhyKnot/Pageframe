@@ -185,3 +185,19 @@ fn every_vertical_lr_line_is_hit_like_chrome() {
         expected(&["w1", "w2", "w3", "d1", "w4", "w4"])
     );
 }
+
+#[test]
+fn every_sideways_lr_line_is_hit_like_chrome() {
+    let page = VERTICAL_LR.replace("vertical-lr", "sideways-lr");
+    let points = [
+        (4.25, 20.25),
+        (20.25, 20.25),
+        (36.25, 20.25),
+        (50.25, 20.25),
+        (62.25, 28.25),
+    ];
+    assert_eq!(
+        ids_at(&page, &points),
+        expected(&["w1", "w2", "w3", "w4", "w4"])
+    );
+}
