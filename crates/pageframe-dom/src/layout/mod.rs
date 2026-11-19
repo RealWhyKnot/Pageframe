@@ -314,6 +314,14 @@ impl LayoutPassState<'_> {
         }
         if inputs.run_mode == RunMode::PerformLayout {
             compute_oof_layout(self, node_id, &mut output);
+            let span_hoisted = self.nodes[dom_node_id(node_id)]
+                .element_data()
+                .and_then(|element| element.inline_layout_data.as_deref())
+                .map(|layout| layout.span_hoisted.clone())
+                .unwrap_or_default();
+            if !span_hoisted.is_empty() {
+                self.add_hoisted_children(node_id, &span_hoisted);
+            }
         }
         output
     }

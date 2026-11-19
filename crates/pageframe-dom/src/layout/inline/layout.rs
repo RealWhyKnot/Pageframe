@@ -1,7 +1,9 @@
 use pageframe_traits::node_id::NodeId;
 use parley::{AlignmentOptions, BreakReason, IndentOptions};
+use style::values::computed::BorderSideWidth;
 #[cfg(feature = "floats")]
 use style::values::computed::TextWrapStyle;
+use style::values::specified::border::BorderStyle;
 use style::values::specified::box_::{DisplayInside, DisplayOutside};
 use style::values::{
     computed::{BaselineSource, CSSPixelLength, Contain},
@@ -29,6 +31,19 @@ use stylo_taffy::StyleFlags;
 use crate::layout::LayoutPassState;
 use crate::layout::resolve_calc_value;
 use crate::stylo_to_parley;
+
+struct SpanContainingBlock {
+    id: NodeId,
+    claims: taffy::ContainingBlockClaims,
+    direction: Direction,
+}
+
+#[derive(Default)]
+struct SpanPlacement {
+    hoisted: Vec<taffy::NodeId>,
+    fallback_flags: StyleFlags,
+    overflow: Option<taffy::Rect<f32>>,
+}
 
 enum LastBaseline {
     At(f32),
@@ -663,37 +678,184 @@ impl LayoutPassState<'_> {
         LastBaseline::Missing
     }
 
-    /// The out-of-flow positions for which an inline span between the inline box `box_id` and its
-    /// inline root `root_id` is a containing block (as `SPAN_*_CB` flags)
-    fn inline_span_cb_flags(&self, root_id: NodeId, box_id: NodeId) -> StyleFlags {
+    fn inline_span_containing_block(
+        &self,
+        root_id: NodeId,
+        box_id: NodeId,
+        position: taffy::Position,
+    ) -> Option<SpanContainingBlock> {
         let root = &self.nodes[root_id];
-        // The spans of an anonymous inline root are descendants of its parent
         let root_parent = root.is_anonymous().then_some(root.parent).flatten();
-
-        let mut flags = StyleFlags::empty();
         let mut current = self.nodes[box_id].parent;
-        while let Some(id) = current {
-            if id == root_id || Some(id) == root_parent {
-                return flags;
-            }
+        while let Some(id) = current.filter(|id| *id != root_id && Some(*id) != root_parent) {
             let ancestor = &self.nodes[id];
-            if let Some(style) = ancestor.primary_styles() {
-                let display = style.clone_display();
-                if display.outside() == DisplayOutside::Inline
-                    && display.inside() == DisplayInside::Flow
-                {
-                    let claims = stylo_taffy::convert::inline_containing_block_claims(&style);
-                    if claims.absolute {
-                        flags |= StyleFlags::SPAN_ABSOLUTE_CB;
-                    }
-                    if claims.fixed {
-                        flags |= StyleFlags::SPAN_FIXED_CB;
-                    }
-                }
+            let found = ancestor
+                .primary_styles()
+                .filter(|style| {
+                    let display = style.clone_display();
+                    display.outside() == DisplayOutside::Inline
+                        && display.inside() == DisplayInside::Flow
+                })
+                .map(|style| SpanContainingBlock {
+                    id,
+                    claims: stylo_taffy::convert::inline_containing_block_claims(&style),
+                    direction: if style.clone_direction()
+                        == style::computed_values::direction::T::Rtl
+                    {
+                        Direction::Rtl
+                    } else {
+                        Direction::Ltr
+                    },
+                })
+                .filter(|span| span.claims.for_position(position));
+            if found.is_some() {
+                return found;
             }
             current = ancestor.parent;
         }
-        StyleFlags::empty()
+        None
+    }
+
+    fn span_padding_box(&self, span: &SpanContainingBlock) -> Option<OofPositioningArea> {
+        let node = &self.nodes[span.id];
+        let style = node.primary_styles()?;
+        let fragments: Vec<taffy::Rect<f32>> = node
+            .inline_fragment_boxes(self.primary_font_extent(node))?
+            .collect();
+        let (first, last) = (fragments.first()?, fragments.last()?);
+        let border = style.get_border();
+        let side = |width: &BorderSideWidth, line: BorderStyle| {
+            if line.none_or_hidden() {
+                0.0
+            } else {
+                width.0.to_f32_px()
+            }
+        };
+        let is_rtl = span.direction == Direction::Rtl;
+        let left = if is_rtl { last.left } else { first.left }
+            + side(&border.border_left_width, border.border_left_style);
+        let right = if is_rtl { first.right } else { last.right }
+            - side(&border.border_right_width, border.border_right_style);
+        let top = first.top + side(&border.border_top_width, border.border_top_style);
+        let bottom = last.bottom - side(&border.border_bottom_width, border.border_bottom_style);
+        Some(OofPositioningArea {
+            size: Size {
+                width: (right - left).max(0.0),
+                height: (bottom - top).max(0.0),
+            },
+            offset: Point { x: left, y: top },
+        })
+    }
+
+    fn place_span_contained_boxes(
+        &mut self,
+        root_id: NodeId,
+        candidates: &mut OofCandidates,
+        final_size: Size<f32>,
+        padding: taffy::Rect<f32>,
+        border: taffy::Rect<f32>,
+    ) -> SpanPlacement {
+        let mut by_span: Vec<(SpanContainingBlock, OofCandidates)> = Vec::new();
+        let mut rest = OofCandidates::new();
+        for candidate in candidates.iter() {
+            let span = self.inline_span_containing_block(
+                root_id,
+                crate::dom_node_id(candidate.node),
+                candidate.position,
+            );
+            match span {
+                Some(span) => match by_span.iter_mut().find(|(known, _)| known.id == span.id) {
+                    Some((_, list)) => list.push(*candidate),
+                    None => {
+                        let mut list = OofCandidates::new();
+                        list.push(*candidate);
+                        by_span.push((span, list));
+                    }
+                },
+                None => rest.push(*candidate),
+            }
+        }
+        let mut placement = SpanPlacement::default();
+        let is_horizontal = self.nodes[root_id]
+            .primary_styles()
+            .is_some_and(|style| style.writing_mode.is_horizontal());
+        if !is_horizontal {
+            for (span, _) in &by_span {
+                if span.claims.absolute {
+                    placement.fallback_flags |= StyleFlags::SPAN_ABSOLUTE_CB;
+                }
+                if span.claims.fixed {
+                    placement.fallback_flags |= StyleFlags::SPAN_FIXED_CB;
+                }
+            }
+            return placement;
+        }
+        if by_span.is_empty() {
+            return placement;
+        }
+        *candidates = rest;
+        let root_layout = self.nodes[root_id].unrounded_layout_mut();
+        root_layout.size = final_size;
+        root_layout.padding = padding;
+        root_layout.border = border;
+        let root_area = OofPositioningArea {
+            size: Size {
+                width: (final_size.width - border.left - border.right).max(0.0),
+                height: (final_size.height - border.top - border.bottom).max(0.0),
+            },
+            offset: Point {
+                x: border.left,
+                y: border.top,
+            },
+        };
+        for (span, mut list) in by_span {
+            for candidate in list.as_mut_slice() {
+                let node = &self.nodes[crate::dom_node_id(candidate.node)];
+                if node.layout_parent.get() != Some(root_id) {
+                    continue;
+                }
+                let (across, down) = node.parent.map_or((0.0, 0.0), |parent| {
+                    self.nodes[parent].inline_relative_shift()
+                });
+                let axes = &mut candidate.static_position;
+                axes.x.area.start += across;
+                axes.x.area.end += across;
+                axes.y.area.start += down;
+                axes.y.area.end += down;
+            }
+            let area = self.span_padding_box(&span).unwrap_or(root_area);
+            let mut result = taffy::compute_oof_layout_for_area(
+                self,
+                crate::taffy_node_id(root_id),
+                list.as_slice(),
+                area,
+                span.direction,
+                span.claims,
+            );
+            candidates.append(&mut result.unclaimed);
+            placement.hoisted.extend(result.hoisted);
+            let overflow = result.scrollable_overflow_rect;
+            let shift = Point {
+                x: area.offset.x - border.left,
+                y: area.offset.y - border.top,
+            };
+            let moved = taffy::Rect {
+                left: overflow.left + shift.x,
+                right: overflow.right + shift.x,
+                top: overflow.top + shift.y,
+                bottom: overflow.bottom + shift.y,
+            };
+            placement.overflow = Some(match placement.overflow {
+                Some(known) => taffy::Rect {
+                    left: known.left.min(moved.left),
+                    right: known.right.max(moved.right),
+                    top: known.top.min(moved.top),
+                    bottom: known.bottom.max(moved.bottom),
+                },
+                None => moved,
+            });
+        }
+        placement
     }
 
     fn compute_inline_layout_inner(
@@ -1602,7 +1764,6 @@ impl LayoutPassState<'_> {
         // Store sizes and positions of inline boxes. Walking a line's items builds every
         // glyph run on it, so lines are only walked when there are boxes to find.
         let mut ibox_order: u32 = 0;
-        let mut span_cb_flags = StyleFlags::empty();
         let has_inline_boxes = inline_layout.layout.inline_boxes().len() > 0;
         let lines = has_inline_boxes.then(|| inline_layout.layout.lines());
         for line in lines.into_iter().flatten() {
@@ -1614,10 +1775,6 @@ impl LayoutPassState<'_> {
                 if let parley::layout::PositionedLayoutItem::InlineBox(ibox) = item {
                     let order = ibox_order;
                     ibox_order += 1;
-                    if inputs.run_mode == RunMode::PerformLayout {
-                        span_cb_flags |=
-                            self.inline_span_cb_flags(node_id, NodeId::from_u64(ibox.id));
-                    }
                     let node = &self.nodes[NodeId::from_u64(ibox.id)];
                     let style = self.child_layout_style(node);
                     let padding = style
@@ -1838,7 +1995,6 @@ impl LayoutPassState<'_> {
 
         if inputs.run_mode == RunMode::PerformLayout {
             inline_layout.last_baseline = last_baseline;
-            inline_layout.span_cb_flags = span_cb_flags;
         }
 
         // Put layout back
@@ -1847,6 +2003,27 @@ impl LayoutPassState<'_> {
             .downcast_element_mut()
             .unwrap()
             .inline_layout_data = Some(inline_layout);
+
+        let span_overflow = if inputs.run_mode == RunMode::PerformLayout {
+            let placed = self.place_span_contained_boxes(
+                node_id,
+                &mut oof_candidates,
+                final_size,
+                padding,
+                border,
+            );
+            if let Some(inline_layout) = self.nodes[node_id]
+                .data
+                .downcast_element_mut()
+                .and_then(|element| element.inline_layout_data.as_deref_mut())
+            {
+                inline_layout.span_cb_flags = placed.fallback_flags;
+                inline_layout.span_hoisted = placed.hoisted;
+            }
+            placed.overflow
+        } else {
+            None
+        };
 
         let oof_position_inset = taffy::Rect {
             left: border.left,
@@ -1874,6 +2051,12 @@ impl LayoutPassState<'_> {
                 if is_rtl {
                     rect.left = (client_width - rect.right).min(0.0);
                     rect.right = client_width.max(0.0);
+                }
+                if let Some(extra) = span_overflow {
+                    rect.left = rect.left.min(extra.left);
+                    rect.top = rect.top.min(extra.top);
+                    rect.right = rect.right.max(extra.right);
+                    rect.bottom = rect.bottom.max(extra.bottom);
                 }
                 if is_scroll_container {
                     rect.left = if is_rtl { rect.left } else { 0.0 };

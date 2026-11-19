@@ -2811,7 +2811,7 @@ impl BaseDocument {
         }))
     }
 
-    fn primary_font_extent(&self, node: &Node) -> Option<crate::node::FontExtent> {
+    pub(crate) fn primary_font_extent(&self, node: &Node) -> Option<crate::node::FontExtent> {
         let style = node.primary_styles()?;
         let font = style.get_font();
         let mut font_ctx = self.font_ctx.lock().ok()?;

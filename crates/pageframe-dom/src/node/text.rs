@@ -38,6 +38,7 @@ pub struct TextLayout {
     /// containing block (as `SPAN_*_CB` flags). The inline root claims those boxes in its place.
     /// Set by each `RunMode::PerformLayout` run of inline layout.
     pub span_cb_flags: stylo_taffy::StyleFlags,
+    pub span_hoisted: Vec<taffy::NodeId>,
     pub last_baseline: Option<f32>,
     /// Offset (in physical CSS px) of the unrounded content box origin from the rounded one in
     /// `final_layout`. Paint draws text from the unrounded origin so that it keeps its sub-pixel

@@ -745,10 +745,14 @@ impl Node {
     }
 
     pub fn inline_ancestor_opacity(&self) -> f32 {
-        if self.oof_containing_block.get().is_some() {
+        let layout_parent = self.layout_parent.get();
+        if self
+            .oof_containing_block
+            .get()
+            .is_some_and(|block| Some(block) != layout_parent)
+        {
             return 1.0;
         }
-        let layout_parent = self.layout_parent.get();
         let step = |id: Option<NodeId>| {
             id.filter(|id| Some(*id) != layout_parent)
                 .map(|id| self.with(id))

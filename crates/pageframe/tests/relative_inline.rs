@@ -381,3 +381,68 @@ fn a_selection_across_nested_moved_and_faded_spans_matches_chrome() {
         assert!(close(found, expected), "{label}: {found:?}");
     }
 }
+
+#[test]
+fn an_absolute_box_takes_its_relative_span_as_containing_block_like_chrome() {
+    let page = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}\
+i{position:absolute;background:#f00}div{margin-bottom:8px}</style>\
+<div>ab<span style=\"position:relative;padding:1px 4px;border:2px solid\">cd\
+<i id=\"pad\" style=\"left:5px;top:3px;width:10px;height:6px\"></i></span>ef</div>\
+<div>ab<span style=\"position:relative;padding:0 3px\">cdef\
+<i id=\"far\" style=\"right:0;bottom:0;width:4px;height:4px\"></i></span>gh</div>\
+<div>ab<span style=\"position:relative;left:20px;top:4px\">c<i id=\"auto\" style=\"width:4px;height:4px\"></i>d</span></div>\
+<div style=\"width:60px\">ab <span style=\"position:relative\">cdef ghij klmn</span></div>\
+<div style=\"width:60px\">ab <span style=\"position:relative\">cdef ghij klmn\
+<i id=\"wrapstart\" style=\"left:0;top:0;width:3px;height:3px\"></i>\
+<i id=\"wrapend\" style=\"right:0;bottom:0;width:3px;height:3px\"></i></span></div>\
+<div style=\"width:60px;direction:rtl\">ab <span style=\"position:relative\">cdef ghij klmn\
+<i id=\"rtlstart\" style=\"left:0;top:0;width:3px;height:3px\"></i>\
+<i id=\"rtlend\" style=\"right:0;bottom:0;width:3px;height:3px\"></i></span></div>\
+<div>ab<span style=\"position:relative;padding:0 5px\">cdefgh<i style=\"left:0;top:0;width:50%;height:50%\"></i></span></div>\
+<div>ab<span style=\"position:relative;left:6px\">c<b style=\"display:inline-block;width:20px;height:10px\">\
+<i id=\"nested\" style=\"left:2px;top:1px;width:3px;height:3px\"></i></b></span></div>";
+    let mut harness = open(App::new((), page));
+    render(&mut harness);
+    let ids = [
+        "pad",
+        "far",
+        "auto",
+        "wrapstart",
+        "wrapend",
+        "rtlstart",
+        "rtlend",
+        "nested",
+    ];
+    assert_eq!(
+        rects_in_units(&mut harness, &ids),
+        vec![
+            ("pad", [1445.0, 128.0, 640.0, 384.0]),
+            ("far", [2819.0, 2304.0, 256.0, 256.0]),
+            ("auto", [2725.0, 3328.0, 256.0, 256.0]),
+            ("wrapstart", [1246.0, 7168.0, 192.0, 192.0]),
+            ("wrapend", [3344.0, 9024.0, 192.0, 192.0]),
+            ("rtlstart", [304.0, 9728.0, 192.0, 192.0]),
+            ("rtlend", [3648.0, 11584.0, 192.0, 192.0]),
+            ("nested", [1509.0, 13888.0, 192.0, 192.0]),
+        ]
+    );
+}
+
+#[test]
+fn an_absolute_box_fades_with_its_relative_span_like_chrome() {
+    let page = "<!doctype html><style>html,body{margin:0;background:#fff;font:14px Arial}</style>\
+<div style=\"position:relative\">ab<span style=\"opacity:.5;position:relative\">c\
+<i style=\"position:absolute;left:40px;top:2px;width:20px;height:10px;background:#000\"></i></span></div>";
+    let mut harness = open(App::new((), page));
+    let frame = render(&mut harness);
+    let inside = pixel(&frame, 66, 7);
+    assert!(
+        inside[..3].iter().all(|value| (126..=129).contains(value)),
+        "{inside:?}"
+    );
+    assert_eq!(
+        pixel(&frame, 50, 7),
+        [255, 255, 255, 255],
+        "left of the box"
+    );
+}
