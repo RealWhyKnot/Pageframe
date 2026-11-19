@@ -146,6 +146,63 @@ fn clicks_past_rtl_and_shifted_wrapped_lines_land_before_the_trailing_space_like
     drop(doc);
 }
 
+#[test]
+fn clicks_outside_wrapped_text_find_the_offsets_chrome_reports() {
+    let html = "<!doctype html><style>html,body{margin:0;font:14px Arial}\
+                div{width:60px;height:60px}</style>\
+                <div id=d1 style=\"overflow-wrap:anywhere\">aaaa&nbsp;bbbbbbbbbbbbbbbbb</div>\
+                <div id=d2 style=\"white-space:pre-wrap\">aaa   bbb   ccc</div>";
+    let page = App::new((), html)
+        .page(640, 400)
+        .expect("test pages have valid selectors");
+    let mut harness = Harness::wrap(page);
+    harness.pump();
+    let doc = harness.base();
+    let anywhere = doc.query_selector_all("#d1").expect("selector is valid")[0];
+    let preserved = doc.query_selector_all("#d2").expect("selector is valid")[0];
+    for (x, y, root, offset) in [
+        (100.25, 20.25, anywhere, 15),
+        (100.25, 44.25, anywhere, 22),
+        (64.25, 64.25, preserved, 11),
+        (100.25, 64.25, preserved, 12),
+        (100.25, 300.25, preserved, 15),
+        (300.25, 10.25, anywhere, 8),
+    ] {
+        let found = doc
+            .find_text_position(x, y)
+            .map(|(node, byte)| (node, byte_chars(&doc, node, byte)));
+        assert_eq!(found, Some((root, offset)), "{x},{y}");
+    }
+    drop(doc);
+}
+
+#[test]
+fn clicks_below_vertical_lr_text_find_the_offsets_chrome_reports() {
+    let html = "<!doctype html><style>html,body{margin:0;font:14px Arial}div{width:150px}</style>\
+                <div id=d1 style=\"writing-mode:vertical-lr;height:40px\">xx<span \
+                style=\"position:relative;top:6px\">aaaa</span> <span>bbbb</span> \
+                <span>cccc</span> <span>dddd</span></div>";
+    let page = App::new((), html)
+        .page(640, 400)
+        .expect("test pages have valid selectors");
+    let mut harness = Harness::wrap(page);
+    harness.pump();
+    let doc = harness.base();
+    let root = doc.query_selector_all("#d1").expect("selector is valid")[0];
+    for (x, y, offset) in [
+        (4.25, 80.25, 6),
+        (20.25, 100.25, 11),
+        (40.25, 100.25, 16),
+        (100.25, 100.25, 21),
+    ] {
+        assert_eq!(
+            doc.find_text_position(x, y),
+            Some((root, offset)),
+            "{x},{y}"
+        );
+    }
+}
+
 fn byte_chars(
     doc: &pageframe_dom::BaseDocument,
     node: pageframe_dom::NodeId,

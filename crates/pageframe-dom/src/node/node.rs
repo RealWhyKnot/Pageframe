@@ -1877,11 +1877,7 @@ impl Node {
             }
         };
 
-        Some(super::caret::before_hung_space(
-            &cluster.line(),
-            &inline_layout.text,
-            offset,
-        ))
+        Some(self.before_hung_space(&cluster.line(), &inline_layout.text, offset))
     }
 
     pub(super) fn line_axes(&self) -> LineAxes {

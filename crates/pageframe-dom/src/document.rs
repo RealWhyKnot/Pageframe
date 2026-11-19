@@ -2988,11 +2988,69 @@ impl BaseDocument {
     /// Uses hit() for proper coordinate transformation, then finds the inline root
     /// and byte offset.
     pub fn find_text_position(&self, x: f32, y: f32) -> Option<(NodeId, usize)> {
-        let hit = self.hit(x, y)?;
+        let Some(hit) = self.hit(x, y) else {
+            let root = self.try_root_element()?;
+            let location = root.final_layout().location;
+            return self.nearest_text_position(root, x - location.x, y - location.y);
+        };
         let hit_node = self.get_node(hit.node_id)?;
-        let inline_root = hit_node.inline_root_ancestor()?;
+        let Some(inline_root) = hit_node.inline_root_ancestor() else {
+            return self.nearest_text_position(hit_node, hit.x, hit.y);
+        };
         let byte_offset = inline_root.text_offset_at_point(hit.x, hit.y)?;
         Some((inline_root.id, byte_offset))
+    }
+
+    fn nearest_text_position(&self, node: &Node, x: f32, y: f32) -> Option<(NodeId, usize)> {
+        if node.flags.is_inline_root() {
+            return Some((node.id, node.text_offset_at_point(x, y)?));
+        }
+        let scroll = node.scroll_offset();
+        let x = x + scroll.x.to_f32()?;
+        let y = y + scroll.y.to_f32()?;
+        let writing_mode = node.primary_styles().map(|style| style.writing_mode);
+        let is_vertical = writing_mode.is_some_and(|mode| mode.is_vertical());
+        let is_flipped = is_vertical && !writing_mode.is_some_and(|mode| mode.is_vertical_lr());
+        let width = node.final_layout().size.width;
+        let block_span = |child: &Node| {
+            let layout = child.final_layout();
+            let (start, size) = if is_vertical {
+                (layout.location.x, layout.size.width)
+            } else {
+                (layout.location.y, layout.size.height)
+            };
+            if is_flipped {
+                (width - start - size, width - start)
+            } else {
+                (start, start + size)
+            }
+        };
+        let point = match (is_vertical, is_flipped) {
+            (false, _) => y,
+            (true, false) => x,
+            (true, true) => width - x,
+        };
+        let candidates: Vec<&Node> = {
+            let children = node.layout_children.borrow();
+            children
+                .iter()
+                .flatten()
+                .filter_map(|id| self.get_node(*id))
+                .filter(|child| is_caret_candidate(child))
+                .collect()
+        };
+        let last = *candidates.last()?;
+        let chosen = if point >= block_span(last).0 {
+            last
+        } else {
+            candidates
+                .iter()
+                .copied()
+                .find(|child| point < block_span(child).1)
+                .unwrap_or(last)
+        };
+        let location = chosen.final_layout().location;
+        self.nearest_text_position(chosen, x - location.x, y - location.y)
     }
 
     /// Set the text selection range (creates a new selection from anchor to focus)
@@ -3362,6 +3420,16 @@ fn snap_to_layout_unit(value: f64, scale: f64) -> f64 {
         64.0
     };
     (value * steps).round() / steps
+}
+
+fn is_caret_candidate(node: &Node) -> bool {
+    use style::computed_values::float::T as Float;
+    use style::computed_values::visibility::T as Visibility;
+    let size = node.final_layout().size;
+    let is_visible_in_flow = node.primary_styles().is_some_and(|style| {
+        style.clone_visibility() == Visibility::Visible && style.clone_float() == Float::None
+    });
+    size.width > 0.0 && size.height > 0.0 && is_visible_in_flow && !node.is_out_of_flow()
 }
 
 fn is_style_image(msg: &DocumentEvent) -> bool {

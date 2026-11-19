@@ -1,7 +1,9 @@
+use super::TextBrush;
 use super::inline_hit::{SpanChain, SpanGeometry};
 use super::node::{LineAxes, Node};
+use crate::inline_trim::collapses_spaces;
 use pageframe_traits::node_id::NodeId;
-use parley::{BreakReason, Brush, Line, PositionedLayoutItem};
+use parley::{BreakReason, Line, PositionedLayoutItem};
 use std::ops::Range;
 
 pub(super) enum CaretTarget {
@@ -85,26 +87,41 @@ fn pick(runs: &[&CaretRun], depth: usize, point: f32) -> Option<CaretTarget> {
     }))
 }
 
-pub(super) fn before_hung_space<B: Brush>(line: &Line<'_, B>, text: &str, offset: usize) -> usize {
-    let range = line.text_range();
-    let is_soft_break = matches!(
-        line.break_reason(),
-        BreakReason::Regular | BreakReason::Emergency
-    );
-    if !is_soft_break || offset != range.end {
-        return offset;
-    }
-    let ends_in_space = text
-        .get(range)
-        .is_some_and(|line_text| line_text.ends_with(' '));
-    if ends_in_space {
-        offset.saturating_sub(1)
-    } else {
-        offset
-    }
-}
-
 impl Node {
+    pub(super) fn before_hung_space(
+        &self,
+        line: &Line<'_, TextBrush>,
+        text: &str,
+        offset: usize,
+    ) -> usize {
+        let range = line.text_range();
+        let is_soft_break = matches!(
+            line.break_reason(),
+            BreakReason::Regular | BreakReason::Emergency
+        );
+        if !is_soft_break || offset != range.end {
+            return offset;
+        }
+        let ends_in_space = text
+            .get(range.clone())
+            .is_some_and(|line_text| line_text.ends_with(' '));
+        let tree = self.tree();
+        let collapses = line
+            .items()
+            .filter_map(|item| match item {
+                PositionedLayoutItem::GlyphRun(glyph_run) => Some(glyph_run),
+                PositionedLayoutItem::InlineBox(_) => None,
+            })
+            .find(|glyph_run| glyph_run.text_range().end == range.end)
+            .and_then(|glyph_run| tree.get(glyph_run.style().brush.id))
+            .is_some_and(collapses_spaces);
+        if ends_in_space && collapses {
+            offset.saturating_sub(1)
+        } else {
+            offset
+        }
+    }
+
     pub(super) fn caret_target(&self, x: f32, y: f32) -> CaretTarget {
         let Some(geometry) = self.span_geometry() else {
             return CaretTarget::Shift((0.0, 0.0));
@@ -165,9 +182,9 @@ impl Node {
         let refs: Vec<&CaretRun> = runs.iter().collect();
         let text = &self.element_data()?.inline_layout_data.as_ref()?.text;
         match pick(&refs, 0, point)? {
-            CaretTarget::Offset(offset) => {
-                Some(CaretTarget::Offset(before_hung_space(&line, text, offset)))
-            }
+            CaretTarget::Offset(offset) => Some(CaretTarget::Offset(
+                self.before_hung_space(&line, text, offset),
+            )),
             shift @ CaretTarget::Shift(_) => Some(shift),
         }
     }
