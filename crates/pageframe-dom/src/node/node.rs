@@ -1566,10 +1566,14 @@ impl Node {
         y += self.scroll_offset().y as f32;
 
         let size = self.final_layout().size;
-        let matches_self = !(x < self.scroll_offset().x as f32
-            || x > size.width + self.scroll_offset().x as f32
-            || y < self.scroll_offset().y as f32
-            || y > size.height + self.scroll_offset().y as f32);
+        let pixel = num_traits::ToPrimitive::to_f32(&scale.recip())
+            .filter(|pixel| pixel.is_finite())
+            .unwrap_or(1.0);
+        let (reach_x, reach_y) = (x + pixel, y + pixel);
+        let matches_self = !(reach_x <= self.scroll_offset().x as f32
+            || x >= size.width + self.scroll_offset().x as f32
+            || reach_y <= self.scroll_offset().y as f32
+            || y >= size.height + self.scroll_offset().y as f32);
 
         let layout = self.final_layout();
         let overflow_rect = layout.scrollable_overflow_rect;
@@ -1600,9 +1604,9 @@ impl Node {
             } else {
                 0.0
             };
-        let matches_content = !(x < overflow_rect.left() + client_x
+        let matches_content = !(reach_x < overflow_rect.left() + client_x
             || x > overflow_rect.right() + client_x
-            || y < overflow_rect.top() + client_y
+            || reach_y < overflow_rect.top() + client_y
             || y > overflow_rect.bottom() + client_y);
 
         let matches_hoisted_content = match &self.stacking_context {
@@ -1610,7 +1614,7 @@ impl Node {
                 // Both the point (after the scroll adjustment above) and the
                 // bbox are in this node's unscrolled content coordinates.
                 let bbox = sc.hoisted_content_bbox(self.tree(), self.id, scale);
-                x >= bbox.left && x <= bbox.right && y >= bbox.top && y <= bbox.bottom
+                reach_x >= bbox.left && x <= bbox.right && reach_y >= bbox.top && y <= bbox.bottom
             }
             None => false,
         };
@@ -1619,9 +1623,9 @@ impl Node {
         // coordinates here are in CSS pixels, so unscale it before comparing.
         let overflow = *self.scrollable_overflow();
 
-        let matches_overflow = x >= (overflow.x0 / scale) as f32
+        let matches_overflow = reach_x >= (overflow.x0 / scale) as f32
             && x <= (overflow.x1 / scale) as f32
-            && y >= (overflow.y0 / scale) as f32
+            && reach_y >= (overflow.y0 / scale) as f32
             && y <= (overflow.y1 / scale) as f32;
 
         if !matches_self && !matches_content && !matches_hoisted_content && !matches_overflow {

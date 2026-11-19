@@ -68,8 +68,8 @@ fn union(first: taffy::Rect<f32>, second: taffy::Rect<f32>) -> taffy::Rect<f32> 
     }
 }
 
-fn holds(rect: &taffy::Rect<f32>, x: f32, y: f32) -> bool {
-    x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom
+fn holds(rect: &taffy::Rect<f32>, x: f32, y: f32, pixel: f32) -> bool {
+    x + pixel > rect.left && x < rect.right && y + pixel > rect.top && y < rect.bottom
 }
 
 impl Node {
@@ -263,12 +263,27 @@ impl Node {
         glyph_run: &parley::GlyphRun<'_, TextBrush>,
         shift: (f32, f32),
     ) -> taffy::Rect<f32> {
+        let start = glyph_run.offset();
+        self.glyph_span_rect(
+            geometry,
+            glyph_run,
+            (start, start + glyph_run.advance()),
+            shift,
+        )
+    }
+
+    fn glyph_span_rect(
+        &self,
+        geometry: &SpanGeometry,
+        glyph_run: &parley::GlyphRun<'_, TextBrush>,
+        extent: (f32, f32),
+        shift: (f32, f32),
+    ) -> taffy::Rect<f32> {
         let metrics = glyph_run.run().font_metrics();
         let baseline = glyph_run.baseline();
-        let start = glyph_run.offset();
         self.inline_item_rect(
             geometry,
-            (start, start + glyph_run.advance()),
+            extent,
             (
                 baseline - metrics.ascent.round(),
                 baseline + metrics.descent.round(),
@@ -360,6 +375,7 @@ impl Node {
             }
         };
         let reach = self.layout_data().inline_hit_reach * geometry.scale;
+        let pixel = geometry.scale.recip();
         let (_, block) = self.inline_layout_point(
             geometry.block_offset,
             x - geometry.inset.left,
@@ -401,6 +417,7 @@ impl Node {
             if line.metrics().block_min_coord - reach > block {
                 break;
             }
+            let trim = LineTrim::new(self, &line, text, is_rtl);
             for (index, item) in line.items().enumerate() {
                 let PositionedLayoutItem::GlyphRun(glyph_run) = item else {
                     continue;
@@ -409,8 +426,15 @@ impl Node {
                 let Some(node) = tree.get(owner).filter(|node| takes_pointer(node)) else {
                     continue;
                 };
-                let rect = self.glyph_run_rect(&geometry, &glyph_run, node.inline_relative_shift());
-                if holds(&rect, x, y) {
+                let start = glyph_run.offset();
+                let end = start + glyph_run.advance();
+                if trim.is_hung(start, end) {
+                    continue;
+                }
+                let extent = trim.clamp(start, end, false);
+                let shift = node.inline_relative_shift();
+                let rect = self.glyph_span_rect(&geometry, &glyph_run, extent, shift);
+                if holds(&rect, x, y, pixel) {
                     let mut key = order(owner, line_index, index);
                     key.depth += 1;
                     offer(
@@ -422,7 +446,6 @@ impl Node {
                     );
                 }
             }
-            let trim = LineTrim::new(self, &line, text, is_rtl);
             let found = self.collect_line_spans(&line, &trim, &geometry, |id| self.span_chain(id));
             for (span, first) in found.spans.iter().zip(&found.first) {
                 let Some(node) = tree
@@ -438,7 +461,7 @@ impl Node {
                     (span.left, span.right),
                     &geometry,
                 );
-                if holds(&rect, x, y) {
+                if holds(&rect, x, y, pixel) {
                     let key = order(span.node_id, line_index, *first);
                     offer(
                         key,
