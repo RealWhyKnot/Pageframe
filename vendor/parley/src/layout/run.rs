@@ -301,6 +301,10 @@ pub(crate) struct Glyphs<'a> {
 }
 
 impl<'a> Glyphs<'a> {
+    pub(super) fn rtl_cluster_index(&self) -> u32 {
+        self.shaped_clusters.end
+    }
+
     fn new(slice: ShapedSlice<'a>, is_rtl: bool, spacing: EffectiveSpacing) -> Self {
         let clusters = slice.shaped_clusters_range();
         Self {

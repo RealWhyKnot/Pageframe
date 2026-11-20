@@ -418,7 +418,7 @@ fn build_into_layout<B: Brush>(
         options.base_direction,
         options.line_break_override,
     );
-    layout.data.clear();
+    layout.clear();
     let (inline_ends, bidi_controls) = if from_tree {
         (
             lcx.tree_style_builder.inline_end_mark_offsets(),

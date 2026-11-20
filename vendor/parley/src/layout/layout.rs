@@ -23,6 +23,7 @@ use core::fmt;
 #[derive(Clone)]
 pub struct Layout<B: Brush> {
     pub(crate) data: LayoutData<B>,
+    pub(crate) rtl_item_ends: alloc::vec::Vec<(usize, f32)>,
 }
 
 impl<B: Brush> fmt::Debug for Layout<B> {
@@ -54,6 +55,7 @@ impl<B: Brush> Layout<B> {
     /// prevent those fonts from being freed until dropping or reusing this layout.
     pub fn clear(&mut self) {
         self.data.clear();
+        self.rtl_item_ends.clear();
     }
 
     /// Returns the scale factor provided when creating the layout.
@@ -338,6 +340,7 @@ impl<B: Brush> Default for Layout<B> {
     fn default() -> Self {
         Self {
             data: LayoutData::default(),
+            rtl_item_ends: Default::default(),
         }
     }
 }

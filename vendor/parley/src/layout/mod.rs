@@ -8,6 +8,7 @@ mod cluster;
 mod inline_edges;
 mod line;
 mod line_break;
+mod rtl_rounding;
 mod run;
 mod spacing;
 pub(crate) mod style_metrics;

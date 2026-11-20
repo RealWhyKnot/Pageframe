@@ -5,6 +5,7 @@ use crate::layout::Style;
 use crate::layout::data::BreakReason;
 use crate::layout::data::{LayoutItemKind, LineData};
 use crate::layout::layout::Layout;
+use crate::layout::rtl_rounding::RtlRounding;
 use crate::layout::run::Run;
 use crate::layout::spacing::EffectiveSpacing;
 use crate::style::Brush;
@@ -161,6 +162,7 @@ impl<'a, B: Brush> Line<'a, B> {
             item_index: 0,
             atoms: None,
             offset: 0.,
+            visual_clusters: 0..0,
         }
     }
 }
@@ -310,6 +312,7 @@ pub struct GlyphRun<'a, B: Brush> {
     offset: f32,
     baseline: f32,
     advance: f32,
+    rounding: RtlRounding,
 }
 
 impl<'a, B: Brush> GlyphRun<'a, B> {
@@ -354,7 +357,12 @@ impl<'a, B: Brush> GlyphRun<'a, B> {
 
     /// Returns an iterator over the glyphs in the run.
     pub fn glyphs(&'a self) -> impl Iterator<Item = Glyph> + 'a + Clone {
-        self.run.glyphs_in(self.shaped_clusters.clone())
+        let mut glyphs = self.run.glyphs_in(self.shaped_clusters.clone());
+        core::iter::from_fn(move || {
+            let mut glyph = glyphs.next()?;
+            glyph.x -= self.rounding.offset(glyphs.rtl_cluster_index());
+            Some(glyph)
+        })
     }
 
     /// Returns an iterator over the fully positioned glyphs in the run.
@@ -444,6 +452,7 @@ struct GlyphRunIter<'a, B: Brush> {
     /// not yet yielded as part of a glyph run. `None` before entering a run.
     atoms: Option<AtomIter<'a>>,
     offset: f32,
+    visual_clusters: Range<u32>,
 }
 
 impl<'a, B: Brush> Iterator for GlyphRunIter<'a, B> {
@@ -458,6 +467,7 @@ impl<'a, B: Brush> Iterator for GlyphRunIter<'a, B> {
                         self.item_index += 1;
                         continue;
                     }
+                    self.visual_clusters = 0..0;
                     let x = self.offset
                         + self.line.data.metrics.inline_min_coord
                         + self.line.data.metrics.offset;
@@ -529,6 +539,11 @@ impl<'a, B: Brush> Iterator for GlyphRunIter<'a, B> {
                         );
                         let offset = self.offset;
                         self.offset += advance;
+                        if self.visual_clusters.start != shaped_clusters.end {
+                            self.visual_clusters.end = shaped_clusters.end;
+                        }
+                        self.visual_clusters.start = shaped_clusters.start;
+                        let rounding = RtlRounding::for_run(&run, self.visual_clusters.clone());
                         return Some(PositionedLayoutItem::GlyphRun(GlyphRun {
                             run,
                             style_index,
@@ -538,6 +553,7 @@ impl<'a, B: Brush> Iterator for GlyphRunIter<'a, B> {
                                 + self.line.data.metrics.offset,
                             baseline: self.line.style_baseline(style_index),
                             advance,
+                            rounding,
                         }));
                     }
                     // Any atoms left have no glyphs and thus nothing to yield.

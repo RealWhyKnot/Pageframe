@@ -215,6 +215,17 @@ pub(crate) fn shape_text<'a, B: Brush>(
             .data
             .shaped_text
             .ceil_text_item_advances(64.0, &item_starts);
+        if layout
+            .data
+            .shaped_text
+            .runs()
+            .iter()
+            .any(|run| run.bidi_level.is_rtl())
+        {
+            layout
+                .rtl_item_ends
+                .extend(layout.data.shaped_text.text_item_ends());
+        }
     }
 
     let mut object_levels = analysis.object_bidi_levels().iter().copied();
