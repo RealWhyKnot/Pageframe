@@ -26,14 +26,17 @@ mod modules;
 mod timers;
 mod window;
 
-/// Console logger which routes all console output to the `log` crate at
+/// Console logger which routes all console output to `tracing` at
 /// `debug` level (target `js_console`), keeping stdout/stderr clean.
 #[derive(Debug, Trace, Finalize)]
-struct LogCrateLogger;
+struct TracingLogger;
 
-impl Logger for LogCrateLogger {
+impl Logger for TracingLogger {
     fn log(&self, msg: String, _state: &ConsoleState, _context: &mut Context) -> JsResult<()> {
-        log::debug!(target: "js_console", "{msg}");
+        #[cfg(feature = "tracing")]
+        tracing::debug!(target: "js_console", "{msg}");
+        #[cfg(not(feature = "tracing"))]
+        drop(msg);
         Ok(())
     }
 
@@ -82,7 +85,7 @@ impl ScriptRuntime {
             .expect("failed to build JS context");
         context.insert_data(ctx.clone());
 
-        Console::register_with_logger(LogCrateLogger, &mut context)
+        Console::register_with_logger(TracingLogger, &mut context)
             .expect("failed to register console");
 
         // Register boa_runtime's web-API extensions: atob/btoa, TextEncoder/
