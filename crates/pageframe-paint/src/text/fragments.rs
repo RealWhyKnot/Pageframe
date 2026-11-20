@@ -175,6 +175,7 @@ pub(crate) fn inline_fragments<'a>(
     scale: f64,
 ) -> Vec<InlineFragment> {
     let mut fragments = Vec::new();
+    let mut primary_extents = HashMap::new();
     let mut font_ratios: Option<(f64, f64)> = None;
     let Some(root) = doc.get_node(inline_root_id) else {
         return fragments;
@@ -331,7 +332,11 @@ pub(crate) fn inline_fragments<'a>(
         let mut spans: Vec<_> = boxes.iter().map(|span_box| span_box.span).collect();
         settle_line_spans(root, &mut spans, &trim, clone_basis, scale_f32);
         for (span_box, span) in boxes.into_iter().zip(spans) {
-            let extent = span_box.extent.or_else(|| {
+            let primary = primary_extents.entry(span.node_id).or_insert_with(|| {
+                doc.inline_font_ascent_descent(span.node_id)
+                    .map(|(ascent, descent)| (f64::from(ascent), f64::from(descent)))
+            });
+            let extent = primary.or(span_box.extent).or_else(|| {
                 font_ratios.map(|(ascent, descent)| {
                     (ascent * span_box.font_size, descent * span_box.font_size)
                 })

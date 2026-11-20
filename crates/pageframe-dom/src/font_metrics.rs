@@ -36,6 +36,13 @@ fn query_for_font_styles<'a>(
     query
 }
 
+impl crate::BaseDocument {
+    pub fn inline_font_ascent_descent(&self, node_id: crate::NodeId) -> Option<(f32, f32)> {
+        let extent = self.primary_font_extent(self.get_node(node_id)?)?;
+        Some((extent.ascent, extent.descent))
+    }
+}
+
 fn find_font_for(
     query: &mut parley::fontique::Query,
     ch: char,

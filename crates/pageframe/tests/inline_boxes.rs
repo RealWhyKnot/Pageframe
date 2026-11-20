@@ -2,10 +2,15 @@
 mod bidi_edges;
 #[path = "inline_boxes_cases/client_rects.rs"]
 mod client_rects;
+#[cfg(windows)]
+#[path = "inline_boxes_cases/fallback_font.rs"]
+mod fallback_font;
 #[path = "inline_boxes_cases/rounding.rs"]
 mod rounding;
 #[path = "inline_boxes_cases/rtl_preserved_space.rs"]
 mod rtl_preserved_space;
+#[cfg(windows)]
+mod scaled;
 mod support;
 #[path = "inline_boxes_cases/trailing_space.rs"]
 mod trailing_space;
