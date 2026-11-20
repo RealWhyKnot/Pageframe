@@ -158,6 +158,30 @@ fn a_cloned_span_follows_the_paragraph_direction_not_the_block_direction() {
 }
 
 #[test]
+fn a_cloned_span_keeps_its_right_padding_inside_a_right_to_left_continuation() {
+    let lime_columns = |buffer: &[u8], top| {
+        (0..120)
+            .filter(|&x| (top..top + 20).any(|y| pixel(buffer, x, y) == LIME))
+            .collect::<Vec<_>>()
+    };
+    let text = draw(
+        "<div style=\"line-height:20px\"><span style=\"background:lime;color:transparent\">\
+         aaaa aaaa</span></div>",
+    );
+    let text_width = lime_columns(&text, 0).len();
+    let buffer = draw(
+        "<div dir=\"rtl\" style=\"width:100px;line-height:20px\">א \
+         <span style=\"background:lime;box-decoration-break:clone;padding:0 30px 0 0\">\
+         aaaa aaaa aaaa aaaa</span></div>",
+    );
+    let lime = lime_columns(&buffer, 20);
+    assert_eq!(
+        (lime.first().copied(), lime.last().copied()),
+        (Some(100 - 30 - text_width), Some(99))
+    );
+}
+
+#[test]
 fn a_cloned_closing_inset_never_pushes_words_to_the_next_line() {
     let lines = |padding_left: usize| {
         let buffer = draw(&format!(

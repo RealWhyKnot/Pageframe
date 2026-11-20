@@ -349,18 +349,35 @@ fn continued_clone_edges(
     basis: f32,
     scale: f32,
 ) -> Vec<CloneEdge> {
-    let item_node = |item: parley::PositionedLayoutItem<'_, crate::node::TextBrush>| match item {
-        parley::PositionedLayoutItem::GlyphRun(run) => Some(run.style().brush.id),
-        parley::PositionedLayoutItem::InlineBox(inline_box) => {
-            nodes[NodeId::from_u64(inline_box.id)].parent
-        }
-    };
     let ends: Vec<(Option<NodeId>, Option<NodeId>)> = layout
         .lines()
         .map(|line| {
-            let first = line.items().next().and_then(item_node);
-            let last = line.items().last().and_then(item_node);
-            (first, last)
+            let mut first = None;
+            let mut last = None;
+            for item in line.items() {
+                let (start, end, is_box, node) = match item {
+                    parley::PositionedLayoutItem::GlyphRun(run) => {
+                        let range = run.text_range();
+                        (range.start, range.end, false, Some(run.style().brush.id))
+                    }
+                    parley::PositionedLayoutItem::InlineBox(inline_box) => {
+                        let node = nodes[NodeId::from_u64(inline_box.id)].parent;
+                        (inline_box.index, inline_box.index, true, node)
+                    }
+                };
+                let first_key = (start, !is_box);
+                let last_key = (end, is_box);
+                if first.is_none_or(|(key, _)| first_key < key) {
+                    first = Some((first_key, node));
+                }
+                if last.is_none_or(|(key, _)| last_key >= key) {
+                    last = Some((last_key, node));
+                }
+            }
+            (
+                first.and_then(|(_, node)| node),
+                last.and_then(|(_, node)| node),
+            )
         })
         .collect();
     let mut edges: Vec<CloneEdge> = layout
