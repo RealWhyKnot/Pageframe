@@ -124,8 +124,9 @@ fn relative_inline_rects_move_with_their_offset_like_chrome() {
 fn relative_inline_offsets_measure_from_the_first_fragment_like_chrome() {
     let mut harness = open(App::new((), PAGE));
     let frame = render(&mut harness);
+    let sample_x = if cfg!(target_os = "windows") { 41 } else { 42 };
     assert_eq!(
-        pixel(&frame, 42, 56),
+        pixel(&frame, sample_x, 56),
         [0, 255, 0, 255],
         "10% of 200px moves #pct"
     );

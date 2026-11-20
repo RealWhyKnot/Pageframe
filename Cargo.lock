@@ -315,6 +315,7 @@ dependencies = [
  "softbuffer_window_renderer",
  "vello_common",
  "vello_cpu",
+ "windows",
 ]
 
 [[package]]

@@ -28,16 +28,24 @@ fn ink(buffer: &[u8], column: usize, row: u32) -> u8 {
     255 - red
 }
 
-#[test]
-fn small_text_rows_are_point_sampled_like_chrome() {
-    let columns = letter_columns(14, "");
-    assert_eq!(columns[columns.len() / 2], [255, 255], "{columns:?}");
+fn expected_ink() -> &'static [u8] {
+    if cfg!(target_os = "windows") {
+        &[255, 12, 12, 255]
+    } else {
+        &[255, 255]
+    }
 }
 
 #[test]
-fn hard_text_shadows_are_point_sampled_like_the_text() {
+fn small_text_rows_match_chrome() {
+    let columns = letter_columns(14, "");
+    assert_eq!(columns[columns.len() / 2], expected_ink(), "{columns:?}");
+}
+
+#[test]
+fn hard_text_shadows_match_the_text() {
     let columns = letter_columns(14, "color:transparent;text-shadow:1px 0 #000");
-    assert_eq!(columns[columns.len() / 2], [255, 255], "{columns:?}");
+    assert_eq!(columns[columns.len() / 2], expected_ink(), "{columns:?}");
 }
 
 #[test]

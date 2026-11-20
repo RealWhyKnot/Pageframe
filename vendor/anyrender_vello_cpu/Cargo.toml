@@ -29,3 +29,6 @@ softbuffer_window_renderer = { git = "https://github.com/DioxusLabs/anyrender", 
 pixels_window_renderer = { git = "https://github.com/DioxusLabs/anyrender", branch = "main", optional = true }
 vello_cpu = { version = "0.3", default-features = false, features = ["std", "text", "u8_pipeline"] }
 vello_common = { version = "0.3" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62", features = ["Win32_Graphics_DirectWrite"] }

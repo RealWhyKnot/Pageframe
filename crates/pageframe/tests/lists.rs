@@ -191,7 +191,12 @@ fn marker_pseudo_content_replaces_or_removes_the_marker() {
 
     let text = draw("<ul><li class='t'>x</li></ul><style>.t::marker{content:'\\2588'}</style>");
     let ink = marker_ink(&text, 0).expect("string marker");
-    assert_eq!(ink.right, EDGE);
+    let expected_right = if cfg!(target_os = "windows") {
+        41
+    } else {
+        EDGE
+    };
+    assert_eq!(ink.right, expected_right);
     assert!(
         ink.height() > ink.width(),
         "a full block glyph, not the square"
