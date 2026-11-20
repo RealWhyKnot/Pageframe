@@ -60,6 +60,12 @@ impl DeviceChanges {
     }
 }
 
+pub(crate) fn initial_font() -> Font {
+    let mut font = Font::initial_values();
+    font.font_family.is_initial = true;
+    font
+}
+
 pub(crate) fn make_device(
     viewport: &Viewport,
     media_type: MediaType,
@@ -71,7 +77,7 @@ pub(crate) fn make_device(
     let device_pixel_ratio = euclid::Scale::new(viewport.scale());
 
     Device::new(
-        ComputedValues::initial_values_with_font_override(Font::initial_values()),
+        ComputedValues::initial_values_with_font_override(initial_font()),
         Box::new(PageframeFontMetricsProvider { font_ctx }),
         MediaData {
             media_type,

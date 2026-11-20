@@ -30,6 +30,7 @@ const SCRIPT_FAMILIES: &[([u8; 4], Option<&str>, &[&str])] = &[
     (*b"Arab", Some("fa"), &["Times New Roman"]),
     (*b"Arab", Some("ur"), &["Times New Roman"]),
     (*b"Hebr", None, &["Times New Roman"]),
+    (*b"Thai", None, &["Tahoma"]),
     (*b"Hira", None, JAPANESE),
     (*b"Kana", None, JAPANESE),
     (*b"Hani", None, SIMPLIFIED_HAN),
@@ -41,29 +42,50 @@ const SCRIPT_FAMILIES: &[([u8; 4], Option<&str>, &[&str])] = &[
     (*b"Hani", Some("zh-SG"), SIMPLIFIED_HAN),
 ];
 
-const ARABIC_GENERIC_FAMILIES: &[(GenericFamily, &str)] = &[
-    (GenericFamily::Monospace, "Courier New"),
-    (GenericFamily::SansSerif, "Segoe UI"),
-];
+fn locale_script(locale: &Language) -> Option<&str> {
+    match locale.script() {
+        Some("Hira" | "Kana" | "Hrkt") => Some("Jpan"),
+        Some("Kore") => Some("Hang"),
+        Some(script) => Some(script),
+        None => match locale.language() {
+            "ar" | "fa" | "ur" => Some("Arab"),
+            "el" => Some("Grek"),
+            "hi" => Some("Deva"),
+            "ja" => Some("Jpan"),
+            "ko" => Some("Hang"),
+            "ru" => Some("Cyrl"),
+            "zh" => match locale.region() {
+                Some("TW" | "HK" | "MO") => Some("Hant"),
+                _ => Some("Hans"),
+            },
+            _ => None,
+        },
+    }
+}
 
 pub(crate) fn browser_generic_family(
     generic: GenericFamily,
     locale: Option<&Language>,
+    initial: bool,
 ) -> Option<&'static str> {
+    use GenericFamily::{Monospace, SansSerif, Serif};
+
     if !cfg!(target_os = "windows") {
         return None;
     }
-    let locale = locale?;
-    let arabic = match locale.script() {
-        Some(script) => script == "Arab",
-        None => matches!(locale.language(), "ar" | "fa" | "ur"),
-    };
-    if !arabic {
-        return None;
+    match (locale_script(locale?)?, generic) {
+        ("Arab" | "Cyrl" | "Grek", Monospace) => Some("Courier New"),
+        ("Arab", SansSerif) => Some("Segoe UI"),
+        ("Deva", Serif | SansSerif) => Some("Nirmala UI"),
+        ("Jpan", Monospace) => Some("MS Gothic"),
+        ("Jpan", Serif | SansSerif) => Some("Yu Gothic"),
+        ("Hang", Monospace | Serif | SansSerif) => Some("Malgun Gothic"),
+        ("Hans", Monospace) => Some("NSimSun"),
+        ("Hans", Serif) if !initial => Some("SimSun"),
+        ("Hans", Serif | SansSerif) => Some("Microsoft YaHei"),
+        ("Hant", Monospace | Serif | SansSerif) => Some("Microsoft JhengHei"),
+        _ => None,
     }
-    ARABIC_GENERIC_FAMILIES
-        .iter()
-        .find_map(|&(family, name)| (family == generic).then_some(name))
 }
 
 pub(crate) fn prefer_browser_script_fallbacks(collection: &mut Collection) {

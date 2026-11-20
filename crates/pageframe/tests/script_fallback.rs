@@ -1,7 +1,12 @@
 #![cfg(target_os = "windows")]
 
+use std::fmt::Write as _;
+
 use pageframe::{App, Page};
+use pageframe_dom::BaseDocument;
 use pageframe_test_harness::Harness;
+use skrifa::string::StringId;
+use skrifa::{FontRef, MetadataProvider};
 
 const BASE: &str = "html,body{margin:0;background:white;font:10px/10px monospace;color:black}";
 
@@ -83,9 +88,12 @@ fn glyph_advance(root_attr: &str, attr: &str, family: &str, glyph: char) -> f32 
          <div {attr} id=sample style='font-family:{family};white-space:pre'>{glyph}</div>"
     );
     let harness = open(&html);
-    let doc = harness.base();
+    glyph_font_and_advance(&harness.base(), "#sample").1
+}
+
+fn glyph_font_and_advance(doc: &BaseDocument, selector: &str) -> (String, f32) {
     let sample = doc
-        .query_selector("#sample")
+        .query_selector(selector)
         .expect("valid selector")
         .expect("sample exists");
     let layout = &doc
@@ -97,15 +105,20 @@ fn glyph_advance(root_attr: &str, attr: &str, family: &str, glyph: char) -> f32 
         .as_ref()
         .expect("sample has an inline layout")
         .layout;
-    let advance = layout
+    let run = layout
         .get(0)
         .expect("sample has a line")
         .runs()
         .next()
-        .expect("sample has a glyph run")
-        .advance();
-    drop(doc);
-    advance
+        .expect("sample has a glyph run");
+    let data = run.font();
+    let font = FontRef::from_index(data.data.as_ref(), data.index).expect("valid font data");
+    let name = font
+        .localized_strings(StringId::POSTSCRIPT_NAME)
+        .english_or_first()
+        .expect("font has a PostScript name")
+        .to_string();
+    (name, run.advance())
 }
 
 #[test]
@@ -226,4 +239,124 @@ fn arabic_script_tags_select_chromes_monospace_metrics() {
         .collect();
     drop(doc);
     assert_eq!(widths, [6.0, 6.0, 5.484_375, 5.484_375]);
+}
+
+type GlyphSample = (&'static str, f32);
+type FamilySample = [GlyphSample; 3];
+
+fn samples(face: &'static str, advances: [f32; 3]) -> FamilySample {
+    advances.map(|advance| (face, advance))
+}
+
+fn check_locale_families(lang: &str, native: char, expected: [FamilySample; 4]) {
+    let families = ["", "monospace", "serif", "sans-serif"];
+    let glyphs = ['a', native, ' '];
+    let lang_attr = format!("lang='{lang}'");
+    for (placement, root_attr, elem_attr) in [
+        ("html", lang_attr.as_str(), ""),
+        ("div", "", lang_attr.as_str()),
+    ] {
+        let mut html = format!(
+            "<!doctype html><html {root_attr}><style>html,body{{margin:0;font-size:10px}}\
+             div{{white-space:pre}}</style>"
+        );
+        for (family_idx, family) in families.into_iter().enumerate() {
+            let style = if family.is_empty() {
+                String::new()
+            } else {
+                format!("style='font-family:{family}'")
+            };
+            for (glyph_idx, glyph) in glyphs.into_iter().enumerate() {
+                write!(
+                    html,
+                    "<div id=f{family_idx}g{glyph_idx} {elem_attr} {style}>{glyph}</div>"
+                )
+                .expect("write to String");
+            }
+        }
+        let harness = open(&html);
+        let doc = harness.base();
+        let measured: [[_; 3]; 4] = std::array::from_fn(|family_idx| {
+            std::array::from_fn(|glyph_idx| {
+                glyph_font_and_advance(&doc, &format!("#f{family_idx}g{glyph_idx}"))
+            })
+        });
+        drop(doc);
+
+        for (family_idx, family) in families.into_iter().enumerate() {
+            for (glyph_idx, glyph) in glyphs.into_iter().enumerate() {
+                let (font, advance) = &measured[family_idx][glyph_idx];
+                assert_eq!(
+                    (font.as_str(), *advance),
+                    expected[family_idx][glyph_idx],
+                    "lang={lang} on {placement}, {family:?}, {glyph:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn locale_fonts_match_chrome_for_japanese() {
+    let yu_gothic = samples("YuGothic-Regular", [5.593_75, 10.0, 2.859_375]);
+    let ms_gothic = samples("MS-Gothic", [5.0, 10.0, 5.0]);
+    check_locale_families("ja", 'あ', [yu_gothic, ms_gothic, yu_gothic, yu_gothic]);
+}
+
+#[test]
+fn locale_fonts_match_chrome_for_korean() {
+    let malgun = samples("MalgunGothic", [5.203_125, 10.0, 3.515_625]);
+    check_locale_families("ko", '한', [malgun; 4]);
+}
+
+#[test]
+fn locale_fonts_match_chrome_for_simplified_chinese() {
+    let yahei = samples("MicrosoftYaHei", [5.531_25, 10.0, 2.968_75]);
+    let simsun = samples("SimSun", [5.0, 10.0, 5.0]);
+    let nsimsun = samples("NSimSun", [5.0, 10.0, 5.0]);
+    check_locale_families("zh-CN", '汉', [yahei, nsimsun, simsun, yahei]);
+}
+
+#[test]
+fn locale_fonts_match_chrome_for_traditional_chinese() {
+    let jhenghei = samples("MicrosoftJhengHeiRegular", [5.484_375, 10.0, 2.5]);
+    for lang in ["zh-TW", "zh-HK"] {
+        check_locale_families(lang, '漢', [jhenghei; 4]);
+    }
+}
+
+#[test]
+fn locale_fonts_match_chrome_for_thai() {
+    let thai = ("Tahoma", 5.953_125);
+    let times = [
+        ("TimesNewRomanPSMT", 4.453_125),
+        thai,
+        ("TimesNewRomanPSMT", 2.5),
+    ];
+    let consolas = [("Consolas", 5.5), thai, ("Consolas", 5.5)];
+    let arial = [("ArialMT", 5.562_5), thai, ("ArialMT", 2.781_25)];
+    check_locale_families("th", 'ก', [times, consolas, times, arial]);
+}
+
+#[test]
+fn locale_fonts_match_chrome_for_devanagari() {
+    let nirmala = samples("NirmalaUI", [5.093_75, 8.640_625, 2.75]);
+    let consolas = [("Consolas", 5.5), nirmala[1], ("Consolas", 5.5)];
+    check_locale_families("hi", 'क', [nirmala, consolas, nirmala, nirmala]);
+}
+
+#[test]
+fn locale_fonts_match_chrome_for_cyrillic() {
+    let times = samples("TimesNewRomanPSMT", [4.453_125, 6.671_875, 2.5]);
+    let courier = samples("CourierNewPSMT", [6.015_625; 3]);
+    let arial = samples("ArialMT", [5.562_5, 7.234_375, 2.781_25]);
+    check_locale_families("ru", 'Я', [times, courier, times, arial]);
+}
+
+#[test]
+fn locale_fonts_match_chrome_for_greek() {
+    let times = samples("TimesNewRomanPSMT", [4.453_125, 7.437_5, 2.5]);
+    let courier = samples("CourierNewPSMT", [6.015_625; 3]);
+    let arial = samples("ArialMT", [5.562_5, 7.484_375, 2.781_25]);
+    check_locale_families("el", 'Ω', [times, courier, times, arial]);
 }

@@ -9,7 +9,7 @@ use crate::net::{
 use crate::node::{ImageData, NodeFlags, RasterImageData, SpecialElementData, Status, TextBrush};
 use crate::scrolling::ScrollAnimationState;
 use crate::selection::TextSelection;
-use crate::stylo_device::{DeviceChanges, make_device};
+use crate::stylo_device::{DeviceChanges, initial_font, make_device};
 use crate::stylo_to_cursor_icon::stylo_to_cursor_icon;
 use crate::traversal::TreeTraverser;
 use crate::url::DocumentUrl;
@@ -52,7 +52,6 @@ use style::data::{ElementData as StyloElementData, ElementStyles};
 use style::invalidation::element::restyle_hints::RestyleHint;
 use style::media_queries::MediaType;
 use style::properties::ComputedValues;
-use style::properties::style_structs::Font;
 use style::selector_parser::ServoElementSnapshot;
 use style::servo_arc::Arc as ServoArc;
 use style::values::GenericAtomIdent;
@@ -639,8 +638,7 @@ impl BaseDocument {
         let stylo_element_data = StyloElementData {
             styles: ElementStyles {
                 primary: Some(
-                    ComputedValues::initial_values_with_font_override(Font::initial_values())
-                        .to_arc(),
+                    ComputedValues::initial_values_with_font_override(initial_font()).to_arc(),
                 ),
                 ..Default::default()
             },

@@ -21,11 +21,13 @@ fn query_for_font_styles<'a>(
 
     let mut query = font_ctx.collection.query(&mut font_ctx.source_cache);
     let locale = parley::Language::parse(&font_styles._x_lang.0).ok();
-    let families = font_styles
-        .font_family
-        .families
-        .iter()
-        .map(|family| stylo_to_parley::query_font_family(family, locale.as_ref()));
+    let families = font_styles.font_family.families.iter().map(|family| {
+        stylo_to_parley::query_font_family(
+            family,
+            locale.as_ref(),
+            font_styles.font_family.is_initial,
+        )
+    });
     query.set_families(families);
     query.set_attributes(Attributes {
         width: stylo_to_parley::font_width(font_styles.font_width),
