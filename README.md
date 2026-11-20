@@ -2,7 +2,7 @@
 
 Build desktop app UIs in Rust with HTML and CSS. Pageframe styles your page with Stylo, lays it out with Taffy and Parley, and draws it with Vello. Your Rust code handles the events and edits the DOM; there's no browser or JavaScript engine in the app.
 
-Pageframe is a fork of [Blitz](https://github.com/DioxusLabs/blitz).
+Pageframe started as a fork of [Blitz](https://github.com/DioxusLabs/blitz) at commit [b6bb45c](https://github.com/DioxusLabs/blitz/commit/b6bb45c550a9490afa6c43468c77535c6d76856d). The history before that commit is in the Blitz repository.
 
 ```rust
 use pageframe::{App, Error, EventKind};
