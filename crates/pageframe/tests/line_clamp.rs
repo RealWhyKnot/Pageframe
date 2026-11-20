@@ -172,6 +172,60 @@ fn broken(rule: &str, text: &str) -> Vec<u8> {
     buffer
 }
 
+#[cfg(target_os = "windows")]
+#[test]
+fn balance_breaks_at_the_same_words_as_chrome_at_both_scales() {
+    use pageframe_test_harness::Harness;
+    use pageframe_traits::shell::Viewport;
+
+    let html = format!(
+        "<!doctype html><style>div{{width:150px;font:10px/20px Consolas;text-wrap:balance}}</style>\
+         <div>aé {BALANCE_WORDS}<br>{BALANCE_WORDS}</div>"
+    );
+    let page = App::new((), &html).page(200, 100).expect("valid page");
+    let mut harness = Harness::wrap(page);
+    for scale in [1_u16, 2] {
+        {
+            let mut doc = harness.base_mut();
+            let theme = doc.get_viewport().color_scheme;
+            let size = u32::from(scale);
+            doc.set_viewport(Viewport::new(
+                200 * size,
+                100 * size,
+                f32::from(scale),
+                theme,
+            ));
+        }
+        harness.pump();
+        let doc = harness.base_mut();
+        let id = doc
+            .query_selector("div")
+            .expect("valid selector")
+            .expect("div");
+        let inline = doc
+            .get_node(id)
+            .and_then(|node| node.element_data())
+            .and_then(|element| element.inline_layout_data.as_deref())
+            .expect("div has inline layout");
+        let lines: Vec<_> = inline
+            .layout
+            .lines()
+            .map(|line| inline.text[line.text_range()].trim_end().to_owned())
+            .collect();
+        drop(doc);
+        assert_eq!(
+            lines,
+            [
+                "aé aaaa bbb cc dddd",
+                "ee aaaa bbb cc dddd ee",
+                "aaaa bbb cc dddd ee aaaa",
+                "bbb cc dddd ee",
+            ],
+            "{scale}x"
+        );
+    }
+}
+
 #[test]
 fn balance_evens_out_two_lines() {
     let greedy = broken("", "aaaa bbbb cccc dddd eeee ffff");

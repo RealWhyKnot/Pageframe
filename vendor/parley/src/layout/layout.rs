@@ -173,6 +173,31 @@ impl<B: Brush> Layout<B> {
         self.data.inline_boxes.iter_mut().map(|b| &mut b.inline_box)
     }
 
+    pub fn break_candidate_positions(&self) -> impl Iterator<Item = (Line<'_, B>, f32, f32)> {
+        let mut growths = self.data.split_item_ceils.iter().peekable();
+        let mut position = 0.0;
+        let snap = |value: f32| {
+            if self.data.quantize {
+                (value * 64.0).ceil() / 64.0
+            } else {
+                value
+            }
+        };
+        self.lines().enumerate().map(move |(index, line)| {
+            let metrics = line.metrics();
+            let mut advance = metrics.advance;
+            let mut hang = metrics.hanging_advance;
+            while let Some((_, growth)) = growths.next_if(|(line_index, _)| *line_index == index) {
+                advance -= growth.extra();
+                if growth.cluster() >= line.data.justification.justification_end_cluster as usize {
+                    hang -= growth.extra();
+                }
+            }
+            position += advance;
+            (line, snap(position - hang), snap(position))
+        })
+    }
+
     /// Returns an iterator over the lines in the layout.
     pub fn lines(
         &self,
