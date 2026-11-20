@@ -123,3 +123,51 @@ fn an_inline_block_takes_its_own_bidi_level_like_chrome() {
         assert_eq!(blue.len(), 10, "{direction} {before}|{after}");
     }
 }
+
+#[test]
+fn a_cloned_span_follows_the_paragraph_direction_not_the_block_direction() {
+    let row = |dir: &str, text: &str, style: &str, y: usize| {
+        let buffer = draw(&format!(
+            "<div dir=\"{dir}\" style=\"unicode-bidi:plaintext;line-height:40px;width:30px\">\
+             <span style=\"background:#0f0;color:transparent;{style}\">{text}<br>{text}</span>\
+             </div>"
+        ));
+        let row = painted(&buffer, y);
+        (row.first().map(|(x, _)| *x), row.len())
+    };
+    let clone = "box-decoration-break:clone";
+    let (_, word) = row("rtl", "aaa", "", 20);
+    for y in [20, 60] {
+        let padded = row("rtl", "aaa", &format!("padding:0 3px 0 12px;{clone}"), y);
+        assert_eq!(padded, (Some(0), word + 15), "latin in rtl, line at {y}");
+    }
+    let (_, hebrew) = row("ltr", "&#1488;&#1488;", "", 20);
+    for y in [20, 60] {
+        let padded = row(
+            "ltr",
+            "&#1488;&#1488;",
+            &format!("padding:0 2px 0 7px;{clone}"),
+            y,
+        );
+        assert_eq!(
+            padded,
+            (Some(30 - hebrew - 9), hebrew + 9),
+            "hebrew in ltr, line at {y}"
+        );
+    }
+}
+
+#[test]
+fn a_cloned_closing_inset_never_pushes_words_to_the_next_line() {
+    let lines = |padding_left: usize| {
+        let buffer = draw(&format!(
+            "<div dir=\"rtl\" style=\"unicode-bidi:plaintext;line-height:20px;width:100px\">\
+             <span style=\"background:#0f0;box-decoration-break:clone;\
+             padding:0 2px 0 {padding_left}px\">aaaa aaaa aaaa aaaa aaaa</span></div>"
+        ));
+        (0..4)
+            .filter(|line| (0..120).any(|x| pixel(&buffer, x, line * 20 + 10) == LIME))
+            .count()
+    };
+    assert_eq!([lines(0), lines(40)], [2, 2]);
+}

@@ -1445,8 +1445,8 @@ pub(crate) fn stroke_text<'a>(
         // run. Clearing preserves the allocation for the next line and inline context.
         deco_boxes.clear();
         let mut holes: SmallVec<[(f64, f64); 2]> = SmallVec::new();
-        if let Some((left, right)) = trim_root
-            .and_then(|(root, text)| LineTrim::new(root, &line, text).hung_span())
+        if let Some((left, right)) =
+            trim_root.and_then(|(root, text)| LineTrim::new(root, &line, text).hung_span())
         {
             holes.push((f64::from(left), f64::from(right)));
         }

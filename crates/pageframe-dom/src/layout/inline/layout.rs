@@ -31,6 +31,8 @@ use stylo_taffy::StyleFlags;
 use crate::layout::LayoutPassState;
 use crate::layout::resolve_calc_value;
 use crate::stylo_to_parley;
+#[cfg(feature = "floats")]
+use crate::util::inline_clone_insets;
 
 struct SpanContainingBlock {
     id: NodeId,
@@ -251,26 +253,52 @@ struct CloneEdge {
     start: f32,
     end: f32,
     width: f32,
+    opening: f32,
+    is_rtl: bool,
 }
 
 #[cfg(feature = "floats")]
-fn reserve_clone_edges(state: &mut BreakerState, edges: &[CloneEdge], line: usize, is_rtl: bool) {
+impl CloneEdge {
+    fn add_closing(&mut self, inset: f32, span_is_rtl: bool) {
+        if span_is_rtl == self.is_rtl {
+            self.end += inset;
+        } else {
+            self.start += inset;
+        }
+    }
+
+    fn add_opening(&mut self, inset: f32, span_is_rtl: bool) {
+        self.opening += inset;
+        if span_is_rtl == self.is_rtl {
+            self.start += inset;
+        } else {
+            self.end += inset;
+        }
+    }
+}
+
+#[cfg(feature = "floats")]
+fn reserve_clone_edges(state: &mut BreakerState, edges: &[CloneEdge], line: usize) {
     let Some(edge) = edges.get(line) else {
         return;
     };
     let room = state.line_max_advance() - edge.start;
-    let kept = (edge.width + CLONE_FIT_SLACK).min(room);
+    let kept = (edge.width + CLONE_FIT_SLACK).min(state.line_max_advance() - edge.opening);
     let advance = (room - edge.end).max(kept).max(0.0);
-    let shift = if is_rtl { room - advance } else { edge.start };
+    let shift = if edge.is_rtl {
+        room - advance
+    } else {
+        edge.start
+    };
     state.set_line_x(state.line_x() + shift);
     state.set_line_max_advance(advance);
 }
 
 #[cfg(feature = "floats")]
 fn indent_clone_line(state: &mut BreakerState, edges: &[CloneEdge], line: usize, max_advance: f32) {
-    let start = edges.get(line).map_or(0.0, |edge| edge.start);
-    state.set_line_x(start);
-    state.set_line_max_advance((max_advance - start).max(0.0));
+    let opening = edges.get(line).map_or(0.0, |edge| edge.opening);
+    state.set_line_x(opening);
+    state.set_line_max_advance((max_advance - opening).max(0.0));
 }
 
 #[cfg(feature = "floats")]
@@ -304,7 +332,7 @@ fn clone_line_edges(
         let is_settled = next
             .iter()
             .enumerate()
-            .all(|(line, edge)| edge.start == edges.get(line).map_or(0.0, |old| old.start));
+            .all(|(line, edge)| edge.opening == edges.get(line).map_or(0.0, |old| old.opening));
         edges = next;
         if is_settled {
             break;
@@ -341,6 +369,7 @@ fn continued_clone_edges(
             let metrics = line.metrics();
             CloneEdge {
                 width: metrics.advance - metrics.hanging_advance + metrics.indent,
+                is_rtl: line.is_rtl(),
                 ..CloneEdge::default()
             }
         })
@@ -353,14 +382,14 @@ fn continued_clone_edges(
         while let Some(id) = current.filter(|id| *id != root) {
             let node = &nodes[id];
             current = node.parent;
-            let Some(insets) = crate::util::inline_clone_insets(node, basis) else {
+            let Some(insets) = inline_clone_insets(node, basis) else {
                 continue;
             };
             let mut inner = Some(after);
             while let Some(inner_id) = inner.filter(|inner_id| *inner_id != root) {
                 if inner_id == id {
-                    edges[line - 1].end += insets.outer_end() * scale;
-                    edges[line].start += insets.outer_start() * scale;
+                    edges[line - 1].add_closing(insets.outer_end() * scale, insets.is_rtl);
+                    edges[line].add_opening(insets.outer_start() * scale, insets.is_rtl);
                     break;
                 }
                 inner = nodes[inner_id].parent;
@@ -1443,7 +1472,7 @@ impl LayoutPassState<'_> {
                 state.set_line_x(x);
                 state.set_line_max_advance(advance);
             }
-            reserve_clone_edges(state, &clone_edges, 0, is_rtl);
+            reserve_clone_edges(state, &clone_edges, 0);
 
             // The state at the start of the current line, which is reverted to when the line
             // needs to be retried lower down (or narrower) to avoid floats.
@@ -1473,7 +1502,6 @@ impl LayoutPassState<'_> {
                                 breaker.state_mut(),
                                 &clone_edges,
                                 line_count_so_far,
-                                is_rtl,
                             );
                             line_start_state = has_active_floats.then(|| breaker.state().clone());
                             continue;
@@ -1514,7 +1542,7 @@ impl LayoutPassState<'_> {
                             state.set_line_x(x);
                             state.set_line_max_advance(advance);
                         }
-                        reserve_clone_edges(state, &clone_edges, line_count_so_far, is_rtl);
+                        reserve_clone_edges(state, &clone_edges, line_count_so_far);
 
                         line_start_state = has_active_floats.then(|| breaker.state().clone());
                         continue;
