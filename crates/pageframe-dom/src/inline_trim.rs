@@ -46,6 +46,23 @@ fn hung_space(
     (width > 0.0).then_some((left, width))
 }
 
+fn trailing_space_advance(glyph_run: &GlyphRun<'_, TextBrush>, text: &str) -> f32 {
+    glyph_run
+        .run()
+        .clusters()
+        .map(|cluster| {
+            (
+                text.get(cluster.text_range()).unwrap_or_default(),
+                cluster.advance(),
+            )
+        })
+        .filter(|(chars, _)| !chars.chars().all(is_end_mark))
+        .fold(
+            0.0,
+            |sum, (chars, advance)| if chars == " " { sum + advance } else { 0.0 },
+        )
+}
+
 const HUNG_SLACK: f32 = 1.0 / 128.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -54,6 +71,7 @@ pub struct LineTrim {
     inked_right: f32,
     hanging: f32,
     closing_space: Option<(f32, f32)>,
+    trailing_space: f32,
     is_rtl: bool,
 }
 
@@ -64,6 +82,7 @@ impl LineTrim {
         let mut line_right = f32::MIN;
         let mut hung = None;
         let mut is_hung_closed = false;
+        let mut edge_run = None;
         let mut edge_owner: Option<&Node> = None;
         for item in line.items() {
             let (left, right) = match item {
@@ -78,6 +97,7 @@ impl LineTrim {
                         is_hung_closed = body.len() < run_text.len();
                         if !(is_rtl && edge_owner.is_some()) {
                             edge_owner = owner;
+                            edge_run = Some(glyph_run.clone());
                         }
                     }
                     let left = glyph_run.offset();
@@ -99,11 +119,15 @@ impl LineTrim {
         } else {
             line.metrics().hanging_advance
         };
+        let trailing_space = edge_run
+            .filter(|_| hanging > 0.0)
+            .map_or(0.0, |run| trailing_space_advance(&run, text));
         Self {
             inked_left: line_left + hanging,
             inked_right: line_right - hanging,
             hanging,
             closing_space: hung.filter(|_| is_hung_closed),
+            trailing_space,
             is_rtl,
         }
     }
@@ -120,7 +144,7 @@ impl LineTrim {
     }
 
     pub fn hung_span(&self) -> Option<(f32, f32)> {
-        if self.hanging <= 0.0 {
+        if self.hanging <= 0.0 || self.trailing_space + HUNG_SLACK < self.hanging {
             return None;
         }
         Some(if self.is_rtl {

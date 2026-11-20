@@ -399,13 +399,13 @@ fn double_lines_leave_one_device_pixel_between_them_like_chrome() {
 fn line_underlines(dir: &str, bidi: &str, text: &str) -> Vec<Vec<usize>> {
     let buffer = draw(&format!(
         "<div dir=\"{dir}\" style=\"font:10px/20px Arial;text-decoration:underline red;\
-         width:16px;unicode-bidi:{bidi}\">{text}</div>"
+         width:16px;margin-left:20px;unicode-bidi:{bidi}\">{text}</div>"
     ));
     (0..4)
         .map(|line| {
             let band = line * 20..line * 20 + 20;
             band.map(|down| {
-                (0..40)
+                (0..60)
                     .filter(|across| pixel(&buffer, *across, down) != WHITE)
                     .collect::<Vec<usize>>()
             })
@@ -428,4 +428,34 @@ fn underlines_stop_before_hung_spaces_in_each_paragraph_direction() {
     assert_eq!([&rtl_first[0], &rtl_first[2]], [&rtl_word, &ltr_word]);
     let ltr_first = line_underlines("rtl", "plaintext", &format!("aa bb<br>{hebrew}"));
     assert_eq!([&ltr_first[0], &ltr_first[2]], [&ltr_word, &rtl_word]);
+}
+
+#[test]
+fn underlines_run_under_hung_ideographic_spaces_like_chrome() {
+    let first_line = |dir: &str, text: &str| {
+        let columns = line_underlines(dir, "normal", text).swap_remove(0);
+        (columns.first().copied(), columns.last().copied())
+    };
+    let measured = [
+        first_line("ltr", "aa"),
+        first_line("ltr", "aa\u{3000}bb"),
+        first_line("ltr", "aa\u{3000} bb"),
+        first_line("rtl", "\u{5d0}\u{5d1}"),
+        first_line("rtl", "\u{5d0}\u{5d1}\u{3000} \u{5d2}"),
+        first_line("ltr", "aa\u{3000} "),
+        first_line("rtl", "\u{5d0}\u{5d1}\u{3000} "),
+    ];
+    let expected = [
+        (20, 31),
+        (20, 41),
+        (20, 43),
+        (24, 35),
+        (12, 35),
+        (20, 41),
+        (14, 35),
+    ];
+    assert_eq!(
+        measured,
+        expected.map(|(first, last)| (Some(first), Some(last)))
+    );
 }
