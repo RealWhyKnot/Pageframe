@@ -2793,9 +2793,7 @@ impl BaseDocument {
     }
 
     /// Computes the sizes and positions of the `Node`'s box fragments relative to the
-    /// viewport (CSSOM `getClientRects()` semantics). Nodes with their own layout box
-    /// return a single rect. Non-atomic inline elements (which are laid out as style
-    /// spans within an inline root's text layout) return one rect per line box.
+    /// viewport (CSSOM `getClientRects()` semantics).
     pub fn node_client_rects(&self, node_id: NodeId) -> Vec<BoundingRect> {
         if !self.get_node(node_id).is_some_and(Node::has_boxes) {
             return Vec::new();

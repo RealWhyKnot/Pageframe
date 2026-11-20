@@ -252,13 +252,6 @@ fn padded_pre_wrap_space_hangs_at_end_alignment() {
         [85.218_75, 103.906_25],
     );
     pre_wrap_fragment(
-        "direction:rtl",
-        "padding-right:6px",
-        " ",
-        [56, 100],
-        [55.843_75, 100.0],
-    );
-    pre_wrap_fragment(
         "text-align:end",
         "padding-right:6px",
         " ",

@@ -22,6 +22,23 @@ pub fn collapses_spaces(owner: &Node) -> bool {
     })
 }
 
+pub fn is_reordered_preserved_space(
+    root: &Node,
+    glyph_run: &GlyphRun<'_, TextBrush>,
+    text: &str,
+) -> bool {
+    let run = glyph_run.run();
+    run.is_rtl() != run.is_line_rtl()
+        && glyph_run.advance() > 0.0
+        && text
+            .get(glyph_run.text_range())
+            .is_some_and(|text| !text.is_empty() && text.bytes().all(|byte| byte == b' '))
+        && root
+            .tree()
+            .get(glyph_run.style().brush.id)
+            .is_some_and(|owner| !collapses_spaces(owner))
+}
+
 fn hung_space(
     glyph_run: &GlyphRun<'_, TextBrush>,
     body: &str,
@@ -196,12 +213,21 @@ impl LineTrim {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct LineSpan<T> {
     pub node_id: NodeId,
     pub left: T,
     pub right: T,
     pub is_start: bool,
     pub is_end: bool,
+    pub has_reordered_space: bool,
+}
+
+impl<T: Float + From<f32>> LineSpan<T> {
+    pub fn continues(&self, left: T, is_reordered_space: bool) -> bool {
+        !(self.has_reordered_space || is_reordered_space)
+            || left <= self.right + <T as From<f32>>::from(HUNG_SLACK)
+    }
 }
 
 fn grow<T: Float + From<f32>>(left: T, right: T, start: f32, end: f32, is_rtl: bool) -> (T, T) {
@@ -245,22 +271,31 @@ pub fn settle_line_spans<T: Float + From<f32>>(
     order.sort_by(|first, second| second.cmp(first));
     let mut grown: SmallVec<[bool; 8]> = SmallVec::from_elem(false, spans.len());
     for (_, index) in order {
-        let span = &mut spans[index];
+        let span = spans[index];
         let node = tree.get(span.node_id);
         let outer = match node.and_then(|node| inline_clone_insets(node, basis)) {
             Some(insets) => {
-                let start_scale = if span.is_start { 0.0 } else { scale };
-                let end_scale = if span.is_end { 0.0 } else { scale };
+                let needs_edge = |is_left, has_edge: fn(&LineSpan<T>) -> bool| {
+                    !spans.iter().enumerate().any(|(at, peer)| {
+                        peer.node_id == span.node_id
+                            && (has_edge(peer) || if is_left { at < index } else { at > index })
+                    })
+                };
+                let clone_start = needs_edge(!insets.is_rtl, |peer| peer.is_start);
+                let clone_end = needs_edge(insets.is_rtl, |peer| peer.is_end);
+                let start_scale = if clone_start { scale } else { 0.0 };
+                let end_scale = if clone_end { scale } else { 0.0 };
                 let (left, right) = (span.left, span.right);
-                (span.left, span.right) = grow(
+                let fragment = &mut spans[index];
+                (fragment.left, fragment.right) = grow(
                     left,
                     right,
                     start_scale * insets.start(),
                     end_scale * insets.end(),
                     insets.is_rtl,
                 );
-                span.is_start = true;
-                span.is_end = true;
+                fragment.is_start |= clone_start;
+                fragment.is_end |= clone_end;
                 grow(
                     left,
                     right,
@@ -274,7 +309,17 @@ pub fn settle_line_spans<T: Float + From<f32>>(
         };
         let mut cursor = node.and_then(|node| node.parent);
         while let Some(parent) = cursor.filter(|parent| *parent != root.id) {
-            if let Some(at) = spans.iter().position(|span| span.node_id == parent) {
+            let mut fragments = spans
+                .iter()
+                .enumerate()
+                .filter(|(_, fragment)| fragment.node_id == parent);
+            let first = fragments.next();
+            let at = first
+                .into_iter()
+                .chain(fragments)
+                .find(|(_, fragment)| fragment.left <= span.right && span.left <= fragment.right)
+                .or(first);
+            if let Some((at, _)) = at {
                 let ancestor = &mut spans[at];
                 ancestor.left = ancestor.left.min(outer.0);
                 ancestor.right = ancestor.right.max(outer.1);

@@ -4,7 +4,9 @@ use kurbo::{
 };
 use num_traits::ToPrimitive;
 use pageframe_dom::CopyStyleGetters;
-use pageframe_dom::inline_trim::{LineSpan, LineTrim, settle_line_spans};
+use pageframe_dom::inline_trim::{
+    LineSpan, LineTrim, is_reordered_preserved_space, settle_line_spans,
+};
 use pageframe_dom::{BaseDocument, NodeId, node::TextBrush, util::ToColorColor};
 use parley::{Affinity, Cursor, Layout, Line, PositionedLayoutItem, Selection};
 use peniko::Fill;
@@ -39,18 +41,14 @@ pub(crate) struct InlineFragment {
 }
 
 struct SpanBox {
-    node_id: NodeId,
+    span: LineSpan<f64>,
     depth: usize,
     color: Color,
     is_boxed: bool,
     font_size: f64,
-    left: f64,
-    right: f64,
     baseline: f64,
     extent: Option<(f64, f64)>,
     is_own_font: bool,
-    is_start: bool,
-    is_end: bool,
     shift: Vec2,
     group: Option<NodeId>,
 }
@@ -62,6 +60,7 @@ struct SpanItem {
     font: Option<(NodeId, f64, f64, f64)>,
     opens: bool,
     closes: bool,
+    is_reordered_space: bool,
 }
 
 struct InlineAncestor {
@@ -243,6 +242,9 @@ pub(crate) fn inline_fragments<'a>(
                             font: Some((owner, ascent, descent, font_size)),
                             opens: run_text.starts_with(pageframe_dom::util::INLINE_EDGE_START),
                             closes: run_text.ends_with(pageframe_dom::util::INLINE_EDGE_END),
+                            is_reordered_space: is_reordered_preserved_space(
+                                root, &glyph_run, text,
+                            ),
                         },
                     )
                 }
@@ -260,6 +262,7 @@ pub(crate) fn inline_fragments<'a>(
                             font: None,
                             opens: false,
                             closes: false,
+                            is_reordered_space: false,
                         },
                     )
                 }
@@ -302,31 +305,41 @@ pub(crate) fn inline_fragments<'a>(
                 let is_own = span_item.font.is_some_and(|(owner, ..)| owner == node_id);
                 let position = boxes
                     .iter()
-                    .position(|span_box| span_box.node_id == node_id)
+                    .rposition(|span_box| span_box.span.node_id == node_id)
+                    .filter(|&index| {
+                        boxes[index]
+                            .span
+                            .continues(span_item.left, span_item.is_reordered_space)
+                    })
                     .unwrap_or_else(|| {
                         boxes.push(SpanBox {
-                            node_id,
+                            span: LineSpan {
+                                node_id,
+                                left: span_item.left,
+                                right: span_item.right,
+                                is_start: false,
+                                is_end: false,
+                                has_reordered_space: false,
+                            },
                             depth: depth_of_first - index,
                             color: ancestor.color,
                             is_boxed: ancestor.is_boxed,
                             font_size: ancestor.font_size * scale,
-                            left: span_item.left,
-                            right: span_item.right,
                             baseline: line_baseline,
                             extent: None,
                             is_own_font: false,
-                            is_start: false,
-                            is_end: false,
                             shift,
                             group,
                         });
                         boxes.len() - 1
                     });
                 let span_box = &mut boxes[position];
-                span_box.left = span_box.left.min(span_item.left);
-                span_box.right = span_box.right.max(span_item.right);
-                span_box.is_start |= is_own && span_item.opens;
-                span_box.is_end |= is_own && span_item.closes;
+                let span = &mut span_box.span;
+                span.left = span.left.min(span_item.left);
+                span.right = span.right.max(span_item.right);
+                span.is_start |= is_own && span_item.opens;
+                span.is_end |= is_own && span_item.closes;
+                span.has_reordered_space |= span_item.is_reordered_space;
                 let Some((_, ascent, descent, run_font_size)) = span_item.font else {
                     continue;
                 };
@@ -345,22 +358,9 @@ pub(crate) fn inline_fragments<'a>(
         }
 
         boxes.sort_by_key(|span_box| span_box.depth);
-        let mut spans: Vec<LineSpan<f64>> = boxes
-            .iter()
-            .map(|span_box| LineSpan {
-                node_id: span_box.node_id,
-                left: span_box.left,
-                right: span_box.right,
-                is_start: span_box.is_start,
-                is_end: span_box.is_end,
-            })
-            .collect();
+        let mut spans: Vec<_> = boxes.iter().map(|span_box| span_box.span).collect();
         settle_line_spans(root, &mut spans, &trim, clone_basis, scale_f32);
-        for (mut span_box, span) in boxes.into_iter().zip(spans) {
-            span_box.left = span.left;
-            span_box.right = span.right;
-            span_box.is_start = span.is_start;
-            span_box.is_end = span.is_end;
+        for (span_box, span) in boxes.into_iter().zip(spans) {
             let extent = span_box.extent.or_else(|| {
                 font_ratios.map(|(ascent, descent)| {
                     (ascent * span_box.font_size, descent * span_box.font_size)
@@ -370,17 +370,17 @@ pub(crate) fn inline_fragments<'a>(
                 continue;
             };
             fragments.push(InlineFragment {
-                node_id: span_box.node_id,
+                node_id: span.node_id,
                 color: span_box.color,
                 rect: Rect::new(
-                    span_box.left,
+                    span.left,
                     span_box.baseline - ascent.round(),
-                    span_box.right,
+                    span.right,
                     span_box.baseline + descent.round(),
                 ) + span_box.shift,
                 is_boxed: span_box.is_boxed,
-                is_start: span_box.is_start,
-                is_end: span_box.is_end,
+                is_start: span.is_start,
+                is_end: span.is_end,
                 group: span_box.group,
             });
         }

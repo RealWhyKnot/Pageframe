@@ -1,6 +1,6 @@
 use super::TextBrush;
 use super::node::{FontExtent, LineAxes, Node};
-use crate::inline_trim::{LineSpan, LineTrim, settle_line_spans};
+use crate::inline_trim::{LineSpan, LineTrim, is_reordered_preserved_space, settle_line_spans};
 use pageframe_traits::node_id::NodeId;
 use parley::{LineMetrics, PositionedLayoutItem};
 use smallvec::SmallVec;
@@ -11,6 +11,7 @@ use stylo_taffy::CopyStyleGetters;
 
 pub(super) type SpanChain = SmallVec<[NodeId; 4]>;
 
+#[derive(Clone, Copy)]
 pub(super) struct SpanGeometry {
     pub(super) scale: f32,
     pub(super) block_offset: f32,
@@ -178,7 +179,7 @@ impl Node {
             own: SmallVec::new(),
         };
         for (index, item) in line.items().enumerate() {
-            let (owner, start, end, run_text) = match item {
+            let (owner, start, end, run_text, is_reordered_space) = match item {
                 PositionedLayoutItem::GlyphRun(glyph_run) => {
                     let owner = glyph_run.style().brush.id;
                     let run_text = text.get(glyph_run.run().text_range()).unwrap_or_default();
@@ -191,13 +192,20 @@ impl Node {
                         found.own.push((owner, glyph_run.baseline(), extent));
                     }
                     let start = glyph_run.offset();
-                    (owner, start, start + glyph_run.advance(), run_text)
+                    (
+                        owner,
+                        start,
+                        start + glyph_run.advance(),
+                        run_text,
+                        is_reordered_preserved_space(self, &glyph_run, text),
+                    )
                 }
                 PositionedLayoutItem::InlineBox(inline_box) => (
                     NodeId::from_u64(inline_box.id),
                     inline_box.x,
                     inline_box.x + inline_box.width,
                     "",
+                    false,
                 ),
             };
             let Some(chain) = chain_of(owner) else {
@@ -209,7 +217,12 @@ impl Node {
                 (start, end)
             };
             for (position, node_id) in chain.into_iter().enumerate() {
-                let slot = match found.spans.iter().position(|span| span.node_id == node_id) {
+                let existing = found
+                    .spans
+                    .iter()
+                    .rposition(|span| span.node_id == node_id)
+                    .filter(|&slot| found.spans[slot].continues(start, is_reordered_space));
+                let slot = match existing {
                     Some(slot) => slot,
                     None => {
                         found.spans.push(LineSpan {
@@ -218,6 +231,7 @@ impl Node {
                             right: end,
                             is_start: false,
                             is_end: false,
+                            has_reordered_space: false,
                         });
                         found.first.push(index);
                         found.spans.len() - 1
@@ -226,6 +240,7 @@ impl Node {
                 let span = &mut found.spans[slot];
                 span.left = span.left.min(start);
                 span.right = span.right.max(end);
+                span.has_reordered_space |= is_reordered_space;
                 if position == 0 {
                     span.is_start |= run_text.starts_with(crate::util::INLINE_EDGE_START);
                     span.is_end |= run_text.ends_with(crate::util::INLINE_EDGE_END);

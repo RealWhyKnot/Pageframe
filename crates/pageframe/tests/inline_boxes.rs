@@ -4,6 +4,8 @@ mod bidi_edges;
 mod client_rects;
 #[path = "inline_boxes_cases/rounding.rs"]
 mod rounding;
+#[path = "inline_boxes_cases/rtl_preserved_space.rs"]
+mod rtl_preserved_space;
 mod support;
 #[path = "inline_boxes_cases/trailing_space.rs"]
 mod trailing_space;

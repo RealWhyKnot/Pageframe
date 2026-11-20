@@ -2400,23 +2400,28 @@ impl Node {
 
         let text = inline_layout.text.as_str();
 
-        Some(layout.lines().filter_map(move |line| {
-            let metrics = line.metrics();
+        Some(layout.lines().flat_map(move |line| {
+            let metrics = *line.metrics();
             let trim = crate::inline_trim::LineTrim::new(inline_root, &line, text);
             let found = inline_root.collect_line_spans(&line, &trim, &geometry, chain_to);
-            let span = found.spans.iter().find(|span| span.node_id == self.id)?;
             let own = found.own(self.id);
             let extent = match font {
                 Some(font) => Some((own.map_or(metrics.baseline, |(baseline, _)| baseline), font)),
                 None => own,
             };
-            Some(self.line_span_rect(
-                inline_root,
-                metrics,
-                extent,
-                (span.left, span.right),
-                &geometry,
-            ))
+            found
+                .spans
+                .into_iter()
+                .filter(move |span| span.node_id == self.id)
+                .map(move |span| {
+                    self.line_span_rect(
+                        inline_root,
+                        &metrics,
+                        extent,
+                        (span.left, span.right),
+                        &geometry,
+                    )
+                })
         }))
     }
 
