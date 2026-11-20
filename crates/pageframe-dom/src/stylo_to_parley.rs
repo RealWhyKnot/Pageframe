@@ -61,7 +61,7 @@ pub(crate) fn generic_font_family(input: stylo::GenericFontFamily) -> parley::Ge
 
 pub(crate) fn query_font_family<'a>(
     input: &'a stylo::SingleFontFamily,
-    locale: Option<&parley::Language>,
+    locale: &str,
     initial: bool,
 ) -> parley::QueryFamily<'a> {
     match input {
@@ -554,7 +554,7 @@ pub(crate) fn style(
                 let family = generic_font_family(*generic);
                 crate::script_fallback::browser_generic_family(
                     family,
-                    locale.as_ref(),
+                    &font_styles._x_lang.0,
                     font_styles.font_family.is_initial,
                 )
                 .map_or(

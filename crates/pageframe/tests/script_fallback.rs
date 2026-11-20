@@ -360,3 +360,102 @@ fn locale_fonts_match_chrome_for_greek() {
     let arial = samples("ArialMT", [5.562_5, 7.484_375, 2.781_25]);
     check_locale_families("el", 'Ω', [times, courier, times, arial]);
 }
+
+fn check_locale_font_samples(cases: &[(&str, GlyphSample, GlyphSample)]) {
+    let mut html = "<!doctype html><style>body{font-size:10px}</style>".to_owned();
+    for (index, (lang, _, _)) in cases.iter().enumerate() {
+        write!(
+            html,
+            "<div id=d{index} lang='{lang}'>a</div>\
+             <div id=m{index} lang='{lang}' style='font-family:monospace'>a</div>"
+        )
+        .expect("write to String");
+    }
+
+    let harness = open(&html);
+    let doc = harness.base();
+    let measured: Vec<_> = (0..cases.len())
+        .map(|index| {
+            [
+                glyph_font_and_advance(&doc, &format!("#d{index}")),
+                glyph_font_and_advance(&doc, &format!("#m{index}")),
+            ]
+        })
+        .collect();
+    drop(doc);
+
+    for (&(lang, default, monospace), samples) in cases.iter().zip(measured) {
+        for ((face, advance), (family, expected)) in samples
+            .into_iter()
+            .zip([("default", default), ("monospace", monospace)])
+        {
+            assert_eq!((face.as_str(), advance), expected, "lang={lang}, {family}");
+        }
+    }
+}
+
+#[test]
+fn cyrillic_locale_defaults_match_chrome() {
+    let times = ("TimesNewRomanPSMT", 4.453_125);
+    let courier = ("CourierNewPSMT", 6.015_625);
+    let consolas = ("Consolas", 5.5);
+    check_locale_font_samples(&[
+        ("uk", times, courier),
+        ("bg", times, courier),
+        ("sr", times, courier),
+        ("sr-Latn", times, consolas),
+        ("mn", times, courier),
+        ("mn-Mong", times, consolas),
+        ("sr-Zzzz-RS", times, courier),
+    ]);
+}
+
+#[test]
+fn devanagari_locale_defaults_match_chrome() {
+    let nirmala = ("NirmalaUI", 5.093_75);
+    let consolas = ("Consolas", 5.5);
+    check_locale_font_samples(&[
+        ("mr", nirmala, consolas),
+        ("ne", nirmala, consolas),
+        ("sa", nirmala, consolas),
+    ]);
+}
+
+#[test]
+fn arabic_locale_defaults_match_chrome() {
+    let times = ("TimesNewRomanPSMT", 4.453_125);
+    let courier = ("CourierNewPSMT", 6.015_625);
+    let consolas = ("Consolas", 5.5);
+    check_locale_font_samples(&[
+        ("ps", times, courier),
+        ("sd", times, courier),
+        ("ug", times, courier),
+        ("ks", times, courier),
+        ("ar-Aran", times, courier),
+        ("und-Aran", times, consolas),
+    ]);
+}
+
+#[test]
+fn chinese_locale_defaults_follow_chromes_subtag_order() {
+    let yahei = ("MicrosoftYaHei", 5.531_25);
+    let jhenghei = ("MicrosoftJhengHeiRegular", 5.484_375);
+    let nsimsun = ("NSimSun", 5.0);
+    let times = ("TimesNewRomanPSMT", 4.453_125);
+    let consolas = ("Consolas", 5.5);
+    check_locale_font_samples(&[
+        ("zh-SG", yahei, nsimsun),
+        ("zh-MO", jhenghei, jhenghei),
+        ("zh-Hans-MO", yahei, nsimsun),
+        ("zh-Hant-SG", jhenghei, jhenghei),
+        ("zh-Latn-MO", times, consolas),
+        ("zh-Bopo-MO", times, consolas),
+        ("zh-Zzzz-MO", yahei, nsimsun),
+        ("ZH_mO", jhenghei, jhenghei),
+        ("zh-yue", jhenghei, jhenghei),
+        ("zh-yue-Hans", yahei, nsimsun),
+        ("zh-nan-TW", jhenghei, jhenghei),
+        ("yue-SG", jhenghei, jhenghei),
+        ("cmn-TW", yahei, nsimsun),
+    ]);
+}

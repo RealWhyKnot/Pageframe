@@ -20,11 +20,10 @@ fn query_for_font_styles<'a>(
     use parley::fontique::Attributes;
 
     let mut query = font_ctx.collection.query(&mut font_ctx.source_cache);
-    let locale = parley::Language::parse(&font_styles._x_lang.0).ok();
     let families = font_styles.font_family.families.iter().map(|family| {
         stylo_to_parley::query_font_family(
             family,
-            locale.as_ref(),
+            &font_styles._x_lang.0,
             font_styles.font_family.is_initial,
         )
     });
