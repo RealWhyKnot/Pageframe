@@ -6,13 +6,19 @@ use windows::{
     core::{BOOL, PCWSTR},
 };
 
-pub(super) fn open(factory: &IDWriteFactory, path: &Path, index: u32) -> Option<IDWriteFontFace> {
+pub(super) fn local_file(factory: &IDWriteFactory, path: &Path) -> Option<IDWriteFontFile> {
     let name: Vec<_> = path.as_os_str().encode_wide().chain(Some(0)).collect();
-    // SAFETY: The NUL-terminated path, outputs and file stay live for their calls, and the face index is checked.
+    // SAFETY: The UTF-16 path is NUL-terminated and remains live throughout the call.
+    unsafe { factory.CreateFontFileReference(PCWSTR(name.as_ptr()), None) }.ok()
+}
+
+pub(super) fn open(
+    factory: &IDWriteFactory,
+    file: IDWriteFontFile,
+    index: u32,
+) -> Option<IDWriteFontFace> {
+    // SAFETY: The outputs and font file remain live during analysis and the face index is checked before use.
     unsafe {
-        let file = factory
-            .CreateFontFileReference(PCWSTR(name.as_ptr()), None)
-            .ok()?;
         let mut supported = BOOL::default();
         let mut face_type = DWRITE_FONT_FACE_TYPE_UNKNOWN;
         let mut count = 0;
@@ -82,16 +88,20 @@ impl Mask {
 
 pub(super) fn mask(factory: &IDWriteFactory, face: &IDWriteFontFace, key: MaskKey) -> Option<Mask> {
     let mode = DWRITE_RENDERING_MODE(key.mode);
-    let measure = if mode == DWRITE_RENDERING_MODE_GDI_CLASSIC {
+    let measure = if key.gdi_measure {
         DWRITE_MEASURING_MODE_GDI_CLASSIC
     } else {
         DWRITE_MEASURING_MODE_NATURAL
     };
+    let [m11, m12, m21, m22] = key.matrix.map(f32::from_bits);
+    let [dx, dy] = key.quarters.map(|v| f32::from(v) / 4.0);
     let matrix = DWRITE_MATRIX {
-        m11: f32::from_bits(key.stretch),
-        m22: 1.0,
-        dx: f32::from(key.quarter) / 4.0,
-        ..Default::default()
+        m11,
+        m12,
+        m21,
+        m22,
+        dx,
+        dy,
     };
     let analyze = |mode| {
         let advance = 0.0;

@@ -12,8 +12,7 @@ pub(super) fn renderer(
     face: &RunFace<'_>,
     transform: Affine,
 ) -> Option<Box<DirectWriteText>> {
-    let [scale_x, skew_y, skew_x, scale_y, _, _] = transform.as_coeffs();
-    if skew_x != 0.0 || skew_y != 0.0 || scale_x <= 0.0 || scale_y <= 0.0 {
+    if !transform.is_finite() || transform.determinant() == 0.0 {
         return None;
     }
     if face.installed.is_none()
@@ -72,7 +71,7 @@ fn source(face: &RunFace<'_>) -> Option<FontSource> {
                     && info.load(Some(&mut context.source_cache))?.id() == face.font.data.id())
                 .then(|| path.clone())
             })
-        })?;
+        });
     let gasp = font
         .gasp()
         .ok()

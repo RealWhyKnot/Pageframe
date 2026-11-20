@@ -253,7 +253,8 @@ fn mixed_vertical_runs_share_the_central_baseline_like_chrome() {
                 div{float:left;height:70px;margin:4px 8px 4px 4px;writing-mode:vertical-rl}\
                 </style><div>H<span style=\"font-size:32px\">H</span>H</div>";
     let buffer = render(&mut open(App::new((), html)));
-    assert_eq!(ink_across(&buffer, 4, 16), [18, 29]);
+    let right = if cfg!(target_os = "windows") { 30 } else { 29 };
+    assert_eq!(ink_across(&buffer, 4, 16), [18, right]);
     assert_eq!(ink_across(&buffer, 20, 38), [12, 35]);
 }
 

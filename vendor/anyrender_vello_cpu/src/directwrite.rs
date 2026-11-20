@@ -1,4 +1,5 @@
 mod coverage;
+mod memory;
 mod raster;
 
 use anyrender::{Glyph, PaintRef, PaintScene};
@@ -30,7 +31,7 @@ pub(crate) struct GlyphPaint {
 }
 
 pub struct FontSource {
-    pub path: Arc<Path>,
+    pub path: Option<Arc<Path>>,
     pub gasp_version: Option<u16>,
     pub ranges: Vec<(u16, u16)>,
     pub strikes: Vec<u8>,
@@ -49,7 +50,7 @@ impl FontSource {
         None
     }
 
-    fn rendering(&self, size: f32) -> (DWRITE_RENDERING_MODE, f32) {
+    fn rendering(&self, size: f32, aligned: bool) -> (DWRITE_RENDERING_MODE, f32, bool) {
         let rounded = (size * 64.0).round() / 64.0;
         let gdi_size = if rounded == 0.0 { 1.0 } else { rounded };
         let ppem = gdi_size as u16;
@@ -62,7 +63,15 @@ impl FontSource {
             .iter()
             .any(|s| (min..=max).contains(&u16::from(*s)))
         {
-            return (DWRITE_RENDERING_MODE_GDI_CLASSIC, gdi_size);
+            return (
+                if aligned {
+                    DWRITE_RENDERING_MODE_GDI_CLASSIC
+                } else {
+                    DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC
+                },
+                gdi_size,
+                true,
+            );
         }
         if self.gasp_version == Some(1)
             && let Some((_, _, flags)) = self.range(gdi_size.round() as u16)
@@ -74,12 +83,13 @@ impl FontSource {
                     DWRITE_RENDERING_MODE_NATURAL
                 },
                 size,
+                false,
             );
         }
         if size > 20.0 || !self.hinted {
-            (DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC, size)
+            (DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC, size, false)
         } else {
-            (DWRITE_RENDERING_MODE_NATURAL, gdi_size)
+            (DWRITE_RENDERING_MODE_NATURAL, gdi_size, false)
         }
     }
 }
@@ -88,15 +98,22 @@ impl FontSource {
 struct MaskKey {
     face: (u64, u32),
     ppem: u32,
-    stretch: u32,
+    matrix: [u32; 4],
+    gdi_measure: bool,
     mode: i32,
     glyph: u16,
-    quarter: u8,
+    quarters: [u8; 2],
+}
+
+struct CachedFace {
+    face: IDWriteFontFace,
+    profile: FontSource,
+    _memory_file: Option<Arc<memory::MemoryFile>>,
 }
 
 struct Cache {
     factory: IDWriteFactory,
-    faces: HashMap<(u64, u32), Option<(IDWriteFontFace, FontSource)>>,
+    faces: HashMap<(u64, u32), Option<CachedFace>>,
     masks: HashMap<MaskKey, raster::Mask>,
     bytes: usize,
 }
@@ -135,8 +152,19 @@ impl DirectWriteText {
                 .entry(face_key)
                 .or_insert_with(|| {
                     let profile = source()?;
-                    let face = raster::open(&cache.factory, &profile.path, run.font.index)?;
-                    Some((face, profile))
+                    let (file, memory_file) = match &profile.path {
+                        Some(path) => (raster::local_file(&cache.factory, path)?, None),
+                        None => {
+                            let memory = memory::file(&cache.factory, &run.font.data)?;
+                            (memory.file.clone(), Some(memory))
+                        }
+                    };
+                    let face = raster::open(&cache.factory, file, run.font.index)?;
+                    Some(CachedFace {
+                        face,
+                        profile,
+                        _memory_file: memory_file,
+                    })
                 })
                 .is_some()
         });
@@ -189,43 +217,56 @@ fn paint(
     glyphs: impl Iterator<Item = Glyph>,
 ) -> bool {
     let [sx, b, c, sy, tx, ty] = transform.as_coeffs();
-    let size = (f64::from(font_size) * sy) as f32;
-    let stretch = (sx / sy) as f32;
-    if b != 0.0
-        || c != 0.0
-        || sx <= 0.0
-        || sy <= 0.0
-        || !size.is_finite()
-        || size <= 0.0
-        || !stretch.is_finite()
-        || stretch <= 0.0
-    {
+    let [xx, yx, xy, yy] = [sx, b, c, sy].map(|v| (v as f32 * 1024.0 + 0.5).floor() / 1024.0);
+    let baseline = xx.hypot(yx);
+    let vertical = if yx == 0.0 {
+        yy.abs()
+    } else {
+        ((xx / baseline) * yy - (yx / baseline) * xy).abs()
+    };
+    let size = font_size * vertical;
+    if !size.is_finite() || size <= 0.0 || !baseline.is_finite() || baseline <= 0.0 {
         return false;
     }
+    let matrix = [xx, yx, xy, yy].map(|v| (v / vertical).to_bits());
+    let aligned = (yx == 0.0 && xy == 0.0) || (xx == 0.0 && yy == 0.0);
     let images = CACHE.with_borrow_mut(|cache| {
         let cache = cache.as_mut()?;
         let face_key = (font.data.id(), font.index);
-        let (face, profile) = cache.faces.get(&face_key)?.as_ref()?;
-        let (mode, ppem) = profile.rendering(size);
+        let cached = cache.faces.get(&face_key)?.as_ref()?;
+        let (mode, ppem, gdi_measure) = cached.profile.rendering(size, aligned);
         let mut images = Vec::new();
         for glyph in glyphs {
-            let x = ((sx * f64::from(glyph.x) + tx) * 4.0 + 0.5).floor();
-            let y = crate::glyph_origin::hinted_baseline(sy * f64::from(glyph.y) + ty);
+            let gx = f64::from(glyph.x);
+            let gy = f64::from(glyph.y);
+            let x = sx * gx + c * gy + tx;
+            let y = b * gx + sy * gy + ty;
+            let x = if xx == 0.0 {
+                (x + 0.5).floor() * 4.0
+            } else {
+                (x * 4.0 + 0.5).floor()
+            };
+            let y = if yx == 0.0 {
+                crate::glyph_origin::hinted_baseline(y) * 4.0
+            } else {
+                (y * 4.0 + 0.5).floor()
+            };
             if !x.is_finite() || !y.is_finite() {
                 return None;
             }
             let key = MaskKey {
                 face: face_key,
                 ppem: ppem.to_bits(),
-                stretch: stretch.to_bits(),
+                matrix,
+                gdi_measure,
                 mode: mode.0,
                 glyph: glyph.id.try_into().ok()?,
-                quarter: x.rem_euclid(4.0) as u8,
+                quarters: [x.rem_euclid(4.0) as u8, y.rem_euclid(4.0) as u8],
             };
             let mask = match cache.masks.entry(key) {
                 std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
                 std::collections::hash_map::Entry::Vacant(entry) => {
-                    let mask = raster::mask(&cache.factory, face, key)?;
+                    let mask = raster::mask(&cache.factory, &cached.face, key)?;
                     cache.bytes += mask.coverage.len() * 5;
                     entry.insert(mask)
                 }
@@ -235,7 +276,7 @@ fn paint(
                     image,
                     (
                         x.div_euclid(4.0) + f64::from(mask.left),
-                        y + f64::from(mask.top),
+                        y.div_euclid(4.0) + f64::from(mask.top),
                     ),
                 ));
             }

@@ -174,9 +174,20 @@ pub(crate) fn stroke_text<'a>(
                         )
                 };
 
+                #[cfg(target_os = "windows")]
+                let disclosure = run.text_range().start == 0
+                    && font.data.as_ref() == pageframe_dom::BULLET_FONT
+                    && doc
+                        .get_node(inline_root_id)
+                        .and_then(|node| node.element_data())
+                        .and_then(|element| element.list_item_data.as_deref())
+                        .is_some_and(|list| {
+                            matches!(list.marker, pageframe_dom::node::Marker::Char(_))
+                        });
+
                 let face = RunFace {
                     #[cfg(target_os = "windows")]
-                    installed: (!synthesis.embolden()).then_some(doc),
+                    installed: (!synthesis.embolden() && !disclosure).then_some(doc),
                     font,
                     font_size,
                     coords: normalized_coords,
