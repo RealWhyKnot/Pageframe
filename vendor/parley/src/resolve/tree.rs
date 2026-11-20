@@ -56,6 +56,7 @@ pub(crate) struct TreeStyleBuilder<B: Brush> {
     pending_controls: Vec<(usize, char)>,
     /// Byte offsets of the bidi control characters pushed with `push_bidi_control`.
     control_offsets: Vec<usize>,
+    inline_end_mark_offsets: Vec<usize>,
     /// The end of the last committed text that is not a pushed bidi control.
     content_end: usize,
 }
@@ -72,6 +73,7 @@ impl<B: Brush> Default for TreeStyleBuilder<B> {
             last_item_is_inline_box: false,
             pending_controls: Vec::new(),
             control_offsets: Vec::new(),
+            inline_end_mark_offsets: Vec::new(),
             content_end: 0,
         }
     }
@@ -95,6 +97,7 @@ impl<B: Brush> TreeStyleBuilder<B> {
         self.last_item_is_inline_box = false;
         self.pending_controls.clear();
         self.control_offsets.clear();
+        self.inline_end_mark_offsets.clear();
         self.content_end = 0;
 
         // The root style is always materialised at index 0 so that it can act as the parent of
@@ -218,6 +221,21 @@ impl<B: Brush> TreeStyleBuilder<B> {
         } else {
             self.commit_control(span, text);
         }
+    }
+
+    pub(crate) fn push_inline_end_mark(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        self.flush_pending_whitespace();
+        let start = self.text.len();
+        self.inline_end_mark_offsets
+            .extend(text.char_indices().map(|(offset, _)| start + offset));
+        self.commit_text(self.current_span, text);
+    }
+
+    pub(crate) fn inline_end_mark_offsets(&self) -> &[usize] {
+        &self.inline_end_mark_offsets
     }
 
     fn commit_pending_controls(&mut self) {

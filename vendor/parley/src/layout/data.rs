@@ -4,7 +4,7 @@
 use crate::inline_box::{InlineBox, LayoutInlineBox};
 use crate::layout::spacing::{Justification, Spacing};
 use crate::layout::style_metrics::{BoxMetrics, StyleMetrics};
-use crate::layout::whitespace::whitespace_hangs;
+use crate::layout::whitespace::{is_collapsible_space, whitespace_hangs};
 use crate::layout::{ContentWidths, LineMetrics, Style};
 use crate::resolve::ResolvedStyle;
 use crate::style::Brush;
@@ -15,7 +15,7 @@ use core::ops::Range;
 
 use alloc::vec::Vec;
 use parlance::BidiLevel;
-use parley_engine::shape::Whitespace;
+use parley_engine::shape::{Character, Whitespace};
 use parley_engine::{ShapedRun, ShapedSlice, ShapedText};
 
 /// `HarfRust`-based run data
@@ -226,6 +226,7 @@ pub(crate) struct LayoutData<B: Brush> {
     /// Byte offsets of the bidi controls pushed with `TreeBuilder::push_bidi_control`. They
     /// order the text around them but, like Blink's opaque items, never make a line visible.
     pub(crate) bidi_controls: Vec<usize>,
+    pub(crate) inline_end_marks: Vec<usize>,
 
     // Output of style resolution (input to line breaking)
     pub(crate) styles: Vec<Style<B>>,
@@ -280,6 +281,7 @@ impl<B: Brush> Default for LayoutData<B> {
             paragraph_levels: Vec::new(),
             text_len: 0,
             bidi_controls: Vec::new(),
+            inline_end_marks: Vec::new(),
             width: 0.,
             full_width: 0.,
             height: 0.,
@@ -318,6 +320,15 @@ pub(crate) fn paragraph_level_at(
 }
 
 impl<B: Brush> LayoutData<B> {
+    pub(crate) fn is_inline_end_mark(&self, characters: &[Character]) -> bool {
+        (!self.inline_end_marks.is_empty() || !self.bidi_controls.is_empty())
+            && characters.iter().all(|character| {
+                let start = character.text_byte_range().start;
+                self.inline_end_marks.binary_search(&start).is_ok()
+                    || self.bidi_controls.binary_search(&start).is_ok()
+            })
+    }
+
     pub(crate) fn clear(&mut self) {
         self.scale = 1.;
         self.quantize = true;
@@ -325,6 +336,7 @@ impl<B: Brush> LayoutData<B> {
         self.paragraph_levels.clear();
         self.text_len = 0;
         self.bidi_controls.clear();
+        self.inline_end_marks.clear();
         self.width = 0.;
         self.full_width = 0.;
         self.height = 0.;
@@ -506,9 +518,38 @@ struct ContentWidthsMeasurer {
 
     item_ends: Vec<(usize, f32)>,
     running_hanging_min: f32,
+    inline_end_space_min: InlineEndSpace,
+    inline_end_space_max: InlineEndSpace,
     part_start: f32,
     snap_extra: f32,
     closed_parts: Vec<(f32, f32)>,
+}
+
+#[derive(Default)]
+struct InlineEndSpace {
+    spaces: f32,
+    before_edge: f32,
+}
+
+impl InlineEndSpace {
+    fn add(
+        &mut self,
+        advance: f32,
+        collapsible: bool,
+        edge: Option<crate::InlineEdge>,
+        end_mark: bool,
+    ) {
+        match edge {
+            Some(edge) if !edge.is_start => {
+                if advance != 0. {
+                    self.before_edge = self.spaces;
+                }
+            }
+            None if collapsible => self.spaces += advance,
+            None if end_mark => {}
+            _ => *self = Self::default(),
+        }
+    }
 }
 
 impl ContentWidthsMeasurer {
@@ -538,13 +579,16 @@ impl ContentWidthsMeasurer {
 
     fn start_min_line(&mut self, indent: f32) {
         self.running_min_width = indent;
+        self.inline_end_space_min = InlineEndSpace::default();
         self.part_start = indent;
         self.snap_extra = 0.0;
         self.closed_parts.clear();
     }
 
     fn min_line_width(&self) -> f32 {
-        let end = self.running_min_width - self.running_hanging_min;
+        let end = self.running_min_width
+            - self.running_hanging_min
+            - self.inline_end_space_min.before_edge;
         let open = end - self.part_start;
         if open >= 0.0 {
             return end + self.snap_extra + self.snap(open) - open;
@@ -577,6 +621,8 @@ impl ContentWidthsMeasurer {
             cluster_base: 0,
             item_ends: Vec::new(),
             running_hanging_min: 0.,
+            inline_end_space_min: InlineEndSpace::default(),
+            inline_end_space_max: InlineEndSpace::default(),
             part_start: first_line_indent,
             snap_extra: 0.,
             closed_parts: Vec::new(),
@@ -620,7 +666,10 @@ impl ContentWidthsMeasurer {
         if !self.hangs_conditionally {
             self.running_max_width -= self.running_hanging_whitespace;
         }
-        self.max_width = self.max_width.max(self.running_max_width);
+        self.max_width = self
+            .max_width
+            .max(self.running_max_width - self.inline_end_space_max.before_edge);
+        self.inline_end_space_max = InlineEndSpace::default();
         self.running_hanging_whitespace = 0.0;
         self.running_hanging_min = 0.0;
         self.line_has_content = false;
@@ -660,20 +709,14 @@ impl ContentWidthsMeasurer {
 
                     if run.spacing.is_zero() {
                         self.measure_text_run::<B, false>(
-                            &layout_data.styles,
+                            layout_data,
                             slice,
                             run,
                             can_hang,
                             is_rtl,
                         );
                     } else {
-                        self.measure_text_run::<B, true>(
-                            &layout_data.styles,
-                            slice,
-                            run,
-                            can_hang,
-                            is_rtl,
-                        );
+                        self.measure_text_run::<B, true>(layout_data, slice, run, can_hang, is_rtl);
                     }
                 }
                 LayoutItemKind::InlineBox => {
@@ -731,13 +774,14 @@ impl ContentWidthsMeasurer {
     #[inline(always)]
     fn measure_text_run<B: Brush, const SPACED: bool>(
         &mut self,
-        styles: &[Style<B>],
+        layout_data: &LayoutData<B>,
         slice: ShapedSlice<'_>,
         run: &RunData,
         can_hang: bool,
         is_rtl: bool,
     ) {
         let clusters = slice.shaped_clusters();
+        let styles = &layout_data.styles;
         // The cluster index at which nothing has been placed on the current line yet, if any.
         let mut empty_at = if self.line_has_content { usize::MAX } else { 0 };
 
@@ -801,6 +845,24 @@ impl ContentWidthsMeasurer {
             let raw_advance = min_advance.unwrap_or(advance - remainder.unwrap_or(0.0));
             self.running_min_width += raw_advance;
             self.running_max_width += advance;
+            let collapsible = is_collapsible_space(whitespace, style)
+                && (cluster.char_len() == 1
+                    || slice
+                        .characters_in(cluster.chars_range())
+                        .iter()
+                        .all(|character| {
+                            is_collapsible_space(
+                                character.whitespace,
+                                &styles[usize::from(character.style_index)],
+                            )
+                        }));
+            let end_mark = whitespace == Whitespace::None
+                && advance == 0.
+                && layout_data.is_inline_end_mark(slice.characters_in(cluster.chars_range()));
+            self.inline_end_space_min
+                .add(raw_advance, collapsible, run.inline_edge, end_mark);
+            self.inline_end_space_max
+                .add(advance, collapsible, run.inline_edge, end_mark);
 
             // A cluster hangs if all of its characters hang. Its first character is checked via the
             // cached flags so the common case never touches `characters`.
@@ -839,6 +901,8 @@ impl ContentWidthsMeasurer {
             self.soft_break(self.line_has_content);
         }
         // Inline boxes don't hang.
+        self.inline_end_space_min = InlineEndSpace::default();
+        self.inline_end_space_max = InlineEndSpace::default();
         self.running_hanging_whitespace = 0.0;
         self.running_hanging_min = 0.0;
         self.running_min_width += inline_box.width;

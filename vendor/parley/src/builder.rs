@@ -266,6 +266,10 @@ impl<'b, B: Brush> TreeBuilder<'b, B> {
         self.lcx.tree_style_builder.push_text(text);
     }
 
+    pub fn push_inline_end_mark(&mut self, text: &str) {
+        self.lcx.tree_style_builder.push_inline_end_mark(text);
+    }
+
     /// Pushes bidi control characters that take no part in white space processing.
     ///
     /// Collapsible whitespace on either side of them still collapses into a single space, which
@@ -351,6 +355,10 @@ impl<'b, B: Brush> TreeBuilder<'b, B> {
             .data
             .bidi_controls
             .extend_from_slice(self.lcx.tree_style_builder.control_offsets());
+        layout
+            .data
+            .inline_end_marks
+            .extend_from_slice(self.lcx.tree_style_builder.inline_end_mark_offsets());
 
         text
     }

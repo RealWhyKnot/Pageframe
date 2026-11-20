@@ -16,7 +16,7 @@ use crate::layout::spacing::{EffectiveSpacing, Justification, is_word_separator}
 use crate::layout::style_metrics::{
     BoxMetrics, InlineBoxPlacement, StyleMetrics, inline_box_placement, layout_unit_round,
 };
-use crate::layout::whitespace::atom_hanging_advance;
+use crate::layout::whitespace::{atom_hanging_advance, is_collapsible_space};
 use crate::layout::{
     BreakReason, Layout, LayoutData, LayoutItem, LayoutItemKind, LineData, LineItemData,
     LineMetrics, Run,
@@ -1380,7 +1380,27 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                                 spacing,
                                 item.bidi_level.is_rtl(),
                             );
-                            if all_hang || next_x - hanging <= fit_advance {
+                            let inline_edge = run.data.inline_edge;
+                            if all_hang
+                                || next_x - hanging <= fit_advance
+                                || (inline_edge.map_or_else(
+                                    || {
+                                        advance == 0.
+                                            && self
+                                                .layout
+                                                .data
+                                                .is_inline_end_mark(atom.characters())
+                                    },
+                                    |edge| !edge.is_start,
+                                ) && next_x
+                                    - spaces_before_inline_end(
+                                        self.layout,
+                                        &self.state.line,
+                                        inline_edge.is_some() && advance != 0.,
+                                        |_| {},
+                                    )
+                                    <= fit_advance)
+                            {
                                 if max_height_exceeded {
                                     return self.max_height_break_data(line_height);
                                 }
@@ -1850,6 +1870,12 @@ fn commit_line<B: Brush>(
     let start_item_idx = lines.line_items.len();
 
     let items_to_commit = &layout.data.items[state.items.clone()];
+    let mut removed: SmallVec<[Range<u32>; 2]> = SmallVec::new();
+    let removed_advance = spaces_before_inline_end(layout, state, false, |range| {
+        removed.push(range);
+    });
+    removed.reverse();
+    let advance = state.x - removed_advance;
 
     // Compute first and last run index
     let is_text_run = |item: &LayoutItem| item.kind == LayoutItemKind::TextRun;
@@ -1903,21 +1929,17 @@ fn commit_line<B: Brush>(
                 // Map the cluster range to the source-text range. Line boundaries are always
                 // aligned to `Atom`s, i.e., line bounds are always grapheme bounds.
                 let slice = shaped_text.run_slice(item.index as u32);
-                let item_text_range = if cluster_range.is_empty() {
-                    let char_pos = shaped_clusters[cluster_range.start as usize]
-                        .chars_range()
-                        .start;
-                    let text_pos = slice.text_byte_at(char_pos);
-                    text_pos..text_pos
-                } else {
-                    let char_range = shaped_clusters[cluster_range.start as usize]
-                        .chars_range()
-                        .start
-                        ..shaped_clusters[cluster_range.end as usize - 1]
-                            .chars_range()
-                            .end;
-                    slice.text_byte_range(char_range)
+                let text_range_for = |clusters: &Range<u32>| {
+                    let start = shaped_clusters[clusters.start as usize].chars_range().start;
+                    if clusters.is_empty() {
+                        let byte = slice.text_byte_at(start);
+                        byte..byte
+                    } else {
+                        let end = shaped_clusters[clusters.end as usize - 1].chars_range().end;
+                        slice.text_byte_range(start..end)
+                    }
                 };
+                let item_text_range = text_range_for(&cluster_range);
 
                 // Compute the text range for the line
                 // Q: Can we not simplify this computation by assuming that items are in order?
@@ -1925,13 +1947,34 @@ fn commit_line<B: Brush>(
                 text_end = text_end.max(item_text_range.end);
                 needs_reorder |= shaped_run.bidi_level != BidiLevel::new(0);
 
-                lines.line_items.push(LineItemData {
-                    kind: LayoutItemKind::TextRun,
-                    index: item.index,
-                    bidi_level: shaped_run.bidi_level,
-                    shaped_cluster_range: cluster_range,
-                    text_range: item_text_range,
-                });
+                let mut push_item = |clusters, text| {
+                    lines.line_items.push(LineItemData {
+                        kind: LayoutItemKind::TextRun,
+                        index: item.index,
+                        bidi_level: shaped_run.bidi_level,
+                        shaped_cluster_range: clusters,
+                        text_range: text,
+                    });
+                };
+                let first = removed.partition_point(|range| range.end <= cluster_range.start);
+                let mut cuts = removed[first..]
+                    .iter()
+                    .take_while(|range| range.start < cluster_range.end)
+                    .peekable();
+                if cuts.peek().is_none() {
+                    push_item(cluster_range, item_text_range);
+                } else {
+                    let mut start = cluster_range.start;
+                    let end = cluster_range.end..cluster_range.end;
+                    for cut in cuts.chain([&end]) {
+                        if start < cut.start {
+                            let part = start..cut.start;
+                            let text = text_range_for(&part);
+                            push_item(part, text);
+                        }
+                        start = cut.end;
+                    }
+                }
             }
         }
     }
@@ -1949,7 +1992,7 @@ fn commit_line<B: Brush>(
     // Hence an `overflow` of `f32::INFINITY` can be used to model that case.
     let overflow = match break_reason {
         BreakReason::Regular | BreakReason::Emergency => f32::INFINITY,
-        BreakReason::Explicit | BreakReason::None => state.x - max_advance,
+        BreakReason::Explicit | BreakReason::None => advance - max_advance,
     };
     let (hanging_advance, justification_end_cluster, hanging_opportunities) = hanging_whitespace(
         layout,
@@ -1958,7 +2001,8 @@ fn commit_line<B: Brush>(
     );
     // The word separators counted as the line was built include the line's hanging whitespace, and
     // hanging whitespace is not stretched by justification.
-    let num_justification_opportunities = state.num_word_separators - hanging_opportunities;
+    let num_justification_opportunities =
+        state.num_word_separators - removed.len() as u32 - hanging_opportunities;
 
     // Reorder the items within the line (if required). Reordering is required if the line contains
     // a mix of bidi levels (a mix of LTR and RTL text)
@@ -1983,7 +2027,7 @@ fn commit_line<B: Brush>(
         },
         metrics: LineMetrics {
             indent: line_indent,
-            advance: state.x,
+            advance,
             hanging_advance,
             ..Default::default()
         },
@@ -2006,6 +2050,63 @@ fn commit_line<B: Brush>(
         // the first item of line N+1 to be the item AFTER the last item in line N.
         LayoutItemKind::InlineBox => state.items.end,
     };
+}
+
+fn spaces_before_inline_end<B: Brush>(
+    layout: &Layout<B>,
+    state: &LineState,
+    mut has_advancing_edge: bool,
+    mut remove: impl FnMut(Range<u32>),
+) -> f32 {
+    let mut advance = 0.;
+    let shaped = &layout.data.shaped_text;
+    let item_end = state.items.end.min(layout.data.items.len());
+    for item in layout.data.items[state.items.start.min(item_end)..item_end]
+        .iter()
+        .rev()
+    {
+        if item.kind == LayoutItemKind::InlineBox {
+            if layout.data.inline_boxes[item.index].inline_box.kind == InlineBoxKind::InFlow {
+                break;
+            }
+            continue;
+        }
+        let run = &layout.data.runs[item.index];
+        let range = &shaped.runs()[item.index].shaped_clusters_range;
+        let start = range.start.max(state.clusters.start);
+        let end = range.end.min(state.clusters.end);
+        if start >= end {
+            continue;
+        }
+        let slice = shaped.run_slice(item.index as u32).narrow(start..end);
+        let spacing = EffectiveSpacing::new(run.spacing, Justification::NONE);
+        for atom in slice.atoms_end().rev() {
+            if let Some(edge) = run.inline_edge {
+                if edge.is_start {
+                    return advance;
+                }
+                has_advancing_edge |= spacing.atom_advance(&atom) != 0.;
+            } else if atom.characters()[0].whitespace == Whitespace::Newline
+                || (spacing.atom_advance(&atom) == 0.
+                    && layout.data.is_inline_end_mark(atom.characters()))
+            {
+                continue;
+            } else if atom.characters().iter().all(|character| {
+                is_collapsible_space(
+                    character.whitespace,
+                    &layout.data.styles[usize::from(character.style_index)],
+                )
+            }) {
+                if has_advancing_edge {
+                    advance += spacing.atom_advance(&atom);
+                    remove(atom.shaped_clusters_range());
+                }
+            } else {
+                return advance;
+            }
+        }
+    }
+    advance
 }
 
 /// Returns the advance of the whitespace hanging past the end of the line made up of `line_items`,
@@ -2151,17 +2252,11 @@ fn last_cluster_before_trailing_spaces<B: Brush>(
                 return hangs.then_some(index);
             }
             let all_collapse = characters.iter().all(|character| {
-                character.whitespace == Whitespace::Space
-                    && layout
-                        .data
-                        .styles
-                        .get(usize::from(character.style_index))
-                        .is_some_and(|style| {
-                            matches!(
-                                style.white_space_collapse,
-                                WhiteSpaceCollapse::Collapse | WhiteSpaceCollapse::PreserveBreaks
-                            )
-                        })
+                layout
+                    .data
+                    .styles
+                    .get(usize::from(character.style_index))
+                    .is_some_and(|style| is_collapsible_space(character.whitespace, style))
             });
             if !all_collapse {
                 return None;
@@ -2228,9 +2323,7 @@ fn hanging_whitespace<B: Brush>(
                 // whitespace to the paragraph level (UAX #9 L1), so only items that match the
                 // paragraph level are guaranteed to be at that edge.
                 if line_item.bidi_level
-                    != layout
-                        .data
-                        .paragraph_level_at(line_item.text_range.start)
+                    != layout.data.paragraph_level_at(line_item.text_range.start)
                 {
                     break;
                 }

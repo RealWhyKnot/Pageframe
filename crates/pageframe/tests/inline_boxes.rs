@@ -5,6 +5,8 @@ mod client_rects;
 #[path = "inline_boxes_cases/rounding.rs"]
 mod rounding;
 mod support;
+#[path = "inline_boxes_cases/trailing_space.rs"]
+mod trailing_space;
 
 use pageframe::App;
 use support::{open, pixel, render};

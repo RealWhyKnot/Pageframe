@@ -72,6 +72,14 @@ pub(crate) fn whitespace_hangs<B: Brush>(whitespace: Whitespace, style: &Style<B
     }
 }
 
+pub(crate) fn is_collapsible_space<B: Brush>(whitespace: Whitespace, style: &Style<B>) -> bool {
+    whitespace == Whitespace::Space
+        && matches!(
+            style.white_space_collapse,
+            WhiteSpaceCollapse::Collapse | WhiteSpaceCollapse::PreserveBreaks
+        )
+}
+
 /// The advance of the logically trailing clusters of `atom` that hang past the line's end, and
 /// whether that is the atom in its entirety.
 ///

@@ -181,7 +181,11 @@ fn push_spacer(
             is_rtl: edges.is_rtl,
         })),
     ]);
-    builder.push_text(spacer);
+    if is_start {
+        builder.push_text(spacer);
+    } else {
+        builder.push_inline_end_mark(spacer);
+    }
     builder.pop_style_span();
 }
 
@@ -617,7 +621,7 @@ pub(crate) fn build_inline_layout_into(
                                         ),
                                         parley::StyleProperty::LetterSpacing(0.0),
                                     ]);
-                                    builder.push_text(crate::util::INLINE_BREAK);
+                                    builder.push_inline_end_mark(crate::util::INLINE_BREAK);
                                     builder.pop_style_span();
                                 }
                             }
