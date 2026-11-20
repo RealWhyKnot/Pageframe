@@ -146,35 +146,71 @@ struct BalanceSegment {
 }
 
 #[cfg(feature = "floats")]
+fn break_balance_paragraph(
+    layout: &mut parley::Layout<crate::node::TextBrush>,
+    max_advance: f32,
+    advances: &[f32],
+) {
+    let mut breaker = layout.break_lines();
+    breaker.state_mut().set_layout_max_advance(max_advance);
+    for advance in advances
+        .iter()
+        .copied()
+        .chain(std::iter::repeat(max_advance))
+    {
+        breaker.state_mut().set_line_max_advance(advance);
+        let Some(YieldData::LineBreak(line)) = breaker.break_next() else {
+            break;
+        };
+        if line.reason == BreakReason::Explicit {
+            break;
+        }
+    }
+    breaker.finish();
+}
+
+#[cfg(feature = "floats")]
 fn balanced_line_advances(
     layout: &mut parley::Layout<crate::node::TextBrush>,
     max_advance: f32,
-) -> Option<Vec<f32>> {
-    layout.break_all_lines(Some(max_advance));
-    let has_forced_break = layout
-        .lines()
-        .any(|line| line.break_reason() == BreakReason::Explicit);
+) -> Option<(Vec<f32>, bool)> {
+    break_balance_paragraph(layout, max_advance, &[]);
     let line_count = layout.len();
-    if has_forced_break || !(2..=BALANCE_MAX_LINES).contains(&line_count) {
+    if !(2..=BALANCE_MAX_LINES).contains(&line_count) {
         return None;
     }
-    let advances = evenest_line_advances(layout, max_advance, line_count).unwrap_or_else(|| {
-        vec![narrowest_max_advance(layout, max_advance, line_count); line_count]
+    let is_rtl = layout.get(0)?.is_rtl();
+    let has_forced_break = layout.get(line_count - 1)?.break_reason() == BreakReason::Explicit;
+
+    break_balance_paragraph(layout, 0.0, &[]);
+    let min_advance = has_forced_break.then(|| {
+        layout
+            .lines()
+            .map(|line| {
+                let metrics = line.metrics();
+                metrics.indent + metrics.advance - metrics.hanging_advance
+            })
+            .fold(0.0, f32::max)
     });
-    Some(advances)
+    let advances = evenest_line_advances(layout, max_advance, line_count).unwrap_or_else(|| {
+        let min_advance = min_advance.unwrap_or_else(|| layout.calculate_content_widths().min);
+        vec![narrowest_max_advance(layout, max_advance, min_advance, line_count); line_count]
+    });
+    Some((advances, is_rtl))
 }
 
 #[cfg(feature = "floats")]
 fn narrowest_max_advance(
     layout: &mut parley::Layout<crate::node::TextBrush>,
     max_advance: f32,
+    min_advance: f32,
     line_count: usize,
 ) -> f32 {
-    let mut narrow = layout.calculate_content_widths().min.min(max_advance);
+    let mut narrow = min_advance.min(max_advance);
     let mut wide = max_advance;
     while wide - narrow > BALANCE_PRECISION {
         let middle = (narrow + wide) / 2.0;
-        layout.break_all_lines(Some(middle));
+        break_balance_paragraph(layout, middle, &[]);
         if layout.len() <= line_count {
             wide = middle;
         } else {
@@ -190,7 +226,6 @@ fn evenest_line_advances(
     max_advance: f32,
     line_count: usize,
 ) -> Option<Vec<f32>> {
-    layout.break_all_lines(Some(0.0));
     let breaks_inside_words = layout
         .lines()
         .any(|line| line.break_reason() == BreakReason::Emergency);
@@ -219,19 +254,7 @@ fn evenest_line_advances(
         line_start = *line_end;
     }
 
-    let mut breaker = layout.break_lines();
-    let state = breaker.state_mut();
-    state.set_layout_max_advance(max_advance);
-    state.set_line_max_advance(*advances.first()?);
-    let mut next_line = 1;
-    while let Some(yield_data) = breaker.break_next() {
-        if let YieldData::LineBreak(_) = yield_data {
-            let advance = advances.get(next_line).copied().unwrap_or(max_advance);
-            breaker.state_mut().set_line_max_advance(advance);
-            next_line += 1;
-        }
-    }
-    breaker.finish();
+    break_balance_paragraph(layout, max_advance, &advances);
 
     let breaks_as_planned = layout.len() == line_count
         && layout
@@ -1459,12 +1482,13 @@ impl LayoutPassState<'_> {
                     .find_content_slot(0.0, 0.0, Clear::None, None)
                     .segment_id
                     .is_none();
-            let balanced_advances = balances
+            let balance = balances
                 .then(|| balanced_line_advances(&mut inline_layout.layout, max_advance))
                 .flatten();
+            let mut balanced_advances = balance.as_ref().map(|(advances, _)| advances.as_slice());
             let clone_edges =
                 clone_line_edges(&self.nodes, &mut inline_layout, node_id, max_advance, scale);
-            let is_rtl = inline_layout.layout.is_rtl();
+            let is_rtl = balance.as_ref().is_some_and(|(_, is_rtl)| *is_rtl);
             let end_share = match alignment {
                 parley::layout::Alignment::Center => 0.5,
                 parley::layout::Alignment::Right => 1.0,
@@ -1484,7 +1508,7 @@ impl LayoutPassState<'_> {
             state.set_layout_max_advance(max_advance);
             set_line_slot(state, &line_slot, scale, slack);
             if let Some((x, advance)) =
-                balanced_line_box(balanced_advances.as_deref(), 0, max_advance, end_share)
+                balanced_line_box(balanced_advances, 0, max_advance, end_share)
             {
                 state.set_line_x(x);
                 state.set_line_max_advance(advance);
@@ -1525,6 +1549,9 @@ impl LayoutPassState<'_> {
                         }
                         line_bottoms[line_count_so_far % 2] = line_break_data.line_y_end;
                         line_count_so_far += 1;
+                        if line_break_data.reason == BreakReason::Explicit {
+                            balanced_advances = None;
+                        }
 
                         let state = breaker.state_mut();
 
@@ -1550,7 +1577,7 @@ impl LayoutPassState<'_> {
                             set_line_slot(state, &line_slot, scale, slack);
                         } else {
                             let (x, advance) = balanced_line_box(
-                                balanced_advances.as_deref(),
+                                balanced_advances,
                                 line_count_so_far,
                                 max_advance,
                                 end_share,

@@ -11,6 +11,9 @@ const LEGACY: &str = "display:-webkit-box;-webkit-box-orient:vertical;-webkit-li
 const WORDS: &str = "aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk llll mmmm nnnn oooo \
 pppp qqqq rrrr ssss tttt";
 
+const BALANCE_RULE: &str = "width:120px;font-size:8px";
+const BALANCE_WORDS: &str = "aaaa bbb cc dddd ee aaaa bbb cc dddd ee";
+
 fn draw(style: &str, body: &str) -> Vec<u8> {
     let html = format!("<html><head><style>{BASE}{style}</style></head><body>{body}</body></html>");
     let mut harness = open(App::new((), &html));
@@ -29,13 +32,31 @@ fn has_ink(buffer: &[u8], rows: std::ops::Range<usize>) -> bool {
 }
 
 fn first_ink_column(buffer: &[u8], rows: std::ops::Range<usize>) -> Option<usize> {
+    ink_columns(buffer, rows).next()
+}
+
+fn ink_columns(
+    buffer: &[u8],
+    rows: std::ops::Range<usize>,
+) -> impl DoubleEndedIterator<Item = usize> {
     let width = usize::try_from(WIDTH).expect("test width fits in usize");
-    (0..width).find(|&x| {
+    (0..width).filter(move |&x| {
         rows.clone().any(|y| {
             let [red, green, blue, _] = pixel(buffer, x, y);
             red < 128 && green < 128 && blue < 128
         })
     })
+}
+
+fn ink_width(buffer: &[u8], rows: std::ops::Range<usize>) -> usize {
+    let mut columns = ink_columns(buffer, rows);
+    let first = columns.next().expect("line drew no text");
+    columns.next_back().unwrap_or(first) + 1 - first
+}
+
+fn row_pixels(buffer: &[u8], rows: std::ops::Range<usize>) -> &[u8] {
+    let stride = usize::try_from(WIDTH).expect("test width fits in usize") * 4;
+    &buffer[rows.start * stride..rows.end * stride]
 }
 
 fn height() -> usize {
@@ -195,11 +216,82 @@ fn balance_leaves_long_paragraphs_alone() {
 }
 
 #[test]
-fn balance_skips_text_with_a_forced_break() {
-    let text = "aaaa bbbb cccc dddd eeee ffff<br>gg";
+fn balance_stops_at_the_first_forced_break() {
+    let text = format!("{BALANCE_WORDS}<br>{BALANCE_WORDS}");
+    let greedy = broken(BALANCE_RULE, &text);
+    let balanced = balanced(BALANCE_RULE, &text);
+    let first_width = ink_width(&balanced, 0..10);
+    assert_eq!(first_width, ink_width(&balanced, 10..20));
     assert!(
-        balanced("", text) == broken("", text),
-        "text with a forced break was rebalanced"
+        first_width < ink_width(&greedy, 0..10),
+        "the first line stayed at its greedy width"
+    );
+    assert!(has_ink(&greedy, 30..40), "the fourth line drew no text");
+    assert!(
+        row_pixels(&balanced, 20..height()) == row_pixels(&greedy, 20..height()),
+        "the second paragraph wrapped differently"
+    );
+}
+
+#[test]
+fn balance_leaves_a_later_paragraph_after_a_single_line() {
+    let text = format!("aaaa<br>{BALANCE_WORDS}");
+    let greedy = broken(BALANCE_RULE, &text);
+    let single = balanced(BALANCE_RULE, &text);
+    assert!(has_ink(&greedy, 20..30), "the third line drew no text");
+    assert!(
+        row_pixels(&single, 10..height()) == row_pixels(&greedy, 10..height()),
+        "the second paragraph wrapped differently"
+    );
+
+    let rule = format!("{BALANCE_RULE};white-space:pre-line");
+    let text = format!("{BALANCE_WORDS}\n{BALANCE_WORDS}");
+    let multiline = balanced(&rule, &text);
+    let even = balanced(BALANCE_RULE, BALANCE_WORDS);
+    assert!(
+        row_pixels(&multiline, 0..20) == row_pixels(&even, 0..20),
+        "the first paragraph stayed uneven before a preserved newline"
+    );
+}
+
+#[test]
+fn balance_uses_the_first_plaintext_paragraphs_direction() {
+    let rule = format!("{BALANCE_RULE};direction:rtl;unicode-bidi:plaintext");
+    let text = format!("{BALANCE_WORDS}<br>א {BALANCE_WORDS}");
+    let rtl = balanced(&rule, &text);
+    let ltr = balanced(BALANCE_RULE, BALANCE_WORDS);
+    for rows in [0..10, 10..20] {
+        let left = first_ink_column(&rtl, rows.clone());
+        assert!(
+            left.is_some_and(|x| x <= 1),
+            "rows {rows:?} start at {left:?}"
+        );
+    }
+    assert!(
+        row_pixels(&rtl, 0..20) == row_pixels(&ltr, 0..20),
+        "the Latin paragraph differs from the balanced LTR text"
+    );
+}
+
+#[test]
+fn balance_aligns_an_rtl_plaintext_paragraph_to_the_right() {
+    let rule = format!("{BALANCE_RULE};direction:ltr;unicode-bidi:plaintext");
+    let text = format!("א {BALANCE_WORDS}<br>{BALANCE_WORDS}");
+    let rtl = balanced(&rule, &text);
+    let greedy = broken(&rule, &text);
+    let right_edge = usize::try_from(WIDTH).expect("test width fits in usize") - 1;
+    for rows in [0..10, 10..20] {
+        let mut columns = ink_columns(&rtl, rows.clone());
+        let left = columns.next().expect("balanced line drew no text");
+        let right = columns.next_back().expect("balanced line drew one column");
+        assert!(
+            left > 20 && right >= right_edge - 1,
+            "rows {rows:?} span {left}..={right}"
+        );
+    }
+    assert!(
+        row_pixels(&rtl, 20..height()) == row_pixels(&greedy, 20..height()),
+        "the Latin paragraph wrapped differently"
     );
 }
 
