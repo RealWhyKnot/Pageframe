@@ -36,6 +36,10 @@ impl<'a, B: Brush> Line<'a, B> {
         self.data.text_range.clone()
     }
 
+    pub fn is_inline_end_mark_at(&self, offset: usize) -> bool {
+        self.layout.data.is_inline_end_mark_at(offset)
+    }
+
     /// Returns `true` if the bidi paragraph holding this line is right-to-left.
     pub fn is_rtl(&self) -> bool {
         self.layout

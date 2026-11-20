@@ -6,10 +6,11 @@ use parley::{GlyphRun, InlineBoxKind, Line, PositionedLayoutItem};
 use smallvec::SmallVec;
 use style::computed_values::white_space_collapse::T as WhiteSpaceCollapse;
 
-fn is_end_mark(character: char) -> bool {
-    INLINE_EDGE_END.contains(character)
+fn is_end_mark(line: &Line<'_, TextBrush>, offset: usize, character: char) -> bool {
+    (INLINE_EDGE_END.contains(character)
         || INLINE_MARGIN_END.contains(character)
-        || INLINE_BREAK.contains(character)
+        || INLINE_BREAK.contains(character))
+        && line.is_inline_end_mark_at(offset)
 }
 
 pub fn collapses_spaces(owner: &Node) -> bool {
@@ -23,11 +24,10 @@ pub fn collapses_spaces(owner: &Node) -> bool {
 
 fn hung_space(
     glyph_run: &GlyphRun<'_, TextBrush>,
-    run_text: &str,
+    body: &str,
+    marks: usize,
     owner: &Node,
 ) -> Option<(f32, f32)> {
-    let body = run_text.trim_end_matches(is_end_mark);
-    let marks = run_text.get(body.len()..)?.chars().count();
     let is_blank = body.chars().all(|ch| ch == ' ');
     if !body.ends_with(' ') || (glyph_run.run().is_rtl() && !is_blank) {
         return None;
@@ -46,21 +46,26 @@ fn hung_space(
     (width > 0.0).then_some((left, width))
 }
 
-fn trailing_space_advance(glyph_run: &GlyphRun<'_, TextBrush>, text: &str) -> f32 {
-    glyph_run
-        .run()
-        .clusters()
-        .map(|cluster| {
-            (
-                text.get(cluster.text_range()).unwrap_or_default(),
-                cluster.advance(),
-            )
-        })
-        .filter(|(chars, _)| !chars.chars().all(is_end_mark))
-        .fold(
-            0.0,
-            |sum, (chars, advance)| if chars == " " { sum + advance } else { 0.0 },
-        )
+fn trailing_space_advance(
+    line: &Line<'_, TextBrush>,
+    glyph_run: &GlyphRun<'_, TextBrush>,
+    text: &str,
+) -> f32 {
+    glyph_run.run().clusters().fold(0.0, |sum, cluster| {
+        let range = cluster.text_range();
+        let start = range.start;
+        let chars = text.get(range).unwrap_or_default();
+        if chars == " " {
+            sum + cluster.advance()
+        } else if chars
+            .char_indices()
+            .all(|(offset, character)| is_end_mark(line, start + offset, character))
+        {
+            sum
+        } else {
+            0.0
+        }
+    })
 }
 
 const HUNG_SLACK: f32 = 1.0 / 128.0;
@@ -88,12 +93,20 @@ impl LineTrim {
             let (left, right) = match item {
                 PositionedLayoutItem::GlyphRun(glyph_run) => {
                     let owner = root.tree().get(glyph_run.style().brush.id);
-                    let run_text = text.get(glyph_run.run().text_range()).unwrap_or_default();
-                    let body = run_text.trim_end_matches(is_end_mark);
+                    let range = glyph_run.run().text_range();
+                    let start = range.start;
+                    let run_text = text.get(range).unwrap_or_default();
+                    let body_end = run_text
+                        .char_indices()
+                        .rev()
+                        .find(|&(offset, character)| !is_end_mark(line, start + offset, character))
+                        .map_or(0, |(offset, character)| offset + character.len_utf8());
+                    let body = &run_text[..body_end];
                     if body.is_empty() {
                         is_hung_closed = true;
                     } else {
-                        hung = owner.and_then(|owner| hung_space(&glyph_run, run_text, owner));
+                        let marks = run_text[body_end..].chars().count();
+                        hung = owner.and_then(|owner| hung_space(&glyph_run, body, marks, owner));
                         is_hung_closed = body.len() < run_text.len();
                         if !(is_rtl && edge_owner.is_some()) {
                             edge_owner = owner;
@@ -121,7 +134,7 @@ impl LineTrim {
         };
         let trailing_space = edge_run
             .filter(|_| hanging > 0.0)
-            .map_or(0.0, |run| trailing_space_advance(&run, text));
+            .map_or(0.0, |run| trailing_space_advance(line, &run, text));
         Self {
             inked_left: line_left + hanging,
             inked_right: line_right - hanging,

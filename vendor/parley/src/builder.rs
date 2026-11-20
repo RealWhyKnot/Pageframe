@@ -97,7 +97,14 @@ impl<'b, B: Brush> RangedBuilder<'b, B> {
             .finish(&mut self.lcx.style_table, &mut self.lcx.style_runs);
 
         // Call generic layout builder method
-        build_into_layout(layout, text.as_ref(), self.lcx, self.fcx, self.options);
+        build_into_layout(
+            layout,
+            text.as_ref(),
+            self.lcx,
+            self.fcx,
+            self.options,
+            false,
+        );
     }
 
     pub fn build(self, text: impl AsRef<str>) -> Layout<B> {
@@ -215,7 +222,14 @@ impl<'b, B: Brush> StyleRunBuilder<'b, B> {
                 range: 0..0,
             });
         }
-        build_into_layout(layout, text.as_ref(), self.lcx, self.fcx, self.options);
+        build_into_layout(
+            layout,
+            text.as_ref(),
+            self.lcx,
+            self.fcx,
+            self.options,
+            false,
+        );
     }
 
     pub fn build(self, text: impl AsRef<str>) -> Layout<B> {
@@ -350,7 +364,7 @@ impl<'b, B: Brush> TreeBuilder<'b, B> {
             .finish(&mut self.lcx.style_table, &mut self.lcx.style_runs);
 
         // Call generic layout builder method
-        build_into_layout(layout, &text, self.lcx, self.fcx, self.options);
+        build_into_layout(layout, &text, self.lcx, self.fcx, self.options, true);
         layout
             .data
             .bidi_controls
@@ -377,6 +391,7 @@ fn build_into_layout<B: Brush>(
     lcx: &mut LayoutContext<B>,
     fcx: &mut FontContext,
     options: BuilderOptions<'_>,
+    from_tree: bool,
 ) {
     if text.is_empty() && lcx.style_runs.is_empty() {
         lcx.style_table.push(ResolvedStyle::default());
@@ -403,8 +418,22 @@ fn build_into_layout<B: Brush>(
         options.base_direction,
         options.line_break_override,
     );
-
     layout.data.clear();
+    let (inline_ends, bidi_controls) = if from_tree {
+        (
+            lcx.tree_style_builder.inline_end_mark_offsets(),
+            lcx.tree_style_builder.control_offsets(),
+        )
+    } else {
+        (&[][..], &[][..])
+    };
+    crate::analysis::collect_zwsp_positions(
+        &mut layout.data.zwsp_positions,
+        &lcx.analysis,
+        text,
+        inline_ends,
+        bidi_controls,
+    );
     layout.data.scale = options.scale;
     layout.data.quantize = options.quantize;
     layout.data.base_level = lcx.analysis.paragraph_level();

@@ -227,6 +227,7 @@ pub(crate) struct LayoutData<B: Brush> {
     /// order the text around them but, like Blink's opaque items, never make a line visible.
     pub(crate) bidi_controls: Vec<usize>,
     pub(crate) inline_end_marks: Vec<usize>,
+    pub(crate) zwsp_positions: Vec<(usize, ZwspPosition)>,
 
     // Output of style resolution (input to line breaking)
     pub(crate) styles: Vec<Style<B>>,
@@ -282,6 +283,7 @@ impl<B: Brush> Default for LayoutData<B> {
             text_len: 0,
             bidi_controls: Vec::new(),
             inline_end_marks: Vec::new(),
+            zwsp_positions: Vec::new(),
             width: 0.,
             full_width: 0.,
             height: 0.,
@@ -319,14 +321,43 @@ pub(crate) fn paragraph_level_at(
         .map_or(base_level, |(_, level)| *level)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ZwspPosition {
+    Author,
+    SuppressBreak,
+    AllowBreak,
+}
+
 impl<B: Brush> LayoutData<B> {
     pub(crate) fn is_inline_end_mark(&self, characters: &[Character]) -> bool {
         (!self.inline_end_marks.is_empty() || !self.bidi_controls.is_empty())
             && characters.iter().all(|character| {
-                let start = character.text_byte_range().start;
-                self.inline_end_marks.binary_search(&start).is_ok()
-                    || self.bidi_controls.binary_search(&start).is_ok()
+                self.is_inline_end_mark_at(character.text_byte_range().start)
             })
+    }
+
+    pub(crate) fn is_inline_end_mark_at(&self, offset: usize) -> bool {
+        self.inline_end_marks.binary_search(&offset).is_ok()
+            || self.bidi_controls.binary_search(&offset).is_ok()
+    }
+
+    fn zwsp_position(&self, offset: usize) -> Option<ZwspPosition> {
+        self.zwsp_positions
+            .binary_search_by_key(&offset, |&(offset, _)| offset)
+            .ok()
+            .map(|index| self.zwsp_positions[index].1)
+    }
+
+    pub(crate) fn is_author_zwsp(&self, character: &Character) -> bool {
+        self.zwsp_position(character.text_byte_range().start) == Some(ZwspPosition::Author)
+    }
+
+    pub(crate) fn soft_wrap_before(&self, offset: usize, original: bool) -> bool {
+        match self.zwsp_position(offset) {
+            Some(ZwspPosition::AllowBreak) => true,
+            Some(ZwspPosition::SuppressBreak) => false,
+            _ => original,
+        }
     }
 
     pub(crate) fn clear(&mut self) {
@@ -337,6 +368,7 @@ impl<B: Brush> LayoutData<B> {
         self.text_len = 0;
         self.bidi_controls.clear();
         self.inline_end_marks.clear();
+        self.zwsp_positions.clear();
         self.width = 0.;
         self.full_width = 0.;
         self.height = 0.;
@@ -809,8 +841,10 @@ impl ContentWidthsMeasurer {
                 let prev_text_wrap_mode = self.text_wrap_mode;
                 self.text_wrap_mode = style.text_wrap_mode;
                 if prev_text_wrap_mode == TextWrapMode::Wrap
-                    && (cluster.is_soft_wrap_opportunity_before()
-                        || style.overflow_wrap == OverflowWrap::Anywhere)
+                    && (layout_data.soft_wrap_before(
+                        slice.text_byte_at(cluster.chars_range().start),
+                        cluster.is_soft_wrap_opportunity_before(),
+                    ) || style.overflow_wrap == OverflowWrap::Anywhere)
                 {
                     self.soft_break(i != empty_at);
                 }

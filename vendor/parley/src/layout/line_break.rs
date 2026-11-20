@@ -1285,8 +1285,10 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                         let is_newline = whitespace == Whitespace::Newline;
                         // Whether this atom is a justification opportunity.
                         let is_separator = is_word_separator(whitespace);
-                        let is_soft_wrap_opportunity =
-                            first_character.flags.is_soft_wrap_opportunity();
+                        let is_soft_wrap_opportunity = self.layout.data.soft_wrap_before(
+                            first_character.text_byte_range().start,
+                            first_character.flags.is_soft_wrap_opportunity(),
+                        );
                         let max_height_exceeded = self.state.line.max_height_exceeded;
                         let style_index = first_character.style_index;
                         let style = &self.layout.data.styles[style_index as usize];
@@ -2217,14 +2219,17 @@ fn reset_trailing_whitespace_level<B: Brush>(
     lines.line_items.insert(target_idx, tail);
 }
 
-fn is_invisible_atom(atom: &Atom<'_>, spacing: EffectiveSpacing) -> bool {
+fn is_invisible_atom<B: Brush>(
+    layout: &Layout<B>,
+    atom: &Atom<'_>,
+    spacing: EffectiveSpacing,
+) -> bool {
     let gaps = spacing.gaps(atom);
     gaps.before == 0.
         && gaps.after == 0.
-        && atom
-            .characters()
-            .iter()
-            .all(|character| character.whitespace == Whitespace::None)
+        && atom.characters().iter().all(|character| {
+            character.whitespace == Whitespace::None && !layout.data.is_author_zwsp(character)
+        })
         && atom
             .shaped_clusters()
             .iter()
@@ -2265,7 +2270,11 @@ fn last_cluster_before_trailing_spaces<B: Brush>(
                 .iter()
                 .all(|character| character.whitespace == Whitespace::None)
             {
-                if cluster.advance == 0. {
+                if cluster.advance == 0.
+                    && !characters
+                        .iter()
+                        .any(|character| layout.data.is_author_zwsp(character))
+                {
                     continue;
                 }
                 return hangs.then_some(index);
@@ -2298,8 +2307,8 @@ fn is_invisible_item<B: Brush>(layout: &Layout<B>, item: &LineItemData) -> bool 
         .narrow(item.shaped_cluster_range.clone());
     let mut atoms = slice.atoms_end().rev();
     let first = atoms.next();
-    first.is_some_and(|atom| is_invisible_atom(&atom, spacing))
-        && atoms.all(|atom| is_invisible_atom(&atom, spacing))
+    first.is_some_and(|atom| is_invisible_atom(layout, &atom, spacing))
+        && atoms.all(|atom| is_invisible_atom(layout, &atom, spacing))
 }
 
 // Note: This runs once per line, but it called in the line breaker's per-atom loop. The compiler
@@ -2358,7 +2367,7 @@ fn hanging_whitespace<B: Brush>(
                     .narrow(line_item.shaped_cluster_range.clone());
 
                 for atom in slice.atoms_end().rev() {
-                    let invisible = is_invisible_atom(&atom, effective_spacing);
+                    let invisible = is_invisible_atom(layout, &atom, effective_spacing);
                     if run.inline_edge.is_some_and(|edge| !edge.is_start) {
                         across_inline_end |= !invisible;
                         continue;

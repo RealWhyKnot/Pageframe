@@ -66,3 +66,61 @@ pub(crate) fn analyze_text<B: Brush>(
     };
     lcx.analyzer.analyze(text, &options, &mut lcx.analysis);
 }
+
+pub(crate) fn collect_zwsp_positions(
+    positions: &mut alloc::vec::Vec<(usize, crate::layout::data::ZwspPosition)>,
+    analysis: &parley_engine::Analysis,
+    text: &str,
+    inline_ends: &[usize],
+    bidi_controls: &[usize],
+) {
+    use crate::layout::data::ZwspPosition;
+
+    if !text.contains('\u{200b}') {
+        return;
+    }
+
+    let mut ends = inline_ends.iter().copied().peekable();
+    let mut controls = bidi_controls.iter().copied().peekable();
+    let mut after_zwsp = None;
+    let mut has_inline_end = false;
+    let chars = text.char_indices().chain([(text.len(), '\n')]);
+    for (index, (offset, character)) in chars.enumerate() {
+        let inline_end = ends.next_if_eq(&offset).is_some();
+        let bidi_control = controls.next_if_eq(&offset).is_some();
+        if inline_end || bidi_control {
+            has_inline_end |= inline_end;
+            continue;
+        }
+        if let Some((first_index, first_byte)) = after_zwsp.take()
+            && has_inline_end
+            && analysis.char_info()[first_index..index]
+                .iter()
+                .any(|character| character.is_soft_wrap_opportunity())
+        {
+            positions.extend(
+                text[first_byte..offset]
+                    .char_indices()
+                    .map(|(delta, _)| (first_byte + delta, ZwspPosition::SuppressBreak)),
+            );
+            if !matches!(
+                character,
+                ' ' | '\u{200b}'
+                    | '\n'
+                    | '\r'
+                    | '\u{b}'
+                    | '\u{c}'
+                    | '\u{85}'
+                    | '\u{2028}'
+                    | '\u{2029}'
+            ) {
+                positions.push((offset, ZwspPosition::AllowBreak));
+            }
+        }
+        has_inline_end = false;
+        if character == '\u{200b}' {
+            positions.push((offset, ZwspPosition::Author));
+            after_zwsp = Some((index + 1, offset + character.len_utf8()));
+        }
+    }
+}
