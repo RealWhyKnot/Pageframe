@@ -4,7 +4,7 @@
 use crate::inline_box::{InlineBox, LayoutInlineBox};
 use crate::layout::spacing::{Justification, Spacing};
 use crate::layout::style_metrics::{BoxMetrics, StyleMetrics};
-use crate::layout::whitespace::{is_collapsible_space, whitespace_hangs};
+use crate::layout::whitespace::{is_collapsible_space, preserved_space_hangs, whitespace_hangs};
 use crate::layout::{ContentWidths, LineMetrics, Style};
 use crate::resolve::ResolvedStyle;
 use crate::style::Brush;
@@ -363,6 +363,10 @@ impl<B: Brush> LayoutData<B> {
         paragraph_level_at(&self.paragraph_levels, self.base_level, index)
     }
 
+    pub(crate) fn matches_paragraph_level(&self, level: BidiLevel, text_start: usize) -> bool {
+        level == self.paragraph_level_at(text_start)
+    }
+
     /// Push an inline box to the list of items
     pub(crate) fn push_inline_box(&mut self, index: usize, bidi_level: BidiLevel) {
         self.items.push(LayoutItem {
@@ -520,6 +524,7 @@ struct ContentWidthsMeasurer {
     running_hanging_min: f32,
     inline_end_space_min: InlineEndSpace,
     inline_end_space_max: InlineEndSpace,
+    preserved_inline_end_min: InlineEndSpace,
     part_start: f32,
     snap_extra: f32,
     closed_parts: Vec<(f32, f32)>,
@@ -535,7 +540,7 @@ impl InlineEndSpace {
     fn add(
         &mut self,
         advance: f32,
-        collapsible: bool,
+        trailing_space: bool,
         edge: Option<crate::InlineEdge>,
         end_mark: bool,
     ) {
@@ -545,7 +550,7 @@ impl InlineEndSpace {
                     self.before_edge = self.spaces;
                 }
             }
-            None if collapsible => self.spaces += advance,
+            None if trailing_space => self.spaces += advance,
             None if end_mark => {}
             _ => *self = Self::default(),
         }
@@ -580,6 +585,7 @@ impl ContentWidthsMeasurer {
     fn start_min_line(&mut self, indent: f32) {
         self.running_min_width = indent;
         self.inline_end_space_min = InlineEndSpace::default();
+        self.preserved_inline_end_min = InlineEndSpace::default();
         self.part_start = indent;
         self.snap_extra = 0.0;
         self.closed_parts.clear();
@@ -589,6 +595,10 @@ impl ContentWidthsMeasurer {
         let end = self.running_min_width
             - self.running_hanging_min
             - self.inline_end_space_min.before_edge;
+        self.min_line_width_at(end) - self.preserved_inline_end_min.before_edge
+    }
+
+    fn min_line_width_at(&self, end: f32) -> f32 {
         let open = end - self.part_start;
         if open >= 0.0 {
             return end + self.snap_extra + self.snap(open) - open;
@@ -623,6 +633,7 @@ impl ContentWidthsMeasurer {
             running_hanging_min: 0.,
             inline_end_space_min: InlineEndSpace::default(),
             inline_end_space_max: InlineEndSpace::default(),
+            preserved_inline_end_min: InlineEndSpace::default(),
             part_start: first_line_indent,
             snap_extra: 0.,
             closed_parts: Vec::new(),
@@ -702,9 +713,10 @@ impl ContentWidthsMeasurer {
                     // bidi reordering. We don't currently apply UAX #9 L1 (resetting trailing
                     // whitespace to paragraph level), so only logically-last items that match the
                     // paragraph level are guaranteed to be at that edge.
-                    let can_hang = item.bidi_level
-                        == layout_data
-                            .paragraph_level_at(slice.text_byte_range(slice.char_range()).start);
+                    let can_hang = layout_data.matches_paragraph_level(
+                        item.bidi_level,
+                        slice.text_byte_range(slice.char_range()).start,
+                    );
                     let is_rtl = item.bidi_level.is_rtl();
 
                     if run.spacing.is_zero() {
@@ -843,8 +855,6 @@ impl ContentWidthsMeasurer {
                 }
             }
             let raw_advance = min_advance.unwrap_or(advance - remainder.unwrap_or(0.0));
-            self.running_min_width += raw_advance;
-            self.running_max_width += advance;
             let collapsible = is_collapsible_space(whitespace, style)
                 && (cluster.char_len() == 1
                     || slice
@@ -859,11 +869,6 @@ impl ContentWidthsMeasurer {
             let end_mark = whitespace == Whitespace::None
                 && advance == 0.
                 && layout_data.is_inline_end_mark(slice.characters_in(cluster.chars_range()));
-            self.inline_end_space_min
-                .add(raw_advance, collapsible, run.inline_edge, end_mark);
-            self.inline_end_space_max
-                .add(advance, collapsible, run.inline_edge, end_mark);
-
             // A cluster hangs if all of its characters hang. Its first character is checked via the
             // cached flags so the common case never touches `characters`.
             let hangs = can_hang
@@ -878,6 +883,19 @@ impl ContentWidthsMeasurer {
                                 &styles[character.style_index as usize],
                             )
                         }));
+            self.measure_preserved_before_inline_end(
+                run.inline_edge,
+                raw_advance,
+                can_hang,
+                hangs && preserved_space_hangs(whitespace, style),
+                collapsible || end_mark,
+            );
+            self.running_min_width += raw_advance;
+            self.running_max_width += advance;
+            self.inline_end_space_min
+                .add(raw_advance, collapsible, run.inline_edge, end_mark);
+            self.inline_end_space_max
+                .add(advance, collapsible, run.inline_edge, end_mark);
             if hangs {
                 self.running_hanging_whitespace += advance;
                 self.running_hanging_min += raw_advance;
@@ -894,6 +912,34 @@ impl ContentWidthsMeasurer {
         self.line_has_content = empty_at != clusters.len();
     }
 
+    fn measure_preserved_before_inline_end(
+        &mut self,
+        edge: Option<crate::InlineEdge>,
+        advance: f32,
+        can_hang: bool,
+        preserved: bool,
+        transparent: bool,
+    ) {
+        if !can_hang {
+            self.preserved_inline_end_min = InlineEndSpace::default();
+            return;
+        }
+        match edge {
+            Some(edge) if !edge.is_start => {
+                let spaces = self.preserved_inline_end_min.spaces;
+                if advance != 0. && spaces != 0. {
+                    let end = self.running_min_width;
+                    self.preserved_inline_end_min.before_edge +=
+                        self.min_line_width_at(end) - self.min_line_width_at(end - spaces);
+                    self.preserved_inline_end_min.spaces = 0.;
+                }
+            }
+            None if preserved => self.preserved_inline_end_min.spaces += advance,
+            None if transparent => {}
+            _ => self.preserved_inline_end_min = InlineEndSpace::default(),
+        }
+    }
+
     fn measure_inline_box(&mut self, inline_box: &InlineBox, followed_by_inline_content: bool) {
         // Inline boxes have soft wrap opportunities on both sides.
         let wraps = self.text_wrap_mode == TextWrapMode::Wrap;
@@ -903,6 +949,7 @@ impl ContentWidthsMeasurer {
         // Inline boxes don't hang.
         self.inline_end_space_min = InlineEndSpace::default();
         self.inline_end_space_max = InlineEndSpace::default();
+        self.preserved_inline_end_min = InlineEndSpace::default();
         self.running_hanging_whitespace = 0.0;
         self.running_hanging_min = 0.0;
         self.running_min_width += inline_box.width;

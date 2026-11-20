@@ -16,7 +16,9 @@ use crate::layout::spacing::{EffectiveSpacing, Justification, is_word_separator}
 use crate::layout::style_metrics::{
     BoxMetrics, InlineBoxPlacement, StyleMetrics, inline_box_placement, layout_unit_round,
 };
-use crate::layout::whitespace::{atom_hanging_advance, is_collapsible_space};
+use crate::layout::whitespace::{
+    atom_hanging_advance, is_collapsible_space, preserved_space_hangs,
+};
 use crate::layout::{
     BreakReason, Layout, LayoutData, LayoutItem, LayoutItemKind, LineData, LineItemData,
     LineMetrics, Run,
@@ -1397,6 +1399,18 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                                         self.layout,
                                         &self.state.line,
                                         inline_edge.is_some() && advance != 0.,
+                                        {
+                                            let start = slice
+                                                .shaped_clusters_range()
+                                                .start
+                                                .max(self.state.line.clusters.start);
+                                            let part = slice
+                                                .narrow(start..atom.shaped_clusters_range().end);
+                                            self.layout.data.matches_paragraph_level(
+                                                item.bidi_level,
+                                                part.text_byte_range(part.char_range()).start,
+                                            )
+                                        },
                                         |_| {},
                                     )
                                     <= fit_advance)
@@ -1871,7 +1885,7 @@ fn commit_line<B: Brush>(
 
     let items_to_commit = &layout.data.items[state.items.clone()];
     let mut removed: SmallVec<[Range<u32>; 2]> = SmallVec::new();
-    let removed_advance = spaces_before_inline_end(layout, state, false, |range| {
+    let removed_advance = spaces_before_inline_end(layout, state, false, false, |range| {
         removed.push(range);
     });
     removed.reverse();
@@ -2056,6 +2070,7 @@ fn spaces_before_inline_end<B: Brush>(
     layout: &Layout<B>,
     state: &LineState,
     mut has_advancing_edge: bool,
+    mut include_preserved: bool,
     mut remove: impl FnMut(Range<u32>),
 ) -> f32 {
     let mut advance = 0.;
@@ -2079,6 +2094,11 @@ fn spaces_before_inline_end<B: Brush>(
             continue;
         }
         let slice = shaped.run_slice(item.index as u32).narrow(start..end);
+        include_preserved = include_preserved
+            && layout.data.matches_paragraph_level(
+                item.bidi_level,
+                slice.text_byte_range(slice.char_range()).start,
+            );
         let spacing = EffectiveSpacing::new(run.spacing, Justification::NONE);
         for atom in slice.atoms_end().rev() {
             if let Some(edge) = run.inline_edge {
@@ -2092,10 +2112,9 @@ fn spaces_before_inline_end<B: Brush>(
             {
                 continue;
             } else if atom.characters().iter().all(|character| {
-                is_collapsible_space(
-                    character.whitespace,
-                    &layout.data.styles[usize::from(character.style_index)],
-                )
+                let style = &layout.data.styles[usize::from(character.style_index)];
+                is_collapsible_space(character.whitespace, style)
+                    || (include_preserved && preserved_space_hangs(character.whitespace, style))
             }) {
                 if has_advancing_edge {
                     advance += spacing.atom_advance(&atom);
@@ -2295,6 +2314,7 @@ fn hanging_whitespace<B: Brush>(
     // Atoms with shaped clusters before this index may be stretched by justification.
     let mut justification_end_cluster = u32::MAX;
     let mut hanging_opportunities = 0;
+    let mut across_inline_end = false;
     // Following CSS Text 4 § 4.3.2, a sequence of whitespace with `WhiteSpaceCollapse::Preserve`
     // directly preceding a forced line break hangs conditionally. All other whitespace hangs
     // unconditionally. Note that, in particular, a sequence of `WhiteSpaceCollapse::Preserve`
@@ -2322,16 +2342,15 @@ fn hanging_whitespace<B: Brush>(
                 // reordering. `reset_trailing_whitespace_level` moves the last item's trailing
                 // whitespace to the paragraph level (UAX #9 L1), so only items that match the
                 // paragraph level are guaranteed to be at that edge.
-                if line_item.bidi_level
-                    != layout.data.paragraph_level_at(line_item.text_range.start)
+                if !layout
+                    .data
+                    .matches_paragraph_level(line_item.bidi_level, line_item.text_range.start)
                 {
                     break;
                 }
 
-                let effective_spacing = EffectiveSpacing::new(
-                    layout.data.runs[line_item.index].spacing,
-                    Justification::NONE,
-                );
+                let run = &layout.data.runs[line_item.index];
+                let effective_spacing = EffectiveSpacing::new(run.spacing, Justification::NONE);
                 let slice = layout
                     .data
                     .shaped_text
@@ -2339,8 +2358,25 @@ fn hanging_whitespace<B: Brush>(
                     .narrow(line_item.shaped_cluster_range.clone());
 
                 for atom in slice.atoms_end().rev() {
-                    if is_invisible_atom(&atom, effective_spacing) {
+                    let invisible = is_invisible_atom(&atom, effective_spacing);
+                    if run.inline_edge.is_some_and(|edge| !edge.is_start) {
+                        across_inline_end |= !invisible;
                         continue;
+                    }
+                    if invisible
+                        && (!across_inline_end || layout.data.is_inline_end_mark(atom.characters()))
+                    {
+                        continue;
+                    }
+                    if across_inline_end
+                        && !atom.characters().iter().all(|character| {
+                            preserved_space_hangs(
+                                character.whitespace,
+                                &layout.data.styles[usize::from(character.style_index)],
+                            )
+                        })
+                    {
+                        break 'items;
                     }
                     let (hanging, all_hang) = atom_hanging_advance(
                         slice,
