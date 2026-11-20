@@ -59,7 +59,10 @@ pub(crate) fn generic_font_family(input: stylo::GenericFontFamily) -> parley::Ge
     }
 }
 
-pub(crate) fn query_font_family(input: &stylo::SingleFontFamily) -> parley::QueryFamily<'_> {
+pub(crate) fn query_font_family<'a>(
+    input: &'a stylo::SingleFontFamily,
+    locale: Option<&parley::Language>,
+) -> parley::QueryFamily<'a> {
     match input {
         stylo::SingleFontFamily::FamilyName(name) => {
             'ret: {
@@ -79,7 +82,11 @@ pub(crate) fn query_font_family(input: &stylo::SingleFontFamily) -> parley::Quer
             }
         }
         stylo::SingleFontFamily::Generic(generic) => {
-            parley::QueryFamily::Generic(self::generic_font_family(*generic))
+            let family = generic_font_family(*generic);
+            crate::script_fallback::browser_generic_family(family, locale).map_or(
+                parley::QueryFamily::Generic(family),
+                parley::QueryFamily::Named,
+            )
         }
     }
 }
@@ -513,6 +520,7 @@ pub(crate) fn style(
     let font_variations = self::font_variations(font_styles, font_size);
     let font_features = self::font_features(font_styles);
 
+    let locale = parley::Language::parse(&font_styles._x_lang.0).ok();
     // Convert font family
     let families: Vec<_> = font_styles
         .font_family
@@ -542,7 +550,11 @@ pub(crate) fn style(
                 }
             }
             stylo::SingleFontFamily::Generic(generic) => {
-                parley::FontFamilyName::Generic(self::generic_font_family(*generic))
+                let family = generic_font_family(*generic);
+                crate::script_fallback::browser_generic_family(family, locale.as_ref()).map_or(
+                    parley::FontFamilyName::Generic(family),
+                    parley::FontFamilyName::named,
+                )
             }
         })
         .collect();
@@ -580,7 +592,7 @@ pub(crate) fn style(
         font_weight,
         font_variations: parley::FontVariations::List(Cow::Owned(font_variations)),
         font_features: parley::FontFeatures::List(Cow::Owned(font_features)),
-        locale: parley::Language::parse(&font_styles._x_lang.0).ok(),
+        locale,
         line_height,
         vertical_align,
         word_spacing,
