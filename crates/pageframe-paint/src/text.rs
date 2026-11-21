@@ -42,6 +42,7 @@ pub(crate) use runs::stroke_text;
 pub(crate) use selection::{GroupedRun, SelectionPaint, draw_text_selection, grouped_runs};
 use shadow::blurred_shadow_image;
 pub(crate) use shadow::gaussian_blur;
+mod quarter;
 mod sampled;
 mod upright;
 
@@ -560,7 +561,7 @@ fn fill_glyphs<I: Iterator<Item = anyrender::Glyph> + Clone>(
             1.0,
             transform,
             face.glyph_xform,
-            glyphs(),
+            quarter::snap(transform, glyphs()),
         );
         return;
     };
