@@ -1,3 +1,5 @@
+pub(crate) mod space;
+
 use markup5ever::local_name;
 use pageframe_traits::node_id::NodeId;
 use style::computed_values::direction::T as Direction;
@@ -321,37 +323,6 @@ impl LayoutPassState<'_> {
             })
     }
 
-    pub(crate) fn ruby_line_margin(
-        &self,
-        node_id: NodeId,
-        margin: Rect<f32>,
-        parent_size: Size<Option<f32>>,
-    ) -> Rect<f32> {
-        let node = &self.nodes[node_id];
-        let is_inline = node.is_ruby_box()
-            && node
-                .display_style()
-                .is_some_and(|display| display.outside() == DisplayOutside::Inline)
-            && node
-                .primary_styles()
-                .is_some_and(|style| !style.writing_mode.is_vertical());
-        if !is_inline {
-            return margin;
-        }
-        let style = node.layout_style();
-        let frame = style
-            .padding()
-            .resolve_or_zero(parent_size, resolve_calc_value)
-            + style
-                .border()
-                .resolve_or_zero(parent_size, resolve_calc_value);
-        Rect {
-            top: -frame.top,
-            bottom: -frame.bottom,
-            ..margin
-        }
-    }
-
     pub(crate) fn compute_ruby_layout(
         &mut self,
         node_id: NodeId,
@@ -502,6 +473,17 @@ impl LayoutPassState<'_> {
                 empty_base.map_or(0.0, |(ascent, descent)| ascent + descent),
                 f32::max,
             );
+        let rise = bases
+            .iter()
+            .flatten()
+            .map(|base| base.location.y - block_start)
+            .reduce(f32::min)
+            .map_or(0.0, |rise| rise.max(0.0));
+        let under = self
+            .font_size(node_id)
+            .zip(self.em_above_baseline(node_id))
+            .map_or(block_end, |(size, above)| shared_baseline + size - above);
+        self.record_annotation_extent(node_id, rise, under.min(block_end) - block_start);
 
         let parent_width = inputs.parent_size.width;
         let frame = {

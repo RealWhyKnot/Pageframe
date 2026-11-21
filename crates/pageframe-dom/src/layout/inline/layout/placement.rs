@@ -199,7 +199,7 @@ impl LayoutPassState<'_> {
                         let mut output =
                             self.compute_child_layout(taffy::NodeId::from(ibox.id), box_inputs);
                         let size = output.size;
-                        let line_margin = self.ruby_line_margin(
+                        let line_margin = self.placed_ruby_margin(
                             NodeId::from_u64(ibox.id),
                             margin,
                             child_inputs.parent_size,

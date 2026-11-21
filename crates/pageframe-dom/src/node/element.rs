@@ -153,6 +153,7 @@ pub struct LayoutData {
     pub columns: Option<Box<crate::layout::multicol::ColumnLayout>>,
     pub unsnapped: UnsnappedBox,
     pub ruby_baseline: Option<f32>,
+    pub annotation: crate::layout::ruby::space::AnnotationSpace,
     /// The writing mode this node's layout algorithm ran in (the root takes it from `<body>`),
     /// recorded by the layout pass for CSSOM geometry lookups.
     #[cfg(feature = "writing-mode")]
@@ -171,6 +172,7 @@ impl LayoutData {
             columns: None,
             unsnapped: UnsnappedBox::ZERO,
             ruby_baseline: None,
+            annotation: crate::layout::ruby::space::AnnotationSpace::ZERO,
             #[cfg(feature = "writing-mode")]
             writing_mode: stylo_taffy::WritingMode::empty(),
         }

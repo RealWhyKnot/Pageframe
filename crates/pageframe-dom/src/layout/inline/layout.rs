@@ -319,6 +319,7 @@ impl LayoutPassState<'_> {
                 width
             }
         };
+        self.borrow_annotation_space(node_id, &mut inline_layout, max_advance, parent_size.width);
         #[cfg(feature = "floats")]
         let slack = max_advance - width;
 
@@ -484,6 +485,13 @@ impl LayoutPassState<'_> {
 
         if inputs.run_mode == RunMode::PerformLayout {
             inline_layout.last_baseline = last_baseline;
+            self.record_block_end_annotation_space(
+                node_id,
+                &inline_layout,
+                last_line_index,
+                line_box_top + measured_size.height,
+                final_size.height,
+            );
         }
 
         self.nodes[node_id]
