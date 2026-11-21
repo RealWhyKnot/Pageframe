@@ -6,7 +6,9 @@ use anyrender::PaintScene;
 use kurbo::{self, Affine, BezPath, Point, Rect, Shape as _, Size, Vec2};
 use num_traits::ToPrimitive as _;
 use pageframe_dom::CopyStyleGetters;
-use pageframe_dom::node::{ImageData, ImageResourceData, SpecialElementData, SvgImageData};
+#[cfg(feature = "svg")]
+use pageframe_dom::node::SvgImageData;
+use pageframe_dom::node::{ImageData, ImageResourceData, SpecialElementData};
 use pageframe_dom::{BaseDocument, Node, NodeId, local_name};
 use peniko::{self, BlendMode, Compose, Fill, Mix};
 use raster::{AxisSpan, RasterAxisInput, raster_axis};
@@ -957,6 +959,7 @@ fn compute_layer_size(
                     match mode {
                         BackgroundSizeComputeMode::Auto => (width, height),
                         BackgroundSizeComputeMode::Size(_, _) => (width, height),
+                        #[cfg(feature = "svg")]
                         BackgroundSizeComputeMode::Intrinsic { .. } => (width, height),
                     }
                 }
@@ -965,6 +968,7 @@ fn compute_layer_size(
                     let height = match mode {
                         BackgroundSizeComputeMode::Auto => container_h,
                         BackgroundSizeComputeMode::Size(bg_w, bg_h) => bg_h / bg_w * width,
+                        #[cfg(feature = "svg")]
                         BackgroundSizeComputeMode::Intrinsic { height, ratio, .. } => ratio
                             .map(|ratio| width / ratio)
                             .or(height)
@@ -977,6 +981,7 @@ fn compute_layer_size(
                     let width = match mode {
                         BackgroundSizeComputeMode::Auto => container_w,
                         BackgroundSizeComputeMode::Size(bg_w, bg_h) => bg_w / bg_h * height,
+                        #[cfg(feature = "svg")]
                         BackgroundSizeComputeMode::Intrinsic { width, ratio, .. } => ratio
                             .map(|ratio| height * ratio)
                             .or(width)
@@ -987,6 +992,7 @@ fn compute_layer_size(
                 (Lpa::Auto, Lpa::Auto) => match mode {
                     BackgroundSizeComputeMode::Auto => (container_w, container_h),
                     BackgroundSizeComputeMode::Size(bg_w, bg_h) => (bg_w, bg_h),
+                    #[cfg(feature = "svg")]
                     BackgroundSizeComputeMode::Intrinsic {
                         width,
                         height,
@@ -1002,6 +1008,7 @@ fn compute_layer_size(
                 let ratio = (container_w / bg_w).max(container_h / bg_h);
                 (bg_w * ratio, bg_h * ratio)
             }
+            #[cfg(feature = "svg")]
             BackgroundSizeComputeMode::Intrinsic { ratio, .. } => match ratio {
                 // Scale the aspect ratio to the smallest size that covers both axes
                 Some(ratio) => {
@@ -1019,6 +1026,7 @@ fn compute_layer_size(
                 let ratio = (container_w / bg_w).min(container_h / bg_h);
                 (bg_w * ratio, bg_h * ratio)
             }
+            #[cfg(feature = "svg")]
             BackgroundSizeComputeMode::Intrinsic { ratio, .. } => match ratio {
                 // Scale the aspect ratio to the largest size contained by both axes
                 Some(ratio) => {
@@ -1043,6 +1051,7 @@ enum BackgroundSizeComputeMode {
     /// Intrinsic dimensions of an image which may lack an intrinsic width,
     /// height, and/or aspect ratio (e.g. SVG), sized per the CSS default
     /// sizing algorithm (https://drafts.csswg.org/css-images/#default-sizing)
+    #[cfg(feature = "svg")]
     Intrinsic {
         width: Option<f32>,
         height: Option<f32>,
@@ -1053,6 +1062,7 @@ enum BackgroundSizeComputeMode {
 /// The CSS default sizing algorithm for the unconstrained (`auto auto`) case:
 /// resolve the concrete object size from whichever intrinsic dimensions exist,
 /// falling back to the default object size (the background positioning area).
+#[cfg(feature = "svg")]
 pub(super) fn default_sizing(
     width: Option<f32>,
     height: Option<f32>,
@@ -1145,6 +1155,7 @@ fn tiled_area(
     }
 }
 
+#[cfg(feature = "svg")]
 fn tile_offsets<'a>(
     horizontal: &'a AxisTiling,
     vertical: &'a AxisTiling,
@@ -1250,6 +1261,7 @@ fn gradient_tile_image(
     Some(tile_image(pixels, width, height))
 }
 
+#[cfg(feature = "svg")]
 fn svg_tile_image(svg: &SvgImageData, size: Size) -> Option<peniko::ImageData> {
     let (width, height) = (tile_side(size.width)?, tile_side(size.height)?);
     let viewport =
