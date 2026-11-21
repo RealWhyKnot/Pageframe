@@ -222,7 +222,7 @@ impl LayoutPassState<'_> {
             indent_options,
         );
 
-        let pbw = container_pb.horizontal_components().sum() * scale;
+        let pbw = content_box_inset.horizontal_components().sum() * scale;
         let width = known_dimensions
             .width
             .map(|w| (w * scale) - pbw)
@@ -274,7 +274,7 @@ impl LayoutPassState<'_> {
         #[cfg(feature = "floats")]
         let mut block_ctx = outer_block_ctx.sub_context(
             container_pb.top,
-            FloatInsets::new(container_pb.left, container_pb.right),
+            FloatInsets::new(content_box_inset.left, content_box_inset.right),
         );
 
         if inputs.run_mode == taffy::RunMode::ComputeSize

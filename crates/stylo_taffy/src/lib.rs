@@ -10,6 +10,7 @@ mod wrapper;
 pub use wrapper::{StyleFlags, TaffyStyloStyle};
 
 pub mod convert;
+pub mod gutter;
 #[doc(inline)]
 pub use convert::device_border_px;
 pub use convert::layout_unit_px;

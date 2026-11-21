@@ -54,6 +54,7 @@ copy_getters! {
     pointer_events: clone_pointer_events => get_pointer_events;
     resize: clone_resize => get_resize;
     scroll_behavior: clone_scroll_behavior => get_scroll_behavior;
+    scrollbar_gutter: clone_scrollbar_gutter => get_scrollbar_gutter;
     scrollbar_width: clone_scrollbar_width => get_scrollbar_width;
     table_layout: clone_table_layout => get_table_layout;
     text_align: clone_text_align => get_text_align;

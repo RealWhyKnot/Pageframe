@@ -1051,12 +1051,9 @@ pub fn to_taffy_style(style: &stylo::ComputedValues, scale: f32) -> taffy::Style
         item_is_replaced: false,
         item_is_compressible_replaced: false,
         position: self::position(style.clone_position()),
-        overflow: taffy::Point {
-            x: self::overflow(style.clone_overflow_x()),
-            y: self::overflow(style.clone_overflow_y()),
-        },
+        overflow: crate::gutter::overflow(style),
         direction: self::direction(style.clone_direction()),
-        scrollbar_width: 0.0,
+        scrollbar_width: layout_unit_px(crate::gutter::taffy_width(style), scale),
         contain: self::contain(style.clone_contain(), style.clone_display()),
 
         #[cfg(feature = "floats")]
@@ -1064,21 +1061,33 @@ pub fn to_taffy_style(style: &stylo::ComputedValues, scale: f32) -> taffy::Style
         #[cfg(feature = "floats")]
         clear: self::clear(style.clone_clear()),
 
-        size: taffy::Size {
-            width: self::dimension(&pos.width),
-            height: self::dimension(&pos.height),
-        }
-        .map(|value| value.in_layout_units(scale)),
-        min_size: taffy::Size {
-            width: self::min_size(&pos.min_width),
-            height: self::min_size(&pos.min_height),
-        }
-        .map(|value| value.in_layout_units(scale)),
-        max_size: taffy::Size {
-            width: self::max_size(&pos.max_width),
-            height: self::max_size(&pos.max_height),
-        }
-        .map(|value| value.in_layout_units(scale)),
+        size: crate::gutter::shrink_size(
+            taffy::Size {
+                width: self::dimension(&pos.width),
+                height: self::dimension(&pos.height),
+            }
+            .map(|value| value.in_layout_units(scale)),
+            style,
+            scale,
+        ),
+        min_size: crate::gutter::shrink_bounds(
+            taffy::Size {
+                width: self::min_size(&pos.min_width),
+                height: self::min_size(&pos.min_height),
+            }
+            .map(|value| value.in_layout_units(scale)),
+            style,
+            scale,
+        ),
+        max_size: crate::gutter::shrink_bounds(
+            taffy::Size {
+                width: self::max_size(&pos.max_width),
+                height: self::max_size(&pos.max_height),
+            }
+            .map(|value| value.in_layout_units(scale)),
+            style,
+            scale,
+        ),
         aspect_ratio: self::aspect_ratio(pos.aspect_ratio),
 
         inset: self::inset_rect(style).map(|value| value.in_layout_units(scale)),
@@ -1089,13 +1098,17 @@ pub fn to_taffy_style(style: &stylo::ComputedValues, scale: f32) -> taffy::Style
             bottom: self::margin(&margin.margin_bottom),
         }
         .map(|value| value.in_layout_units(scale)),
-        padding: taffy::Rect {
-            left: self::length_percentage(&padding.padding_left.0),
-            right: self::length_percentage(&padding.padding_right.0),
-            top: self::length_percentage(&padding.padding_top.0),
-            bottom: self::length_percentage(&padding.padding_bottom.0),
-        }
-        .map(|value| value.in_layout_units(scale)),
+        padding: crate::gutter::pad(
+            taffy::Rect {
+                left: self::length_percentage(&padding.padding_left.0),
+                right: self::length_percentage(&padding.padding_right.0),
+                top: self::length_percentage(&padding.padding_top.0),
+                bottom: self::length_percentage(&padding.padding_bottom.0),
+            }
+            .map(|value| value.in_layout_units(scale)),
+            style,
+            scale,
+        ),
         border: taffy::Rect {
             left: self::border(&border.border_left_width, border.border_left_style, scale),
             right: self::border(&border.border_right_width, border.border_right_style, scale),

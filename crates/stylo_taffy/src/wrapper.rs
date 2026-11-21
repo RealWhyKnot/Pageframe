@@ -160,6 +160,33 @@ impl<T: Deref<Target = ComputedValues>> TaffyStyloStyle<T> {
         self.layout_wm().logical_rect(physical)
     }
 
+    fn gutter_padding(
+        &self,
+        padding: taffy::Rect<taffy::LengthPercentage>,
+    ) -> taffy::Rect<taffy::LengthPercentage> {
+        if self.flags.contains(StyleFlags::OVERFLOW_TO_VIEWPORT) {
+            return padding;
+        }
+        crate::gutter::pad(padding, &self.style, self.device_scale)
+    }
+
+    fn gutter_size(&self, size: taffy::Size<taffy::Dimension>) -> taffy::Size<taffy::Dimension> {
+        if self.flags.contains(StyleFlags::OVERFLOW_TO_VIEWPORT) {
+            return size;
+        }
+        crate::gutter::shrink_size(size, &self.style, self.device_scale)
+    }
+
+    fn gutter_bounds(
+        &self,
+        size: taffy::Size<taffy::LengthPercentageAuto>,
+    ) -> taffy::Size<taffy::LengthPercentageAuto> {
+        if self.flags.contains(StyleFlags::OVERFLOW_TO_VIEWPORT) {
+            return size;
+        }
+        crate::gutter::shrink_bounds(size, &self.style, self.device_scale)
+    }
+
     /// Map a physical size into the layout writing mode's axes
     #[inline(always)]
     fn size<U>(&self, physical: taffy::Size<U>) -> taffy::Size<U> {
@@ -240,17 +267,16 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
                 y: taffy::Overflow::Visible,
             };
         }
-        let box_styles = self.style.get_box();
-        let overflow = taffy::Point {
-            x: convert::overflow(box_styles.overflow_x),
-            y: convert::overflow(box_styles.overflow_y),
-        };
-        self.layout_wm().logical_point(overflow)
+        self.layout_wm()
+            .logical_point(crate::gutter::overflow(&self.style))
     }
 
     #[inline]
     fn scrollbar_width(&self) -> f32 {
-        0.0
+        if self.flags.contains(StyleFlags::OVERFLOW_TO_VIEWPORT) {
+            return 0.0;
+        }
+        convert::layout_unit_px(crate::gutter::taffy_width(&self.style), self.device_scale)
     }
 
     #[inline]
@@ -283,15 +309,17 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
     fn size(&self) -> taffy::Size<taffy::Dimension> {
         let position_styles = self.style.get_position();
         self.size(
-            taffy::Size {
-                width: convert::dimension(&position_styles.width),
-                height: if convert::is_table_cell(&self.style) {
-                    taffy::style_helpers::auto()
-                } else {
-                    convert::dimension(&position_styles.height)
-                },
-            }
-            .map(|value| value.in_layout_units(self.device_scale)),
+            self.gutter_size(
+                taffy::Size {
+                    width: convert::dimension(&position_styles.width),
+                    height: if convert::is_table_cell(&self.style) {
+                        taffy::style_helpers::auto()
+                    } else {
+                        convert::dimension(&position_styles.height)
+                    },
+                }
+                .map(|value| value.in_layout_units(self.device_scale)),
+            ),
         )
     }
 
@@ -299,20 +327,22 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
     fn min_size(&self) -> taffy::Size<taffy::LengthPercentageAuto> {
         let position_styles = self.style.get_position();
         self.size(
-            taffy::Size {
-                width: convert::min_size(&position_styles.min_width),
-                height: if convert::is_table_cell(&self.style) {
-                    let height = convert::dimension(&position_styles.height);
-                    if height.tag() == taffy::CompactLength::LENGTH_TAG {
-                        taffy::style_helpers::length(height.value())
+            self.gutter_bounds(
+                taffy::Size {
+                    width: convert::min_size(&position_styles.min_width),
+                    height: if convert::is_table_cell(&self.style) {
+                        let height = convert::dimension(&position_styles.height);
+                        if height.tag() == taffy::CompactLength::LENGTH_TAG {
+                            taffy::style_helpers::length(height.value())
+                        } else {
+                            taffy::style_helpers::auto()
+                        }
                     } else {
-                        taffy::style_helpers::auto()
-                    }
-                } else {
-                    convert::min_size(&position_styles.min_height)
-                },
-            }
-            .map(|value| value.in_layout_units(self.device_scale)),
+                        convert::min_size(&position_styles.min_height)
+                    },
+                }
+                .map(|value| value.in_layout_units(self.device_scale)),
+            ),
         )
     }
 
@@ -320,11 +350,13 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
     fn max_size(&self) -> taffy::Size<taffy::LengthPercentageAuto> {
         let position_styles = self.style.get_position();
         self.size(
-            taffy::Size {
-                width: convert::max_size(&position_styles.max_width),
-                height: convert::max_size(&position_styles.max_height),
-            }
-            .map(|value| value.in_layout_units(self.device_scale)),
+            self.gutter_bounds(
+                taffy::Size {
+                    width: convert::max_size(&position_styles.max_width),
+                    height: convert::max_size(&position_styles.max_height),
+                }
+                .map(|value| value.in_layout_units(self.device_scale)),
+            ),
         )
     }
 
@@ -365,23 +397,27 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
                 )
             };
             return self.rect(
-                taffy::Rect {
-                    left: resolve(&padding_styles.padding_left.0),
-                    right: resolve(&padding_styles.padding_right.0),
-                    top: resolve(&padding_styles.padding_top.0),
-                    bottom: resolve(&padding_styles.padding_bottom.0),
-                }
-                .map(|value| value.in_layout_units(self.device_scale)),
+                self.gutter_padding(
+                    taffy::Rect {
+                        left: resolve(&padding_styles.padding_left.0),
+                        right: resolve(&padding_styles.padding_right.0),
+                        top: resolve(&padding_styles.padding_top.0),
+                        bottom: resolve(&padding_styles.padding_bottom.0),
+                    }
+                    .map(|value| value.in_layout_units(self.device_scale)),
+                ),
             );
         }
         self.rect(
-            taffy::Rect {
-                left: convert::length_percentage(&padding_styles.padding_left.0),
-                right: convert::length_percentage(&padding_styles.padding_right.0),
-                top: convert::length_percentage(&padding_styles.padding_top.0),
-                bottom: convert::length_percentage(&padding_styles.padding_bottom.0),
-            }
-            .map(|value| value.in_layout_units(self.device_scale)),
+            self.gutter_padding(
+                taffy::Rect {
+                    left: convert::length_percentage(&padding_styles.padding_left.0),
+                    right: convert::length_percentage(&padding_styles.padding_right.0),
+                    top: convert::length_percentage(&padding_styles.padding_top.0),
+                    bottom: convert::length_percentage(&padding_styles.padding_bottom.0),
+                }
+                .map(|value| value.in_layout_units(self.device_scale)),
+            ),
         )
     }
 

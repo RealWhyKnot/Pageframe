@@ -3,7 +3,7 @@ use style::values::computed::CSSPixelLength;
 use style::values::specified::box_::WillChangeBits;
 #[cfg(not(feature = "writing-mode"))]
 use taffy::TraversePartialTree;
-use taffy::{Layout, NodeId, Point, Rect, RoundTree, ScrollableOverflow};
+use taffy::{CoreStyle, Layout, NodeId, Point, Rect, RoundTree, ScrollableOverflow};
 
 pub(crate) const LAYOUT_UNITS: f32 = 64.0;
 const UNIT_SLACK: f32 = 1.0 / 32.0;
@@ -100,6 +100,7 @@ pub(crate) fn snap_layout(
     parent: Point<f32>,
     snap: DeviceSnap,
 ) -> Point<f32> {
+    let unrounded = with_scrollbar_gutter(tree.node_from_id(node_id), unrounded);
     let size = unrounded.size;
     let x = parent.x + unrounded.location.x;
     let y = parent.y + unrounded.location.y;
@@ -170,6 +171,34 @@ pub(crate) fn snap_layout(
         },
     );
     Point { x, y }
+}
+
+fn with_scrollbar_gutter(node: &crate::Node, mut layout: Layout) -> Layout {
+    let Some(style) = node.primary_styles() else {
+        return layout;
+    };
+    let gutter = stylo_taffy::gutter::total(&style);
+    if gutter <= 0.0 {
+        return layout;
+    }
+    let layout_style = node.layout_style();
+    let overflow = layout_style.overflow();
+    if !overflow.x.is_scroll_container() && !overflow.y.is_scroll_container() {
+        return layout;
+    }
+    let gutter = stylo_taffy::layout_unit_px(gutter, layout_style.device_scale);
+    layout.scrollbar_size = if style.writing_mode.is_vertical() {
+        taffy::Size {
+            width: 0.0,
+            height: gutter,
+        }
+    } else {
+        taffy::Size {
+            width: gutter,
+            height: 0.0,
+        }
+    };
+    layout
 }
 
 fn starts_a_snap_root(node: &crate::Node, size: taffy::Size<f32>) -> bool {
