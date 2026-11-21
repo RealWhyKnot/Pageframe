@@ -44,7 +44,7 @@ a[href] {
 }
 
 /* https://html.spec.whatwg.org/#bidi-rendering */
-input[type=tel]:dir(ltr) {
+input[type="tel" i] {
     direction: ltr;
 }
 
@@ -638,10 +638,7 @@ table[rules] {
       A border with a given value should, of course, pass that value
       as the border-width in pixels -> attr mapping */
 
-/* :-moz-table-border-nonzero is like [border]:not([border="0"]) except it
-     also checks for other zero-like values according to HTML attribute
-     parsing rules */
-table:-moz-table-border-nonzero {
+table[border]:where(:not([border="0"])) {
     border-width: thin;
     border-style: outset;
 }
@@ -650,7 +647,6 @@ table[frame] {
     border: thin hidden;
 }
 
-/* specificity must beat table:-moz-table-border-nonzero rule above */
 table[frame="void"] {
     border-style: hidden;
 }
@@ -689,12 +685,12 @@ table[frame="border"] {
 
 /* 'border' cell borders first */
 
-table:-moz-table-border-nonzero>*>tr>td,
-table:-moz-table-border-nonzero>*>tr>th,
-table:-moz-table-border-nonzero>*>td,
-table:-moz-table-border-nonzero>*>th,
-table:-moz-table-border-nonzero>td,
-table:-moz-table-border-nonzero>th {
+table[border]:where(:not([border="0"]))>*>tr>td,
+table[border]:where(:not([border="0"]))>*>tr>th,
+table[border]:where(:not([border="0"]))>*>td,
+table[border]:where(:not([border="0"]))>*>th,
+table[border]:where(:not([border="0"]))>td,
+table[border]:where(:not([border="0"]))>th {
     border-width: thin;
     border-style: inset;
 }
@@ -779,27 +775,6 @@ caption {
     text-align: -moz-center;
 }
 
-table[align="center"]>caption {
-    margin-inline-start: auto;
-    margin-inline-end: auto;
-}
-
-table[align="center"]>caption[align="left"]:dir(ltr) {
-    margin-inline-end: 0;
-}
-
-table[align="center"]>caption[align="left"]:dir(rtl) {
-    margin-inline-start: 0;
-}
-
-table[align="center"]>caption[align="right"]:dir(ltr) {
-    margin-inline-start: 0;
-}
-
-table[align="center"]>caption[align="right"]:dir(rtl) {
-    margin-inline-end: 0;
-}
-
 tr {
     display: table-row;
     vertical-align: inherit;
@@ -848,7 +823,7 @@ th {
     text-align: -moz-center-or-inherit;
 }
 
-:is(tr, tbody, thead, tfoot, table)>form:-moz-is-html {
+:is(tr, tbody, thead, tfoot, table)>form {
     /* Important: don't show these forms in HTML */
     display: none !important;
 }
@@ -1131,13 +1106,6 @@ video {
     object-fit: contain;
 }
 
-video>img:-moz-native-anonymous {
-    /* Video poster images should render with the video element's "object-fit" &
-     "object-position" properties */
-    object-fit: inherit !important;
-    object-position: inherit !important;
-}
-
 audio:not([controls]) {
     display: none !important;
 }
@@ -1147,12 +1115,6 @@ audio[controls] {
       controls (which are also always horizontal) and produce a
       reasonable intrinsic size from them. */
     writing-mode: horizontal-tb !important;
-}
-
-*|*::-moz-html-canvas-content {
-    display: block !important;
-    /* we want to be an absolute and fixed container */
-    transform: translate(0) !important;
 }
 
 video>.caption-box {
@@ -1201,7 +1163,6 @@ dialog:not([open]) {
 }
 
 dialog:modal {
-    -moz-top-layer: top !important;
     position: fixed;
     overflow: auto;
     visibility: visible;
@@ -1217,7 +1178,7 @@ dialog::backdrop {
 }
 
 marquee {
-    inline-size: -moz-available;
+    inline-size: -webkit-fill-available;
     display: inline-block;
     vertical-align: text-bottom;
     text-align: start;
@@ -1260,17 +1221,6 @@ rt {
 ruby > rt {
     font-size: 50%;
     -moz-min-font-size-ratio: 50%;
-}
-
-@media not (-moz-platform: windows) {
-
-    rtc,
-    rt {
-        /* The widely-used Windows font Meiryo doesn't work fine with this
-    * setting, so disable this on Windows. We should re-enable it once
-    * Microsoft fixes this issue. See bug 1164279. */
-        font-variant-east-asian: ruby;
-    }
 }
 
 rtc,
@@ -1323,43 +1273,31 @@ slot {
     select,
     button,
     details {
-        -moz-user-input: none !important;
         pointer-events: none !important;
     }
 }
 
 /* Popover UA style, https://html.spec.whatwg.org/#flow-content-3 */
-/* stylelint-disable-next-line media-query-no-invalid */
-@media (-moz-bool-pref: "dom.element.popover.enabled") {
-    [popover]:not(:popover-open):not(dialog[open]) {
-        display: none;
-    }
+dialog:popover-open {
+    display: block;
+}
 
-    dialog:popover-open {
-        display: block;
-    }
+[popover] {
+    position: fixed;
+    inset: 0;
+    width: fit-content;
+    height: fit-content;
+    margin: auto;
+    border: solid;
+    padding: 0.25em;
+    overflow: auto;
+    color: CanvasText;
+    background-color: Canvas;
+}
 
-    [popover] {
-        position: fixed;
-        inset: 0;
-        width: fit-content;
-        height: fit-content;
-        margin: auto;
-        border: solid;
-        padding: 0.25em;
-        overflow: auto;
-        color: CanvasText;
-        background-color: Canvas;
-    }
-
-    :popover-open {
-        -moz-top-layer: top;
-    }
-
-    :popover-open::backdrop {
-        position: fixed;
-        inset: 0;
-        pointer-events: none !important;
-        background-color: transparent;
-    }
+:popover-open::backdrop {
+    position: fixed;
+    inset: 0;
+    pointer-events: none !important;
+    background-color: transparent;
 }
