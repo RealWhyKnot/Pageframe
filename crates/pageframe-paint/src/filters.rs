@@ -502,19 +502,23 @@ impl FilterImage {
     }
 
     fn apply_drop_shadow(&mut self, offset: Vec2, std_deviation: f64, color: &[f32; 4]) {
-        let mut alpha: Vec<f32> = self.pixels.iter().map(|px| px[3]).collect();
-        gaussian_blur(&mut alpha, self.width, self.height, std_deviation);
         let dx = offset.x.round().to_isize().unwrap_or(0);
         let dy = offset.y.round().to_isize().unwrap_or(0);
+        let mut alpha = vec![0.0; self.pixels.len()];
         for y in 0..self.height {
             let Some(source_y) = y.checked_add_signed(-dy).filter(|&sy| sy < self.height) else {
                 continue;
             };
             for x in 0..self.width {
-                let Some(source_x) = x.checked_add_signed(-dx).filter(|&sx| sx < self.width) else {
-                    continue;
-                };
-                let shadow = alpha[source_y * self.width + source_x];
+                if let Some(source_x) = x.checked_add_signed(-dx).filter(|&sx| sx < self.width) {
+                    alpha[y * self.width + x] = self.pixels[source_y * self.width + source_x][3];
+                }
+            }
+        }
+        gaussian_blur(&mut alpha, self.width, self.height, std_deviation);
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let shadow = alpha[y * self.width + x];
                 let px = &mut self.pixels[y * self.width + x];
                 let under = 1.0 - px[3];
                 for channel in 0..4 {
