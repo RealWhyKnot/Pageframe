@@ -2430,30 +2430,54 @@ impl Node {
         };
 
         let text = inline_layout.text.as_str();
+        let empties =
+            super::empty_span::empty_spans(inline_root, layout, |id| chain_to(id).is_some());
+        let blank = self.blank_fragment(inline_root, &empties, &geometry);
 
-        Some(layout.lines().flat_map(move |line| {
-            let metrics = *line.metrics();
-            let trim = crate::inline_trim::LineTrim::new(inline_root, &line, text);
-            let found = inline_root.collect_line_spans(&line, &trim, &geometry, chain_to);
-            let own = found.own(self.id);
-            let extent = match font {
-                Some(font) => Some((own.map_or(metrics.baseline, |(baseline, _)| baseline), font)),
-                None => own,
-            };
-            found
-                .spans
-                .into_iter()
-                .filter(move |span| span.node_id == self.id)
-                .map(move |span| {
-                    self.line_span_rect(
-                        inline_root,
-                        &metrics,
-                        extent,
-                        (span.left, span.right),
-                        &geometry,
-                    )
+        Some(
+            layout
+                .lines()
+                .enumerate()
+                .flat_map(move |(index, line)| {
+                    let metrics = *line.metrics();
+                    let trim = crate::inline_trim::LineTrim::new(inline_root, &line, text);
+                    let found = inline_root.collect_line_spans(&line, &trim, &geometry, chain_to);
+                    let own = found.own(self.id);
+                    let extent = match font {
+                        Some(font) => {
+                            Some((own.map_or(metrics.baseline, |(baseline, _)| baseline), font))
+                        }
+                        None => own,
+                    };
+                    let empty = if found.spans.iter().any(|span| span.node_id == self.id) {
+                        None
+                    } else {
+                        let at = super::empty_span::EmptyLine {
+                            index,
+                            line: &line,
+                            text,
+                            trim: &trim,
+                            found: &found,
+                        };
+                        self.empty_fragment(inline_root, at, &empties, font, &geometry)
+                    };
+                    found
+                        .spans
+                        .into_iter()
+                        .filter(move |span| span.node_id == self.id)
+                        .map(move |span| {
+                            self.line_span_rect(
+                                inline_root,
+                                &metrics,
+                                extent,
+                                (span.left, span.right),
+                                &geometry,
+                            )
+                        })
+                        .chain(empty)
                 })
-        }))
+                .chain(blank),
+        )
     }
 
     /// CSSOM View's `offsetLeft`/`offsetTop`: the offset of this node's border box from the

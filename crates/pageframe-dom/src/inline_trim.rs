@@ -184,7 +184,7 @@ impl LineTrim {
         })
     }
 
-    fn hung_edge(&self) -> f32 {
+    pub fn hung_edge(&self) -> f32 {
         if self.is_rtl {
             self.inked_left
         } else {
