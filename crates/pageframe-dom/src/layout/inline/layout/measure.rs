@@ -3,7 +3,7 @@ use crate::layout::resolve_calc_value;
 use crate::node::TextLayout;
 use pageframe_traits::node_id::NodeId;
 use style::values::computed::{BaselineSource, Contain};
-use style::values::specified::box_::DisplayInside;
+use style::values::specified::box_::{DisplayInside, DisplayOutside};
 use stylo_taffy::StyleFlags;
 use taffy::{
     AvailableSpace, BlockContext, BlockFormattingContext, BoxSizing, CompactLength, CoreStyle as _,
@@ -31,6 +31,7 @@ pub(super) fn inline_box_inputs(
     width_style: taffy::Dimension,
     margin: taffy::Rect<f32>,
     child_inputs: LayoutInput,
+    is_block_level: bool,
 ) -> LayoutInput {
     let mut inputs = subtract_margins(child_inputs, margin);
     let stretch_width = inputs.available_space.width.into_option();
@@ -59,7 +60,9 @@ pub(super) fn inline_box_inputs(
                     AvailableSpace::Definite(resolve_calc_value(width_style.calc_value(), basis));
             }
         }
-        CompactLength::STRETCH_TAG => {
+        tag if tag == CompactLength::STRETCH_TAG
+            || (is_block_level && tag == CompactLength::AUTO_TAG) =>
+        {
             if let Some(width) = stretch_width {
                 inputs.known_dimensions.width = Some(width);
                 inputs.available_space.width = AvailableSpace::Definite(width);
@@ -268,7 +271,9 @@ impl LayoutPassState<'_> {
             let contain_layout = box_style.slow_clone_contain().contains(Contain::LAYOUT);
             let exports_baseline = !(contain_layout
                 || (baseline_source == BaselineSource::Auto && is_block_axis_scroll_container));
-            let box_inputs = inline_box_inputs(style.size().width, margin, child_inputs);
+            let is_block_level = style.effective_display().outside() == DisplayOutside::Block;
+            let box_inputs =
+                inline_box_inputs(style.size().width, margin, child_inputs, is_block_level);
             drop(style);
             let box_id = NodeId::from_u64(ibox.id);
             let margin = self.ruby_line_margin(box_id, margin, parent_size);
@@ -289,7 +294,13 @@ impl LayoutPassState<'_> {
                 ibox.baseline = None;
             } else {
                 let output = self.compute_child_layout(taffy::NodeId::from(ibox.id), box_inputs);
-                ibox.width = (margin.left + margin.right + output.size.width) * scale;
+                let margin_box_width = margin.left + margin.right + output.size.width;
+                ibox.width = match child_inputs.available_space.width {
+                    AvailableSpace::Definite(width) if is_block_level => {
+                        width.max(margin_box_width) * scale
+                    }
+                    _ => margin_box_width * scale,
+                };
                 let last_baseline = match walks_blocks {
                     true => self.last_line_baseline(box_id),
                     false => LastBaseline::Unknown,

@@ -90,6 +90,25 @@ struct BuildState {
     has_percent: bool,
     has_clone: bool,
     bidi_contexts: Vec<(&'static str, &'static str)>,
+    line_open: bool,
+    break_pending: bool,
+}
+
+fn push_block_break(builder: &mut TreeBuilder<TextBrush>, state: &mut BuildState) {
+    builder.push_style_modification_span(&[parley::StyleProperty::WhiteSpaceCollapse(
+        WhiteSpaceCollapse::Preserve,
+    )]);
+    push_forced_break(builder, state, "\n");
+    builder.pop_style_span();
+    state.line_open = false;
+    state.break_pending = false;
+}
+
+fn open_line(builder: &mut TreeBuilder<TextBrush>, state: &mut BuildState) {
+    if state.break_pending {
+        push_block_break(builder, state);
+    }
+    state.line_open = true;
 }
 
 fn push_forced_break(builder: &mut TreeBuilder<TextBrush>, state: &BuildState, text: &str) {
@@ -356,6 +375,11 @@ pub(crate) fn build_inline_layout_into(
         has_percent: false,
         has_clone: false,
         bidi_contexts,
+        line_open: root_node
+            .element_data()
+            .and_then(|el| el.list_item_data.as_deref())
+            .is_some_and(|item| matches!(item.position, ListItemLayoutPosition::Inside)),
+        break_pending: false,
     };
 
     if let Some(before_id) = root_node.before() {
@@ -485,6 +509,7 @@ pub(crate) fn build_inline_layout_into(
 
                         if is_inline_box_element(tag_name) || node.is_ruby_box() {
                             if box_kind == InlineBoxKind::InFlow {
+                                open_line(builder, state);
                                 text_transformer.word_break(builder);
                             }
                             builder.push_inline_box(InlineBox {
@@ -504,6 +529,10 @@ pub(crate) fn build_inline_layout_into(
                         } else if *tag_name == local_name!("br") {
                             // node.remove_damage(CONSTRUCT_DESCENDENT | CONSTRUCT_FC | CONSTRUCT_BOX);
                             // TODO: update span id for br spans
+                            if state.break_pending {
+                                push_block_break(builder, state);
+                            }
+                            state.line_open = false;
                             builder.push_style_modification_span(&[
                                 parley::StyleProperty::WhiteSpaceCollapse(
                                     WhiteSpaceCollapse::Preserve,
@@ -532,6 +561,11 @@ pub(crate) fn build_inline_layout_into(
                                 )
                             });
                             if let Some(edges) = &edges {
+                                if edges.margin_start.abs() >= f32::EPSILON
+                                    || edges.inset_start.abs() >= f32::EPSILON
+                                {
+                                    open_line(builder, state);
+                                }
                                 push_margin_spacer(
                                     builder,
                                     edges,
@@ -628,10 +662,25 @@ pub(crate) fn build_inline_layout_into(
                         }
                     }
                     // Inline box
-                    (_, _) => {
+                    (outside, _) => {
+                        let is_block_level =
+                            outside == DisplayOutside::Block && box_kind == InlineBoxKind::InFlow;
+                        if is_block_level && (state.line_open || state.break_pending) {
+                            push_block_break(builder, state);
+                        } else if box_kind == InlineBoxKind::InFlow {
+                            open_line(builder, state);
+                        }
                         if box_kind == InlineBoxKind::InFlow {
                             text_transformer.word_break(builder);
                         }
+                        state.break_pending |= is_block_level;
+                        let vertical_align = if outside == DisplayOutside::Block {
+                            parley::VerticalAlign::TOP
+                        } else {
+                            node.primary_styles()
+                                .map(|s| stylo_to_parley::vertical_align(&s))
+                                .unwrap_or_default()
+                        };
                         builder.push_inline_box(InlineBox {
                             id: node_id.as_u64(),
                             kind: box_kind,
@@ -641,10 +690,7 @@ pub(crate) fn build_inline_layout_into(
                             width: 0.0,
                             height: 0.0,
                             baseline: None,
-                            vertical_align: node
-                                .primary_styles()
-                                .map(|s| stylo_to_parley::vertical_align(&s))
-                                .unwrap_or_default(),
+                            vertical_align,
                         });
                     }
                 };
@@ -661,6 +707,19 @@ pub(crate) fn build_inline_layout_into(
                         && parent.attr(local_name!("open")).is_none()
                 });
                 if !in_closed_details {
+                    let collapses = node
+                        .parent
+                        .and_then(|parent_id| nodes[parent_id].primary_styles())
+                        .is_none_or(|s| {
+                            s.clone_white_space_collapse() == StyloWhiteSpaceCollapse::Collapse
+                        });
+                    if data
+                        .content
+                        .chars()
+                        .any(|c| !collapses || !matches!(c, ' ' | '\t' | '\n' | '\r' | '\u{c}'))
+                    {
+                        open_line(builder, state);
+                    }
                     let text =
                         text_transformer.transform(&data.content, parent_text_transform, builder);
                     let preserves_breaks = node

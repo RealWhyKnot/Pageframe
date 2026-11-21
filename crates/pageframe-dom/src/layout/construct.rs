@@ -274,7 +274,7 @@ fn push_hoisted_child(
     }
     if let Some(wrap_ctx) = wrap {
         let child_node_kind = child.data.kind();
-        let display_outside = if child.is_or_contains_block() {
+        let display_outside = if breaks_inline_flow(doc, child_id) {
             DisplayOutside::Block
         } else {
             child_display.outside()
@@ -429,7 +429,7 @@ fn classify_flow_children(
                     classification.all_block = false;
 
                     // We need the "complex" tree fixing when an inline contains a block
-                    if child.is_or_contains_block() {
+                    if breaks_inline_flow(doc, child_id) {
                         classification.all_inline = false;
                     } else {
                         classification.has_inline_level = true;
@@ -438,6 +438,50 @@ fn classify_flow_children(
             }
         }
     }
+}
+
+fn breaks_inline_flow(doc: &BaseDocument, node_id: NodeId) -> bool {
+    let node = &doc.nodes[node_id];
+    node.is_or_contains_block()
+        && !(node
+            .display_style()
+            .is_some_and(|display| display.outside() == DisplayOutside::Inline)
+            && has_inline_content(doc, node_id))
+}
+
+fn has_inline_content(doc: &BaseDocument, node_id: NodeId) -> bool {
+    doc.nodes[node_id].children.iter().any(|&child_id| {
+        let child = &doc.nodes[child_id];
+        match &child.data {
+            NodeData::Text(_) => !child.is_collapsible_whitespace_node(),
+            NodeData::Element(_) | NodeData::AnonymousBlock(_) => {
+                let Some(style) = child.primary_styles() else {
+                    return false;
+                };
+                if !matches!(
+                    style.clone_position(),
+                    PositionProperty::Static
+                        | PositionProperty::Relative
+                        | PositionProperty::Sticky
+                ) || style.clone_float().is_floating()
+                {
+                    return false;
+                }
+                let display = child.display_style().unwrap_or(Display::inline());
+                match (display.outside(), display.inside()) {
+                    (DisplayOutside::None, DisplayInside::Contents) => {
+                        has_inline_content(doc, child_id)
+                    }
+                    (DisplayOutside::None, _) | (DisplayOutside::Block, _) => false,
+                    (DisplayOutside::Inline, DisplayInside::Flow) if !child.is_ruby_box() => {
+                        !breaks_inline_flow(doc, child_id)
+                    }
+                    _ => true,
+                }
+            }
+            _ => false,
+        }
+    })
 }
 
 pub(crate) fn collect_layout_children(
@@ -890,7 +934,7 @@ fn collect_complex_layout_children(
         let child_node_kind = doc.nodes[child_id].data.kind();
 
         // Get Display style. Default to inline because nodes without styles are probably text nodes
-        let contains_block = doc.nodes[child_id].is_or_contains_block();
+        let contains_block = breaks_inline_flow(doc, child_id);
         let child_display = &doc.nodes[child_id]
             .display_style()
             .unwrap_or(Display::inline());
@@ -1245,6 +1289,7 @@ pub(crate) fn find_inline_layout_embedded_boxes(
                     }
                     (DisplayOutside::None, DisplayInside::Contents) => {
                         node.remove_damage(CONSTRUCT_DESCENDENT | CONSTRUCT_FC | CONSTRUCT_BOX);
+                        *node.layout_children.get_mut() = None;
                         iter_children!(nodes[node_id], |child_id| {
                             find_inline_layout_embedded_boxes_recursive(
                                 nodes,
@@ -1263,6 +1308,8 @@ pub(crate) fn find_inline_layout_embedded_boxes(
                             node.remove_damage(CONSTRUCT_DESCENDENT | CONSTRUCT_FC | CONSTRUCT_BOX);
                         } else {
                             node.remove_damage(CONSTRUCT_DESCENDENT | CONSTRUCT_FC | CONSTRUCT_BOX);
+                            *node.layout_children.get_mut() = None;
+                            node.flags.reset_construction_flags();
                             iter_children_and_pseudos!(nodes[node_id], |child_id| {
                                 find_inline_layout_embedded_boxes_recursive(
                                     nodes,

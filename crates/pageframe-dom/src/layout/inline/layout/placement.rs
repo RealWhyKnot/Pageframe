@@ -115,7 +115,15 @@ impl LayoutPassState<'_> {
                             .bottom
                             .maybe_resolve(container_content_size.height, resolve_calc_value),
                     };
-                    let box_inputs = inline_box_inputs(style.size().width, margin, child_inputs);
+                    let is_block_level = !is_floated
+                        && !is_absolute
+                        && style.effective_display().outside() == DisplayOutside::Block;
+                    let auto_margins = [
+                        style.margin().left.is_auto(),
+                        style.margin().right.is_auto(),
+                    ];
+                    let box_inputs =
+                        inline_box_inputs(style.size().width, margin, child_inputs, is_block_level);
                     drop(style);
 
                     if is_absolute {
@@ -217,13 +225,23 @@ impl LayoutPassState<'_> {
                             taffy::Point::ZERO
                         };
 
+                        let free =
+                            (ibox.width / scale - margin.left - margin.right - size.width).max(0.0);
+                        let block_shift = match auto_margins {
+                            _ if !is_block_level => 0.0,
+                            [true, true] => free / 2.0,
+                            [true, false] => free,
+                            [false, false] if container_direction == Direction::Rtl => free,
+                            [_, _] => 0.0,
+                        };
+
                         let layout = node.unrounded_layout_mut();
                         layout.size = size;
                         layout.scrollable_overflow_rect = output.scrollable_overflow_rect;
                         layout.location.x = if is_sideways_lr {
                             inline_position(ibox.x / scale, margin.right + size.width)
                         } else {
-                            inline_position(ibox.x / scale, 0.0) + margin.left
+                            inline_position(ibox.x / scale, 0.0) + margin.left + block_shift
                         } + inset_offset.x
                             + span_x;
                         let margin_box_top = ibox.y / scale;

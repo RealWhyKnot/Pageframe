@@ -43,6 +43,15 @@ struct InlineAncestor {
     is_positioned: bool,
 }
 
+fn is_block_level(doc: &BaseDocument, box_id: u64) -> bool {
+    doc.get_node(NodeId::from_u64(box_id))
+        .and_then(|node| node.primary_styles())
+        .is_some_and(|styles| {
+            styles.get_box().display.outside()
+                == style::values::specified::box_::DisplayOutside::Block
+        })
+}
+
 fn inline_ancestors(
     doc: &BaseDocument,
     start: Option<NodeId>,
@@ -220,7 +229,8 @@ pub(crate) fn inline_fragments<'a>(
                     )
                 }
                 PositionedLayoutItem::InlineBox(inline_box)
-                    if inline_box.kind == parley::InlineBoxKind::InFlow =>
+                    if inline_box.kind == parley::InlineBoxKind::InFlow
+                        && !is_block_level(doc, inline_box.id) =>
                 {
                     let left = f64::from(inline_box.x);
                     (
