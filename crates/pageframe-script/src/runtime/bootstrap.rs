@@ -42,6 +42,8 @@ pub(super) const BOOTSTRAP_JS: &str = concat!(
     "\n",
     include_str!("bootstrap/mutation_observer.js"),
     "\n",
+    include_str!("bootstrap/ipc.js"),
+    "\n",
     include_str!("bootstrap/css.js"),
     "\n",
     include_str!("bootstrap/stylesheets.js"),
@@ -159,6 +161,7 @@ pub(super) fn register_globals(ctx: &DomCtx, context: &mut Context) {
     // Embedder message channel (see `ScriptDocument::take_messages`)
     register_global_fn(context, "__pageframe_send_message", 1, window::send_message);
     register_mutation_natives(context);
+    register_global_fn(context, "__pageframe_ipc_send", 3, crate::ipc::send);
 
     register_global_fn(context, "__pageframe_fetch_start", 4, net::fetch_start);
     register_global_fn(

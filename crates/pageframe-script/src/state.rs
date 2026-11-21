@@ -106,6 +106,7 @@ pub(crate) struct RuntimeState {
     pub random_keys: std::collections::hash_map::RandomState,
     pub random_counter: u64,
     pub mutations: crate::dom::mutations::MutationQueue,
+    pub ipc_outbound: Vec<crate::ipc::IpcMessage>,
 }
 
 /// Maximum number of errors stored in [`RuntimeState::uncaught_errors`] between

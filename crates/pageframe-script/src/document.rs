@@ -253,6 +253,30 @@ impl ScriptDocument {
         std::mem::take(&mut self.runtime.ctx.state.borrow_mut().outbound_messages)
     }
 
+    pub fn take_ipc(&mut self) -> Vec<crate::IpcMessage> {
+        std::mem::take(&mut self.runtime.ctx.state.borrow_mut().ipc_outbound)
+    }
+
+    pub fn settle_ipc(&mut self, id: u64, result: Result<&str, &str>) {
+        crate::ipc::settle(&mut self.runtime, id, result);
+        self.after_script();
+    }
+
+    pub fn emit_ipc(&mut self, channel: &str, payload_json: &str) {
+        crate::ipc::emit(&mut self.runtime, channel, payload_json);
+        self.after_script();
+    }
+
+    pub fn dispatch_window_event(&mut self, name: &str) {
+        crate::ipc::dispatch_window_event(&mut self.runtime, name);
+        self.after_script();
+    }
+
+    fn after_script(&mut self) {
+        self.request_redraw();
+        self.arm_timer_thread();
+    }
+
     /// Drain uncaught JavaScript errors (from script loading/evaluation, event
     /// listeners, timer callbacks and promise jobs).
     ///

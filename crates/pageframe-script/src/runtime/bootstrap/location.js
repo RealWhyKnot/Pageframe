@@ -95,6 +95,19 @@
             set(value) { location.href = value; },
         });
         globalThis.Location = Location;
+        Object.defineProperty(globalThis, "__pageframe_follow_fragment", {
+            value: (href) => {
+                const current = currentUrl();
+                let target;
+                try {
+                    target = new URL(String(href), current.href);
+                } catch (error) {
+                    return;
+                }
+                if (sameDocument(current, target) && String(href).includes("#")) navigate(target.href, false);
+            },
+            configurable: true,
+        });
 
         const traverse = (delta) => {
             const next = entryIndex + delta;

@@ -197,7 +197,34 @@ impl ScriptRuntime {
             self.run_jobs("event microtasks");
         }
 
+        if matches!(event.data, DomEventData::Click(_)) && !event_state.is_cancelled() {
+            if let Some(href) = self.fragment_link(chain) {
+                crate::ipc::call_hook(
+                    self,
+                    "__pageframe_follow_fragment",
+                    &[JsString::from(href).into()],
+                );
+            }
+        }
+
         any_called
+    }
+
+    fn fragment_link(&self, chain: &[NodeId]) -> Option<String> {
+        let doc = self.ctx.doc.borrow();
+        let href = chain.iter().find_map(|node_id| {
+            let element = doc.get_node(*node_id)?.element_data()?;
+            let local = &element.name.local;
+            if *local != pageframe_dom::local_name!("a")
+                && *local != pageframe_dom::local_name!("area")
+            {
+                return None;
+            }
+            element
+                .attr(pageframe_dom::local_name!("href"))
+                .map(str::to_string)
+        })?;
+        href.contains('#').then_some(href)
     }
 
     fn target_is_checkbox_or_radio(&self, node_id: NodeId) -> bool {

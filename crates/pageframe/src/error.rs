@@ -12,6 +12,8 @@ pub enum Error {
     FileUrl { path: PathBuf },
     #[error("invalid selector `{selector}`")]
     Selector { selector: String },
+    #[error("load {url}: {reason}")]
+    Load { url: String, reason: String },
     #[error("run the window event loop")]
     EventLoop(#[from] winit::error::EventLoopError),
 }

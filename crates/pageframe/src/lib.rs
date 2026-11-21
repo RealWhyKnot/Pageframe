@@ -2,6 +2,7 @@ mod app;
 mod canvas;
 mod error;
 mod event;
+pub mod host;
 mod net;
 mod page;
 mod ui;
