@@ -372,7 +372,7 @@ impl BaseDocument {
         if self.selected_option(select) == Some(option) {
             return;
         }
-        self.set_selected_option(select, option);
+        self.pick_option(select, option, true);
         self.shell_provider.request_redraw();
         let value = self.option_value(option);
         dispatch_event(DomEvent::new(
@@ -470,6 +470,10 @@ impl BaseDocument {
             None => self.selected_option(select),
         };
         let step = key_step(key);
+        let multiple = self.nodes[select].attr(local_name!("multiple")).is_some();
+        if open.is_none() && step.is_some() && multiple {
+            return true;
+        }
         let target = match (step, key) {
             (Some(step), _) => self.stepped_option(select, current, step),
             (None, Key::Character(typed)) if typed.as_str() != " " => {

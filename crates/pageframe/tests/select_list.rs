@@ -190,16 +190,26 @@ fn changing_size_switches_between_list_and_dropdown() {
 }
 
 #[test]
-fn a_multiple_list_turned_into_a_dropdown_keeps_one_pick() {
+fn a_multiple_list_turned_into_a_dropdown_keeps_every_pick() {
     let mut harness = page();
     click_row(&mut harness, "#many", 0);
     toggle_row(&mut harness, "#many", 3);
     harness.doc.ui().select("#many").set_attr("size", "1");
     harness.pump();
+    let picks = |harness: &Opened| {
+        harness
+            .base()
+            .query_selector_all("#many option:checked")
+            .expect("valid selector")
+            .len()
+    };
     assert_eq!(size(&harness, "#many").1, 19.0);
-    assert_eq!(value(&mut harness, "#many").as_deref(), Some("Four"));
+    assert_eq!(value(&mut harness, "#many").as_deref(), Some("Multi one"));
+    assert_eq!(picks(&harness), 2);
     harness.press(Key::Named(NamedKey::ArrowUp));
-    assert_eq!(value(&mut harness, "#many").as_deref(), Some("Multi two"));
+    harness.press(Key::Named(NamedKey::ArrowDown));
+    assert_eq!(value(&mut harness, "#many").as_deref(), Some("Multi one"));
+    assert_eq!(picks(&harness), 2);
 }
 
 #[test]

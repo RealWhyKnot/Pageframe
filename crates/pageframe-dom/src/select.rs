@@ -60,6 +60,23 @@ impl BaseDocument {
         (self.has_tag(parent, &local_name!("optgroup")) && self.is_select(outer)).then_some(outer)
     }
 
+    pub(crate) fn is_menulist_item(&self, node_id: NodeId) -> bool {
+        let select = if self.is_option(node_id) {
+            self.option_select(node_id)
+        } else {
+            let parent = self.get_node(node_id).and_then(|node| node.parent);
+            match parent {
+                Some(parent)
+                    if self.is_select(parent) && self.nodes[parent].after() == Some(node_id) =>
+                {
+                    Some(parent)
+                }
+                _ => return false,
+            }
+        };
+        !select.is_some_and(|select| self.select_is_list(select))
+    }
+
     fn option_is_selected(&self, option: NodeId) -> bool {
         self.nodes[option]
             .element_data()
@@ -114,12 +131,15 @@ impl BaseDocument {
     }
 
     pub(crate) fn set_selected_option(&mut self, select: NodeId, option: NodeId) {
+        let single = self.nodes[select].attr(local_name!("multiple")).is_none();
+        self.pick_option(select, option, single);
+    }
+
+    pub(crate) fn pick_option(&mut self, select: NodeId, option: NodeId, single: bool) {
         let options = self.select_options(select);
         if !options.contains(&option) {
             return;
         }
-        let single = !self.select_is_list(select)
-            || self.nodes[select].attr(local_name!("multiple")).is_none();
         for other in options {
             if other == option {
                 self.set_option_selected(other, true);
@@ -143,7 +163,7 @@ impl BaseDocument {
 
     pub(crate) fn reset_select(&mut self, select: NodeId) {
         let list = self.select_is_list(select);
-        if list && self.nodes[select].attr(local_name!("multiple")).is_some() {
+        if self.nodes[select].attr(local_name!("multiple")).is_some() {
             return;
         }
         let options = self.select_options(select);

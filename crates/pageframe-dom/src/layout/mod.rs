@@ -302,14 +302,7 @@ impl LayoutPassState<'_> {
         if self.is_rendered_legend(dom_node_id(node_id)) {
             output.baselines = taffy::Baselines::NONE;
         }
-        if inputs.known_dimensions.width.is_none()
-            && self.nodes[dom_node_id(node_id)]
-                .data
-                .is_element_with_tag_name(&local_name!("option"))
-            && !self
-                .option_select(dom_node_id(node_id))
-                .is_some_and(|select| self.select_is_list(select))
-        {
+        if inputs.known_dimensions.width.is_none() && self.is_menulist_item(dom_node_id(node_id)) {
             let scale = self.doc.viewport.scale();
             output.size.width = (output.size.width * scale).ceil() / scale;
         }

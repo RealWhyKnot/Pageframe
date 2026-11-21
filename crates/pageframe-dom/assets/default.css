@@ -221,13 +221,15 @@ optgroup {
 option {
     display: block;
     height: 0;
-    margin: 0 16px 0 4px;
+    margin-block: 0;
+    margin-inline: 4px 16px;
     overflow: hidden;
     visibility: hidden;
 }
 
-optgroup > option {
-    margin-right: 30px;
+optgroup > option::after {
+    content: "    ";
+    white-space: pre;
 }
 
 option:checked {
@@ -246,6 +248,41 @@ select:empty::before {
     width: 0;
     overflow: hidden;
     white-space: pre;
+}
+
+select[multiple][size="1"] {
+    counter-reset: pageframe-selected;
+}
+
+select[multiple][size="1"] option:checked {
+    counter-increment: pageframe-selected;
+}
+
+select[multiple][size="1"]::after {
+    content: counter(pageframe-selected) " selected";
+    display: block;
+    order: -1;
+    height: 0;
+    margin-block: 0;
+    margin-inline: 4px 16px;
+    overflow: hidden;
+    visibility: hidden;
+}
+
+select[multiple][size="1"]:not(:has(option:checked))::after,
+select[multiple][size="1"]:has(option:checked ~ option:checked, option:checked ~ optgroup option:checked)::after,
+select[multiple][size="1"]:has(> optgroup option:checked):has(> optgroup ~ option:checked)::after {
+    height: auto;
+    order: -2;
+    visibility: visible;
+}
+
+select[multiple][size="1"]:has(option:checked ~ option:checked, option:checked ~ optgroup option:checked) option:checked,
+select[multiple][size="1"]:has(> optgroup option:checked):has(> optgroup ~ option:checked) option:checked,
+select[multiple][size="1"] optgroup:has(option:checked) ~ * option:checked,
+select[multiple][size="1"] option:checked ~ option:checked {
+    height: 0;
+    visibility: hidden;
 }
 
 select:is([multiple]:not([size="1"]), [size]:not([size="0"], [size="1"])) {
@@ -285,6 +322,10 @@ select:is([multiple]:not([size="1"]), [size]:not([size="0"], [size="1"])) optgro
 select:is([multiple]:not([size="1"]), [size]:not([size="0"], [size="1"])) optgroup > option {
     padding-left: 20px;
     font-weight: normal;
+}
+
+select:is([multiple]:not([size="1"]), [size]:not([size="0"], [size="1"])) optgroup > option::after {
+    content: none;
 }
 
 select:is([multiple]:not([size="1"]), [size]:not([size="0"], [size="1"])) option:checked {

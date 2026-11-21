@@ -232,7 +232,9 @@ fn push_edge_spacer(
 
 fn shows_dropdown_value(nodes: &crate::NodeTree, root: NodeId) -> bool {
     let host = match nodes[root].parent {
-        Some(parent) if nodes[parent].before() == Some(root) => parent,
+        Some(parent) if [nodes[parent].before(), nodes[parent].after()].contains(&Some(root)) => {
+            parent
+        }
         _ => root,
     };
     let select = if nodes[host]
