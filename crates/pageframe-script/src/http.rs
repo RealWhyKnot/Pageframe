@@ -1,6 +1,6 @@
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
-use std::sync::{Arc, Mutex};
+use std::net::{Shutdown, TcpStream, ToSocketAddrs};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use url::Url;
@@ -15,9 +15,45 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const READ_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy)]
-enum BodyWait {
+enum BodyWait<'a> {
     Timed,
     Unbounded,
+    Tracked(&'a TrackedSocket),
+}
+
+#[derive(Default)]
+pub(crate) struct TrackedSocket(Mutex<SocketSlot>);
+
+#[derive(Default)]
+struct SocketSlot {
+    closed: bool,
+    stream: Option<TcpStream>,
+}
+
+impl TrackedSocket {
+    fn track(&self, stream: &TcpStream) -> Result<(), FetchError> {
+        let mut slot = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if slot.closed {
+            return Err(FetchError::Io(std::io::ErrorKind::ConnectionAborted.into()));
+        }
+        slot.stream = stream.try_clone().ok();
+        Ok(())
+    }
+
+    pub(crate) fn close(&self) {
+        let stream = {
+            let mut slot = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+            slot.closed = true;
+            slot.stream.take()
+        };
+        if let Some(stream) = stream {
+            let _ = stream.shutdown(Shutdown::Both);
+        }
+    }
+
+    pub(crate) fn is_closed(&self) -> bool {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).closed
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -124,10 +160,18 @@ impl HttpClient {
         self.follow(request, BodyWait::Unbounded)
     }
 
+    pub(crate) fn open_tracked(
+        &self,
+        request: &HttpRequest,
+        socket: &TrackedSocket,
+    ) -> Result<(HttpResponse, Box<dyn Read + Send>), FetchError> {
+        self.follow(request, BodyWait::Tracked(socket))
+    }
+
     fn follow(
         &self,
         request: &HttpRequest,
-        wait: BodyWait,
+        wait: BodyWait<'_>,
     ) -> Result<(HttpResponse, Box<dyn Read + Send>), FetchError> {
         let mut current = request.clone();
         let mut redirected = false;
@@ -179,7 +223,7 @@ impl HttpClient {
     fn send_once(
         &self,
         request: &HttpRequest,
-        wait: BodyWait,
+        wait: BodyWait<'_>,
     ) -> Result<(HttpResponse, Box<dyn Read + Send>), FetchError> {
         let url = &request.url;
         if url.scheme() != "http" {
@@ -196,6 +240,9 @@ impl HttpClient {
             .ok_or_else(|| FetchError::InvalidData(format!("{url} has no host")))?;
         let port = url.port_or_known_default().unwrap_or(80);
         let mut stream = connect(host, port)?;
+        if let BodyWait::Tracked(socket) = &wait {
+            socket.track(&stream)?;
+        }
         stream
             .set_read_timeout(Some(self.read_timeout))
             .and_then(|()| stream.set_write_timeout(Some(self.read_timeout)))
@@ -208,7 +255,7 @@ impl HttpClient {
             .map_err(FetchError::Io)?;
         let mut reader = BufReader::new(stream);
         let (status, status_text, headers) = read_head(&mut reader)?;
-        if matches!(wait, BodyWait::Unbounded) {
+        if matches!(wait, BodyWait::Unbounded | BodyWait::Tracked(_)) {
             reader
                 .get_ref()
                 .set_read_timeout(None)

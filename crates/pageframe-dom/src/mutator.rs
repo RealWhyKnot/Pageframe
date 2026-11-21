@@ -447,6 +447,8 @@ impl DocumentMutator<'_> {
                 && element.checkbox_input_checked().is_some()
             {
                 set_input_checked_state(element, value.to_string());
+            } else if (tag, attr) == tag_and_attr!("img", "src") {
+                self.load_image(node_id);
             }
             return;
         }

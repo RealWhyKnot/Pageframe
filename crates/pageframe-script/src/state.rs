@@ -99,6 +99,11 @@ pub(crate) struct RuntimeState {
     /// Fetcher backing `fetch()` (shared with `<script src>` and module loading)
     pub fetcher: Option<Rc<RefCell<Box<dyn ScriptFetcher>>>>,
     pub net: crate::net::NetQueue,
+    pub time_origin: Option<web_time::Instant>,
+    pub watched_images: Vec<NodeId>,
+    pub media_snapshot: Option<(u32, u32, u32, bool)>,
+    pub random_keys: std::collections::hash_map::RandomState,
+    pub random_counter: u64,
 }
 
 /// Maximum number of errors stored in [`RuntimeState::uncaught_errors`] between
@@ -119,6 +124,33 @@ impl RuntimeState {
                 .push("(further errors suppressed)".to_string()),
             Ordering::Greater => {}
         }
+    }
+
+    pub fn high_res_now(&self) -> f64 {
+        let now = self.clock.now();
+        let elapsed = self
+            .time_origin
+            .map(|origin| now.saturating_duration_since(origin))
+            .unwrap_or_default();
+        (elapsed.as_secs_f64() * 10_000.0).floor() / 10.0
+    }
+
+    pub fn watch_image(&mut self, node_id: NodeId) {
+        if !self.watched_images.contains(&node_id) {
+            self.watched_images.push(node_id);
+        }
+    }
+
+    pub fn random_bytes(&mut self, count: usize) -> Vec<u8> {
+        use std::hash::BuildHasher;
+        let mut bytes = Vec::with_capacity(count + 8);
+        while bytes.len() < count {
+            self.random_counter = self.random_counter.wrapping_add(1);
+            let word = self.random_keys.hash_one(self.random_counter);
+            bytes.extend_from_slice(&word.to_le_bytes());
+        }
+        bytes.truncate(count);
+        bytes
     }
 
     pub fn protos(&self) -> &DomProtos {

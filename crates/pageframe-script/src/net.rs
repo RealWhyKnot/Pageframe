@@ -1,13 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::task::Waker;
 
 use pageframe_traits::shell::ShellProvider;
 
-use crate::http::{HttpClient, HttpRequest, HttpResponse};
+use crate::http::{HttpClient, HttpRequest, HttpResponse, TrackedSocket};
 
 pub(crate) enum NetEvent {
     Response {
@@ -62,7 +61,7 @@ pub(crate) struct NetQueue {
     pub(crate) waker: Arc<Mutex<Option<Waker>>>,
     next_id: u64,
     in_flight: HashSet<u64>,
-    streams: HashMap<u64, Arc<AtomicBool>>,
+    streams: HashMap<u64, Arc<TrackedSocket>>,
 }
 
 impl Default for NetQueue {
@@ -75,6 +74,14 @@ impl Default for NetQueue {
             next_id: 0,
             in_flight: HashSet::new(),
             streams: HashMap::new(),
+        }
+    }
+}
+
+impl Drop for NetQueue {
+    fn drop(&mut self) {
+        for (_, stream) in self.streams.drain() {
+            stream.close();
         }
     }
 }
@@ -145,12 +152,12 @@ impl NetQueue {
         shell: Option<Arc<dyn ShellProvider>>,
     ) -> u64 {
         let id = self.allocate();
-        let closed = Arc::new(AtomicBool::new(false));
-        self.streams.insert(id, Arc::clone(&closed));
+        let handle = Arc::new(TrackedSocket::default());
+        self.streams.insert(id, Arc::clone(&handle));
         let notifier = self.notifier(shell);
         let spawned = std::thread::Builder::new()
             .name("pageframe-script-event-source".to_string())
-            .spawn(move || run_stream(id, &client, &request, &closed, &notifier));
+            .spawn(move || run_stream(id, &client, &request, &handle, &notifier));
         if let Err(error) = spawned {
             let _ = self.sender.send(NetEvent::StreamEnd {
                 id,
@@ -162,8 +169,8 @@ impl NetQueue {
     }
 
     pub(crate) fn close_stream(&mut self, id: u64) {
-        if let Some(closed) = self.streams.remove(&id) {
-            closed.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.streams.remove(&id) {
+            handle.close();
         }
     }
 }
@@ -172,7 +179,7 @@ fn run_stream(
     id: u64,
     client: &HttpClient,
     request: &HttpRequest,
-    closed: &AtomicBool,
+    handle: &TrackedSocket,
     notifier: &Notifier,
 ) {
     let end = |error: String, reconnect: bool| {
@@ -182,7 +189,11 @@ fn run_stream(
             reconnect,
         });
     };
-    let (response, body) = match client.open(request) {
+    let opened = client.open_tracked(request, handle);
+    if handle.is_closed() {
+        return;
+    }
+    let (response, body) = match opened {
         Ok(opened) => opened,
         Err(error) => return end(error.to_string(), true),
     };
@@ -205,16 +216,17 @@ fn run_stream(
     let mut parser = StreamParser::default();
     let mut line = String::new();
     loop {
-        if closed.load(Ordering::Relaxed) {
+        if handle.is_closed() {
             return;
         }
         line.clear();
         match reader.read_line(&mut line) {
+            Ok(0) | Err(_) if handle.is_closed() => return,
             Ok(0) => return end("event stream closed".to_string(), true),
             Ok(_) => {}
             Err(error) => return end(error.to_string(), true),
         }
-        if closed.load(Ordering::Relaxed) {
+        if handle.is_closed() {
             return;
         }
         if let Some(event) = parser.feed(id, line.trim_end_matches(['\r', '\n']))

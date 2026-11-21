@@ -6,6 +6,7 @@ use pageframe_dom::NodeId;
 use pageframe_traits::events::{DomEvent, DomEventData, EventState};
 
 use super::ScriptRuntime;
+use crate::dom::dispatch::{dispatch_on_window, dispatch_to_chain};
 use crate::dom::event::{EventRef, create_event, create_event_for_dom_event};
 use crate::dom::{dom_ctx, js_str, node_wrapper};
 use crate::state::{DomCtx, Listener};
@@ -16,7 +17,7 @@ use crate::state::{DomCtx, Listener};
 /// then fire an `error` event at the window (the HTML "report an exception"
 /// steps) so that `window.onerror` / `addEventListener("error")` handlers
 /// observe it.
-pub(super) fn report_js_error(ctx: &DomCtx, context: &mut Context, what: &str, error: &JsError) {
+pub(crate) fn report_js_error(ctx: &DomCtx, context: &mut Context, what: &str, error: &JsError) {
     #[cfg(feature = "tracing")]
     tracing::error!("Uncaught JS error in {what}: {error}");
     let already_dispatching = {
@@ -241,7 +242,12 @@ impl ScriptRuntime {
                 .any(|node_id| state.node_wrappers.contains_key(node_id));
             registry_hit || wrapper_hit
         };
-        if !may_have_listeners {
+        let window_handler = !may_have_listeners
+            && context
+                .global_object()
+                .get(on_name, context)
+                .is_ok_and(|handler| handler.is_callable());
+        if !may_have_listeners && !window_handler {
             return false;
         }
 
@@ -263,98 +269,15 @@ impl ScriptRuntime {
                 .unwrap_or(false)
         };
 
-        let mut any_called = false;
-
-        'chain: for &node_id in chain {
-            // Gather listeners for this node: `addEventListener` listeners plus
-            // an `on<event>` property handler (if any)
-            let mut callbacks: Vec<JsObject> = Vec::new();
-            {
-                let mut state = ctx.state.borrow_mut();
-                if let Some(listeners) = state
-                    .node_listeners
-                    .get_mut(&node_id)
-                    .and_then(|map| map.get_mut(name))
-                {
-                    callbacks.extend(listeners.iter().map(|l| l.callback.clone()));
-                    // `once` listeners are removed at dispatch time
-                    listeners.retain(|l| !l.once);
-                }
-            }
-            let wrapper = ctx.state.borrow().node_wrappers.get(&node_id).cloned();
-            if let Some(wrapper) = wrapper {
-                if let Ok(handler) = wrapper.get(on_name.clone(), context) {
-                    if let Some(handler) = handler.as_object() {
-                        if handler.is_callable() {
-                            callbacks.push(handler);
-                        }
-                    }
-                }
-            }
-
-            if callbacks.is_empty() {
-                if !bubbles {
-                    break;
-                }
-                continue;
-            }
-
-            let current_target: JsValue = node_wrapper(&ctx, node_id, context).into();
-            crate::dom::define_value(&event_obj, "currentTarget", current_target.clone(), context);
-
-            for callback in callbacks {
-                any_called = true;
-                if let Err(error) =
-                    callback.call(&current_target, &[event_obj.clone().into()], context)
-                {
-                    report_js_error(&ctx, context, "event listener", &error);
-                }
-                if event_ref(&event_obj, &|event| event.stopped_immediate.get()) {
-                    break 'chain;
-                }
-            }
-
-            if !bubbles || event_ref(&event_obj, &|event| event.stopped.get()) {
-                break;
-            }
+        let mut any_called = dispatch_to_chain(&ctx, context, chain, name, bubbles, &event_obj);
+        if bubbles && !event_ref(&event_obj, &|event| event.stopped.get()) {
+            any_called |= dispatch_on_window(&ctx, context, name, &event_obj);
         }
 
         let restore_event = |context: &mut Context| {
             let window = context.global_object();
             crate::dom::define_value(&window, "event", previous_event.clone(), context);
         };
-
-        // Window-level listeners
-        if bubbles && !event_ref(&event_obj, &|event| event.stopped.get()) {
-            let listeners: Vec<Listener> = {
-                let mut state = ctx.state.borrow_mut();
-                match state.window_listeners.get_mut(name) {
-                    Some(listeners) => {
-                        let cloned = listeners.clone();
-                        listeners.retain(|l| !l.once);
-                        cloned
-                    }
-                    None => Vec::new(),
-                }
-            };
-            if !listeners.is_empty() {
-                let global: JsValue = context.global_object().into();
-                crate::dom::define_value(&event_obj, "currentTarget", global.clone(), context);
-                for listener in listeners {
-                    any_called = true;
-                    if let Err(error) =
-                        listener
-                            .callback
-                            .call(&global, &[event_obj.clone().into()], context)
-                    {
-                        report_js_error(&ctx, context, "event listener", &error);
-                    }
-                    if event_ref(&event_obj, &|event| event.stopped_immediate.get()) {
-                        break;
-                    }
-                }
-            }
-        }
 
         crate::dom::define_value(&event_obj, "currentTarget", JsValue::null(), context);
         restore_event(context);
@@ -394,48 +317,9 @@ impl ScriptRuntime {
     pub fn dispatch_window_event(&mut self, name: &str) -> bool {
         let ctx = self.ctx.clone();
         let context = &mut self.context;
-
-        let listeners: Vec<Listener> = {
-            let mut state = ctx.state.borrow_mut();
-            match state.window_listeners.get_mut(name) {
-                Some(listeners) => {
-                    let cloned = listeners.clone();
-                    listeners.retain(|l| !l.once);
-                    cloned
-                }
-                None => Vec::new(),
-            }
-        };
-
         let global: JsValue = context.global_object().into();
         let event_obj = create_event(&ctx, name, false, false, &global, context);
-        crate::dom::define_value(&event_obj, "currentTarget", global.clone(), context);
-
-        let mut any_called = false;
-        for listener in listeners {
-            any_called = true;
-            if let Err(error) =
-                listener
-                    .callback
-                    .call(&global, &[event_obj.clone().into()], context)
-            {
-                report_js_error(&ctx, context, "event listener", &error);
-            }
-        }
-
-        // `window.onload = ...` style handler
-        let on_name = JsString::from(format!("on{name}"));
-        if let Ok(handler) = context.global_object().get(on_name, context) {
-            if let Some(handler) = handler.as_object() {
-                if handler.is_callable() {
-                    any_called = true;
-                    if let Err(error) = handler.call(&global, &[event_obj.into()], context) {
-                        report_js_error(&ctx, context, "event listener", &error);
-                    }
-                }
-            }
-        }
-
+        let any_called = dispatch_on_window(&ctx, context, name, &event_obj);
         if any_called {
             self.run_jobs("event microtasks");
         }
@@ -459,6 +343,10 @@ pub(super) fn window_add_event_listener(
         return Ok(JsValue::undefined());
     };
 
+    let once = match args.get(2).and_then(JsValue::as_object) {
+        Some(options) => options.get(js_string!("once"), context)?.to_boolean(),
+        None => false,
+    };
     let mut state = ctx.state.borrow_mut();
     let listeners = state.window_listeners.entry(event_type).or_default();
     if !listeners
@@ -468,7 +356,7 @@ pub(super) fn window_add_event_listener(
         listeners.push(Listener {
             callback,
             capture: false,
-            once: false,
+            once,
         });
     }
     Ok(JsValue::undefined())

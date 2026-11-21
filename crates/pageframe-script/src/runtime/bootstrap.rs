@@ -3,9 +3,8 @@
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
 use boa_engine::{Context, JsResult, JsString, JsValue, NativeFunction, js_string};
-use url::Url;
 
-use super::{css, events, net, timers, window};
+use super::{css, events, media, net, timers, window};
 use crate::dom::node_wrapper;
 use crate::state::DomCtx;
 
@@ -19,6 +18,12 @@ pub(super) const BOOTSTRAP_JS: &str = concat!(
     "\n",
     include_str!("bootstrap/window.js"),
     "\n",
+    include_str!("bootstrap/location.js"),
+    "\n",
+    include_str!("bootstrap/events.js"),
+    "\n",
+    include_str!("bootstrap/web_apis.js"),
+    "\n",
     include_str!("bootstrap/fetch.js"),
     "\n",
     include_str!("bootstrap/event_source.js"),
@@ -30,6 +35,8 @@ pub(super) const BOOTSTRAP_JS: &str = concat!(
     include_str!("bootstrap/interfaces.js"),
     "\n",
     include_str!("bootstrap/element_interfaces.js"),
+    "\n",
+    include_str!("bootstrap/elements.js"),
     "\n",
     include_str!("bootstrap/observers.js"),
     "\n",
@@ -43,7 +50,7 @@ pub(super) const BOOTSTRAP_JS: &str = concat!(
     "})();\n",
 );
 
-pub(super) fn register_globals(ctx: &DomCtx, base_url: Option<&Url>, context: &mut Context) {
+pub(super) fn register_globals(ctx: &DomCtx, context: &mut Context) {
     register_global_fn(
         context,
         "__pageframe_parse_search_params",
@@ -64,10 +71,6 @@ pub(super) fn register_globals(ctx: &DomCtx, base_url: Option<&Url>, context: &m
     register_global(context, "parent", global.clone());
     register_global(context, "top", global);
     register_global(context, "opener", JsValue::null());
-
-    // `location`
-    let location = window::build_location(base_url, context);
-    register_global(context, "location", location);
 
     // `navigator`
     let navigator = ObjectInitializer::new(context)
@@ -103,6 +106,41 @@ pub(super) fn register_globals(ctx: &DomCtx, base_url: Option<&Url>, context: &m
         2,
         events::window_remove_event_listener,
     );
+
+    register_global_fn(
+        context,
+        "dispatchEvent",
+        1,
+        crate::dom::dispatch::window_dispatch_event,
+    );
+    register_global_fn(
+        context,
+        "__pageframe_new_event",
+        4,
+        crate::dom::event::new_event,
+    );
+    register_global_fn(
+        context,
+        "__pageframe_event_flags",
+        1,
+        crate::dom::event::event_flags,
+    );
+    register_global_fn(
+        context,
+        "__pageframe_performance_now",
+        0,
+        media::performance_now,
+    );
+    register_global_fn(context, "__pageframe_document_url", 0, media::document_url);
+    register_global_fn(
+        context,
+        "__pageframe_set_document_url",
+        1,
+        media::set_document_url,
+    );
+    register_global_fn(context, "__pageframe_navigate", 1, media::navigate);
+    register_global_fn(context, "__pageframe_media_env", 0, media::media_env);
+    register_global_fn(context, "__pageframe_random_bytes", 1, media::random_bytes);
 
     // Embedder message channel (see `ScriptDocument::take_messages`)
     register_global_fn(context, "__pageframe_send_message", 1, window::send_message);

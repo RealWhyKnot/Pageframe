@@ -112,11 +112,23 @@
             [Symbol.iterator]() { return this.entries(); }
         }
 
+        const toBytes = (body) => {
+            if (body === undefined || body === null) return new Uint8Array(0);
+            if (typeof body === "string") return new TextEncoder().encode(body);
+            if (body instanceof URLSearchParams) return new TextEncoder().encode(body.toString());
+            if (body instanceof ArrayBuffer) return new Uint8Array(body.slice(0));
+            if (ArrayBuffer.isView(body)) {
+                return new Uint8Array(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength));
+            }
+            if (typeof Blob === "function" && body instanceof Blob) return globalThis.__pageframe_blob_bytes(body).slice();
+            return new TextEncoder().encode(String(body));
+        };
+
         class Response {
             #body;
             #bodyUsed = false;
             constructor(body = null, init = {}) {
-                this.#body = body === null || body === undefined ? "" : String(body);
+                this.#body = toBytes(body);
                 const status = init.status === undefined ? 200 : Number(init.status);
                 if (!Number.isInteger(status) || status < 200 || status > 599) {
                     throw new RangeError("The status provided (" + status + ") is outside the range [200, 599].");
@@ -139,9 +151,14 @@
                 this.#bodyUsed = true;
                 return Promise.resolve(this.#body);
             }
-            text() { return this.#consume(); }
-            json() { return this.#consume().then((text) => JSON.parse(text)); }
-            arrayBuffer() { return this.#consume().then((text) => new TextEncoder().encode(text).buffer); }
+            text() { return this.#consume().then((bytes) => new TextDecoder().decode(bytes)); }
+            json() { return this.text().then((text) => JSON.parse(text)); }
+            arrayBuffer() { return this.#consume().then((bytes) => bytes.slice().buffer); }
+            bytes() { return this.#consume().then((bytes) => bytes.slice()); }
+            blob() {
+                const type = this.headers.get("content-type") ?? "";
+                return this.#consume().then((bytes) => new Blob([bytes], { type }));
+            }
             clone() {
                 if (this.#bodyUsed) throw new TypeError("Response body is already used");
                 return new Response(this.#body, {
@@ -156,19 +173,15 @@
             }
         }
 
-        const bodyText = (body) => {
+        const requestBody = (body) => {
             if (body === undefined || body === null) return "";
             if (typeof body === "string") return body;
             if (body instanceof URLSearchParams) return body.toString();
-            if (body instanceof ArrayBuffer) return new TextDecoder().decode(new Uint8Array(body));
-            if (ArrayBuffer.isView(body)) {
-                return new TextDecoder().decode(new Uint8Array(body.buffer, body.byteOffset, body.byteLength));
-            }
-            return String(body);
+            return toBytes(body).buffer;
         };
 
         const toResponse = (method, [status, statusText, url, redirected, headers, text]) => {
-            const response = new Response(method === "HEAD" ? "" : text, {
+            const response = new Response(method === "HEAD" ? null : text, {
                 status: status >= 200 && status <= 599 ? status : 200,
                 statusText,
                 headers,
@@ -201,6 +214,8 @@
                     headers.set("content-type", "application/x-www-form-urlencoded;charset=UTF-8");
                 } else if (typeof body === "string" && !headers.has("content-type")) {
                     headers.set("content-type", "text/plain;charset=UTF-8");
+                } else if (typeof Blob === "function" && body instanceof Blob && body.type && !headers.has("content-type")) {
+                    headers.set("content-type", body.type);
                 }
                 if ((method === "GET" || method === "HEAD") && body !== undefined && body !== null) {
                     reject(new TypeError("Request with GET/HEAD method cannot have body."));
@@ -208,7 +223,7 @@
                 }
                 let started;
                 try {
-                    started = __pageframe_fetch_start(method, url, [...headers], bodyText(body));
+                    started = __pageframe_fetch_start(method, url, [...headers], requestBody(body));
                 } catch (e) {
                     reject(e);
                     return;

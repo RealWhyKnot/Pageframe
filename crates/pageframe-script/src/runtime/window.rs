@@ -1,10 +1,7 @@
 //! Window location, named elements, viewport, scrolling, and embedder messages.
 
-use boa_engine::object::ObjectInitializer;
-use boa_engine::property::Attribute;
-use boa_engine::{Context, JsResult, JsString, JsValue, js_string};
+use boa_engine::{Context, JsResult, JsString, JsValue};
 use pageframe_dom::NodeId;
-use url::Url;
 
 use super::ScriptRuntime;
 use crate::dom::{dom_ctx, node_wrapper};
@@ -60,64 +57,6 @@ impl ScriptRuntime {
             );
         }
     }
-}
-
-pub(super) fn build_location(base_url: Option<&Url>, context: &mut Context) -> JsValue {
-    let (href, protocol, host, pathname, search, hash, origin) = match base_url {
-        Some(url) => (
-            url.to_string(),
-            format!("{}:", url.scheme()),
-            url.host_str().unwrap_or_default().to_string(),
-            url.path().to_string(),
-            url.query().map(|q| format!("?{q}")).unwrap_or_default(),
-            url.fragment().map(|f| format!("#{f}")).unwrap_or_default(),
-            url.origin().ascii_serialization(),
-        ),
-        None => (
-            "about:blank".to_string(),
-            "about:".to_string(),
-            String::new(),
-            "blank".to_string(),
-            String::new(),
-            String::new(),
-            "null".to_string(),
-        ),
-    };
-    ObjectInitializer::new(context)
-        .property(js_string!("href"), JsString::from(href), Attribute::all())
-        .property(
-            js_string!("protocol"),
-            JsString::from(protocol),
-            Attribute::all(),
-        )
-        .property(
-            js_string!("host"),
-            JsString::from(host.clone()),
-            Attribute::all(),
-        )
-        .property(
-            js_string!("hostname"),
-            JsString::from(host),
-            Attribute::all(),
-        )
-        .property(
-            js_string!("pathname"),
-            JsString::from(pathname),
-            Attribute::all(),
-        )
-        .property(
-            js_string!("search"),
-            JsString::from(search),
-            Attribute::all(),
-        )
-        .property(js_string!("hash"), JsString::from(hash), Attribute::all())
-        .property(
-            js_string!("origin"),
-            JsString::from(origin),
-            Attribute::all(),
-        )
-        .build()
-        .into()
 }
 
 // === Viewport dimensions ===

@@ -6,10 +6,12 @@
 //! node id. Native functions look the document up via the [`DomCtx`] stored as
 //! host-defined data on the Boa [`Context`].
 
+pub(crate) mod dispatch;
 pub(crate) mod document;
 pub(crate) mod element;
 pub(crate) mod event;
 pub(crate) mod hyperlink;
+pub(crate) mod image;
 pub(crate) mod node;
 pub(crate) mod selection;
 pub(crate) mod style;
@@ -328,6 +330,13 @@ pub(crate) const ON_EVENT_TYPES: &[&str] = &[
     "scroll",
     "wheel",
     "load",
+    "error",
+    "abort",
+    "close",
+    "cancel",
+    "toggle",
+    "gotpointercapture",
+    "lostpointercapture",
 ];
 
 /// Initialise the DOM prototype objects and store them in the runtime state
@@ -351,6 +360,14 @@ pub(crate) fn init_protos(ctx: &DomCtx, context: &mut Context) {
     element_proto.set_prototype(Some(node_proto.clone()));
     element::init_element_proto(&element_proto, context);
     hyperlink::init_hyperlink_accessors(&element_proto, context);
+    image::init_image_accessors(&element_proto, context);
+    define_method(
+        &node_proto,
+        "dispatchEvent",
+        1,
+        dispatch::node_dispatch_event,
+        context,
+    );
 
     let character_data_proto = JsObject::with_object_proto(context.intrinsics());
     character_data_proto.set_prototype(Some(node_proto.clone()));

@@ -1,4 +1,4 @@
-use boa_engine::object::builtins::JsArray;
+use boa_engine::object::builtins::{JsArray, JsArrayBuffer};
 use boa_engine::{Context, JsNativeError, JsResult, JsString, JsValue};
 use url::Url;
 
@@ -60,6 +60,25 @@ fn resolve(input: &str, context: &mut Context) -> JsResult<(Url, Option<Url>)> {
     Ok((url, base_url))
 }
 
+fn bytes_value(bytes: &[u8], context: &mut Context) -> JsValue {
+    let Ok(buffer) = JsArrayBuffer::new(bytes.len(), context) else {
+        return JsValue::null();
+    };
+    if let Some(mut data) = buffer.data_mut() {
+        data.copy_from_slice(bytes);
+    }
+    buffer.into()
+}
+
+fn body_arg(args: &[JsValue], index: usize, context: &mut Context) -> JsResult<Vec<u8>> {
+    if let Some(object) = args.get(index).and_then(JsValue::as_object) {
+        if let Ok(buffer) = JsArrayBuffer::from_object(object.clone()) {
+            return Ok(buffer.to_vec().unwrap_or_default());
+        }
+    }
+    Ok(string_arg(args, index, context)?.into_bytes())
+}
+
 fn response_value(response: &HttpResponse, context: &mut Context) -> JsValue {
     let headers: Vec<JsValue> = response
         .headers
@@ -83,7 +102,7 @@ fn response_value(response: &HttpResponse, context: &mut Context) -> JsValue {
             JsString::from(response.url.as_str()).into(),
             JsValue::from(response.redirected),
             headers.into(),
-            JsString::from(String::from_utf8_lossy(&response.body).as_ref()).into(),
+            bytes_value(&response.body, context),
         ],
         context,
     )
@@ -107,7 +126,7 @@ pub(super) fn fetch_start(
     }
     let input = string_arg(args, 1, context)?;
     let headers = header_pairs(args.get(2), context)?;
-    let body = string_arg(args, 3, context)?.into_bytes();
+    let body = body_arg(args, 3, context)?;
     let (url, _) = resolve(&input, context)?;
     let ctx = dom_ctx(context)?;
     let fetcher = ctx

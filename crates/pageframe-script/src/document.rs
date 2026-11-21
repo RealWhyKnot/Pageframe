@@ -446,6 +446,8 @@ impl Document for ScriptDocument {
         }
 
         ran |= self.runtime.deliver_network();
+        ran |= self.runtime.deliver_image_events();
+        ran |= self.runtime.deliver_media_changes();
         ran |= self.runtime.run_due_timers();
         self.arm_timer_thread();
         ran

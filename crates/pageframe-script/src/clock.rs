@@ -39,6 +39,10 @@ impl ScriptClock {
         }
     }
 
+    pub fn is_virtual(&self) -> bool {
+        matches!(*self.inner.borrow(), ClockMode::Virtual { .. })
+    }
+
     /// Switch to virtual mode. Time stops at the current instant and only
     /// advances via [`advance_to`](Self::advance_to).
     pub fn make_virtual(&self) {

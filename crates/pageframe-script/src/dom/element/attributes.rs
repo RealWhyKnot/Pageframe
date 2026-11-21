@@ -28,11 +28,20 @@ pub(crate) fn read_attr(ctx: &DomCtx, node_id: NodeId, name: &str) -> Option<Str
 pub(crate) fn write_attr(ctx: &DomCtx, node_id: NodeId, name: &str, value: &str) {
     let mut doc = ctx.doc.borrow_mut();
     doc.mutate().set_attribute(node_id, attr_name(name), value);
+    if name == "src" && crate::dom::image::is_image(&doc, node_id) {
+        ctx.state.borrow_mut().watch_image(node_id);
+    }
 }
 
 pub(super) fn clear_attr(ctx: &DomCtx, node_id: NodeId, name: &str) {
     let mut doc = ctx.doc.borrow_mut();
     doc.mutate().clear_attribute(node_id, attr_name(name));
+    if name == "src" {
+        ctx.state
+            .borrow_mut()
+            .watched_images
+            .retain(|watched| *watched != node_id);
+    }
 }
 
 pub(super) fn attr_getter(name: &str, this: &JsValue, context: &mut Context) -> JsResult<JsValue> {

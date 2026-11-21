@@ -20,7 +20,8 @@ use modules::PageframeModuleLoader;
 
 mod bootstrap;
 mod css;
-mod events;
+pub(crate) mod events;
+mod media;
 mod modules;
 mod net;
 mod timers;
@@ -74,6 +75,7 @@ impl ScriptRuntime {
             let mut state = ctx.state.borrow_mut();
             state.base_url = base_url.cloned();
             state.fetcher = Some(fetcher);
+            state.time_origin = Some(state.clock.now());
         }
         // Share the runtime's clock with boa so that `Date` observes the same
         // (possibly virtual) time as timers
@@ -112,7 +114,7 @@ impl ScriptRuntime {
 
         crate::dom::init_protos(&ctx, &mut context);
 
-        bootstrap::register_globals(&ctx, base_url, &mut context);
+        bootstrap::register_globals(&ctx, &mut context);
 
         let mut runtime = Self {
             context,
