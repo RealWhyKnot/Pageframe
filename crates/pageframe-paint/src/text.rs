@@ -26,6 +26,8 @@ use crate::color::{Color, ToColorColor as _};
 use crate::image_cache::ImageCache;
 use crate::{FONT_EMBOLDEN_ENABLED, SELECTION_COLOR};
 
+#[cfg(target_os = "windows")]
+mod colr;
 mod decoration;
 mod fragments;
 mod ink;

@@ -1,9 +1,10 @@
-use super::{Color, RunFace};
+use super::{Color, FONT_EMBOLDEN_ENABLED, RunFace, colr, quarter};
 use anyrender::{Glyph, PaintScene};
 use anyrender_directwrite::{FontSource, GlyphRun};
 use kurbo::{Affine, Vec2};
 use parley::FontData;
 use peniko::Fill;
+use skrifa::instance::{LocationRef, NormalizedCoord};
 use skrifa::raw::{TableProvider, types::Tag};
 use skrifa::{FontRef, MetadataProvider};
 
@@ -30,6 +31,70 @@ pub(super) fn draw(
     color: Color,
     glyphs: impl Iterator<Item = Glyph> + Clone,
 ) -> bool {
+    let Ok(font) = FontRef::from_index(face.font.data.as_ref(), face.font.index) else {
+        return outlines(scene, face, transform, color, glyphs, false);
+    };
+    if !colr::colored(&font) || !transform.is_finite() || transform.determinant() == 0.0 {
+        return outlines(scene, face, transform, color, glyphs, false);
+    }
+    let coords: Vec<NormalizedCoord> = face
+        .coords
+        .iter()
+        .map(|&c| NormalizedCoord::from_bits(c))
+        .collect();
+    let upem = font
+        .head()
+        .map_or(1000.0, |head| f64::from(head.units_per_em()));
+    for glyph in glyphs.clone().filter(|glyph| colr::has(&font, glyph.id)) {
+        let placed = place(transform, face, glyph, f64::from(face.font_size) / upem);
+        colr::paint(
+            scene,
+            &font,
+            LocationRef::new(&coords),
+            color,
+            placed,
+            glyph.id,
+        );
+    }
+    let plain = glyphs.filter(move |glyph| !colr::has(&font, glyph.id));
+    if !outlines(scene, face, transform, color, plain.clone(), true) {
+        scene.draw_glyphs(
+            face.font,
+            face.font_size,
+            !FONT_EMBOLDEN_ENABLED,
+            face.coords,
+            face.embolden,
+            Fill::NonZero,
+            &anyrender::Paint::from(color),
+            1.0,
+            transform,
+            face.glyph_xform,
+            quarter::snap(transform, plain),
+        );
+    }
+    true
+}
+
+fn place(transform: Affine, face: &RunFace<'_>, glyph: Glyph, scale: f64) -> Affine {
+    let local = face.glyph_xform.unwrap_or_default() * Affine::scale_non_uniform(scale, -scale);
+    let [a, b, c, d, e, f] = transform.as_coeffs();
+    let (x, y) = (f64::from(glyph.x), f64::from(glyph.y));
+    if b == 0.0 && c == 0.0 {
+        let left = ((a * x + e) * 4.0 + 0.5).floor() / 4.0;
+        let top = anyrender_directwrite::hinted_baseline(d * y + f);
+        return Affine::new([a, 0.0, 0.0, d, left, top]) * local;
+    }
+    transform * Affine::translate((x, y)) * local
+}
+
+fn outlines(
+    scene: &mut impl PaintScene,
+    face: &RunFace<'_>,
+    transform: Affine,
+    color: Color,
+    glyphs: impl Iterator<Item = Glyph> + Clone,
+    colored: bool,
+) -> bool {
     let bold = face.embolden != Vec2::ZERO;
     let run = GlyphRun {
         font: face.font,
@@ -40,7 +105,8 @@ pub(super) fn draw(
         bold,
         oblique: oblique(face).unwrap_or(false),
     };
-    if renderer(scene, face, transform) && run.draw(scene, || source(face), glyphs.clone()) {
+    if renderer(scene, face, transform) && run.draw(scene, || source(face, colored), glyphs.clone())
+    {
         return true;
     }
     if !bold {
@@ -108,10 +174,11 @@ fn denormalize(font: &FontData, coords: &[i16]) -> Vec<([u8; 4], f32)> {
         .collect()
 }
 
-fn source(face: &RunFace<'_>) -> Option<FontSource> {
+fn source(face: &RunFace<'_>, colored: bool) -> Option<FontSource> {
     let font = FontRef::from_index(face.font.data.as_ref(), face.font.index).ok()?;
     if [b"COLR", b"CBDT", b"sbix", b"SVG "]
         .iter()
+        .filter(|tag| !colored || **tag != b"COLR")
         .any(|tag| font.table_data(Tag::new(tag)).is_some())
     {
         return None;
