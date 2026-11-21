@@ -1,3 +1,4 @@
+use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -43,18 +44,34 @@ impl<W: HasWindowHandle + HasDisplayHandle + Send + Sync + 'static> PageframeHos
         &mut self.session
     }
 
-    pub fn resume(&mut self) {
+    pub fn is_active(&self) -> bool {
+        self.renderer.is_active()
+    }
+
+    pub fn request_redraw(&self) {
+        self.session.request_redraw();
+    }
+
+    pub fn resume(&mut self) -> bool {
         if self.renderer.is_active() {
-            return;
+            return true;
         }
         let (width, height) = self.session.size();
         let window = Arc::clone(&self.window);
         let handle: Arc<dyn WindowHandle> = window;
-        self.renderer
-            .resume(handle, width.max(1), height.max(1), || {});
-        if self.renderer.complete_resume() {
+        let renderer = &mut self.renderer;
+        let started = panic::catch_unwind(AssertUnwindSafe(|| {
+            renderer.resume(handle, width.max(1), height.max(1), || {});
+        }));
+        if started.is_err() {
+            self.renderer.suspend();
+            return false;
+        }
+        let active = self.renderer.complete_resume() && self.renderer.is_active();
+        if active {
             self.session.request_redraw();
         }
+        active
     }
 
     pub fn suspend(&mut self) {

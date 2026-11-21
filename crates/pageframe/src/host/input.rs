@@ -33,6 +33,7 @@ pub enum HostInputEvent {
     KeyDown(PageframeKeyEvent),
     KeyUp(PageframeKeyEvent),
     Ime(PageframeImeEvent),
+    Paste(String),
     ModifiersChanged(Modifiers),
     Focused(bool),
 }

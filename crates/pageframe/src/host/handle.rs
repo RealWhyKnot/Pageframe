@@ -102,6 +102,10 @@ impl HostHandle {
         self.shared.push(Signal::Navigate(url));
     }
 
+    pub fn request_redraw(&self) {
+        self.shared.request_redraw();
+    }
+
     pub fn wake(&self) {
         self.shared.wake();
     }
@@ -139,6 +143,11 @@ impl ShellProvider for ShellBridge {
             width,
             height,
         });
+    }
+
+    fn request_clipboard_text(&self) -> Result<(), ClipboardError> {
+        self.event(HostEvent::ClipboardRequested);
+        Ok(())
     }
 
     fn set_clipboard_text(&self, text: String) -> Result<(), ClipboardError> {

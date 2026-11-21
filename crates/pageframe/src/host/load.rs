@@ -17,6 +17,21 @@ pub(super) struct Loader {
     pub(super) timer_thread: bool,
 }
 
+pub(super) const URL_CHANNEL: &str = "__pageframe_url_changed";
+
+fn url_hook() -> String {
+    format!(
+        r#"{{
+    const set = __pageframe_set_document_url;
+    const send = __pageframe_ipc_send;
+    globalThis.__pageframe_set_document_url = (href) => {{
+        set(href);
+        send("invoke", "{URL_CHANNEL}", String(href));
+    }};
+}}"#
+    )
+}
+
 pub(super) struct Loaded {
     pub(super) doc: ScriptDocument,
     pub(super) url: Option<Url>,
@@ -81,6 +96,7 @@ impl Loader {
         if !self.timer_thread {
             doc = doc.without_timer_thread();
         }
+        doc.eval(&url_hook());
         doc.execute_scripts();
         Loaded { doc, url }
     }

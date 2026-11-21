@@ -7,16 +7,16 @@ mod window;
 
 use std::sync::Arc;
 
-use pageframe_traits::net::NetProvider;
-use pageframe_traits::shell::ColorScheme;
-use url::Url;
-
 pub use cursor_icon::CursorIcon;
 pub use handle::HostHandle;
 pub use input::HostInputEvent;
-pub use pageframe_script::HttpClient;
+pub use pageframe_dom::Document;
+pub use pageframe_script::{HttpClient, ScriptDocument};
+pub use pageframe_traits::net::{self, NetProvider};
+pub use pageframe_traits::shell::ColorScheme;
 pub use serde_json::Value;
 pub use session::HostSession;
+pub use url::Url;
 #[cfg(any(feature = "gpu", feature = "software"))]
 pub use window::PageframeHost;
 
@@ -118,6 +118,7 @@ pub enum IpcReply {
 #[derive(Clone, Debug, PartialEq)]
 pub enum HostEvent {
     Navigated(Url),
+    UrlChanged(Url),
     NavigationBlocked(Url),
     TitleChanged(String),
     CursorChanged(Option<CursorIcon>),
@@ -129,6 +130,7 @@ pub enum HostEvent {
         height: f32,
     },
     ClipboardText(String),
+    ClipboardRequested,
     CloseRequested,
     LoadFailed {
         url: Url,

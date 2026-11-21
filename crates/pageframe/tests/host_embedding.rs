@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use pageframe::events::MouseEventButton;
+use pageframe::events::{Code, Key, KeyEvent, KeyState, Location, Modifiers, MouseEventButton};
 use pageframe::host::{HostConfig, HostEvent, HostInputEvent, HostSession, IpcReply};
 use serde_json::json;
 use url::Url;
@@ -440,4 +440,120 @@ fn repeated_state_events_are_coalesced() {
         .filter(|event| matches!(event, HostEvent::TitleChanged(_)))
         .collect();
     assert_eq!(titles, [&HostEvent::TitleChanged(String::from("t999"))]);
+}
+
+fn click(session: &mut HostSession, x: f64, y: f64) {
+    let button = MouseEventButton::Main;
+    session.handle_input(HostInputEvent::PointerDown { x, y, button });
+    session.handle_input(HostInputEvent::PointerUp { x, y, button });
+}
+
+fn url_changes(session: &mut HostSession) -> Vec<Url> {
+    session
+        .take_events()
+        .into_iter()
+        .filter_map(|event| match event {
+            HostEvent::UrlChanged(url) => Some(url),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn same_document_url_changes_are_reported() {
+    let base = Url::parse("http://app.test/index.html").unwrap();
+    let html = r##"<body style="margin:0">
+<a id="link" href="#/settings" style="display:block;width:100px;height:30px">Settings</a>
+</body>"##;
+    let mut session = HostSession::new(HostConfig::html(html, Some(base.clone()))).unwrap();
+    let navigations = Rc::new(Cell::new(0));
+    let count = Rc::clone(&navigations);
+    session.on_navigation(move |_| {
+        count.set(count.get() + 1);
+        true
+    });
+    session.poll();
+    session.take_events();
+    click(&mut session, 10.0, 10.0);
+    let settings = base.join("#/settings").unwrap();
+    assert_eq!(url_changes(&mut session), std::slice::from_ref(&settings));
+    assert_eq!(session.url(), Some(&settings));
+    session.eval(r#"location.hash = "about";"#);
+    session.eval(r#"history.pushState({ tab: 2 }, "", "/library?tab=2");"#);
+    session.eval(r#"history.replaceState(null, "", "/library");"#);
+    let expected = ["#about", "/library?tab=2", "/library"].map(|path| base.join(path).unwrap());
+    assert_eq!(url_changes(&mut session), expected);
+    session.eval(
+        r#"__pageframe_ipc_send("invoke", "__pageframe_url_changed", "https://evil.test/");"#,
+    );
+    session.eval(r#"__pageframe_ipc_send("invoke", "__pageframe_url_changed", "not a url");"#);
+    assert_eq!(url_changes(&mut session), Vec::<Url>::new());
+    assert_eq!(session.url(), Some(&expected[2]));
+    let posts = collect_posts(&mut session);
+    session.eval(
+        r#"ipc.invoke("__pageframe_url_changed", "/x").catch(() => ipc.postMessage("rejected"));"#,
+    );
+    session.poll();
+    assert_eq!(taken(&posts), ["rejected"]);
+    assert_eq!(navigations.get(), 0);
+    assert_clean(&mut session);
+}
+
+#[test]
+fn url_changes_during_page_load_are_reported() {
+    let mut session = blank(r#"<script>history.replaceState(null, "", "/start#top");</script>"#);
+    session.poll();
+    let start = Url::parse("http://app.test/start#top").unwrap();
+    assert_eq!(url_changes(&mut session), std::slice::from_ref(&start));
+    assert_eq!(session.url(), Some(&start));
+    assert_clean(&mut session);
+}
+
+fn paste_shortcut() -> KeyEvent {
+    let modifiers = if cfg!(target_os = "macos") {
+        Modifiers::META
+    } else {
+        Modifiers::CONTROL
+    };
+    KeyEvent {
+        key: Key::Character("v".into()),
+        code: Code::KeyV,
+        modifiers,
+        location: Location::Standard,
+        is_auto_repeating: false,
+        is_composing: false,
+        state: KeyState::Pressed,
+        text: None,
+    }
+}
+
+#[test]
+fn paste_requests_the_clipboard_and_fills_the_focused_field() {
+    let mut session = blank(
+        r#"<body style="margin:0">
+<input id="field" style="position:absolute;left:0;top:0;width:200px;height:30px;margin:0">
+<script>
+const field = document.getElementById("field");
+field.addEventListener("input", () => ipc.postMessage("input:" + field.value));
+</script></body>"#,
+    );
+    let posts = collect_posts(&mut session);
+    session.poll();
+    click(&mut session, 20.0, 10.0);
+    session.take_events();
+    session.handle_input(HostInputEvent::KeyDown(paste_shortcut()));
+    let events = session.take_events();
+    assert!(
+        events.contains(&HostEvent::ClipboardRequested),
+        "{events:?}"
+    );
+    assert!(session.handle_input(HostInputEvent::Paste(String::from("hello world"))));
+    let long = "x".repeat(100_000);
+    session.handle_input(HostInputEvent::Paste(long.clone()));
+    session.eval(r#"ipc.postMessage("value:" + document.getElementById("field").value.length)"#);
+    let posts = taken(&posts);
+    assert_eq!(posts.first().map(String::as_str), Some("input:hello world"));
+    let length = "hello world".len() + long.len();
+    assert_eq!(posts.last(), Some(&format!("value:{length}")));
+    assert_clean(&mut session);
 }

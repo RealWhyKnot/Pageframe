@@ -12,7 +12,7 @@ use url::Url;
 
 use super::handle::{HostHandle, Shared, Signal, waker};
 use super::input::{HostInputEvent, PointerState};
-use super::load::{Loaded, Loader};
+use super::load::{Loaded, Loader, URL_CHANNEL};
 use super::{HostConfig, HostEvent, HostSource, IpcReply, IpcRequest, same_origin};
 use crate::error::Error;
 
@@ -244,6 +244,7 @@ impl HostSession {
             HostInputEvent::KeyDown(key) => self.ui_event(UiEvent::KeyDown(key)),
             HostInputEvent::KeyUp(key) => self.ui_event(UiEvent::KeyUp(key)),
             HostInputEvent::Ime(ime) => self.ui_event(UiEvent::Ime(ime)),
+            HostInputEvent::Paste(text) => self.ui_event(UiEvent::Paste(text)),
             HostInputEvent::ModifiersChanged(mods) => {
                 self.pointer.set_modifiers(mods);
                 return false;
@@ -288,7 +289,7 @@ impl HostSession {
         self.started.elapsed().as_secs_f64()
     }
 
-    pub(super) fn request_redraw(&self) {
+    pub fn request_redraw(&self) {
         self.shared.request_redraw();
     }
 
@@ -389,6 +390,17 @@ impl HostSession {
         left == right && target.fragment().is_some()
     }
 
+    fn url_changed(&mut self, href: &str) {
+        let (Some(current), Ok(next)) = (&self.url, Url::parse(href)) else {
+            return;
+        };
+        if *current == next || !same_authority(current, &next) {
+            return;
+        }
+        self.url = Some(next.clone());
+        self.push_event(HostEvent::UrlChanged(next));
+    }
+
     fn drain_ipc(&mut self) {
         for _ in 0..MAX_IPC_ROUNDS {
             let messages = self.doc.take_ipc();
@@ -405,6 +417,14 @@ impl HostSession {
 
     fn dispatch_ipc(&mut self, message: IpcMessage) {
         match message {
+            IpcMessage::Invoke {
+                id,
+                channel,
+                payload,
+            } if channel == URL_CHANNEL => {
+                self.url_changed(&payload);
+                self.doc.settle_ipc(id, Err("reserved IPC channel"));
+            }
             IpcMessage::Post(text) => {
                 if let Some(post) = &mut self.post {
                     post(&text);
@@ -432,6 +452,14 @@ impl HostSession {
             }
         }
     }
+}
+
+fn same_authority(current: &Url, next: &Url) -> bool {
+    current.scheme() == next.scheme()
+        && current.username() == next.username()
+        && current.password() == next.password()
+        && current.host() == next.host()
+        && current.port_or_known_default() == next.port_or_known_default()
 }
 
 fn narrow(value: f64) -> f32 {
