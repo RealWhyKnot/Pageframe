@@ -62,10 +62,13 @@ impl<W: HasWindowHandle + HasDisplayHandle + Send + Sync + 'static> PageframeHos
     }
 
     pub fn handle_input(&mut self, event: HostInputEvent) -> bool {
-        if let HostInputEvent::Resized { width, height } = &event {
-            self.renderer.set_size((*width).max(1), (*height).max(1));
+        let resized = matches!(event, HostInputEvent::Resized { .. });
+        let handled = self.session.handle_input(event);
+        if resized {
+            let (width, height) = self.session.size();
+            self.renderer.set_size(width.max(1), height.max(1));
         }
-        self.session.handle_input(event)
+        handled
     }
 
     pub fn poll(&mut self) -> bool {

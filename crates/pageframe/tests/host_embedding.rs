@@ -403,6 +403,23 @@ fn zero_sizes_and_bad_scale_factors_keep_the_session_usable() {
 }
 
 #[test]
+fn huge_sizes_are_clamped_to_a_safe_surface() {
+    let base = Url::parse("http://app.test/").unwrap();
+    let config = HostConfig::html("<p>hi</p>", Some(base))
+        .size(1e12, 20_000.0)
+        .scale_factor(2.0);
+    let mut session = HostSession::new(config).unwrap();
+    assert_eq!(session.size(), (16_384, 16_384));
+    session.handle_input(HostInputEvent::Resized {
+        width: u32::MAX,
+        height: 900,
+    });
+    assert_eq!(session.size(), (16_384, 900));
+    session.resolve();
+    assert_clean(&mut session);
+}
+
+#[test]
 fn repeated_state_events_are_coalesced() {
     let mut session = blank("<title>start</title><p></p>");
     session.take_events();

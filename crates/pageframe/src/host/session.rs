@@ -43,8 +43,11 @@ pub struct HostSession {
     fresh: bool,
 }
 
+const MAX_SURFACE: u32 = 16_384;
+
 fn physical(logical: f64, scale: f64) -> u32 {
-    num_traits::cast((logical * scale).round().max(0.0)).unwrap_or(0)
+    let size = (logical * scale).round().clamp(0.0, f64::from(MAX_SURFACE));
+    num_traits::cast(size).unwrap_or(0)
 }
 
 fn json(value: &Value) -> String {
@@ -203,8 +206,8 @@ impl HostSession {
     pub fn handle_input(&mut self, event: HostInputEvent) -> bool {
         match event {
             HostInputEvent::Resized { width, height } => {
-                self.width = width;
-                self.height = height;
+                self.width = width.min(MAX_SURFACE);
+                self.height = height.min(MAX_SURFACE);
                 self.apply_viewport();
             }
             HostInputEvent::ScaleFactorChanged(scale) => {

@@ -11,6 +11,7 @@ mod form_controls;
 mod geometry;
 mod markup;
 mod scrolling;
+mod select;
 mod selectors;
 
 pub(crate) use attributes::{read_attr, write_attr};
@@ -46,6 +47,14 @@ pub(crate) fn init_element_proto(proto: &JsObject, context: &mut Context) {
         "checked",
         Some(form_controls::get_checked),
         Some(form_controls::set_checked),
+        context,
+    );
+    define_accessor(proto, "options", Some(select::get_options), None, context);
+    define_accessor(
+        proto,
+        "selectedIndex",
+        Some(select::get_selected_index),
+        Some(select::set_selected_index),
         context,
     );
     define_accessor(

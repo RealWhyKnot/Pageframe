@@ -15,7 +15,24 @@ impl BaseDocument {
         self.has_tag(node_id, &local_name!("select"))
     }
 
-    pub(crate) fn select_options(&self, select: NodeId) -> Vec<NodeId> {
+    pub fn is_option(&self, node_id: NodeId) -> bool {
+        self.has_tag(node_id, &local_name!("option"))
+    }
+
+    pub fn selected_index(&self, select: NodeId) -> Option<usize> {
+        self.select_options(select)
+            .into_iter()
+            .position(|option| self.option_is_selected(option))
+    }
+
+    pub fn set_selected_index(&mut self, select: NodeId, index: Option<usize>) {
+        let options = self.select_options(select);
+        for (position, option) in options.into_iter().enumerate() {
+            self.set_option_selected(option, Some(position) == index);
+        }
+    }
+
+    pub fn select_options(&self, select: NodeId) -> Vec<NodeId> {
         let mut options = Vec::new();
         let Some(node) = self.get_node(select) else {
             return options;
@@ -57,7 +74,7 @@ impl BaseDocument {
             })
     }
 
-    pub(crate) fn option_value(&self, option: NodeId) -> String {
+    pub fn option_value(&self, option: NodeId) -> String {
         let node = &self.nodes[option];
         match node.attr(local_name!("value")) {
             Some(value) => value.to_owned(),

@@ -1,8 +1,8 @@
 //! Form-control values, text-input selection, and focus.
 
 use super::attributes::{attr_getter, attr_setter, clear_attr, read_attr, store_attr, write_attr};
-use crate::dom::js_str;
 use crate::dom::{dom_ctx, this_node_id};
+use crate::dom::{js_str, to_rust_string};
 use boa_engine::{Context, JsResult, JsValue};
 use pageframe_dom::NodeId;
 
@@ -70,6 +70,12 @@ pub(super) fn get_value(this: &JsValue, _: &[JsValue], context: &mut Context) ->
     let node_id = this_node_id(this)?;
     let value = {
         let doc = ctx.doc.borrow();
+        if doc.is_select(node_id) {
+            return Ok(js_str(&doc.select_value(node_id).unwrap_or_default()));
+        }
+        if doc.is_option(node_id) {
+            return Ok(js_str(&doc.option_value(node_id)));
+        }
         doc.get_node(node_id)
             .and_then(|node| node.element_data())
             .map(|element| match element.text_input_data() {
@@ -91,6 +97,13 @@ pub(super) fn set_value(
     args: &[JsValue],
     context: &mut Context,
 ) -> JsResult<JsValue> {
+    let ctx = dom_ctx(context)?;
+    let node_id = this_node_id(this)?;
+    if ctx.doc.borrow().is_select(node_id) {
+        let value = to_rust_string(args.first().unwrap_or(&JsValue::undefined()), context)?;
+        ctx.doc.borrow_mut().set_select_value(node_id, &value);
+        return Ok(JsValue::undefined());
+    }
     attr_setter("value", this, args, context)
 }
 

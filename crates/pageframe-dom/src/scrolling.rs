@@ -653,7 +653,8 @@ impl BaseDocument {
         }
     }
 
-    /// Scroll the viewport so that the given element has the requested alignment in each axis.
+    /// Scroll each enclosing scroller and then the viewport so that the given element has the
+    /// requested alignment in each axis.
     pub fn scroll_into_view(
         &mut self,
         node_id: NodeId,
@@ -674,24 +675,89 @@ impl BaseDocument {
         let Some(root_id) = self.try_root_element().map(|root| root.id) else {
             return;
         };
+        let size = Point {
+            x: target_size.width as f64,
+            y: target_size.height as f64,
+        };
+        let mut target = Point {
+            x: target.x as f64,
+            y: target.y as f64,
+        };
+        let mut moves = Vec::new();
+        let mut ancestor = node.parent;
+        while let Some(id) = ancestor.filter(|id| *id != root_id) {
+            let Some(scroller) = self.nodes.get(id) else {
+                break;
+            };
+            ancestor = scroller.parent;
+            if !scroller.is_scroll_container() {
+                continue;
+            }
+            let layout = scroller.final_layout();
+            let current = *scroller.scroll_offset();
+            let origin = scroller.absolute_position(current.x as f32, current.y as f32);
+            let port = Point {
+                x: f64::from(origin.x + layout.border.left),
+                y: f64::from(origin.y + layout.border.top),
+            };
+            let x = Self::aligned_scroll_offset(
+                current.x,
+                f64::from(scroller.client_width()),
+                target.x - port.x + current.x,
+                size.x,
+                horizontal,
+            );
+            let y = Self::aligned_scroll_offset(
+                current.y,
+                f64::from(scroller.client_height()),
+                target.y - port.y + current.y,
+                size.y,
+                vertical,
+            );
+            let (_, min, max) = self.scroll_state(ScrollTarget::Node(id), true);
+            let end = Point {
+                x: x.clamp(min.x, max.x),
+                y: y.clamp(min.y, max.y),
+            };
+            target.x -= end.x - current.x;
+            target.y -= end.y - current.y;
+            if end != current {
+                moves.push((id, end));
+            }
+        }
         let scale = self.viewport.scale() as f64;
         let viewport_width = self.viewport.window_size.0 as f64 / scale;
         let viewport_height = self.viewport.window_size.1 as f64 / scale;
         let x = Self::aligned_scroll_offset(
             self.viewport_scroll().x,
             viewport_width,
-            target.x as f64,
-            target_size.width as f64,
+            target.x,
+            size.x,
             horizontal,
         );
         let y = Self::aligned_scroll_offset(
             self.viewport_scroll().y,
             viewport_height,
-            target.y as f64,
-            target_size.height as f64,
+            target.y,
+            size.y,
             vertical,
         );
-        self.scroll_to(root_id, x, y, behavior);
+        let (current, min, max) = self.scroll_state(ScrollTarget::Viewport, true);
+        let viewport_moves =
+            x.clamp(min.x, max.x) != current.x || y.clamp(min.y, max.y) != current.y;
+        let last = moves.len();
+        for (index, (id, end)) in moves.into_iter().enumerate() {
+            let animates = !viewport_moves && index + 1 == last;
+            let behavior = if animates {
+                behavior
+            } else {
+                ScrollBehavior::Instant
+            };
+            self.scroll_to(id, end.x, end.y, behavior);
+        }
+        if viewport_moves {
+            self.scroll_to(root_id, x, y, behavior);
+        }
     }
 
     /// Resolve a URL fragment (the `#...` part of a URL) to a scroll target.
