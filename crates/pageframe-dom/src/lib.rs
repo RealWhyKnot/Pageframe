@@ -37,6 +37,7 @@ mod document;
 /// The nodes themsleves, and their data.
 pub mod node;
 
+pub mod canvas;
 mod clip_path;
 mod config;
 /// CSSOM stylesheet access (`document.styleSheets`, `CSSStyleSheet`, `CSSRule`)

@@ -29,6 +29,7 @@
 
 #![allow(clippy::collapsible_if)]
 
+mod canvas;
 mod clock;
 mod cookies;
 mod document;

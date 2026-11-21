@@ -51,6 +51,8 @@ pub(super) const BOOTSTRAP_JS: &str = concat!(
     include_str!("bootstrap/fonts.js"),
     "\n",
     include_str!("bootstrap/node_constants.js"),
+    "\n",
+    include_str!("bootstrap/canvas.js"),
     "})();\n",
 );
 

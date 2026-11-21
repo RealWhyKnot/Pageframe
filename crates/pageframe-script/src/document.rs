@@ -363,6 +363,7 @@ impl ScriptDocument {
     }
 
     fn request_redraw(&self) {
+        crate::canvas::flush(&self.runtime.ctx);
         self.inner.borrow().shell_provider.request_redraw();
     }
 
@@ -473,6 +474,7 @@ impl Document for ScriptDocument {
         ran |= self.runtime.deliver_image_events();
         ran |= self.runtime.deliver_media_changes();
         ran |= self.runtime.run_due_timers();
+        crate::canvas::flush(&self.runtime.ctx);
         self.arm_timer_thread();
         ran
     }

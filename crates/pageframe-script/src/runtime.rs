@@ -115,6 +115,7 @@ impl ScriptRuntime {
         crate::dom::init_protos(&ctx, &mut context);
 
         bootstrap::register_globals(&ctx, &mut context);
+        crate::canvas::init(&ctx, &mut context);
 
         let mut runtime = Self {
             context,
