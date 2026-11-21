@@ -271,6 +271,7 @@ impl LayoutPassState<'_> {
             let box_inputs = inline_box_inputs(style.size().width, margin, child_inputs);
             drop(style);
             let box_id = NodeId::from_u64(ibox.id);
+            let margin = self.ruby_line_margin(box_id, margin, parent_size);
             let walks_blocks = is_flow
                 && uses_last_baseline
                 && exports_baseline

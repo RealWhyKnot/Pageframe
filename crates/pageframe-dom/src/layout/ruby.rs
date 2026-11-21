@@ -252,6 +252,37 @@ impl LayoutPassState<'_> {
             })
     }
 
+    pub(crate) fn ruby_line_margin(
+        &self,
+        node_id: NodeId,
+        margin: Rect<f32>,
+        parent_size: Size<Option<f32>>,
+    ) -> Rect<f32> {
+        let node = &self.nodes[node_id];
+        let is_inline = node.is_ruby_box()
+            && node
+                .display_style()
+                .is_some_and(|display| display.outside() == DisplayOutside::Inline)
+            && node
+                .primary_styles()
+                .is_some_and(|style| !style.writing_mode.is_vertical());
+        if !is_inline {
+            return margin;
+        }
+        let style = node.layout_style();
+        let frame = style
+            .padding()
+            .resolve_or_zero(parent_size, resolve_calc_value)
+            + style
+                .border()
+                .resolve_or_zero(parent_size, resolve_calc_value);
+        Rect {
+            top: -frame.top,
+            bottom: -frame.bottom,
+            ..margin
+        }
+    }
+
     pub(crate) fn compute_ruby_layout(
         &mut self,
         node_id: NodeId,

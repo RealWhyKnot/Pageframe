@@ -191,6 +191,11 @@ impl LayoutPassState<'_> {
                         let mut output =
                             self.compute_child_layout(taffy::NodeId::from(ibox.id), box_inputs);
                         let size = output.size;
+                        let line_margin = self.ruby_line_margin(
+                            NodeId::from_u64(ibox.id),
+                            margin,
+                            child_inputs.parent_size,
+                        );
                         let (span_x, span_y) = self.nodes[NodeId::from_u64(ibox.id)]
                             .parent
                             .map_or((0.0, 0.0), |parent| {
@@ -226,11 +231,11 @@ impl LayoutPassState<'_> {
                             container_pb.top + content_block_size
                                 - block_offset
                                 - margin_box_top
-                                - margin.top
+                                - line_margin.top
                                 - size.height
                                 + inset_offset.y
                         } else {
-                            margin_box_top + margin.top + line_box_top + inset_offset.y
+                            margin_box_top + line_margin.top + line_box_top + inset_offset.y
                         } + span_y;
                         layout.padding = padding;
                         layout.border = border;
