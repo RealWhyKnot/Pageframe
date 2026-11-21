@@ -1,6 +1,8 @@
 //! Enable the dom to participate in styling by servo
 //!
 
+mod table_border;
+
 use pageframe_traits::node_id::NodeId;
 use std::ptr::NonNull;
 use std::sync::atomic::Ordering;
@@ -990,6 +992,9 @@ impl<'a> TElement for PageframeNode<'a> {
                 crate::dir_auto::auto_direction(self),
             ));
         }
+        table_border::declarations(self, tag)
+            .into_iter()
+            .for_each(&mut push_style);
 
         fn parse_color_attr(value: &str) -> Option<(u8, u8, u8, f32)> {
             if !value.starts_with('#') {

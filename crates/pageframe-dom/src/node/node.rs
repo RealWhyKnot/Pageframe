@@ -2535,6 +2535,13 @@ impl Node {
             };
             let parent = self.with(parent_id);
             if Some(parent_id) == target {
+                if parent.is_collapsed_table() {
+                    let place = current.unrounded_layout().location;
+                    let border = parent.unrounded_layout().border;
+                    x = (x - layout.location.x + place.x - border.left / 2.0).round();
+                    y = (y - layout.location.y + place.y - border.top / 2.0).round();
+                    break;
+                }
                 let border = parent.final_layout().border;
                 x -= border.left;
                 y -= border.top;
@@ -2543,6 +2550,14 @@ impl Node {
             current = parent;
         }
         crate::util::Point { x, y }
+    }
+
+    fn is_collapsed_table(&self) -> bool {
+        self.flags.is_table_root()
+            && self.primary_styles().is_some_and(|style| {
+                style.clone_border_collapse()
+                    == style::computed_values::border_collapse::T::Collapse
+            })
     }
 
     /// CSSOM View's `clientWidth`: the width of the padding box (border box minus
