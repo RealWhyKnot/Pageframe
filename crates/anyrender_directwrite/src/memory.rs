@@ -27,12 +27,20 @@ pub(super) struct MemoryFile {
 static FILES: LazyLock<Mutex<HashMap<u64, Arc<MemoryFile>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-pub(super) fn file(factory: &IDWriteFactory, blob: &Blob<u8>) -> Option<Arc<MemoryFile>> {
+fn cached(blob: &Blob<u8>) -> Option<Option<Arc<MemoryFile>>> {
     let mut files = FILES.lock().ok()?;
-    if let Some(entry) = files.get(&blob.id()) {
-        return Some(Arc::clone(entry));
+    let hit = files.get(&blob.id()).cloned();
+    if hit.is_none() {
+        files.retain(|_, entry| entry.blob.upgrade().is_some());
     }
-    files.retain(|_, entry| entry.blob.upgrade().is_some());
+    drop(files);
+    Some(hit)
+}
+
+pub(super) fn file(factory: &IDWriteFactory, blob: &Blob<u8>) -> Option<Arc<MemoryFile>> {
+    if let Some(entry) = cached(blob)? {
+        return Some(entry);
+    }
     let factory5 = factory.cast::<IDWriteFactory5>().ok()?;
     let size = u32::try_from(blob.len()).ok()?;
     // SAFETY: The live factory creates and registers the loader returned by DirectWrite.
@@ -60,6 +68,7 @@ pub(super) fn file(factory: &IDWriteFactory, blob: &Blob<u8>) -> Option<Arc<Memo
         file,
         _registration: registration,
     });
-    files.insert(blob.id(), Arc::clone(&entry));
-    Some(entry)
+    Some(Arc::clone(
+        FILES.lock().ok()?.entry(blob.id()).or_insert(entry),
+    ))
 }

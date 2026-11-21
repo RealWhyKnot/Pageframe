@@ -19,6 +19,7 @@ filters = []
 
 [dependencies]
 anyrender = { git = "https://github.com/DioxusLabs/anyrender", branch = "main" }
+anyrender_directwrite = { path = "../../crates/anyrender_directwrite" }
 bytemuck = { version = "1", features = ["extern_crate_alloc"] }
 color = { version = "0.3", features = ["bytemuck"] }
 debug_timer = "0.1.1"
@@ -29,6 +30,3 @@ softbuffer_window_renderer = { git = "https://github.com/DioxusLabs/anyrender", 
 pixels_window_renderer = { git = "https://github.com/DioxusLabs/anyrender", branch = "main", optional = true }
 vello_cpu = { version = "0.3", default-features = false, features = ["std", "text", "u8_pipeline"] }
 vello_common = { version = "0.3" }
-
-[target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.62", features = ["Win32_Graphics_DirectWrite"] }

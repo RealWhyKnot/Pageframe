@@ -98,12 +98,7 @@ impl VelloCpuScenePainter {
     }
 }
 
-impl RenderContext for VelloCpuScenePainter {
-    #[cfg(target_os = "windows")]
-    fn renderer_specific_context(&self) -> Option<Box<dyn std::any::Any>> {
-        Some(Box::new(crate::directwrite::DirectWriteText))
-    }
-}
+impl RenderContext for VelloCpuScenePainter {}
 impl PaintScene for VelloCpuScenePainter {
     fn reset(&mut self) {
         self.render_ctx.reset();
@@ -223,7 +218,7 @@ impl PaintScene for VelloCpuScenePainter {
         let paint = paint.into();
         #[cfg(target_os = "windows")]
         if let Paint::Custom(custom) = &paint
-            && let Some(native) = custom.downcast_ref::<crate::directwrite::GlyphPaint>()
+            && let Some(native) = custom.downcast_ref::<anyrender_directwrite::GlyphPaint>()
         {
             native.draw(self, font, font_size, transform, glyphs);
             return;

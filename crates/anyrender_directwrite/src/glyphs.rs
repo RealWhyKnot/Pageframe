@@ -1,13 +1,11 @@
-mod coverage;
-mod memory;
-mod raster;
-
+use crate::{memory, raster};
 use anyrender::{Glyph, PaintRef, PaintScene};
 use kurbo::Affine;
+use num_traits::ToPrimitive as _;
 use peniko::{Color, Fill, FontData};
 use std::{
     cell::RefCell,
-    collections::HashMap,
+    collections::{HashMap, hash_map::Entry},
     path::Path,
     sync::{
         Arc,
@@ -16,7 +14,9 @@ use std::{
 };
 use windows::Win32::Graphics::DirectWrite::*;
 
-pub struct DirectWriteText;
+const MAX_FACES: usize = 128;
+const MAX_MASKS: usize = 4096;
+const MAX_BYTES: usize = 16 << 20;
 
 pub struct GlyphRun<'a> {
     pub font: &'a FontData,
@@ -25,8 +25,9 @@ pub struct GlyphRun<'a> {
     pub color: Color,
 }
 
-pub(crate) struct GlyphPaint {
+pub struct GlyphPaint {
     color: Color,
+    probe: bool,
     painted: AtomicBool,
 }
 
@@ -53,7 +54,10 @@ impl FontSource {
     fn rendering(&self, size: f32, aligned: bool) -> (DWRITE_RENDERING_MODE, f32, bool) {
         let rounded = (size * 64.0).round() / 64.0;
         let gdi_size = if rounded == 0.0 { 1.0 } else { rounded };
-        let ppem = gdi_size as u16;
+        let ppem = gdi_size
+            .clamp(0.0, f32::from(u16::MAX))
+            .to_u16()
+            .unwrap_or(0);
         let (min, max) = match self.range(ppem) {
             Some((start, end, 1)) => (start, end),
             _ => (ppem, ppem),
@@ -74,7 +78,13 @@ impl FontSource {
             );
         }
         if self.gasp_version == Some(1)
-            && let Some((_, _, flags)) = self.range(gdi_size.round() as u16)
+            && let Some((_, _, flags)) = self.range(
+                gdi_size
+                    .round()
+                    .clamp(0.0, f32::from(u16::MAX))
+                    .to_u16()
+                    .unwrap_or(0),
+            )
         {
             return (
                 if flags & 8 != 0 {
@@ -95,14 +105,14 @@ impl FontSource {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-struct MaskKey {
+pub(crate) struct MaskKey {
     face: (u64, u32),
-    ppem: u32,
-    matrix: [u32; 4],
-    gdi_measure: bool,
-    mode: i32,
-    glyph: u16,
-    quarters: [u8; 2],
+    pub(crate) ppem: u32,
+    pub(crate) matrix: [u32; 4],
+    pub(crate) gdi_measure: bool,
+    pub(crate) mode: i32,
+    pub(crate) glyph: u16,
+    pub(crate) quarters: [u8; 2],
 }
 
 struct CachedFace {
@@ -131,11 +141,27 @@ thread_local! {
     };
 }
 
-impl DirectWriteText {
+pub fn supported(scene: &mut impl PaintScene, font: &FontData) -> bool {
+    let paint = GlyphPaint {
+        color: Color::TRANSPARENT,
+        probe: true,
+        painted: AtomicBool::new(false),
+    };
+    submit(
+        scene,
+        font,
+        0.0,
+        Affine::IDENTITY,
+        &paint,
+        std::iter::empty(),
+    );
+    paint.painted.into_inner()
+}
+
+impl GlyphRun<'_> {
     pub fn draw(
-        &self,
+        self,
         scene: &mut impl PaintScene,
-        run: GlyphRun<'_>,
         source: impl FnOnce() -> Option<FontSource>,
         glyphs: impl Iterator<Item = Glyph> + Clone,
     ) -> bool {
@@ -143,8 +169,8 @@ impl DirectWriteText {
             let Some(cache) = cache.as_mut() else {
                 return false;
             };
-            let face_key = (run.font.data.id(), run.font.index);
-            if cache.faces.len() >= 128 && !cache.faces.contains_key(&face_key) {
+            let face_key = (self.font.data.id(), self.font.index);
+            if cache.faces.len() >= MAX_FACES && !cache.faces.contains_key(&face_key) {
                 cache.faces.clear();
             }
             cache
@@ -155,11 +181,11 @@ impl DirectWriteText {
                     let (file, memory_file) = match &profile.path {
                         Some(path) => (raster::local_file(&cache.factory, path)?, None),
                         None => {
-                            let memory = memory::file(&cache.factory, &run.font.data)?;
+                            let memory = memory::file(&cache.factory, &self.font.data)?;
                             (memory.file.clone(), Some(memory))
                         }
                     };
-                    let face = raster::open(&cache.factory, file, run.font.index)?;
+                    let face = raster::open(&cache.factory, file, self.font.index)?;
                     Some(CachedFace {
                         face,
                         profile,
@@ -172,28 +198,47 @@ impl DirectWriteText {
             return false;
         }
         let paint = GlyphPaint {
-            color: run.color,
+            color: self.color,
+            probe: false,
             painted: AtomicBool::new(false),
         };
-        scene.draw_glyphs(
-            run.font,
-            run.font_size,
-            true,
-            &[],
-            kurbo::Vec2::ZERO,
-            Fill::NonZero,
-            PaintRef::Custom(&paint),
-            1.0,
-            run.transform,
-            None,
+        submit(
+            scene,
+            self.font,
+            self.font_size,
+            self.transform,
+            &paint,
             glyphs,
         );
         paint.painted.into_inner()
     }
 }
 
+fn submit(
+    scene: &mut impl PaintScene,
+    font: &FontData,
+    font_size: f32,
+    transform: Affine,
+    paint: &GlyphPaint,
+    glyphs: impl Iterator<Item = Glyph> + Clone,
+) {
+    scene.draw_glyphs(
+        font,
+        font_size,
+        true,
+        &[],
+        kurbo::Vec2::ZERO,
+        Fill::NonZero,
+        PaintRef::Custom(paint),
+        1.0,
+        transform,
+        None,
+        glyphs,
+    );
+}
+
 impl GlyphPaint {
-    pub(crate) fn draw(
+    pub fn draw(
         &self,
         scene: &mut impl PaintScene,
         font: &FontData,
@@ -201,10 +246,8 @@ impl GlyphPaint {
         transform: Affine,
         glyphs: impl Iterator<Item = Glyph>,
     ) {
-        self.painted.store(
-            paint(scene, font, size, transform, self.color, glyphs),
-            Ordering::Relaxed,
-        );
+        let painted = self.probe || paint(scene, font, size, transform, self.color, glyphs);
+        self.painted.store(painted, Ordering::Relaxed);
     }
 }
 
@@ -217,7 +260,8 @@ fn paint(
     glyphs: impl Iterator<Item = Glyph>,
 ) -> bool {
     let [sx, b, c, sy, tx, ty] = transform.as_coeffs();
-    let [xx, yx, xy, yy] = [sx, b, c, sy].map(|v| (v as f32 * 1024.0 + 0.5).floor() / 1024.0);
+    let [xx, yx, xy, yy] =
+        [sx, b, c, sy].map(|v| (v.to_f32().unwrap_or(f32::NAN) * 1024.0 + 0.5).floor() / 1024.0);
     let baseline = xx.hypot(yx);
     let vertical = if yx == 0.0 {
         yy.abs()
@@ -247,7 +291,7 @@ fn paint(
                 (x * 4.0 + 0.5).floor()
             };
             let y = if yx == 0.0 {
-                crate::glyph_origin::hinted_baseline(y) * 4.0
+                crate::hinted_baseline(y) * 4.0
             } else {
                 (y * 4.0 + 0.5).floor()
             };
@@ -261,17 +305,18 @@ fn paint(
                 gdi_measure,
                 mode: mode.0,
                 glyph: glyph.id.try_into().ok()?,
-                quarters: [x.rem_euclid(4.0) as u8, y.rem_euclid(4.0) as u8],
+                quarters: [x, y].map(|v| v.rem_euclid(4.0).to_u8().unwrap_or(0)),
             };
             let mask = match cache.masks.entry(key) {
-                std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-                std::collections::hash_map::Entry::Vacant(entry) => {
+                Entry::Occupied(entry) => entry.into_mut(),
+                Entry::Vacant(entry) => {
                     let mask = raster::mask(&cache.factory, &cached.face, key)?;
-                    cache.bytes += mask.coverage.len() * 5;
+                    cache.bytes += mask.coverage.len();
                     entry.insert(mask)
                 }
             };
-            if let Some(image) = mask.image(color) {
+            if let Some((image, added)) = mask.image(color) {
+                cache.bytes += added;
                 images.push((
                     image,
                     (
@@ -280,7 +325,7 @@ fn paint(
                     ),
                 ));
             }
-            if cache.masks.len() >= 4096 || cache.bytes >= 16 << 20 {
+            if cache.masks.len() >= MAX_MASKS || cache.bytes >= MAX_BYTES {
                 cache.masks.clear();
                 cache.bytes = 0;
             }

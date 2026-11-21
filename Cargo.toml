@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/accesskit_xplat",
+    "crates/anyrender_directwrite",
     "crates/debug_timer",
     "crates/pageframe-traits",
     "crates/pageframe-dom",
@@ -37,6 +38,7 @@ pageframe-devtools = { version = "=0.3.0-beta.4", path = "./crates/pageframe-dev
 pageframe-traits = { version = "=0.3.0-beta.4", path = "./crates/pageframe-traits", default-features = false }
 stylo_taffy = { version = "=0.3.0-beta.4", path = "./crates/stylo_taffy", default-features = false }
 debug_timer = { version = "0.1.2", path = "./crates/debug_timer" }
+anyrender_directwrite = { path = "./crates/anyrender_directwrite" }
 accesskit_xplat = { version = "0.2", path = "./crates/accesskit_xplat", default-features = false }
 pageframe-test-harness = { path = "./crates/pageframe-test-harness" }
 thiserror = "2"
@@ -239,6 +241,7 @@ parley_engine = { path = "./vendor/parley_engine" }
 parley = { path = "./vendor/parley" }
 
 [patch."https://github.com/DioxusLabs/anyrender"]
+anyrender_vello = { path = "./vendor/anyrender_vello" }
 anyrender_vello_cpu = { path = "./vendor/anyrender_vello_cpu" }
 
 # [patch.crates-io]

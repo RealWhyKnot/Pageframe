@@ -219,8 +219,8 @@ pub(crate) fn stroke_text<'a>(
                         baseline + metrics.descent.abs() as f64 + ink_margin,
                     );
                     #[cfg(target_os = "windows")]
-                    let native_shadow = std_deviation > 0.0
-                        && windows::renderer(scene, &face, shadow_transform).is_some();
+                    let native_shadow =
+                        std_deviation > 0.0 && windows::renderer(scene, &face, shadow_transform);
                     let blurred = (std_deviation > 0.0)
                         .then(|| {
                             blurred_shadow_image(

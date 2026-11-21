@@ -1,0 +1,30 @@
+[package]
+name = "anyrender_vello"
+description = "Vello backend for anyrender"
+version = "0.15.0"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/dioxuslabs/anyrender"
+edition = "2024"
+
+[features]
+log_frame_times = ["debug_timer/enable"]
+
+[dependencies]
+anyrender = { git = "https://github.com/DioxusLabs/anyrender", branch = "main" }
+wgpu_context = { git = "https://github.com/DioxusLabs/anyrender", branch = "main" }
+debug_timer = "0.1.1"
+kurbo = "0.13.1"
+peniko = "0.6"
+vello = { version = "0.11", features = ["wgpu"] }
+wgpu = "30"
+rustc-hash = "2"
+futures-channel = "0.3"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pollster = "0.4"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = "0.4"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+anyrender_directwrite = { path = "../../crates/anyrender_directwrite" }

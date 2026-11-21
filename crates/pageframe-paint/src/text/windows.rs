@@ -1,28 +1,20 @@
 use super::{Color, RunFace};
 use anyrender::{Glyph, PaintScene};
-use anyrender_vello_cpu::directwrite::{DirectWriteText, FontSource, GlyphRun};
+use anyrender_directwrite::{FontSource, GlyphRun};
 use kurbo::{Affine, Vec2};
 use parley::fontique::SourceKind;
 use skrifa::raw::{TableProvider, types::Tag};
 use skrifa::string::StringId;
 use skrifa::{FontRef, MetadataProvider};
 
-pub(super) fn renderer(
-    scene: &impl PaintScene,
-    face: &RunFace<'_>,
-    transform: Affine,
-) -> Option<Box<DirectWriteText>> {
-    if !transform.is_finite() || transform.determinant() == 0.0 {
-        return None;
-    }
-    if face.installed.is_none()
-        || face.glyph_xform.is_some_and(|t| t != Affine::IDENTITY)
-        || face.embolden != Vec2::ZERO
-        || face.coords.iter().any(|&coord| coord != 0)
-    {
-        return None;
-    }
-    scene.renderer_specific_context()?.downcast().ok()
+pub(super) fn renderer(scene: &mut impl PaintScene, face: &RunFace<'_>, transform: Affine) -> bool {
+    transform.is_finite()
+        && transform.determinant() != 0.0
+        && face.installed.is_some()
+        && face.glyph_xform.is_none_or(|t| t == Affine::IDENTITY)
+        && face.embolden == Vec2::ZERO
+        && face.coords.iter().all(|&coord| coord == 0)
+        && anyrender_directwrite::supported(scene, face.font)
 }
 
 pub(super) fn draw(
@@ -32,20 +24,14 @@ pub(super) fn draw(
     color: Color,
     glyphs: impl Iterator<Item = Glyph> + Clone,
 ) -> bool {
-    let Some(native) = renderer(scene, face, transform) else {
-        return false;
-    };
-    native.draw(
-        scene,
-        GlyphRun {
+    renderer(scene, face, transform)
+        && GlyphRun {
             font: face.font,
             font_size: face.font_size,
             transform,
             color,
-        },
-        || source(face),
-        glyphs,
-    )
+        }
+        .draw(scene, || source(face), glyphs)
 }
 
 fn source(face: &RunFace<'_>) -> Option<FontSource> {

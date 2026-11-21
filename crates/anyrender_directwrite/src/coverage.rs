@@ -1,3 +1,4 @@
+use num_traits::ToPrimitive as _;
 use std::sync::LazyLock;
 
 fn linear(value: f32) -> f32 {
@@ -23,14 +24,18 @@ fn canonical(value: u8) -> u8 {
 
 static TABLES: LazyLock<[[u8; 256]; 8]> = LazyLock::new(|| {
     std::array::from_fn(|i| {
-        let src = f32::from(canonical((i as u8) << 5)) / 255.0;
+        let src = f32::from(canonical(u8::try_from(i).unwrap_or(0) << 5)) / 255.0;
         let dst = 1.0 - src;
         let (s, d) = (linear(src), linear(dst));
         std::array::from_fn(|v| {
-            let raw = v as f32 / 255.0;
+            let raw = f32::from(u8::try_from(v).unwrap_or(u8::MAX)) / 255.0;
             let alpha = raw + ((1.0 - raw) * d * raw);
             let corrected = (srgb(s * alpha + (1.0 - alpha) * d) - dst) / (src - dst);
-            (255.0 * corrected).round() as u8
+            (255.0 * corrected)
+                .round()
+                .clamp(0.0, 255.0)
+                .to_u8()
+                .unwrap_or(0)
         })
     })
 });
@@ -40,5 +45,5 @@ pub(super) fn table(r: u8, g: u8, b: u8) -> &'static [u8; 256] {
         + 183 * u32::from(canonical(g))
         + 19 * u32::from(canonical(b)))
         >> 8;
-    &TABLES[(luminance >> 5) as usize]
+    &TABLES[usize::try_from(luminance >> 5).unwrap_or(0)]
 }

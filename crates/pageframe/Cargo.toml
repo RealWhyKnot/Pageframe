@@ -51,6 +51,7 @@ winit = { workspace = true }
 [dev-dependencies]
 anyrender_vello_cpu = { workspace = true }
 pageframe-test-harness = { workspace = true }
+pollster = { workspace = true }
 
 [[example]]
 name = "counter"

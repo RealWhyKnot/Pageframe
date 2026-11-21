@@ -1,4 +1,4 @@
-use super::{MaskKey, coverage};
+use crate::{coverage, glyphs::MaskKey};
 use peniko::{Blob, Color, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageQuality};
 use std::{mem::ManuallyDrop, os::windows::ffi::OsStrExt as _, path::Path, sync::Arc};
 use windows::{
@@ -49,19 +49,20 @@ pub(super) struct Mask {
     pub(super) coverage: Box<[u8]>,
     width: u32,
     height: u32,
-    tinted: Option<([u8; 4], ImageBrush)>,
+    tinted: Vec<([u8; 4], ImageBrush)>,
 }
 
+const MAX_TINTS: usize = 8;
+
 impl Mask {
-    pub(super) fn image(&mut self, color: Color) -> Option<ImageBrush> {
+    pub(super) fn image(&mut self, color: Color) -> Option<(ImageBrush, usize)> {
         if self.coverage.is_empty() {
             return None;
         }
         let rgba = color.to_rgba8().to_u8_array();
-        if let Some((key, image)) = &self.tinted
-            && *key == rgba
-        {
-            return Some(image.clone());
+        if let Some(index) = self.tinted.iter().position(|(key, _)| *key == rgba) {
+            self.tinted[..=index].rotate_right(1);
+            return Some((self.tinted[0].1.clone(), 0));
         }
         let [r, g, b, alpha] = rgba;
         let table = coverage::table(r, g, b);
@@ -69,8 +70,8 @@ impl Mask {
             .coverage
             .iter()
             .flat_map(|&v| {
-                let a = (u16::from(table[v as usize]) * u16::from(alpha) + 127) / 255;
-                [r, g, b, a as u8]
+                let a = (u16::from(table[usize::from(v)]) * u16::from(alpha) + 127) / 255;
+                [r, g, b, u8::try_from(a).unwrap_or(u8::MAX)]
             })
             .collect();
         let image = ImageBrush::new(ImageData {
@@ -81,8 +82,14 @@ impl Mask {
             height: self.height,
         })
         .with_quality(ImageQuality::Low);
-        self.tinted = Some((rgba, image.clone()));
-        Some(image)
+        let added = if self.tinted.len() < MAX_TINTS {
+            self.coverage.len() * 4
+        } else {
+            self.tinted.pop();
+            0
+        };
+        self.tinted.insert(0, (rgba, image.clone()));
+        Some((image, added))
     }
 }
 
@@ -158,17 +165,19 @@ pub(super) fn mask(factory: &IDWriteFactory, face: &IDWriteFontFace, key: MaskKe
     } else {
         1
     };
-    let mut coverage = vec![0; pixels as usize * channels];
+    let count = usize::try_from(pixels).ok()?;
+    let mut coverage = vec![0; count * channels];
     if pixels > 0 {
         // SAFETY: The writable slice holds exactly the bytes required for the texture type and bounds.
         unsafe { analysis.CreateAlphaTexture(texture, &bounds, &mut coverage) }.ok()?;
         if channels == 3 {
-            for i in 0..pixels as usize {
+            for i in 0..count {
                 let rgb = &coverage[3 * i..3 * i + 3];
                 coverage[i] =
-                    ((u16::from(rgb[0]) + u16::from(rgb[1]) + u16::from(rgb[2])) / 3) as u8;
+                    u8::try_from((u16::from(rgb[0]) + u16::from(rgb[1]) + u16::from(rgb[2])) / 3)
+                        .unwrap_or(u8::MAX);
             }
-            coverage.truncate(pixels as usize);
+            coverage.truncate(count);
         }
     }
     Some(Mask {
@@ -177,6 +186,6 @@ pub(super) fn mask(factory: &IDWriteFactory, face: &IDWriteFontFace, key: MaskKe
         coverage: coverage.into_boxed_slice(),
         width,
         height,
-        tinted: None,
+        tinted: Vec::new(),
     })
 }

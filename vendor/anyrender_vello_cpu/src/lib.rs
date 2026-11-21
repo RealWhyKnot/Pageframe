@@ -1,8 +1,6 @@
 //! A [`vello_cpu`] backend for the [`anyrender`] 2D drawing abstraction
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-#[cfg(target_os = "windows")]
-pub mod directwrite;
 mod glyph_origin;
 mod image_cache;
 mod image_convert;

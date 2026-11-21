@@ -1,0 +1,17 @@
+[package]
+name = "anyrender_directwrite"
+description = "DirectWrite glyph rasterization shared by the anyrender Vello backends"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+edition = "2024"
+publish = false
+
+[target.'cfg(target_os = "windows")'.dependencies]
+anyrender = { git = "https://github.com/DioxusLabs/anyrender", branch = "main" }
+kurbo = "0.13.1"
+peniko = "0.6"
+num-traits = { workspace = true }
+windows = { version = "0.62", features = ["Win32_Graphics_DirectWrite"] }
+
+[lints]
+workspace = true
