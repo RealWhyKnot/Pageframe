@@ -3,7 +3,7 @@ use super::pixels::{Pixels, Span, device_space, fill_pixels};
 use super::ring::ring_path;
 use crate::color::{Color, ToColorColor as _};
 use anyrender::PaintScene;
-use kurbo::{Rect, RoundedRect, RoundedRectRadii, Shape as _};
+use kurbo::{Affine, Insets, Rect, RoundedRect, RoundedRectRadii, Shape as _, Vec2};
 use pageframe_dom::CopyStyleGetters;
 use pageframe_dom::local_name;
 use pageframe_dom::node::SpecialElementData;
@@ -21,6 +21,7 @@ const FOCUS_RING_OUTER: Color = Color::WHITE;
 const BORDER_WIDTH: f64 = 1.0;
 const BORDER_RADIUS: f64 = 2.0;
 const FOCUS_RING_WIDTH: f64 = 3.0;
+const MAX_DEVICE_ROWS: f64 = 4096.0;
 
 #[derive(Clone, Copy)]
 enum NativeFrame {
@@ -63,7 +64,6 @@ impl ElementCx<'_, '_> {
         let Some(kind) = self.native_frame() else {
             return;
         };
-        let (transform, rect) = device_space(self.transform, self.frame.border_box);
         let width = zoomed_width(BORDER_WIDTH, self.scale);
         let radius = native_radius(self.scale);
         let (background, border) = match (kind, self.node.is_disabled()) {
@@ -90,6 +90,7 @@ impl ElementCx<'_, '_> {
 
         let half = width / 2.0;
         if matches!(kind, NativeFrame::Button) {
+            let (transform, rect) = device_space(self.transform, self.frame.border_box);
             let outer = RoundedRect::from_rect(rect, radius + half);
             let inner = RoundedRect::from_rect(rect.inset(-width), (radius - half).max(0.0));
             scene.fill(Fill::NonZero, transform, background, None, &inner);
@@ -99,9 +100,14 @@ impl ElementCx<'_, '_> {
             return;
         }
 
-        let centre = rect.inset(-half);
-        let inner = rect.inset(-width);
-        let inner_radius = (radius - half).max(0.0);
+        let (transform, rect, axes) = frame_space(self.transform, self.frame.border_box);
+        let width = axes * width;
+        let half = width / 2.0;
+        let radius = axes * radius;
+        let centre = rect.inset(-Insets::uniform_xy(half.x, half.y));
+        let inner = rect.inset(-Insets::uniform_xy(width.x, width.y));
+        let outer_radius = radius + half;
+        let inner_radius = Vec2::new((radius.x - half.x).max(0.0), (radius.y - half.y).max(0.0));
         let mut fill = Pixels::new();
         let mut stroke = Pixels::new();
         let mut row = rect.y0.floor();
@@ -110,7 +116,7 @@ impl ElementCx<'_, '_> {
             if let Some((start, end)) = rrect_columns(centre, radius, y) {
                 fill.push(Span { row, start, end });
             }
-            if let Some((start, end)) = rrect_columns(rect, radius + half, y) {
+            if let Some((start, end)) = rrect_columns(rect, outer_radius, y) {
                 match rrect_columns(inner, inner_radius, y) {
                     Some((hole_start, hole_end)) => {
                         push_span(&mut stroke, row, start, hole_start.max(start));
@@ -210,19 +216,44 @@ fn native_radius(scale: f64) -> f64 {
     }
 }
 
-fn rrect_columns(rect: Rect, radius: f64, y: f64) -> Option<(f64, f64)> {
+fn frame_space(transform: Affine, rect: Rect) -> (Affine, Rect, Vec2) {
+    let [a, b, c, d, e, f] = transform.as_coeffs();
+    let device = Rect::new(
+        rect.x0 * a + e,
+        rect.y0 * d + f,
+        rect.x1 * a + e,
+        rect.y1 * d + f,
+    );
+    let is_axis_scale = b == 0.0 && c == 0.0 && a > 0.0 && d > 0.0;
+    if !is_axis_scale || !device.is_finite() || device.height() > MAX_DEVICE_ROWS {
+        let (transform, rect) = device_space(transform, rect);
+        return (transform, rect, Vec2::new(1.0, 1.0));
+    }
+    let (_, snapped) = device_space(Affine::IDENTITY, device);
+    (Affine::IDENTITY, snapped, Vec2::new(a, d))
+}
+
+fn rrect_columns(rect: Rect, radius: Vec2, y: f64) -> Option<(f64, f64)> {
     if rect.width() <= 0.0 || rect.height() <= 0.0 || y < rect.y0 || y >= rect.y1 {
         return None;
     }
-    let radius = radius.min(rect.width() / 2.0).min(rect.height() / 2.0);
-    let dy = if y < rect.y0 + radius {
-        rect.y0 + radius - y
-    } else if y > rect.y1 - radius {
-        y - (rect.y1 - radius)
+    let fit = (rect.width() / (2.0 * radius.x))
+        .min(rect.height() / (2.0 * radius.y))
+        .min(1.0);
+    let rx = radius.x * fit;
+    let ry = radius.y * fit;
+    let dy = if y < rect.y0 + ry {
+        rect.y0 + ry - y
+    } else if y > rect.y1 - ry {
+        y - (rect.y1 - ry)
     } else {
         0.0
     };
-    let dx = radius - (radius * radius - dy * dy).max(0.0).sqrt();
+    let dx = if ry > 0.0 {
+        rx - rx * (1.0 - (dy / ry).powi(2)).max(0.0).sqrt()
+    } else {
+        0.0
+    };
     let start = (rect.x0 + dx - 0.5).ceil();
     let end = (rect.x1 - dx - 0.5).ceil();
     (end > start).then_some((start, end))
