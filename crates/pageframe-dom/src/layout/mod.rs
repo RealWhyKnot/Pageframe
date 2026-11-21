@@ -44,6 +44,7 @@ pub(crate) mod replaced;
 pub(crate) mod round;
 pub(crate) mod ruby;
 pub(crate) mod table;
+mod table_parts;
 pub(crate) mod text_transform;
 #[cfg(feature = "writing-mode")]
 pub(crate) mod writing_mode;
@@ -945,6 +946,7 @@ impl LayoutPassState<'_> {
                     table_wrapper.collapse_rows(&grid_inputs, &mut output);
                     table_wrapper.place_captions(&inputs, &mut output);
                     table_wrapper.offset_cells(dom_node_id(node_id), &grid_inputs);
+                    table_wrapper.place_rows(dom_node_id(node_id), &grid_inputs);
 
                     // Absolutely positioned children take no part in the table grid. Their
                     // static position is the top-left of the table's content box.

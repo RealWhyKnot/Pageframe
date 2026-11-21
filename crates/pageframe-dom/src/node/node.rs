@@ -2248,6 +2248,37 @@ impl Node {
         self.oof_containing_block
             .get()
             .or_else(|| self.layout_parent.get())
+            .or_else(|| self.table_part_root())
+    }
+
+    fn is_table_track_part(&self) -> bool {
+        self.display_style().is_some_and(|display| {
+            matches!(
+                display,
+                StyloDisplay::TableRow
+                    | StyloDisplay::TableRowGroup
+                    | StyloDisplay::TableHeaderGroup
+                    | StyloDisplay::TableFooterGroup
+            )
+        })
+    }
+
+    fn table_part_root(&self) -> Option<NodeId> {
+        if !self.is_table_track_part() {
+            return None;
+        }
+        let mut ancestor = self.parent;
+        while let Some(id) = ancestor {
+            let node = self.with(id);
+            if node.flags.is_table_root() {
+                return Some(id);
+            }
+            if !node.is_table_track_part() {
+                return None;
+            }
+            ancestor = node.parent;
+        }
+        None
     }
 
     /// Computes the Document-relative coordinates of the `Node`
@@ -2431,7 +2462,9 @@ impl Node {
         let target = self
             .offset_parent()
             .filter(|parent| !parent.is_static_body());
-        if let Some(span) = target.filter(|parent| parent.is_non_atomic_inline()) {
+        if let Some(span) =
+            target.filter(|parent| parent.is_non_atomic_inline() || parent.is_table_track_part())
+        {
             let own = self.offset_from(None);
             let base = span.offset_from(None);
             return crate::util::Point {

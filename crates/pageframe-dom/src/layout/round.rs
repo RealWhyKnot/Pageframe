@@ -90,6 +90,7 @@ fn round_inner(
         let child = tree.get_hoisted_child_id(node_id, index);
         round_inner(tree, child, snap, position.x, position.y);
     }
+    tree.snap_table_parts(node_id, |layout| layout, position, snap);
 }
 
 pub(crate) fn snap_layout(

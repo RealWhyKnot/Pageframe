@@ -273,6 +273,8 @@ impl LayoutPassState<'_> {
             let child = self.get_hoisted_child_id(node_id, index);
             self.physicalise_and_round_inner(child, wm, size, pos, snap);
         }
+        let physical = |layout| physical_layout(layout, wm, size, false);
+        self.snap_table_parts(node_id, physical, pos, snap);
     }
 }
 
