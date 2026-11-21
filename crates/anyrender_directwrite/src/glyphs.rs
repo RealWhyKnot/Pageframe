@@ -7,6 +7,7 @@ use std::{
     cell::RefCell,
     collections::{HashMap, hash_map::Entry},
     path::Path,
+    rc::Rc,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -18,18 +19,26 @@ const MAX_FACES: usize = 128;
 const MAX_MASKS: usize = 4096;
 const MAX_BYTES: usize = 16 << 20;
 
+const SYNTHETIC_SKEW: Affine = Affine::new([1.0, 0.0, -0.25, 1.0, 0.0, 0.0]);
+
 pub struct GlyphRun<'a> {
     pub font: &'a FontData,
     pub font_size: f32,
     pub transform: Affine,
     pub color: Color,
+    pub coords: &'a [i16],
+    pub bold: bool,
+    pub oblique: bool,
 }
 
 pub struct GlyphPaint {
     color: Color,
+    face: u64,
     probe: bool,
     painted: AtomicBool,
 }
+
+pub type Axes = Box<dyn Fn(&[i16]) -> Vec<([u8; 4], f32)>>;
 
 pub struct FontSource {
     pub path: Option<Arc<Path>>,
@@ -37,6 +46,7 @@ pub struct FontSource {
     pub ranges: Vec<(u16, u16)>,
     pub strikes: Vec<u8>,
     pub hinted: bool,
+    pub axes: Axes,
 }
 
 impl FontSource {
@@ -106,7 +116,7 @@ impl FontSource {
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct MaskKey {
-    face: (u64, u32),
+    face: u64,
     pub(crate) ppem: u32,
     pub(crate) matrix: [u32; 4],
     pub(crate) gdi_measure: bool,
@@ -115,15 +125,26 @@ pub(crate) struct MaskKey {
     pub(crate) quarters: [u8; 2],
 }
 
-struct CachedFace {
-    face: IDWriteFontFace,
+struct Base {
+    file: IDWriteFontFile,
     profile: FontSource,
     _memory_file: Option<Arc<memory::MemoryFile>>,
 }
 
+struct CachedFace {
+    face: IDWriteFontFace,
+    base: Rc<Base>,
+    skew: bool,
+}
+
+type FaceKey = (u64, u32, Box<[i16]>, i32, bool);
+
 struct Cache {
     factory: IDWriteFactory,
-    faces: HashMap<(u64, u32), Option<CachedFace>>,
+    bases: HashMap<(u64, u32), Option<Rc<Base>>>,
+    faces: HashMap<FaceKey, Option<u64>>,
+    loaded: HashMap<u64, CachedFace>,
+    serial: u64,
     masks: HashMap<MaskKey, raster::Mask>,
     bytes: usize,
 }
@@ -131,10 +152,13 @@ struct Cache {
 thread_local! {
     static CACHE: RefCell<Option<Cache>> = {
         // SAFETY: The binding supplies the IDWriteFactory interface ID and writable storage for the returned pointer.
-        let factory = unsafe { DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED) };
+        let factory = unsafe { DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED) };
         RefCell::new(factory.ok().map(|factory| Cache {
             factory,
+            bases: HashMap::new(),
             faces: HashMap::new(),
+            loaded: HashMap::new(),
+            serial: 0,
             masks: HashMap::new(),
             bytes: 0,
         }))
@@ -144,6 +168,7 @@ thread_local! {
 pub fn supported(scene: &mut impl PaintScene, font: &FontData) -> bool {
     let paint = GlyphPaint {
         color: Color::TRANSPARENT,
+        face: 0,
         probe: true,
         painted: AtomicBool::new(false),
     };
@@ -165,40 +190,12 @@ impl GlyphRun<'_> {
         source: impl FnOnce() -> Option<FontSource>,
         glyphs: impl Iterator<Item = Glyph> + Clone,
     ) -> bool {
-        let eligible = CACHE.with_borrow_mut(|cache| {
-            let Some(cache) = cache.as_mut() else {
-                return false;
-            };
-            let face_key = (self.font.data.id(), self.font.index);
-            if cache.faces.len() >= MAX_FACES && !cache.faces.contains_key(&face_key) {
-                cache.faces.clear();
-            }
-            cache
-                .faces
-                .entry(face_key)
-                .or_insert_with(|| {
-                    let profile = source()?;
-                    let (file, memory_file) = match &profile.path {
-                        Some(path) => (raster::local_file(&cache.factory, path)?, None),
-                        None => {
-                            let memory = memory::file(&cache.factory, &self.font.data)?;
-                            (memory.file.clone(), Some(memory))
-                        }
-                    };
-                    let face = raster::open(&cache.factory, file, self.font.index)?;
-                    Some(CachedFace {
-                        face,
-                        profile,
-                        _memory_file: memory_file,
-                    })
-                })
-                .is_some()
-        });
-        if !eligible {
+        let Some(face) = CACHE.with_borrow_mut(|cache| self.face(cache.as_mut()?, source)) else {
             return false;
-        }
+        };
         let paint = GlyphPaint {
             color: self.color,
+            face,
             probe: false,
             painted: AtomicBool::new(false),
         };
@@ -211,6 +208,79 @@ impl GlyphRun<'_> {
             glyphs,
         );
         paint.painted.into_inner()
+    }
+
+    fn face(&self, cache: &mut Cache, source: impl FnOnce() -> Option<FontSource>) -> Option<u64> {
+        let base_key = (self.font.data.id(), self.font.index);
+        if cache.bases.len() >= MAX_FACES && !cache.bases.contains_key(&base_key) {
+            cache.bases.clear();
+        }
+        let base = cache
+            .bases
+            .entry(base_key)
+            .or_insert_with(|| {
+                let profile = source()?;
+                let (file, memory_file) = match &profile.path {
+                    Some(path) => (raster::local_file(&cache.factory, path)?, None),
+                    None => {
+                        let memory = memory::file(&cache.factory, &self.font.data)?;
+                        (memory.file.clone(), Some(memory))
+                    }
+                };
+                Some(Rc::new(Base {
+                    file,
+                    profile,
+                    _memory_file: memory_file,
+                }))
+            })
+            .clone()?;
+        let bitmap = !base.profile.strikes.is_empty();
+        if self.bold && !bitmap {
+            return None;
+        }
+        let mut simulations = DWRITE_FONT_SIMULATIONS_NONE;
+        if self.bold {
+            simulations |= DWRITE_FONT_SIMULATIONS_BOLD;
+        }
+        if self.oblique && bitmap {
+            simulations |= DWRITE_FONT_SIMULATIONS_OBLIQUE;
+        }
+        let skew = self.oblique && !bitmap;
+        let key = (
+            base_key.0,
+            base_key.1,
+            Box::from(self.coords),
+            simulations.0,
+            skew,
+        );
+        if cache.faces.len() >= MAX_FACES && !cache.faces.contains_key(&key) {
+            cache.faces.clear();
+            cache.loaded.clear();
+        }
+        match cache.faces.entry(key) {
+            Entry::Occupied(entry) => *entry.get(),
+            Entry::Vacant(entry) => {
+                let axes = if self.coords.iter().any(|&coord| coord != 0) {
+                    (base.profile.axes)(self.coords)
+                } else {
+                    Vec::new()
+                };
+                let face = raster::open(
+                    &cache.factory,
+                    base.file.clone(),
+                    self.font.index,
+                    simulations,
+                    &axes,
+                );
+                *entry.insert(face.map(|face| {
+                    cache.serial += 1;
+                    cache
+                        .loaded
+                        .insert(cache.serial, CachedFace { face, base, skew });
+                    cache.serial
+                }))
+            }
+        }
     }
 }
 
@@ -241,44 +311,49 @@ impl GlyphPaint {
     pub fn draw(
         &self,
         scene: &mut impl PaintScene,
-        font: &FontData,
+        _font: &FontData,
         size: f32,
         transform: Affine,
         glyphs: impl Iterator<Item = Glyph>,
     ) {
-        let painted = self.probe || paint(scene, font, size, transform, self.color, glyphs);
+        let painted = self.probe || paint(scene, self.face, size, transform, self.color, glyphs);
         self.painted.store(painted, Ordering::Relaxed);
     }
 }
 
 fn paint(
     scene: &mut impl PaintScene,
-    font: &FontData,
+    face: u64,
     font_size: f32,
     transform: Affine,
     color: Color,
     glyphs: impl Iterator<Item = Glyph>,
 ) -> bool {
     let [sx, b, c, sy, tx, ty] = transform.as_coeffs();
-    let [xx, yx, xy, yy] =
-        [sx, b, c, sy].map(|v| (v.to_f32().unwrap_or(f32::NAN) * 1024.0 + 0.5).floor() / 1024.0);
-    let baseline = xx.hypot(yx);
-    let vertical = if yx == 0.0 {
-        yy.abs()
-    } else {
-        ((xx / baseline) * yy - (yx / baseline) * xy).abs()
-    };
-    let size = font_size * vertical;
-    if !size.is_finite() || size <= 0.0 || !baseline.is_finite() || baseline <= 0.0 {
-        return false;
-    }
-    let matrix = [xx, yx, xy, yy].map(|v| (v / vertical).to_bits());
-    let aligned = (yx == 0.0 && xy == 0.0) || (xx == 0.0 && yy == 0.0);
     let images = CACHE.with_borrow_mut(|cache| {
         let cache = cache.as_mut()?;
-        let face_key = (font.data.id(), font.index);
-        let cached = cache.faces.get(&face_key)?.as_ref()?;
-        let (mode, ppem, gdi_measure) = cached.profile.rendering(size, aligned);
+        let cached = cache.loaded.get(&face)?;
+        let outline = if cached.skew {
+            transform * SYNTHETIC_SKEW
+        } else {
+            transform
+        };
+        let [ox, oyx, oxy, oy, _, _] = outline.as_coeffs();
+        let [xx, yx, xy, yy] = [ox, oyx, oxy, oy]
+            .map(|v| (v.to_f32().unwrap_or(f32::NAN) * 1024.0 + 0.5).floor() / 1024.0);
+        let baseline = xx.hypot(yx);
+        let vertical = if yx == 0.0 {
+            yy.abs()
+        } else {
+            ((xx / baseline) * yy - (yx / baseline) * xy).abs()
+        };
+        let size = font_size * vertical;
+        if !size.is_finite() || size <= 0.0 || !baseline.is_finite() || baseline <= 0.0 {
+            return None;
+        }
+        let matrix = [xx, yx, xy, yy].map(|v| (v / vertical).to_bits());
+        let aligned = (yx == 0.0 && xy == 0.0) || (xx == 0.0 && yy == 0.0);
+        let (mode, ppem, gdi_measure) = cached.base.profile.rendering(size, aligned);
         let mut images = Vec::new();
         for glyph in glyphs {
             let gx = f64::from(glyph.x);
@@ -299,7 +374,7 @@ fn paint(
                 return None;
             }
             let key = MaskKey {
-                face: face_key,
+                face,
                 ppem: ppem.to_bits(),
                 matrix,
                 gdi_measure,

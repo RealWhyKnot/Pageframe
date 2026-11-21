@@ -88,7 +88,13 @@ fn arial() -> (FontData, Arc<Path>) {
     (FontData::new(Blob::new(Arc::new(bytes)), 0), path)
 }
 
-fn frame(scene: &mut Recorder, font: &FontData, path: &Arc<Path>, colors: &[Color]) -> Vec<u64> {
+fn frame(
+    scene: &mut Recorder,
+    font: &FontData,
+    path: Option<&Arc<Path>>,
+    colors: &[Color],
+    oblique: bool,
+) -> Vec<u64> {
     scene.reset();
     for (row, &color) in (0u8..).zip(colors) {
         let glyphs = (36..44).map(|id| Glyph {
@@ -101,14 +107,18 @@ fn frame(scene: &mut Recorder, font: &FontData, path: &Arc<Path>, colors: &[Colo
             font_size: 16.0,
             transform: Affine::translate((4.0, 20.0 + f64::from(row) * 20.0)),
             color,
+            coords: &[],
+            bold: false,
+            oblique,
         };
         let source = || {
             Some(FontSource {
-                path: Some(Arc::clone(path)),
+                path: path.map(Arc::clone),
                 gasp_version: None,
                 ranges: Vec::new(),
                 strikes: Vec::new(),
                 hinted: true,
+                axes: Box::new(|_| Vec::new()),
             })
         };
         assert!(run.draw(scene, source, glyphs), "row {row} is painted");
@@ -137,10 +147,44 @@ fn repeated_frames_reuse_every_glyph_image() {
         Color::from_rgb8(220, 120, 0),
     ];
     let mut scene = Recorder::default();
-    let first = frame(&mut scene, &font, &path, &colors);
-    let second = frame(&mut scene, &font, &path, &colors);
+    let first = frame(&mut scene, &font, Some(&path), &colors, false);
+    let second = frame(&mut scene, &font, Some(&path), &colors, false);
     assert_eq!(first.len(), colors.len() * 8);
     assert_eq!(first, second);
     assert_eq!(first[..8], first[16..24]);
     assert!(first[..8].iter().all(|id| !first[8..16].contains(id)));
+}
+
+#[test]
+fn synthetic_oblique_runs_get_their_own_glyph_images() {
+    let (font, path) = arial();
+    let mut scene = Recorder::default();
+    let upright = frame(&mut scene, &font, Some(&path), &[Color::BLACK], false);
+    let oblique = frame(&mut scene, &font, Some(&path), &[Color::BLACK], true);
+    assert!(upright.iter().all(|id| !oblique.contains(id)));
+}
+
+#[test]
+fn memory_fonts_paint_on_every_thread() {
+    let (font, _) = arial();
+    let first = frame(
+        &mut Recorder::default(),
+        &font,
+        None,
+        &[Color::BLACK],
+        false,
+    );
+    let second = std::thread::spawn(move || {
+        frame(
+            &mut Recorder::default(),
+            &font,
+            None,
+            &[Color::BLACK],
+            false,
+        )
+    })
+    .join()
+    .expect("render thread finishes");
+    assert_eq!(first.len(), 8);
+    assert_eq!(second.len(), 8);
 }

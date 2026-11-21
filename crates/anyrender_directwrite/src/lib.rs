@@ -10,4 +10,4 @@ mod raster;
 
 pub use baseline::hinted_baseline;
 #[cfg(target_os = "windows")]
-pub use glyphs::{FontSource, GlyphPaint, GlyphRun, supported};
+pub use glyphs::{Axes, FontSource, GlyphPaint, GlyphRun, supported};

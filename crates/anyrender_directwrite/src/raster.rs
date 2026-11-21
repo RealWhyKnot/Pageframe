@@ -3,7 +3,7 @@ use peniko::{Blob, Color, ImageAlphaType, ImageBrush, ImageData, ImageFormat, Im
 use std::{mem::ManuallyDrop, os::windows::ffi::OsStrExt as _, path::Path, sync::Arc};
 use windows::{
     Win32::Graphics::DirectWrite::*,
-    core::{BOOL, PCWSTR},
+    core::{BOOL, Interface as _, PCWSTR},
 };
 
 pub(super) fn local_file(factory: &IDWriteFactory, path: &Path) -> Option<IDWriteFontFile> {
@@ -16,9 +16,11 @@ pub(super) fn open(
     factory: &IDWriteFactory,
     file: IDWriteFontFile,
     index: u32,
+    simulations: DWRITE_FONT_SIMULATIONS,
+    axes: &[([u8; 4], f32)],
 ) -> Option<IDWriteFontFace> {
     // SAFETY: The outputs and font file remain live during analysis and the face index is checked before use.
-    unsafe {
+    let face = unsafe {
         let mut supported = BOOL::default();
         let mut face_type = DWRITE_FONT_FACE_TYPE_UNKNOWN;
         let mut count = 0;
@@ -37,8 +39,39 @@ pub(super) fn open(
                 face_type,
                 &[Some(file)],
                 index,
-                DWRITE_FONT_SIMULATIONS_NONE,
+                if axes.is_empty() {
+                    simulations
+                } else {
+                    DWRITE_FONT_SIMULATIONS_NONE
+                },
             )
+            .ok()?
+    };
+    if axes.is_empty() {
+        return Some(face);
+    }
+    let face: IDWriteFontFace5 = face.cast().ok()?;
+    // SAFETY: The face is live, the axis buffer is sized from the face's own axis count, and the resource outlives the calls.
+    unsafe {
+        if !face.HasVariations().as_bool() {
+            return None;
+        }
+        let resource = face.GetFontResource().ok()?;
+        let count = usize::try_from(face.GetFontAxisValueCount()).ok()?;
+        let mut values = vec![DWRITE_FONT_AXIS_VALUE::default(); count];
+        resource.GetDefaultFontAxisValues(&mut values).ok()?;
+        for value in &mut values {
+            if let Some(&(_, user)) = axes
+                .iter()
+                .find(|(tag, _)| DWRITE_FONT_AXIS_TAG(u32::from_le_bytes(*tag)) == value.axisTag)
+            {
+                value.value = user;
+            }
+        }
+        resource
+            .CreateFontFace(simulations, &values)
+            .ok()?
+            .cast()
             .ok()
     }
 }

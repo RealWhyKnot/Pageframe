@@ -95,7 +95,7 @@ pub(crate) fn stroke_text<'a>(
                 let synthesis = run.synthesis();
                 let skew = synthesis
                     .skew()
-                    .map(|angle| Affine::skew(angle.to_radians().tan() as f64, 0.0));
+                    .map(|angle| Affine::skew(synthetic_skew(angle), 0.0));
                 let glyph_xform = if run.is_upright() {
                     Some(UPRIGHT_GLYPH * skew.unwrap_or(Affine::IDENTITY))
                 } else {
@@ -150,6 +150,8 @@ pub(crate) fn stroke_text<'a>(
 
                 let embolden = if FONT_EMBOLDEN_ENABLED {
                     font_embolden(font_size as f64, fill_color, transform)
+                } else if cfg!(target_os = "windows") && synthesis.embolden() {
+                    synthetic_bold(font_size as f64)
                 } else {
                     kurbo::Vec2::default()
                 };
@@ -187,7 +189,7 @@ pub(crate) fn stroke_text<'a>(
 
                 let face = RunFace {
                     #[cfg(target_os = "windows")]
-                    installed: (!synthesis.embolden() && !disclosure).then_some(doc),
+                    installed: (!disclosure).then_some(doc),
                     font,
                     font_size,
                     coords: normalized_coords,
@@ -389,6 +391,24 @@ pub(crate) fn stroke_text<'a>(
         );
     }
 }
+fn synthetic_skew(angle: f32) -> f64 {
+    if cfg!(target_os = "windows") {
+        0.25
+    } else {
+        f64::from(angle).to_radians().tan()
+    }
+}
+
+fn synthetic_bold(font_size: f64) -> kurbo::Vec2 {
+    let ratio = 1.0 / 24.0 - (1.0 / 24.0 - 1.0 / 32.0) * ((font_size - 9.0) / 27.0).clamp(0.0, 1.0);
+    let side = font_size * ratio / 2.0;
+    if side.is_finite() && side > 0.0 {
+        kurbo::Vec2::new(side, side)
+    } else {
+        kurbo::Vec2::default()
+    }
+}
+
 /// Approximates macOS font smoothing (stem dilation). CoreGraphics dilates each side by an amount
 /// in device pixels that grows with the device ppem up to 0.3px (fitted to Safari's ink at 9-72px
 /// and 1x-3x scale), and keeps dilating at large sizes, so there is no ppem cutoff. glifo applies
