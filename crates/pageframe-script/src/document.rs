@@ -83,6 +83,7 @@ impl ScriptDocument {
         let fetcher: Rc<RefCell<Box<dyn ScriptFetcher>>> =
             Rc::new(RefCell::new(Box::new(DefaultScriptFetcher)));
         let runtime = ScriptRuntime::new(Rc::clone(&inner), base_url.as_ref(), Rc::clone(&fetcher));
+        let waker = Arc::clone(&runtime.ctx.state.borrow().net.waker);
 
         Self {
             inner,
@@ -90,7 +91,7 @@ impl ScriptDocument {
             base_url,
             fetcher,
             scripts_executed: false,
-            waker: Arc::new(Mutex::new(None)),
+            waker,
             timer_thread: None,
             timer_thread_enabled: true,
         }
@@ -237,6 +238,10 @@ impl ScriptDocument {
         self.runtime.eval(code, "<eval>");
         self.request_redraw();
         self.arm_timer_thread();
+    }
+
+    pub fn pending_network_requests(&self) -> usize {
+        self.runtime.pending_network_requests()
     }
 
     /// Drain messages sent from JavaScript via the global
@@ -440,6 +445,7 @@ impl Document for ScriptDocument {
             ran = true;
         }
 
+        ran |= self.runtime.deliver_network();
         ran |= self.runtime.run_due_timers();
         self.arm_timer_thread();
         ran

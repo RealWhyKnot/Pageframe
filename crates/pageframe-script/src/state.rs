@@ -98,6 +98,7 @@ pub(crate) struct RuntimeState {
     pub base_url: Option<Url>,
     /// Fetcher backing `fetch()` (shared with `<script src>` and module loading)
     pub fetcher: Option<Rc<RefCell<Box<dyn ScriptFetcher>>>>,
+    pub net: crate::net::NetQueue,
 }
 
 /// Maximum number of errors stored in [`RuntimeState::uncaught_errors`] between

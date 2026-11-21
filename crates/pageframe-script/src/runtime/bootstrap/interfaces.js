@@ -36,9 +36,6 @@
 
     for (const name of [
         "EventTarget", "CharacterData", "Text", "Comment", "DocumentFragment",
-        "HTMLInputElement", "HTMLTextAreaElement", "HTMLSelectElement",
-        "HTMLButtonElement", "HTMLAnchorElement", "HTMLIFrameElement",
-        "HTMLImageElement", "SVGElement",
         "Event", "CustomEvent", "UIEvent", "MouseEvent", "PointerEvent",
         "KeyboardEvent", "InputEvent", "FocusEvent",
     ]) {

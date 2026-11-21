@@ -37,7 +37,7 @@ pub(crate) fn init_document_proto(proto: &JsObject, context: &mut Context) {
     define_accessor(proto, "head", Some(head), None, context);
     define_accessor(proto, "activeElement", Some(active_element), None, context);
     define_accessor(proto, "defaultView", Some(default_view), None, context);
-    define_accessor(proto, "title", Some(title), None, context);
+    define_accessor(proto, "title", Some(title), Some(set_title), context);
     define_accessor(proto, "readyState", Some(ready_state), None, context);
     define_accessor(proto, "styleSheets", Some(style_sheets), None, context);
     define_accessor(
@@ -168,6 +168,28 @@ fn title(this: &JsValue, _: &[JsValue], context: &mut Context) -> JsResult<JsVal
         .map(|node| node.text_content())
         .unwrap_or_default();
     Ok(super::js_str(&title))
+}
+
+fn set_title(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let ctx = dom_ctx(context)?;
+    let _ = this_node_id(this)?;
+    let existing = ctx.doc.borrow().find_title_node().map(|node| node.id);
+    let title_id = match existing {
+        Some(id) => id,
+        None => {
+            let head_id = ctx.doc.borrow().find_head_node().map(|node| node.id);
+            let Some(head_id) = head_id else {
+                return Ok(JsValue::undefined());
+            };
+            let mut doc = ctx.doc.borrow_mut();
+            let mut mutator = doc.mutate();
+            let id = mutator.create_element(qual_name("title"), Vec::new());
+            mutator.append_children(head_id, &[id]);
+            id
+        }
+    };
+    let wrapper: JsValue = node_wrapper(&ctx, title_id, context).into();
+    super::node::set_text_content(&wrapper, args, context)
 }
 
 fn ready_state(this: &JsValue, _: &[JsValue], context: &mut Context) -> JsResult<JsValue> {

@@ -5,7 +5,7 @@ use boa_engine::property::Attribute;
 use boa_engine::{Context, JsResult, JsString, JsValue, NativeFunction, js_string};
 use url::Url;
 
-use super::{css, events, fetch, timers, window};
+use super::{css, events, net, timers, window};
 use crate::dom::node_wrapper;
 use crate::state::DomCtx;
 
@@ -21,11 +21,17 @@ pub(super) const BOOTSTRAP_JS: &str = concat!(
     "\n",
     include_str!("bootstrap/fetch.js"),
     "\n",
+    include_str!("bootstrap/event_source.js"),
+    "\n",
     include_str!("bootstrap/dom_exception.js"),
     "\n",
     include_str!("bootstrap/style.js"),
     "\n",
     include_str!("bootstrap/interfaces.js"),
+    "\n",
+    include_str!("bootstrap/element_interfaces.js"),
+    "\n",
+    include_str!("bootstrap/observers.js"),
     "\n",
     include_str!("bootstrap/css.js"),
     "\n",
@@ -101,8 +107,19 @@ pub(super) fn register_globals(ctx: &DomCtx, base_url: Option<&Url>, context: &m
     // Embedder message channel (see `ScriptDocument::take_messages`)
     register_global_fn(context, "__pageframe_send_message", 1, window::send_message);
 
-    // Synchronous resource fetch backing the bootstrap's `fetch()`
-    register_global_fn(context, "__pageframe_fetch_sync", 1, fetch::fetch_sync);
+    register_global_fn(context, "__pageframe_fetch_start", 4, net::fetch_start);
+    register_global_fn(
+        context,
+        "__pageframe_event_source_open",
+        2,
+        net::event_source_open,
+    );
+    register_global_fn(
+        context,
+        "__pageframe_event_source_close",
+        1,
+        net::event_source_close,
+    );
 
     // CSS property support check, used by the style Proxy's `has` trap
     register_global_fn(

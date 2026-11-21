@@ -30,14 +30,19 @@
 #![allow(clippy::collapsible_if)]
 
 mod clock;
+mod cookies;
 mod document;
 mod dom;
 mod event_handler;
 mod fetch;
+mod http;
+mod http_net;
 mod inner_text;
+mod net;
 mod runtime;
 mod state;
 mod timers;
 
 pub use document::ScriptDocument;
 pub use fetch::{DefaultScriptFetcher, FetchError, ScriptFetcher, document_may_load};
+pub use http::{HttpClient, HttpRequest, HttpResponse};

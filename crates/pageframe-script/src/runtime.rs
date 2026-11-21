@@ -21,8 +21,8 @@ use modules::PageframeModuleLoader;
 mod bootstrap;
 mod css;
 mod events;
-mod fetch;
 mod modules;
+mod net;
 mod timers;
 mod window;
 

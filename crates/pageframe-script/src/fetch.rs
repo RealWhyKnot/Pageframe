@@ -4,6 +4,8 @@ use std::fmt;
 
 use url::Url;
 
+use crate::http::{HttpClient, HttpRequest, HttpResponse};
+
 #[derive(Debug)]
 pub enum FetchError {
     UnsupportedScheme(String),
@@ -12,6 +14,7 @@ pub enum FetchError {
     Forbidden(Url),
     Io(std::io::Error),
     InvalidData(String),
+    Status(u16, Url),
 }
 
 impl fmt::Display for FetchError {
@@ -23,6 +26,7 @@ impl fmt::Display for FetchError {
             Self::Forbidden(url) => write!(f, "not allowed to load {url} from this document"),
             Self::Io(error) => write!(f, "IO error fetching script: {error}"),
             Self::InvalidData(msg) => write!(f, "invalid script data: {msg}"),
+            Self::Status(status, url) => write!(f, "{url} answered with HTTP {status}"),
         }
     }
 }
@@ -35,6 +39,22 @@ impl std::error::Error for FetchError {}
 /// scripts to execute in document order, blocking parsing.
 pub trait ScriptFetcher: 'static {
     fn fetch(&self, url: &Url) -> Result<String, FetchError>;
+
+    fn request(&self, request: &HttpRequest) -> Result<HttpResponse, FetchError> {
+        if !matches!(request.method.as_str(), "GET" | "HEAD") {
+            return Err(FetchError::UnsupportedScheme(format!(
+                "{} {}",
+                request.method,
+                request.url.scheme()
+            )));
+        }
+        let text = self.fetch(&request.url)?;
+        Ok(HttpResponse::ok(request.url.clone(), text.into_bytes()))
+    }
+
+    fn http_client(&self) -> Option<HttpClient> {
+        None
+    }
 }
 
 /// Whether a document at `document_url` may load `url` (via `<script src>`,

@@ -1,6 +1,89 @@
-    // `fetch()`: a minimal Fetch API on top of the synchronous `__pageframe_fetch_sync`
-    // native (which goes through the document's ScriptFetcher). Bodies are
-    // text-only; `Headers` is a simple case-insensitive map.
+    const netCallbacks = new Map();
+    globalThis.__pageframe_net_deliver = function (id, kind, ...rest) {
+        const callback = netCallbacks.get(id);
+        if (callback) callback(kind, ...rest);
+    };
+    globalThis.__pageframe_net_listen = function (id, callback) {
+        netCallbacks.set(id, callback);
+    };
+    globalThis.__pageframe_net_forget = function (id) {
+        netCallbacks.delete(id);
+    };
+
+    if (typeof globalThis.AbortSignal !== "function") {
+        const signalState = new WeakMap();
+        const abortSignal = (signal, reason) => {
+            const state = signalState.get(signal);
+            if (state.aborted) return;
+            state.aborted = true;
+            state.reason = reason;
+            signal.dispatchEvent({ type: "abort", target: signal, currentTarget: signal });
+        };
+        class AbortSignal {
+            onabort = null;
+            constructor() {
+                signalState.set(this, { aborted: false, reason: undefined, listeners: [] });
+            }
+            get aborted() { return signalState.get(this).aborted; }
+            get reason() { return signalState.get(this).reason; }
+            throwIfAborted() {
+                if (this.aborted) throw this.reason;
+            }
+            addEventListener(type, callback, options) {
+                if (type !== "abort" || typeof callback !== "function") return;
+                const once = typeof options === "object" && options !== null && options.once === true;
+                signalState.get(this).listeners.push({ callback, once });
+            }
+            removeEventListener(type, callback) {
+                if (type !== "abort") return;
+                const state = signalState.get(this);
+                state.listeners = state.listeners.filter((entry) => entry.callback !== callback);
+            }
+            dispatchEvent(event) {
+                const state = signalState.get(this);
+                const entries = state.listeners;
+                state.listeners = entries.filter((entry) => !entry.once);
+                if (typeof this.onabort === "function") this.onabort.call(this, event);
+                for (const entry of entries) entry.callback.call(this, event);
+                return true;
+            }
+            static abort(reason) {
+                const controller = new AbortController();
+                controller.abort(reason);
+                return controller.signal;
+            }
+            static timeout(ms) {
+                const controller = new AbortController();
+                setTimeout(() => {
+                    controller.abort(new DOMException("The operation timed out.", "TimeoutError"));
+                }, Number(ms) || 0);
+                return controller.signal;
+            }
+            static any(signals) {
+                const controller = new AbortController();
+                for (const signal of signals) {
+                    if (signal.aborted) {
+                        controller.abort(signal.reason);
+                        break;
+                    }
+                    signal.addEventListener("abort", () => controller.abort(signal.reason), { once: true });
+                }
+                return controller.signal;
+            }
+        }
+        class AbortController {
+            #signal = new AbortSignal();
+            get signal() { return this.#signal; }
+            abort(reason) {
+                abortSignal(this.#signal, reason === undefined
+                    ? new DOMException("signal is aborted without reason", "AbortError")
+                    : reason);
+            }
+        }
+        globalThis.AbortSignal = AbortSignal;
+        globalThis.AbortController = AbortController;
+    }
+
     if (typeof globalThis.fetch !== "function") {
         class Headers {
             #map = new Map();
@@ -44,7 +127,7 @@
                     headers: { value: new Headers(init.headers), enumerable: true },
                     url: { value: init.url === undefined ? "" : String(init.url), enumerable: true },
                     type: { value: "basic", enumerable: true },
-                    redirected: { value: false, enumerable: true },
+                    redirected: { value: init.redirected === true, enumerable: true },
                 });
             }
             get ok() { return this.status >= 200 && this.status <= 299; }
@@ -63,9 +146,37 @@
                 if (this.#bodyUsed) throw new TypeError("Response body is already used");
                 return new Response(this.#body, {
                     status: this.status, statusText: this.statusText, headers: this.headers, url: this.url,
+                    redirected: this.redirected,
                 });
             }
+            static json(data, init = {}) {
+                const headers = new Headers(init.headers);
+                if (!headers.has("content-type")) headers.set("content-type", "application/json");
+                return new Response(JSON.stringify(data), { ...init, headers });
+            }
         }
+
+        const bodyText = (body) => {
+            if (body === undefined || body === null) return "";
+            if (typeof body === "string") return body;
+            if (body instanceof URLSearchParams) return body.toString();
+            if (body instanceof ArrayBuffer) return new TextDecoder().decode(new Uint8Array(body));
+            if (ArrayBuffer.isView(body)) {
+                return new TextDecoder().decode(new Uint8Array(body.buffer, body.byteOffset, body.byteLength));
+            }
+            return String(body);
+        };
+
+        const toResponse = (method, [status, statusText, url, redirected, headers, text]) => {
+            const response = new Response(method === "HEAD" ? "" : text, {
+                status: status >= 200 && status <= 599 ? status : 200,
+                statusText,
+                headers,
+                url,
+                redirected,
+            });
+            return response;
+        };
 
         globalThis.Headers = Headers;
         globalThis.Response = Response;
@@ -78,21 +189,50 @@
                     reject(e);
                     return;
                 }
-                const method = String(init?.method ?? "GET").toUpperCase();
-                if (method !== "GET" && method !== "HEAD") {
-                    reject(new TypeError("fetch: only GET and HEAD requests are supported"));
+                const method = String(init?.method ?? input?.method ?? "GET").toUpperCase();
+                const signal = init?.signal ?? input?.signal ?? null;
+                if (signal && signal.aborted) {
+                    reject(signal.reason);
                     return;
                 }
+                const headers = new Headers(init?.headers ?? input?.headers);
+                const body = init?.body;
+                if (body instanceof URLSearchParams && !headers.has("content-type")) {
+                    headers.set("content-type", "application/x-www-form-urlencoded;charset=UTF-8");
+                } else if (typeof body === "string" && !headers.has("content-type")) {
+                    headers.set("content-type", "text/plain;charset=UTF-8");
+                }
+                if ((method === "GET" || method === "HEAD") && body !== undefined && body !== null) {
+                    reject(new TypeError("Request with GET/HEAD method cannot have body."));
+                    return;
+                }
+                let started;
                 try {
-                    const [status, resolvedUrl, text] = __pageframe_fetch_sync(url);
-                    resolve(new Response(method === "HEAD" ? "" : text, {
-                        status,
-                        statusText: status === 200 ? "OK" : status === 404 ? "Not Found" : "",
-                        url: resolvedUrl,
-                    }));
+                    started = __pageframe_fetch_start(method, url, [...headers], bodyText(body));
                 } catch (e) {
                     reject(e);
+                    return;
                 }
+                if (typeof started !== "number") {
+                    resolve(toResponse(method, started));
+                    return;
+                }
+                let settled = false;
+                const onAbort = () => {
+                    if (settled) return;
+                    settled = true;
+                    __pageframe_net_forget(started);
+                    reject(signal.reason);
+                };
+                if (signal) signal.addEventListener("abort", onAbort, { once: true });
+                __pageframe_net_listen(started, (kind, payload) => {
+                    __pageframe_net_forget(started);
+                    if (signal) signal.removeEventListener("abort", onAbort);
+                    if (settled) return;
+                    settled = true;
+                    if (kind === "response") resolve(toResponse(method, payload));
+                    else reject(new TypeError("Failed to fetch: " + payload));
+                });
             });
         };
     }
