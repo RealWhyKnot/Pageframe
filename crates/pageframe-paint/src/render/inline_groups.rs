@@ -272,6 +272,7 @@ impl ElementCx<'_, '_> {
                 text: Some(&text_layout.text),
                 group,
                 flat_ancestors: false,
+                decorate: true,
             },
             self.node.id,
             &mut draw_text_context,

@@ -16,6 +16,7 @@ pub(crate) fn stroke_text<'a>(
         text: layout_text,
         group,
         flat_ancestors,
+        decorate,
     } = options;
     let DrawTextContext {
         stack,
@@ -35,6 +36,11 @@ pub(crate) fn stroke_text<'a>(
         .get_node(inline_root_id)
         .zip(layout_text)
         .filter(|_| !flat_ancestors);
+    let ancestors = if flat_ancestors {
+        outer::Ancestors::new()
+    } else {
+        outer::decorating_ancestors(doc, inline_root_id)
+    };
 
     // Persistent stack mirroring the ancestor path (inline root -> current run's
     // node) as we walk the runs. The `text-decoration-*` properties are *not*
@@ -116,6 +122,9 @@ pub(crate) fn stroke_text<'a>(
                     }
                     walk_id = doc.get_node(node_id).and_then(|node| node.parent);
                 }
+                if path_scratch.last() == Some(&inline_root_id) {
+                    path_scratch.extend_from_slice(&ancestors);
+                }
                 path_scratch.reverse();
 
                 let shared = stack
@@ -126,7 +135,7 @@ pub(crate) fn stroke_text<'a>(
                 stack.truncate(shared);
                 for &node_id in &path_scratch[shared..] {
                     let mut entry = resolve_decoration_entry(doc, node_id);
-                    if node_id == inline_root_id || flat_ancestors {
+                    if node_id == inline_root_id || flat_ancestors || ancestors.contains(&node_id) {
                         entry.shift = Vec2::ZERO;
                         entry.group = None;
                     } else if let Some(outer) = stack.last() {
@@ -355,7 +364,7 @@ pub(crate) fn stroke_text<'a>(
                     run_x1 = run_x1.max(cut.start as f64).min(cut.end as f64);
                 }
 
-                for entry in stack.iter() {
+                for entry in stack.iter().filter(|_| decorate) {
                     if entry.decoration.is_none() || (is_edge_run && entry.node_id == run_node_id) {
                         continue;
                     }
@@ -371,6 +380,8 @@ pub(crate) fn stroke_text<'a>(
                                 first: None,
                                 runs: SmallVec::new(),
                                 shift: entry.shift,
+                                on_line_baseline: entry.node_id == inline_root_id
+                                    || ancestors.contains(&entry.node_id),
                             });
                             deco_boxes.len() - 1
                         }
@@ -398,7 +409,6 @@ pub(crate) fn stroke_text<'a>(
             options,
             deco_boxes,
             win_ascent_ratios,
-            inline_root_id,
             &mut LineInk {
                 line: &line,
                 cut,

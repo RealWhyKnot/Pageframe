@@ -338,7 +338,6 @@ pub(super) fn flush_line_decorations(
     options: TextPaintOptions<'_>,
     deco_boxes: &[LineDecoration],
     win_ascent_ratios: &mut WinAscentCache,
-    inline_root_id: NodeId,
     ink: &mut LineInk<'_, '_>,
 ) {
     let TextPaintOptions {
@@ -359,7 +358,7 @@ pub(super) fn flush_line_decorations(
                 // A descendant run's baseline may be shifted by `vertical-align`, but the
                 // decoration is positioned from the decorating box's own baseline. For the
                 // inline root that is the line's baseline.
-                if acc.node_id == inline_root_id {
+                if acc.on_line_baseline {
                     geom.baseline = ink.line.metrics().baseline;
                 }
                 geom

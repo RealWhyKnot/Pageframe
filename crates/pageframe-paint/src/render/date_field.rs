@@ -68,6 +68,7 @@ impl ElementCx<'_, '_> {
                         text: None,
                         group: None,
                         flat_ancestors: true,
+                        decorate: true,
                     },
                     self.node.id,
                     &mut self.context.draw_text_context.borrow_mut(),

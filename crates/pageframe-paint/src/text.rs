@@ -31,6 +31,7 @@ mod colr;
 mod decoration;
 mod fragments;
 mod ink;
+mod outer;
 mod runs;
 mod selection;
 mod shadow;
@@ -273,6 +274,7 @@ struct LineDecoration {
     first: Option<DecorationRunGeometry>,
     runs: SmallVec<[usize; 4]>,
     shift: Vec2,
+    on_line_baseline: bool,
 }
 
 /// Reusable scratch storage for drawing text across all inline formatting contexts in a
@@ -298,6 +300,7 @@ pub(crate) struct TextPaintOptions<'a> {
     pub text: Option<&'a str>,
     pub group: Option<NodeId>,
     pub flat_ancestors: bool,
+    pub decorate: bool,
 }
 
 /// Where `text-overflow: ellipsis` and `line-clamp` cut lines short with an ellipsis.
