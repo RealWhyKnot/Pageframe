@@ -3192,7 +3192,7 @@ impl BaseDocument {
     }
 
     /// Find the Nth anonymous block under a parent.
-    fn find_anonymous_block_by_index(
+    pub(crate) fn find_anonymous_block_by_index(
         &self,
         parent_id: NodeId,
         target_index: usize,
@@ -3251,6 +3251,10 @@ impl BaseDocument {
     /// Get all selection ranges as Vec<(node_id, start_offset, end_offset)>.
     /// Returns empty vec if no selection.
     pub fn get_text_selection_ranges(&self) -> Vec<(NodeId, usize, usize)> {
+        self.with_atomic_contents(self.inline_root_selection_ranges())
+    }
+
+    fn inline_root_selection_ranges(&self) -> Vec<(NodeId, usize, usize)> {
         let lookup = |parent_id, idx| self.find_anonymous_block_by_index(parent_id, idx);
 
         let anchor_node = match self.text_selection.anchor.resolve_node_id(lookup) {

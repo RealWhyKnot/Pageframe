@@ -120,3 +120,67 @@ impl TextSelection {
         self.focus.set_node(node, offset);
     }
 }
+
+impl crate::BaseDocument {
+    pub(crate) fn with_atomic_contents(
+        &self,
+        mut ranges: Vec<(NodeId, usize, usize)>,
+    ) -> Vec<(NodeId, usize, usize)> {
+        let mut seen: std::collections::HashSet<NodeId> =
+            ranges.iter().map(|&(root, ..)| root).collect();
+        let lookup = |parent_id, idx| self.find_anonymous_block_by_index(parent_id, idx);
+        let mut holds_endpoint = std::collections::HashSet::new();
+        for point in [&self.text_selection.anchor, &self.text_selection.focus] {
+            let mut cursor = point.resolve_node_id(lookup);
+            while let Some(id) = cursor.filter(|&id| holds_endpoint.insert(id)) {
+                cursor = self
+                    .get_node(id)
+                    .and_then(|node| node.layout_parent.get().or(node.parent));
+            }
+        }
+        let mut at = 0;
+        while let Some(&(root, start, end)) = ranges.get(at) {
+            at += 1;
+            let Some(inline_layout) = self
+                .get_node(root)
+                .and_then(|node| node.element_data())
+                .and_then(|data| data.inline_layout_data.as_ref())
+            else {
+                continue;
+            };
+            let mut pending: Vec<NodeId> = inline_layout
+                .layout
+                .inline_boxes()
+                .filter(|inline_box| {
+                    inline_box.kind == parley::InlineBoxKind::InFlow
+                        && (start..end).contains(&inline_box.index)
+                })
+                .map(|inline_box| NodeId::from_u64(inline_box.id))
+                .collect();
+            while let Some(id) = pending.pop() {
+                let Some(node) = self.get_node(id) else {
+                    continue;
+                };
+                let holds = holds_endpoint.contains(&id);
+                let text_len = node
+                    .element_data()
+                    .and_then(|data| data.inline_layout_data.as_ref())
+                    .map(|inline_layout| inline_layout.text.len());
+                if let Some(text_len) = text_len {
+                    if text_len > 0 && !holds && seen.insert(id) {
+                        ranges.push((id, 0, text_len));
+                    }
+                    continue;
+                }
+                if let Some(children) = node.layout_children.borrow().as_ref() {
+                    let before = children
+                        .iter()
+                        .position(|child| holds && holds_endpoint.contains(child))
+                        .unwrap_or(children.len());
+                    pending.extend(children.iter().take(before).rev());
+                }
+            }
+        }
+        ranges
+    }
+}
