@@ -2,6 +2,7 @@ use super::TextBrush;
 use super::inline_hit::{SpanChain, SpanGeometry};
 use super::node::{LineAxes, Node};
 use crate::inline_trim::collapses_spaces;
+use crate::layout::round::LAYOUT_UNITS;
 use pageframe_traits::node_id::NodeId;
 use parley::{BreakReason, InlineBoxKind, Line, PositionedLayoutItem};
 use std::ops::Range;
@@ -165,11 +166,39 @@ pub(super) fn edge_beyond_line(line: &Line<'_, TextBrush>, inline: f32) -> Optio
 struct RunSpan {
     left: f32,
     right: f32,
-    text: std::ops::Range<usize>,
+    text: Range<usize>,
+    lead: usize,
+    trail: usize,
     is_rtl: bool,
 }
 
 impl RunSpan {
+    fn glyphs(glyph_run: &parley::GlyphRun<'_, TextBrush>) -> Self {
+        let text = glyph_run.text_range();
+        let run = glyph_run.run();
+        let clusters = run.clusters().filter(|cluster| {
+            let range = cluster.text_range();
+            text.start <= range.start && range.end <= text.end
+        });
+        let lead = clusters
+            .clone()
+            .take_while(|cluster| !has_ink(cluster))
+            .last()
+            .map_or(text.start, |cluster| cluster.text_range().end);
+        let trail = clusters
+            .filter(has_ink)
+            .last()
+            .map_or(text.start, |cluster| cluster.text_range().end);
+        Self {
+            left: glyph_run.offset(),
+            right: glyph_run.offset() + glyph_run.advance(),
+            lead,
+            trail,
+            is_rtl: run.is_line_rtl(),
+            text,
+        }
+    }
+
     fn offset_at(&self, side: LineEdge) -> usize {
         if (side == LineEdge::Left) == self.is_rtl {
             self.text.end
@@ -177,6 +206,22 @@ impl RunSpan {
             self.text.start
         }
     }
+
+    fn is_at(&self, side: LineEdge, offset: usize) -> bool {
+        if (side == LineEdge::Left) == self.is_rtl {
+            (self.trail..=self.text.end).contains(&offset)
+        } else {
+            (self.text.start..=self.lead).contains(&offset)
+        }
+    }
+
+    fn has_width(&self) -> bool {
+        self.right > self.left
+    }
+}
+
+fn has_ink(cluster: &parley::Cluster<'_, TextBrush>) -> bool {
+    cluster.advance() * LAYOUT_UNITS >= 1.0
 }
 
 pub(super) fn base_run_offset(
@@ -188,12 +233,7 @@ pub(super) fn base_run_offset(
     let spans: Vec<RunSpan> = line
         .items()
         .filter_map(|item| match item {
-            PositionedLayoutItem::GlyphRun(glyph_run) => Some(RunSpan {
-                left: glyph_run.offset(),
-                right: glyph_run.offset() + glyph_run.advance(),
-                text: glyph_run.text_range(),
-                is_rtl: glyph_run.run().is_line_rtl(),
-            }),
+            PositionedLayoutItem::GlyphRun(glyph_run) => Some(RunSpan::glyphs(&glyph_run)),
             PositionedLayoutItem::InlineBox(inline_box)
                 if inline_box.kind == InlineBoxKind::InFlow =>
             {
@@ -201,6 +241,8 @@ pub(super) fn base_run_offset(
                     left: inline_box.x,
                     right: inline_box.x + inline_box.width,
                     text: inline_box.index..inline_box.index,
+                    lead: inline_box.index,
+                    trail: inline_box.index,
                     is_rtl: inline_box.is_rtl,
                 })
             }
@@ -217,18 +259,22 @@ pub(super) fn base_run_offset(
     if hit.is_rtl == base_is_rtl {
         return offset;
     }
-    let neighbour = if hit.offset_at(LineEdge::Left) == offset {
-        index.checked_sub(1).map(|before| (before, LineEdge::Right))
-    } else if hit.offset_at(LineEdge::Right) == offset {
-        Some((index + 1, LineEdge::Left))
+    let neighbour = if hit.is_at(LineEdge::Left, offset) {
+        spans[..index]
+            .iter()
+            .rev()
+            .find(|span| span.has_width())
+            .map(|span| (span, LineEdge::Right))
+    } else if hit.is_at(LineEdge::Right, offset) {
+        spans[index + 1..]
+            .iter()
+            .find(|span| span.has_width())
+            .map(|span| (span, LineEdge::Left))
     } else {
         None
     };
     neighbour
-        .and_then(|(index, side)| {
-            let span = spans.get(index)?;
-            (span.is_rtl == base_is_rtl).then(|| span.offset_at(side))
-        })
+        .and_then(|(span, side)| (span.is_rtl == base_is_rtl).then(|| span.offset_at(side)))
         .unwrap_or(offset)
 }
 
