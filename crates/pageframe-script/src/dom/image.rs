@@ -112,7 +112,7 @@ fn set_src(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<
         return Ok(JsValue::undefined());
     }
     let value = to_rust_string(&value, context)?;
-    write_attr(&ctx, node_id, "src", &value);
+    write_attr(context, &ctx, node_id, "src", &value);
     Ok(JsValue::undefined())
 }
 

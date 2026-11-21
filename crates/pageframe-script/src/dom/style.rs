@@ -5,7 +5,6 @@ use boa_engine::value::JsValue;
 use boa_engine::{Context, JsResult};
 use pageframe_dom::NodeId;
 
-use super::element::attr_name;
 use super::{define_accessor, define_method, dom_ctx, js_str, this_node_id, to_rust_string};
 
 pub(crate) fn init_style_proto(proto: &JsObject, context: &mut Context) {
@@ -95,10 +94,13 @@ fn read_style_attr(ctx: &crate::state::DomCtx, node_id: NodeId) -> String {
         .to_string()
 }
 
-fn write_style_attr(ctx: &crate::state::DomCtx, node_id: NodeId, style_attr: &str) {
-    let mut doc = ctx.doc.borrow_mut();
-    doc.mutate()
-        .set_attribute(node_id, attr_name("style"), style_attr);
+fn write_style_attr(
+    context: &mut Context,
+    ctx: &crate::state::DomCtx,
+    node_id: NodeId,
+    style_attr: &str,
+) {
+    super::element::write_attr(context, ctx, node_id, "style", style_attr);
 }
 
 fn get_css_text(this: &JsValue, _: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
@@ -120,7 +122,7 @@ pub(crate) fn set_css_text(
     // Parse and re-serialize so that the stored attribute is canonical and
     // invalid declarations are dropped
     let css = ctx.doc.borrow().style_attr_serialize(&css);
-    write_style_attr(&ctx, node_id, &css);
+    write_style_attr(context, &ctx, node_id, &css);
     Ok(JsValue::undefined())
 }
 
@@ -146,7 +148,7 @@ fn set_property(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsRe
             .style_attr_set_property(&style_attr, &name, &value, important);
     // `None` means the declaration was invalid: ignore it (per CSSOM)
     if let Some(new_style_attr) = new_style_attr {
-        write_style_attr(&ctx, node_id, &new_style_attr);
+        write_style_attr(context, &ctx, node_id, &new_style_attr);
     }
     Ok(JsValue::undefined())
 }
@@ -164,7 +166,7 @@ fn remove_property(this: &JsValue, args: &[JsValue], context: &mut Context) -> J
     let Some((new_style_attr, removed_value)) = removed else {
         return Ok(js_str(""));
     };
-    write_style_attr(&ctx, node_id, &new_style_attr);
+    write_style_attr(context, &ctx, node_id, &new_style_attr);
     Ok(js_str(&removed_value))
 }
 

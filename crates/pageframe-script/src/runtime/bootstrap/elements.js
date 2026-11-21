@@ -161,4 +161,98 @@
         };
         globalThis.addEventListener("pointerup", implicitRelease);
         globalThis.addEventListener("pointercancel", implicitRelease);
+
+        const clicking = new WeakSet();
+        const formControls = new Set(["button", "input", "select", "textarea", "optgroup", "option", "fieldset"]);
+        const isDisabled = (element) => {
+            if (!formControls.has(element.localName)) return false;
+            if (element.hasAttribute("disabled")) return true;
+            for (let node = element.parentElement; node; node = node.parentElement) {
+                if (node.localName !== "fieldset" || !node.hasAttribute("disabled")) continue;
+                const legend = [...node.children].find((child) => child.localName === "legend");
+                if (!legend || !legend.contains(element)) return true;
+            }
+            return false;
+        };
+        const ownerForm = (element) => {
+            const id = element.getAttribute("form");
+            if (id) return document.getElementById(id);
+            return element.closest("form");
+        };
+        const labelControl = (label) => {
+            const id = label.getAttribute("for");
+            if (id) return document.getElementById(id);
+            return label.querySelector("button, input:not([type=hidden]), meter, output, progress, select, textarea");
+        };
+        const fire = (target, type) => target.dispatchEvent(new Event(type, { bubbles: true }));
+        const preActivate = (element) => {
+            if (element.localName !== "input") return null;
+            const type = (element.getAttribute("type") || "").toLowerCase();
+            if (type === "checkbox") {
+                const was = element.checked;
+                element.checked = !was;
+                return () => { element.checked = was; };
+            }
+            if (type !== "radio" || element.checked) return null;
+            const name = element.getAttribute("name");
+            const form = ownerForm(element);
+            const scope = form || document;
+            const previous = name
+                ? [...scope.querySelectorAll("input[type=radio]")].find((other) => other !== element
+                    && other.checked && other.getAttribute("name") === name && ownerForm(other) === form)
+                : undefined;
+            element.checked = true;
+            return () => {
+                element.checked = false;
+                if (previous) previous.checked = true;
+            };
+        };
+        const activate = (element, event, changed) => {
+            const name = element.localName;
+            const type = (element.getAttribute("type") || "").toLowerCase();
+            if (name === "input" && (type === "checkbox" || (type === "radio" && changed))) {
+                fire(element, "input");
+                fire(element, "change");
+                return;
+            }
+            if ((name === "a" || name === "area") && element.hasAttribute("href")) {
+                location.assign(element.href);
+                return;
+            }
+            if (name === "label") {
+                const control = labelControl(element);
+                if (control && control !== event.target && !control.contains(event.target)) control.click();
+                return;
+            }
+            const submits = (name === "button" && (type === "" || type === "submit"))
+                || (name === "input" && (type === "submit" || type === "image"));
+            const form = submits || type === "reset" ? ownerForm(element) : null;
+            if (!form) return;
+            if (type === "reset") {
+                if (typeof form.reset === "function") form.reset();
+            } else if (typeof form.requestSubmit === "function") {
+                form.requestSubmit(element);
+            } else {
+                const submit = new Event("submit", { bubbles: true, cancelable: true });
+                Object.defineProperty(submit, "submitter", { value: element });
+                form.dispatchEvent(submit);
+            }
+        };
+        method("click", function click() {
+            if (isDisabled(this) || clicking.has(this)) return;
+            clicking.add(this);
+            try {
+                const revert = preActivate(this);
+                const event = new MouseEvent("click", {
+                    bubbles: true, cancelable: true, composed: true, view: globalThis, detail: 0,
+                });
+                if (!this.dispatchEvent(event)) {
+                    if (revert) revert();
+                    return;
+                }
+                activate(this, event, revert !== null);
+            } finally {
+                clicking.delete(this);
+            }
+        });
     }

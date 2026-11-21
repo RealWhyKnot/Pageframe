@@ -13,7 +13,7 @@ mod markup;
 mod scrolling;
 mod selectors;
 
-pub(crate) use attributes::{attr_name, read_attr, write_attr};
+pub(crate) use attributes::{read_attr, write_attr};
 pub(crate) use scrolling::parse_scroll_to_args;
 
 pub(crate) fn init_element_proto(proto: &JsObject, context: &mut Context) {

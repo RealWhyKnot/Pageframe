@@ -1,8 +1,9 @@
 use boa_engine::object::JsObject;
-use boa_engine::{Context, JsNativeError, JsResult, JsString, JsValue, js_string};
+use boa_engine::{Context, JsNativeError, JsResult, JsValue, js_string};
 use pageframe_dom::NodeId;
 
 use super::event::EventRef;
+use super::listeners::{cancel_if_false, own_data_handler};
 use super::{define_value, dom_ctx, dom_exception, node_wrapper, this_node_id};
 use crate::runtime::events::report_js_error;
 use crate::state::{DomCtx, Listener};
@@ -17,10 +18,13 @@ pub(crate) fn event_flag(event: &JsObject, read: fn(&EventRef) -> bool) -> bool 
         .unwrap_or(false)
 }
 
-fn take_listeners(listeners: Option<&mut Vec<Listener>>) -> Vec<Listener> {
+fn take_listeners(listeners: Option<&mut Vec<Listener>>) -> Vec<(JsObject, bool)> {
     match listeners {
         Some(listeners) => {
-            let cloned = listeners.clone();
+            let cloned = listeners
+                .iter()
+                .map(|listener| (listener.callback.clone(), listener.handler))
+                .collect();
             listeners.retain(|listener| !listener.once);
             cloned
         }
@@ -28,12 +32,33 @@ fn take_listeners(listeners: Option<&mut Vec<Listener>>) -> Vec<Listener> {
     }
 }
 
-fn handler_property(object: &JsObject, name: &str, context: &mut Context) -> Option<JsObject> {
-    object
-        .get(JsString::from(format!("on{name}")), context)
-        .ok()
-        .and_then(|handler| handler.as_object())
-        .filter(|handler| handler.is_callable())
+fn with_fallback(
+    mut callbacks: Vec<(JsObject, bool)>,
+    object: &JsObject,
+    name: &str,
+    context: &mut Context,
+) -> Vec<(JsObject, bool)> {
+    if !callbacks.iter().any(|(_, handler)| *handler) {
+        if let Some(handler) = own_data_handler(object, name, context) {
+            callbacks.push((handler, true));
+        }
+    }
+    callbacks.retain(|(callback, _)| callback.is_callable());
+    callbacks
+}
+
+fn invoke(
+    ctx: &DomCtx,
+    context: &mut Context,
+    (callback, is_handler): (JsObject, bool),
+    this: &JsValue,
+    event: &JsObject,
+) {
+    match callback.call(this, &[event.clone().into()], context) {
+        Ok(result) if is_handler => cancel_if_false(&result, event, context),
+        Ok(_) => {}
+        Err(error) => report_js_error(ctx, context, "event listener", &error),
+    }
 }
 
 pub(crate) fn dispatch_on_window(
@@ -44,20 +69,14 @@ pub(crate) fn dispatch_on_window(
 ) -> bool {
     let listeners = take_listeners(ctx.state.borrow_mut().window_listeners.get_mut(name));
     let global = context.global_object();
-    let handler = handler_property(&global, name, context);
-    if listeners.is_empty() && handler.is_none() {
+    let callbacks = with_fallback(listeners, &global, name, context);
+    if callbacks.is_empty() {
         return false;
     }
     let global: JsValue = global.into();
     define_value(event, "currentTarget", global.clone(), context);
-    let callbacks = listeners
-        .into_iter()
-        .map(|listener| listener.callback)
-        .chain(handler);
     for callback in callbacks {
-        if let Err(error) = callback.call(&global, &[event.clone().into()], context) {
-            report_js_error(ctx, context, "event listener", &error);
-        }
+        invoke(ctx, context, callback, &global, event);
         if event_flag(event, |event| event.stopped_immediate.get()) {
             break;
         }
@@ -75,7 +94,7 @@ pub(crate) fn dispatch_to_chain(
 ) -> bool {
     let mut any_called = false;
     'chain: for (index, &node_id) in chain.iter().enumerate() {
-        let mut callbacks: Vec<JsObject> = {
+        let listeners = {
             let mut state = ctx.state.borrow_mut();
             take_listeners(
                 state
@@ -83,15 +102,12 @@ pub(crate) fn dispatch_to_chain(
                     .get_mut(&node_id)
                     .and_then(|map| map.get_mut(name)),
             )
-            .into_iter()
-            .map(|listener| listener.callback)
-            .collect()
         };
         let wrapper = ctx.state.borrow().node_wrappers.get(&node_id).cloned();
-        if let Some(handler) = wrapper.and_then(|wrapper| handler_property(&wrapper, name, context))
-        {
-            callbacks.push(handler);
-        }
+        let callbacks = match wrapper {
+            Some(wrapper) => with_fallback(listeners, &wrapper, name, context),
+            None => listeners,
+        };
         if callbacks.is_empty() {
             if !bubbles {
                 break;
@@ -108,9 +124,7 @@ pub(crate) fn dispatch_to_chain(
         define_value(event, "eventPhase", JsValue::from(phase), context);
         for callback in callbacks {
             any_called = true;
-            if let Err(error) = callback.call(&current_target, &[event.clone().into()], context) {
-                report_js_error(ctx, context, "event listener", &error);
-            }
+            invoke(ctx, context, callback, &current_target, event);
             if event_flag(event, |event| event.stopped_immediate.get()) {
                 break 'chain;
             }

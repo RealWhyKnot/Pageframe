@@ -12,6 +12,8 @@ pub(crate) mod element;
 pub(crate) mod event;
 pub(crate) mod hyperlink;
 pub(crate) mod image;
+pub(crate) mod listeners;
+pub(crate) mod mutations;
 pub(crate) mod node;
 pub(crate) mod selection;
 pub(crate) mod style;
@@ -109,7 +111,7 @@ pub(crate) fn node_wrapper(ctx: &DomCtx, node_id: NodeId, context: &mut Context)
 /// aliases for the corresponding window event handlers, per the HTML spec
 /// ("window-reflecting body element event handler set" plus the
 /// `WindowEventHandlers` mixin).
-const WINDOW_REFLECTING_BODY_EVENTS: &[&str] = &[
+pub(crate) const WINDOW_REFLECTING_BODY_EVENTS: &[&str] = &[
     "afterprint",
     "beforeprint",
     "beforeunload",
@@ -346,15 +348,12 @@ pub(crate) fn init_protos(ctx: &DomCtx, context: &mut Context) {
     let node_proto = JsObject::with_object_proto(context.intrinsics());
     node::init_node_proto(&node_proto, context);
 
-    // `on<event>` IDL-style properties (default null)
-    for event_type in ON_EVENT_TYPES {
-        define_value(
-            &node_proto,
-            &format!("on{event_type}"),
-            JsValue::null(),
-            context,
-        );
-    }
+    listeners::install_handler_accessors(
+        &node_proto,
+        listeners::HandlerOwner::Node,
+        ON_EVENT_TYPES,
+        context,
+    );
 
     let element_proto = JsObject::with_object_proto(context.intrinsics());
     element_proto.set_prototype(Some(node_proto.clone()));

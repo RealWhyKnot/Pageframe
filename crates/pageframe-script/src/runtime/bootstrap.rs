@@ -40,6 +40,8 @@ pub(super) const BOOTSTRAP_JS: &str = concat!(
     "\n",
     include_str!("bootstrap/observers.js"),
     "\n",
+    include_str!("bootstrap/mutation_observer.js"),
+    "\n",
     include_str!("bootstrap/css.js"),
     "\n",
     include_str!("bootstrap/stylesheets.js"),
@@ -61,6 +63,18 @@ pub(super) fn register_globals(ctx: &DomCtx, context: &mut Context) {
     let root_id = ctx.doc.borrow().root_node().id;
     let document_wrapper = node_wrapper(ctx, root_id, context);
     register_global(context, "document", document_wrapper.into());
+    let mut window_handlers: Vec<&'static str> = crate::dom::ON_EVENT_TYPES.to_vec();
+    for name in crate::dom::WINDOW_REFLECTING_BODY_EVENTS {
+        if !window_handlers.contains(name) {
+            window_handlers.push(name);
+        }
+    }
+    crate::dom::listeners::install_handler_accessors(
+        &context.global_object(),
+        crate::dom::listeners::HandlerOwner::Window,
+        &window_handlers,
+        context,
+    );
 
     // `window` and friends (aliases for the global object)
     let global: JsValue = context.global_object().into();
@@ -144,6 +158,7 @@ pub(super) fn register_globals(ctx: &DomCtx, context: &mut Context) {
 
     // Embedder message channel (see `ScriptDocument::take_messages`)
     register_global_fn(context, "__pageframe_send_message", 1, window::send_message);
+    register_mutation_natives(context);
 
     register_global_fn(context, "__pageframe_fetch_start", 4, net::fetch_start);
     register_global_fn(
@@ -222,6 +237,19 @@ pub(super) fn register_globals(ctx: &DomCtx, context: &mut Context) {
         )
         .build();
     register_global(context, "CSS", css_namespace.into());
+}
+
+fn register_mutation_natives(context: &mut Context) {
+    use crate::dom::mutations;
+    register_global_fn(
+        context,
+        "__pageframe_mutation_observing",
+        1,
+        mutations::set_observing,
+    );
+    register_global_fn(context, "__pageframe_mutation_begin", 0, mutations::begin);
+    register_global_fn(context, "__pageframe_mutation_end", 0, mutations::end);
+    register_global_fn(context, "__pageframe_take_mutations", 0, mutations::take);
 }
 
 fn parse_search_params(_: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {

@@ -50,6 +50,13 @@ pub(crate) fn get_selection(
         set_base_and_extent,
         context,
     );
+    define_method(
+        &selection,
+        "selectAllChildren",
+        1,
+        select_all_children,
+        context,
+    );
     define_method(&selection, "toString", 0, to_string, context);
     define_method(&selection, "removeAllRanges", 0, remove_all_ranges, context);
     define_method(&selection, "empty", 0, remove_all_ranges, context);
@@ -117,6 +124,27 @@ fn set_base_and_extent(
     data.points.set(Some(points));
     data.rendered_range.set(range_endpoints(&doc));
     Ok(JsValue::undefined())
+}
+
+fn select_all_children(
+    this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    selection_object(this)?;
+    let node = args.first().cloned().unwrap_or_default();
+    let node_id = node_id_of_value(&node).ok_or_else(|| {
+        JsNativeError::typ().with_message(
+            "Failed to execute 'selectAllChildren' on 'Selection': parameter 1 is not of type 'Node'.",
+        )
+    })?;
+    let length = dom_ctx(context)?
+        .doc
+        .borrow()
+        .get_node(node_id)
+        .map_or(0, |node| node.children.len());
+    let length = JsValue::from(u32::try_from(length).unwrap_or(u32::MAX));
+    set_base_and_extent(this, &[node.clone(), 0.into(), node, length], context)
 }
 
 fn remove_all_ranges(this: &JsValue, _: &[JsValue], context: &mut Context) -> JsResult<JsValue> {

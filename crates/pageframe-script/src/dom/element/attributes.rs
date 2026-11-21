@@ -25,7 +25,23 @@ pub(crate) fn read_attr(ctx: &DomCtx, node_id: NodeId, name: &str) -> Option<Str
         .map(|attr| attr.value.clone())
 }
 
-pub(crate) fn write_attr(ctx: &DomCtx, node_id: NodeId, name: &str, value: &str) {
+pub(crate) fn write_attr(
+    context: &mut Context,
+    ctx: &DomCtx,
+    node_id: NodeId,
+    name: &str,
+    value: &str,
+) {
+    if crate::dom::mutations::is_observing(ctx) {
+        let old = read_attr(ctx, node_id, name);
+        store_attr(ctx, node_id, name, value);
+        crate::dom::mutations::record_attribute(context, ctx, node_id, name, old);
+    } else {
+        store_attr(ctx, node_id, name, value);
+    }
+}
+
+pub(crate) fn store_attr(ctx: &DomCtx, node_id: NodeId, name: &str, value: &str) {
     let mut doc = ctx.doc.borrow_mut();
     doc.mutate().set_attribute(node_id, attr_name(name), value);
     if name == "src" && crate::dom::image::is_image(&doc, node_id) {
@@ -33,9 +49,15 @@ pub(crate) fn write_attr(ctx: &DomCtx, node_id: NodeId, name: &str, value: &str)
     }
 }
 
-pub(super) fn clear_attr(ctx: &DomCtx, node_id: NodeId, name: &str) {
-    let mut doc = ctx.doc.borrow_mut();
-    doc.mutate().clear_attribute(node_id, attr_name(name));
+pub(super) fn clear_attr(context: &mut Context, ctx: &DomCtx, node_id: NodeId, name: &str) {
+    let old = read_attr(ctx, node_id, name);
+    {
+        let mut doc = ctx.doc.borrow_mut();
+        doc.mutate().clear_attribute(node_id, attr_name(name));
+    }
+    if old.is_some() {
+        crate::dom::mutations::record_attribute(context, ctx, node_id, name, old);
+    }
     if name == "src" {
         ctx.state
             .borrow_mut()
@@ -59,7 +81,7 @@ pub(super) fn attr_setter(
     let ctx = dom_ctx(context)?;
     let node_id = this_node_id(this)?;
     let value = to_rust_string(args.first().unwrap_or(&JsValue::undefined()), context)?;
-    write_attr(&ctx, node_id, name, &value);
+    write_attr(context, &ctx, node_id, name, &value);
     Ok(JsValue::undefined())
 }
 
@@ -146,7 +168,7 @@ pub(super) fn set_attribute(
     let name = to_rust_string(args.first().unwrap_or(&JsValue::undefined()), context)?
         .to_ascii_lowercase();
     let value = to_rust_string(args.get(1).unwrap_or(&JsValue::undefined()), context)?;
-    write_attr(&ctx, node_id, &name, &value);
+    write_attr(context, &ctx, node_id, &name, &value);
     Ok(JsValue::undefined())
 }
 
@@ -159,7 +181,7 @@ pub(super) fn remove_attribute(
     let node_id = this_node_id(this)?;
     let name = to_rust_string(args.first().unwrap_or(&JsValue::undefined()), context)?
         .to_ascii_lowercase();
-    clear_attr(&ctx, node_id, &name);
+    clear_attr(context, &ctx, node_id, &name);
     Ok(JsValue::undefined())
 }
 
@@ -242,9 +264,9 @@ pub(super) fn set_disabled(
         }
     }
     if disabled {
-        write_attr(&ctx, node_id, "disabled", "");
+        write_attr(context, &ctx, node_id, "disabled", "");
     } else {
-        clear_attr(&ctx, node_id, "disabled");
+        clear_attr(context, &ctx, node_id, "disabled");
     }
     Ok(JsValue::undefined())
 }
@@ -268,9 +290,9 @@ pub(super) fn set_hidden(
     let node_id = this_node_id(this)?;
     let hidden = args.first().map(JsValue::to_boolean).unwrap_or(false);
     if hidden {
-        write_attr(&ctx, node_id, "hidden", "");
+        write_attr(context, &ctx, node_id, "hidden", "");
     } else {
-        clear_attr(&ctx, node_id, "hidden");
+        clear_attr(context, &ctx, node_id, "hidden");
     }
     Ok(JsValue::undefined())
 }
@@ -361,7 +383,7 @@ fn dimension_setter(
     } else {
         0
     };
-    write_attr(&ctx, node_id, attr, &value.to_string());
+    write_attr(context, &ctx, node_id, attr, &value.to_string());
     Ok(JsValue::undefined())
 }
 

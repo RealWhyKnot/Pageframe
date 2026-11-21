@@ -47,16 +47,17 @@ fn dispatch_error_event(ctx: &DomCtx, context: &mut Context, error: &JsError) {
             None => Vec::new(),
         }
     };
-    let onerror = context
-        .global_object()
-        .get(js_string!("onerror"), context)
-        .ok()
-        .and_then(|handler| handler.as_object().filter(|h| h.is_callable()));
-    if listeners.is_empty() && onerror.is_none() {
+    let global_object = context.global_object();
+    let fallback = if listeners.iter().any(|listener| listener.handler) {
+        None
+    } else {
+        crate::dom::listeners::own_data_handler(&global_object, "error", context)
+    };
+    if listeners.is_empty() && fallback.is_none() {
         return;
     }
 
-    let global: JsValue = context.global_object().into();
+    let global: JsValue = global_object.into();
     let event_obj = create_event(ctx, "error", false, true, &global, context);
     crate::dom::define_value(&event_obj, "currentTarget", global.clone(), context);
     let error_value = error
@@ -74,24 +75,28 @@ fn dispatch_error_event(ctx: &DomCtx, context: &mut Context, error: &JsError) {
     crate::dom::define_value(&event_obj, "colno", JsValue::from(0), context);
     crate::dom::define_value(&event_obj, "error", error_value.clone(), context);
 
-    for listener in listeners {
-        if let Err(error) = listener
-            .callback
-            .call(&global, &[event_obj.clone().into()], context)
-        {
-            report_js_error(ctx, context, "error event listener", &error);
+    let handler_args = [
+        message,
+        js_str(""),
+        JsValue::from(0),
+        JsValue::from(0),
+        error_value,
+    ];
+    let event_args = [event_obj.into()];
+    let calls = listeners
+        .into_iter()
+        .map(|listener| (listener.callback, listener.handler))
+        .chain(fallback.map(|handler| (handler, true)));
+    for (callback, is_handler) in calls {
+        if !callback.is_callable() {
+            continue;
         }
-    }
-    // `window.onerror(message, source, lineno, colno, error)`
-    if let Some(handler) = onerror {
-        let args = [
-            message,
-            js_str(""),
-            JsValue::from(0),
-            JsValue::from(0),
-            error_value,
-        ];
-        if let Err(error) = handler.call(&global, &args, context) {
+        let args: &[JsValue] = if is_handler {
+            &handler_args
+        } else {
+            &event_args
+        };
+        if let Err(error) = callback.call(&global, args, context) {
             report_js_error(ctx, context, "error event listener", &error);
         }
     }
@@ -351,12 +356,13 @@ pub(super) fn window_add_event_listener(
     let listeners = state.window_listeners.entry(event_type).or_default();
     if !listeners
         .iter()
-        .any(|l| JsObject::equals(&l.callback, &callback))
+        .any(|l| !l.handler && JsObject::equals(&l.callback, &callback))
     {
         listeners.push(Listener {
             callback,
             capture: false,
             once,
+            handler: false,
         });
     }
     Ok(JsValue::undefined())
@@ -376,7 +382,7 @@ pub(super) fn window_remove_event_listener(
 
     let mut state = ctx.state.borrow_mut();
     if let Some(listeners) = state.window_listeners.get_mut(&event_type) {
-        listeners.retain(|l| !JsObject::equals(&l.callback, &callback));
+        listeners.retain(|l| l.handler || !JsObject::equals(&l.callback, &callback));
     }
     Ok(JsValue::undefined())
 }

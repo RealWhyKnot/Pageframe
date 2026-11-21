@@ -1,6 +1,6 @@
 //! Form-control values, text-input selection, and focus.
 
-use super::attributes::{attr_getter, attr_setter, clear_attr, read_attr, write_attr};
+use super::attributes::{attr_getter, attr_setter, clear_attr, read_attr, store_attr, write_attr};
 use crate::dom::js_str;
 use crate::dom::{dom_ctx, this_node_id};
 use boa_engine::{Context, JsResult, JsValue};
@@ -58,9 +58,9 @@ pub(super) fn set_autofocus(
     let node_id = this_node_id(this)?;
     let value = args.first().map(JsValue::to_boolean).unwrap_or(false);
     if value {
-        write_attr(&ctx, node_id, "autofocus", "true");
+        write_attr(context, &ctx, node_id, "autofocus", "true");
     } else {
-        clear_attr(&ctx, node_id, "autofocus");
+        clear_attr(context, &ctx, node_id, "autofocus");
     }
     Ok(JsValue::undefined())
 }
@@ -126,7 +126,7 @@ pub(super) fn set_checked(
     let node_id = this_node_id(this)?;
     let checked = args.first().map(JsValue::to_boolean).unwrap_or(false);
     // pageframe-dom's checked handling parses the value as a boolean
-    write_attr(
+    store_attr(
         &ctx,
         node_id,
         "checked",

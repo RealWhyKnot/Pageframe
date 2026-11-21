@@ -50,6 +50,7 @@ pub(crate) struct Listener {
     pub callback: JsObject,
     pub capture: bool,
     pub once: bool,
+    pub handler: bool,
 }
 
 pub(crate) type ListenerMap = HashMap<String, Vec<Listener>>;
@@ -104,6 +105,7 @@ pub(crate) struct RuntimeState {
     pub media_snapshot: Option<(u32, u32, u32, bool)>,
     pub random_keys: std::collections::hash_map::RandomState,
     pub random_counter: u64,
+    pub mutations: crate::dom::mutations::MutationQueue,
 }
 
 /// Maximum number of errors stored in [`RuntimeState::uncaught_errors`] between

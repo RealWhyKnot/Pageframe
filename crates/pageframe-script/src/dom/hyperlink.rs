@@ -99,7 +99,7 @@ fn set_href(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult
     let ctx = dom_ctx(context)?;
     let node_id = this_node_id(this)?;
     let value = to_rust_string(args.first().unwrap_or(&JsValue::undefined()), context)?;
-    write_attr(&ctx, node_id, "href", &value);
+    write_attr(context, &ctx, node_id, "href", &value);
     Ok(JsValue::undefined())
 }
 
@@ -202,7 +202,7 @@ fn component_setter(
         }
     };
     if ok {
-        write_attr(&ctx, node_id, "href", url.as_str());
+        write_attr(context, &ctx, node_id, "href", url.as_str());
     }
     Ok(JsValue::undefined())
 }

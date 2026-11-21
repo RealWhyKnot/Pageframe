@@ -8,11 +8,11 @@ use boa_engine::{Context, JsNativeError, JsResult};
 use pageframe_dom::NodeId;
 use pageframe_dom::node::NodeData;
 
+use super::listeners::{add_event_listener, remove_event_listener};
 use super::{
     define_accessor, define_method, dom_ctx, js_str, node_id_of_value, node_or_null, node_wrapper,
     this_node_id, to_rust_string,
 };
-use crate::state::Listener;
 
 pub(crate) fn init_node_proto(proto: &JsObject, context: &mut Context) {
     define_accessor(proto, "nodeType", Some(node_type), None, context);
@@ -596,95 +596,4 @@ fn clone_node(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResu
     };
 
     Ok(node_wrapper(&ctx, new_node_id, context).into())
-}
-
-// === Event listeners ===
-
-fn add_event_listener(
-    this: &JsValue,
-    args: &[JsValue],
-    context: &mut Context,
-) -> JsResult<JsValue> {
-    let ctx = dom_ctx(context)?;
-    let node_id = this_node_id(this)?;
-    let event_type = to_rust_string(args.first().unwrap_or(&JsValue::undefined()), context)?;
-    let Some(callback) = args.get(1).and_then(|value| value.as_object()) else {
-        return Ok(JsValue::undefined());
-    };
-    if !callback.is_callable() {
-        return Ok(JsValue::undefined());
-    }
-
-    // Parse options (bool `capture` or `{ capture, once }`)
-    let mut capture = false;
-    let mut once = false;
-    match args.get(2) {
-        Some(options) if options.is_object() => {
-            let options = options.as_object().unwrap();
-            capture = options
-                .get(boa_engine::js_string!("capture"), context)?
-                .to_boolean();
-            once = options
-                .get(boa_engine::js_string!("once"), context)?
-                .to_boolean();
-        }
-        Some(options) => capture = options.to_boolean(),
-        None => {}
-    }
-
-    let mut state = ctx.state.borrow_mut();
-    let listeners = state
-        .node_listeners
-        .entry(node_id)
-        .or_default()
-        .entry(event_type)
-        .or_default();
-
-    // Duplicate listeners (same callback + capture flag) are ignored
-    if !listeners
-        .iter()
-        .any(|l| JsObject::equals(&l.callback, &callback) && l.capture == capture)
-    {
-        listeners.push(Listener {
-            callback,
-            capture,
-            once,
-        });
-    }
-
-    Ok(JsValue::undefined())
-}
-
-fn remove_event_listener(
-    this: &JsValue,
-    args: &[JsValue],
-    context: &mut Context,
-) -> JsResult<JsValue> {
-    let ctx = dom_ctx(context)?;
-    let node_id = this_node_id(this)?;
-    let event_type = to_rust_string(args.first().unwrap_or(&JsValue::undefined()), context)?;
-    let Some(callback) = args.get(1).and_then(|value| value.as_object()) else {
-        return Ok(JsValue::undefined());
-    };
-
-    let capture = match args.get(2) {
-        Some(options) if options.is_object() => options
-            .as_object()
-            .unwrap()
-            .get(boa_engine::js_string!("capture"), context)?
-            .to_boolean(),
-        Some(options) => options.to_boolean(),
-        None => false,
-    };
-
-    let mut state = ctx.state.borrow_mut();
-    if let Some(listeners) = state
-        .node_listeners
-        .get_mut(&node_id)
-        .and_then(|map| map.get_mut(&event_type))
-    {
-        listeners.retain(|l| !(JsObject::equals(&l.callback, &callback) && l.capture == capture));
-    }
-
-    Ok(JsValue::undefined())
 }

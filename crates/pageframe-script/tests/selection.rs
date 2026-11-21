@@ -307,3 +307,20 @@ fn author_bidi_controls_survive_text_while_css_ones_do_not() {
         ]
     );
 }
+
+#[test]
+fn select_all_children_selects_every_child() {
+    assert_eq!(
+        select(
+            "<div id='test'><b>ab</b>c<i>d</i></div>",
+            r#"
+        const s = window.getSelection();
+        s.selectAllChildren(test);
+        __pageframe_send_message(typeof s.selectAllChildren + ":" + s.selectAllChildren.length);
+        __pageframe_send_message(s.toString());
+        try { s.selectAllChildren(null); } catch (error) { __pageframe_send_message(error.constructor.name); }
+    "#
+        ),
+        ["function:1", "abcd", "TypeError"]
+    );
+}
