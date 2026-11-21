@@ -27,6 +27,7 @@ use taffy::{
     compute_leaf_layout, compute_oof_layout, prelude::*,
 };
 
+mod aspect_ratio;
 pub(crate) mod construct;
 pub(crate) mod counter_style;
 pub(crate) mod damage;
@@ -114,6 +115,7 @@ pub(crate) struct LayoutPassState<'doc> {
     /// size, against which its percentage padding resolves (see `layout::writing_mode`).
     #[cfg(feature = "writing-mode")]
     pub(crate) orthogonal_percent_basis: Option<(crate::NodeId, f32)>,
+    pub(crate) ratio_free: Option<crate::NodeId>,
 }
 
 const SCROLLBAR_WIDTH: f32 = 15.0;
@@ -218,6 +220,7 @@ impl<'doc> LayoutPassState<'doc> {
             current_align_axis_is_inline: false,
             #[cfg(feature = "writing-mode")]
             orthogonal_percent_basis: None,
+            ratio_free: None,
         }
     }
 }
@@ -290,6 +293,7 @@ impl LayoutPassState<'_> {
         block_ctx: Option<&mut BlockContext<'_>>,
     ) -> taffy::tree::LayoutOutput {
         let inputs = self.apply_size_containment(node_id, inputs);
+        let inputs = self.apply_aspect_ratio(node_id, inputs);
         let mut output = match self.keyword_min_width(node_id, &inputs) {
             Some(floor) => self.dispatch_with_floor(node_id, inputs, block_ctx, floor),
             None => self.dispatch_child_layout(node_id, inputs, block_ctx),
@@ -1107,11 +1111,20 @@ impl LayoutPartialTree for LayoutPassState<'_> {
             let dom_id = dom_node_id(node_id);
             let mut style = self.nodes[dom_id].layout_style_in(self.layout_wm_of(dom_id));
             style.set_percent_basis(self.orthogonal_percent_basis_of(dom_id));
+            style.flags.set(
+                stylo_taffy::StyleFlags::IGNORE_ASPECT_RATIO,
+                self.ratio_free == Some(dom_id),
+            );
             style
         }
         #[cfg(not(feature = "writing-mode"))]
         {
-            self.node_from_id(node_id).layout_style()
+            let mut style = self.node_from_id(node_id).layout_style();
+            style.flags.set(
+                stylo_taffy::StyleFlags::IGNORE_ASPECT_RATIO,
+                self.ratio_free == Some(dom_node_id(node_id)),
+            );
+            style
         }
     }
 

@@ -39,6 +39,7 @@ bitflags! {
         const IS_FIELDSET = 1 << 6;
         const IS_NATIVE_TOGGLE = 1 << 7;
         const OVERFLOW_TO_VIEWPORT = 1 << 8;
+        const IGNORE_ASPECT_RATIO = 1 << 9;
     }
 }
 
@@ -329,6 +330,9 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
 
     #[inline]
     fn aspect_ratio(&self) -> Option<f32> {
+        if self.flags.contains(StyleFlags::IGNORE_ASPECT_RATIO) {
+            return None;
+        }
         let ratio = convert::aspect_ratio(self.style.get_position().aspect_ratio);
         self.layout_wm().logical_aspect_ratio(ratio)
     }

@@ -45,7 +45,11 @@ impl LayoutPassState<'_> {
             .take_inline_layout()
             .unwrap();
 
-        let style = self.nodes[node_id].layout_style();
+        let mut style = self.nodes[node_id].layout_style();
+        style.flags.set(
+            stylo_taffy::StyleFlags::IGNORE_ASPECT_RATIO,
+            self.ratio_free == Some(node_id),
+        );
 
         let padding = style
             .padding()
