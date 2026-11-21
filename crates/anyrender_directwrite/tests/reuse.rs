@@ -1,100 +1,14 @@
 #![cfg(target_os = "windows")]
 
-use anyrender::{Glyph, NullScenePainter, Paint, PaintRef, PaintScene, RenderContext};
-use anyrender_directwrite::{FontSource, GlyphPaint, GlyphRun, supported};
-use kurbo::{Affine, Shape};
-use peniko::{BlendMode, Blob, Color, Fill, FontData, StyleRef};
-use std::{path::Path, sync::Arc};
+mod support;
 
-#[derive(Default)]
-struct Recorder {
-    images: Vec<u64>,
-}
+use anyrender::{Glyph, NullScenePainter, PaintScene};
+use anyrender_directwrite::{FontSource, GlyphRun, supported};
+use kurbo::Affine;
+use peniko::{Color, FontData};
+use support::{Recorder, system_font};
 
-impl RenderContext for Recorder {}
-
-impl PaintScene for Recorder {
-    fn reset(&mut self) {
-        self.images.clear();
-    }
-
-    fn push_layer(
-        &mut self,
-        _: Fill,
-        _: impl Into<BlendMode>,
-        _: f32,
-        _: Affine,
-        _: &impl Shape,
-        _: Option<Arc<anyrender::Filter>>,
-        _: Option<Arc<anyrender::Filter>>,
-    ) {
-    }
-
-    fn push_clip_layer(&mut self, _: Fill, _: Affine, _: &impl Shape) {}
-
-    fn pop_layer(&mut self) {}
-
-    fn stroke<'a>(
-        &mut self,
-        _: &kurbo::Stroke,
-        _: Affine,
-        _: impl Into<PaintRef<'a>>,
-        _: Option<Affine>,
-        _: &impl Shape,
-    ) {
-    }
-
-    fn fill<'a>(
-        &mut self,
-        _: Fill,
-        _: Affine,
-        paint: impl Into<PaintRef<'a>>,
-        _: Option<Affine>,
-        _: &impl Shape,
-    ) {
-        if let Paint::Image(image) = paint.into() {
-            self.images.push(image.image.data.id());
-        }
-    }
-
-    fn draw_glyphs<'a, 's: 'a>(
-        &'s mut self,
-        font: &'a FontData,
-        font_size: f32,
-        _: bool,
-        _: &'a [anyrender::NormalizedCoord],
-        _: kurbo::Vec2,
-        _: impl Into<StyleRef<'a>>,
-        paint: impl Into<PaintRef<'a>>,
-        _: f32,
-        transform: Affine,
-        _: Option<Affine>,
-        glyphs: impl Iterator<Item = Glyph>,
-    ) {
-        if let Paint::Custom(custom) = paint.into()
-            && let Some(native) = custom.downcast_ref::<GlyphPaint>()
-        {
-            native.draw(self, font, font_size, transform, glyphs);
-        }
-    }
-
-    fn draw_box_shadow(&mut self, _: Affine, _: kurbo::Rect, _: Color, _: f64, _: f64) {}
-}
-
-fn arial() -> (FontData, Arc<Path>) {
-    let windows = std::env::var("WINDIR").expect("WINDIR is set on Windows");
-    let path: Arc<Path> = Path::new(&windows).join("Fonts/arial.ttf").into();
-    let bytes = std::fs::read(&path).expect("Arial is installed");
-    (FontData::new(Blob::new(Arc::new(bytes)), 0), path)
-}
-
-fn frame(
-    scene: &mut Recorder,
-    font: &FontData,
-    path: Option<&Arc<Path>>,
-    colors: &[Color],
-    oblique: bool,
-) -> Vec<u64> {
+fn frame(scene: &mut Recorder, font: &FontData, colors: &[Color], oblique: bool) -> Vec<u64> {
     scene.reset();
     for (row, &color) in (0u8..).zip(colors) {
         let glyphs = (36..44).map(|id| Glyph {
@@ -113,7 +27,6 @@ fn frame(
         };
         let source = || {
             Some(FontSource {
-                path: path.map(Arc::clone),
                 gasp_version: None,
                 ranges: Vec::new(),
                 strikes: Vec::new(),
@@ -123,12 +36,12 @@ fn frame(
         };
         assert!(run.draw(scene, source, glyphs), "row {row} is painted");
     }
-    scene.images.clone()
+    scene.images.iter().map(|image| image.data.id()).collect()
 }
 
 #[test]
 fn probe_tells_native_scenes_apart() {
-    let (font, _) = arial();
+    let font = system_font("arial.ttf");
     assert!(supported(&mut Recorder::default(), &font));
     assert!(!supported(&mut NullScenePainter, &font));
     assert!(!supported(&mut anyrender::Scene::new(), &font));
@@ -136,7 +49,7 @@ fn probe_tells_native_scenes_apart() {
 
 #[test]
 fn repeated_frames_reuse_every_glyph_image() {
-    let (font, path) = arial();
+    let font = system_font("arial.ttf");
     let colors = [
         Color::BLACK,
         Color::from_rgb8(200, 30, 30),
@@ -147,8 +60,8 @@ fn repeated_frames_reuse_every_glyph_image() {
         Color::from_rgb8(220, 120, 0),
     ];
     let mut scene = Recorder::default();
-    let first = frame(&mut scene, &font, Some(&path), &colors, false);
-    let second = frame(&mut scene, &font, Some(&path), &colors, false);
+    let first = frame(&mut scene, &font, &colors, false);
+    let second = frame(&mut scene, &font, &colors, false);
     assert_eq!(first.len(), colors.len() * 8);
     assert_eq!(first, second);
     assert_eq!(first[..8], first[16..24]);
@@ -157,34 +70,21 @@ fn repeated_frames_reuse_every_glyph_image() {
 
 #[test]
 fn synthetic_oblique_runs_get_their_own_glyph_images() {
-    let (font, path) = arial();
+    let font = system_font("arial.ttf");
     let mut scene = Recorder::default();
-    let upright = frame(&mut scene, &font, Some(&path), &[Color::BLACK], false);
-    let oblique = frame(&mut scene, &font, Some(&path), &[Color::BLACK], true);
+    let upright = frame(&mut scene, &font, &[Color::BLACK], false);
+    let oblique = frame(&mut scene, &font, &[Color::BLACK], true);
     assert!(upright.iter().all(|id| !oblique.contains(id)));
 }
 
 #[test]
 fn memory_fonts_paint_on_every_thread() {
-    let (font, _) = arial();
-    let first = frame(
-        &mut Recorder::default(),
-        &font,
-        None,
-        &[Color::BLACK],
-        false,
-    );
-    let second = std::thread::spawn(move || {
-        frame(
-            &mut Recorder::default(),
-            &font,
-            None,
-            &[Color::BLACK],
-            false,
-        )
-    })
-    .join()
-    .expect("render thread finishes");
+    let font = system_font("arial.ttf");
+    let first = frame(&mut Recorder::default(), &font, &[Color::BLACK], false);
+    let second =
+        std::thread::spawn(move || frame(&mut Recorder::default(), &font, &[Color::BLACK], false))
+            .join()
+            .expect("render thread finishes");
     assert_eq!(first.len(), 8);
     assert_eq!(second.len(), 8);
 }

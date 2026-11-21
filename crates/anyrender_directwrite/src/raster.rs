@@ -1,16 +1,10 @@
 use crate::{coverage, glyphs::MaskKey};
 use peniko::{Blob, Color, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageQuality};
-use std::{mem::ManuallyDrop, os::windows::ffi::OsStrExt as _, path::Path, sync::Arc};
+use std::{mem::ManuallyDrop, sync::Arc};
 use windows::{
     Win32::Graphics::DirectWrite::*,
-    core::{BOOL, Interface as _, PCWSTR},
+    core::{BOOL, Interface as _},
 };
-
-pub(super) fn local_file(factory: &IDWriteFactory, path: &Path) -> Option<IDWriteFontFile> {
-    let name: Vec<_> = path.as_os_str().encode_wide().chain(Some(0)).collect();
-    // SAFETY: The UTF-16 path is NUL-terminated and remains live throughout the call.
-    unsafe { factory.CreateFontFileReference(PCWSTR(name.as_ptr()), None) }.ok()
-}
 
 pub(super) fn open(
     factory: &IDWriteFactory,

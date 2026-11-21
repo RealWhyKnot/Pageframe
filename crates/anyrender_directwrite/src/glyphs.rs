@@ -6,7 +6,6 @@ use peniko::{Color, Fill, FontData};
 use std::{
     cell::RefCell,
     collections::{HashMap, hash_map::Entry},
-    path::Path,
     rc::Rc,
     sync::{
         Arc,
@@ -41,7 +40,6 @@ pub struct GlyphPaint {
 pub type Axes = Box<dyn Fn(&[i16]) -> Vec<([u8; 4], f32)>>;
 
 pub struct FontSource {
-    pub path: Option<Arc<Path>>,
     pub gasp_version: Option<u16>,
     pub ranges: Vec<(u16, u16)>,
     pub strikes: Vec<u8>,
@@ -128,7 +126,7 @@ pub(crate) struct MaskKey {
 struct Base {
     file: IDWriteFontFile,
     profile: FontSource,
-    _memory_file: Option<Arc<memory::MemoryFile>>,
+    _memory: Arc<memory::MemoryFile>,
 }
 
 struct CachedFace {
@@ -220,17 +218,11 @@ impl GlyphRun<'_> {
             .entry(base_key)
             .or_insert_with(|| {
                 let profile = source()?;
-                let (file, memory_file) = match &profile.path {
-                    Some(path) => (raster::local_file(&cache.factory, path)?, None),
-                    None => {
-                        let memory = memory::file(&cache.factory, &self.font.data)?;
-                        (memory.file.clone(), Some(memory))
-                    }
-                };
+                let memory = memory::file(&cache.factory, &self.font.data)?;
                 Some(Rc::new(Base {
-                    file,
+                    file: memory.file.clone(),
                     profile,
-                    _memory_file: memory_file,
+                    _memory: memory,
                 }))
             })
             .clone()?;

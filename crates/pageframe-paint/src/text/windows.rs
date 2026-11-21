@@ -3,10 +3,8 @@ use anyrender::{Glyph, PaintScene};
 use anyrender_directwrite::{FontSource, GlyphRun};
 use kurbo::{Affine, Vec2};
 use parley::FontData;
-use parley::fontique::SourceKind;
 use peniko::Fill;
 use skrifa::raw::{TableProvider, types::Tag};
-use skrifa::string::StringId;
 use skrifa::{FontRef, MetadataProvider};
 
 fn oblique(face: &RunFace<'_>) -> Option<bool> {
@@ -118,22 +116,6 @@ fn source(face: &RunFace<'_>) -> Option<FontSource> {
     {
         return None;
     }
-    let context = face.installed?.font_context();
-    let mut context = context.lock().ok()?;
-    let path = [StringId::TYPOGRAPHIC_FAMILY_NAME, StringId::FAMILY_NAME]
-        .into_iter()
-        .find_map(|id| {
-            let name = font.localized_strings(id).english_or_first()?.to_string();
-            let family = context.collection.family_by_name(&name)?;
-            family.fonts().iter().find_map(|info| {
-                let SourceKind::Path(path) = info.source().kind() else {
-                    return None;
-                };
-                (info.index() == face.font.index
-                    && info.load(Some(&mut context.source_cache))?.id() == face.font.data.id())
-                .then(|| path.clone())
-            })
-        });
     let gasp = font
         .gasp()
         .ok()
@@ -175,7 +157,6 @@ fn source(face: &RunFace<'_>) -> Option<FontSource> {
     let data = face.font.clone();
     Some(FontSource {
         axes: Box::new(move |coords| denormalize(&data, coords)),
-        path,
         gasp_version: gasp.as_ref().map(|t| t.version()),
         ranges: gasp
             .map(|t| {
