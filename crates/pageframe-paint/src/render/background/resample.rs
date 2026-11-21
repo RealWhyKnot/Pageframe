@@ -12,6 +12,7 @@ const FIXED_ONE: i32 = 1 << 16;
 const FRACTIONAL_ONE: f64 = 4_294_967_296.0;
 const RASTER_TILE: i32 = 254;
 const SHADE_CHUNK: i32 = 127;
+const ALIGN_EPSILON: f64 = 1e-4;
 
 struct Axis {
     scale: f64,
@@ -109,6 +110,11 @@ fn bounded(values: [f64; 4]) -> bool {
     values.iter().all(|value| value.abs() <= MAX_COORD)
 }
 
+fn pixel_aligned(scale_x: f64, scale_y: f64, x: f64, y: f64) -> bool {
+    let near = |value: f64, target: f64| (value - target).abs() <= ALIGN_EPSILON;
+    near(scale_x, 1.0) && near(scale_y, 1.0) && near(x, x.round()) && near(y, y.round())
+}
+
 pub(super) fn draw_filtered(
     scene: &mut impl PaintScene,
     image: &RasterImageData,
@@ -125,7 +131,14 @@ pub(super) fn draw_filtered(
         Extend::Pad => false,
         _ => return false,
     };
-    if b != 0.0 || c != 0.0 || a < 1.0 || d < 1.0 || !size_ok || !bounded([a, d, e, f]) {
+    if b != 0.0
+        || c != 0.0
+        || a < 1.0
+        || d < 1.0
+        || !size_ok
+        || !bounded([a, d, e, f])
+        || pixel_aligned(a, d, e, f)
+    {
         return false;
     }
     let shape = transform.transform_rect_bbox(tile).intersect(dest.expand());
@@ -199,4 +212,40 @@ pub(super) fn draw_filtered(
         &shape,
     );
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyrender::Scene;
+
+    fn draws(transform: Affine, extend: Extend) -> bool {
+        let image = RasterImageData::new(4, 4, Arc::new(vec![200; 64]));
+        let mut scene = Scene::new();
+        let tile = Rect::new(0.0, 0.0, 4.0, 4.0);
+        let dest = Rect::new(0.0, 0.0, 40.0, 40.0);
+        let drawn = draw_filtered(&mut scene, &image, transform, tile, dest, extend);
+        assert_eq!(drawn, !scene.commands.is_empty());
+        drawn
+    }
+
+    #[test]
+    fn whole_pixel_one_to_one_uses_the_cached_image() {
+        for extend in [Extend::Pad, Extend::Repeat] {
+            assert!(!draws(Affine::translate((3.0, 7.0)), extend));
+            assert!(!draws(Affine::translate((3.00001, -2.0)), extend));
+        }
+    }
+
+    #[test]
+    fn scaled_or_offset_tiles_are_resampled() {
+        for extend in [Extend::Pad, Extend::Repeat] {
+            assert!(draws(Affine::scale(2.0), extend));
+            assert!(draws(Affine::translate((0.5, 0.0)), extend));
+            assert!(draws(
+                Affine::scale_non_uniform(1.0, 1.5).then_translate((1.0, 1.0).into()),
+                extend
+            ));
+        }
+    }
 }
