@@ -2207,13 +2207,12 @@ impl ElementCx<'_, '_> {
                 None,
                 &kurbo::Ellipse::from_rect(rect),
             ),
-            MarkerShape::Circle => scene.stroke(
-                &Stroke::new(1.0),
-                self.transform,
-                color,
-                None,
-                &kurbo::Ellipse::from_rect(rect),
-            ),
+            MarkerShape::Circle => {
+                let mut ring: kurbo::BezPath =
+                    kurbo::Ellipse::from_rect(rect).path_elements(0.1).collect();
+                ring.close_path();
+                scene.stroke(&Stroke::new(1.0), self.transform, color, None, &ring);
+            }
             MarkerShape::Square => {
                 scene.fill(Fill::NonZero, self.transform, color, None, &rect);
             }
