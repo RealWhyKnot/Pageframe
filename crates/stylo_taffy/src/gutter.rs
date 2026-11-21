@@ -1,5 +1,6 @@
 use crate::CopyStyleGetters;
 use crate::convert::layout_unit_px;
+use style::computed_value_flags::ComputedValueFlags;
 use style::logical_geometry::PhysicalSide;
 use style::properties::ComputedValues;
 use style::properties::generated::longhands::box_sizing::computed_value::T as BoxSizing;
@@ -7,10 +8,24 @@ use style::values::specified::box_::{Overflow, ScrollbarGutter};
 use style::values::specified::ui::ScrollbarWidth;
 use taffy::CompactLength;
 
-pub fn width(style: &ComputedValues) -> f32 {
+fn reserved(style: &ComputedValues) -> f32 {
     if !style
         .clone_scrollbar_gutter()
         .contains(ScrollbarGutter::STABLE)
+    {
+        return 0.0;
+    }
+    match style.clone_scrollbar_width() {
+        ScrollbarWidth::Auto => 15.0,
+        ScrollbarWidth::Thin => 10.0,
+        ScrollbarWidth::None => 0.0,
+    }
+}
+
+pub fn width(style: &ComputedValues) -> f32 {
+    if style
+        .flags
+        .contains(ComputedValueFlags::IS_ROOT_ELEMENT_STYLE)
     {
         return 0.0;
     }
@@ -23,10 +38,26 @@ pub fn width(style: &ComputedValues) -> f32 {
     if !scrolls(style.clone_overflow_x()) && !scrolls(style.clone_overflow_y()) {
         return 0.0;
     }
-    match style.clone_scrollbar_width() {
-        ScrollbarWidth::Auto => 15.0,
-        ScrollbarWidth::Thin => 10.0,
-        ScrollbarWidth::None => 0.0,
+    reserved(style)
+}
+
+pub fn viewport(style: &ComputedValues) -> taffy::Rect<f32> {
+    let gutter = reserved(style);
+    let start = if both_edges(style) { gutter } else { 0.0 };
+    if style.writing_mode.is_vertical() {
+        taffy::Rect {
+            left: 0.0,
+            right: 0.0,
+            top: start,
+            bottom: gutter,
+        }
+    } else {
+        taffy::Rect {
+            left: start,
+            right: gutter,
+            top: 0.0,
+            bottom: 0.0,
+        }
     }
 }
 

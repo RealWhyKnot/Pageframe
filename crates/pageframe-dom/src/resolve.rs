@@ -497,32 +497,64 @@ impl BaseDocument {
     /// TODO: update taffy to support traited styles so we don't even need to rely on taffy for storage
     pub fn resolve_layout(&mut self) {
         let size = self.stylist.device().au_viewport_size();
-
-        let available_space = taffy::Size {
-            width: AvailableSpace::Definite(size.width.to_f32_px()),
-            height: AvailableSpace::Definite(size.height.to_f32_px()),
+        let scale = self.viewport.scale();
+        let gutter = self
+            .root_element()
+            .primary_styles()
+            .map_or(taffy::Rect::zero(), |style| {
+                stylo_taffy::gutter::viewport(&style)
+                    .map(|px| stylo_taffy::layout_unit_px(px, scale))
+            });
+        let viewport = taffy::Size {
+            width: (size.width.to_f32_px() - gutter.left - gutter.right).max(0.0),
+            height: (size.height.to_f32_px() - gutter.top - gutter.bottom).max(0.0),
         };
+        let origin = taffy::Point {
+            x: gutter.left,
+            y: gutter.top,
+        };
+
+        let available_space = viewport.map(AvailableSpace::Definite);
 
         let root_element_id = crate::taffy_node_id(self.root_element().id);
 
         // println!("\n\nRESOLVE LAYOUT\n===========\n");
 
         let snap = crate::layout::round::DeviceSnap::new(self.viewport.scale());
-        let mut state = LayoutPassState::new(self);
-        #[cfg(feature = "writing-mode")]
-        let available_space = {
-            state.layout_wm = state.layout_wm_of(crate::dom_node_id(root_element_id));
-            if state.layout_wm.is_vertical() {
-                available_space.transpose()
+        {
+            let mut state = LayoutPassState::new(self);
+            #[cfg(feature = "writing-mode")]
+            let available_space = {
+                state.layout_wm = state.layout_wm_of(crate::dom_node_id(root_element_id));
+                if state.layout_wm.is_vertical() {
+                    available_space.transpose()
+                } else {
+                    available_space
+                }
+            };
+            taffy::compute_root_layout(&mut state, root_element_id, available_space);
+            #[cfg(feature = "writing-mode")]
+            let origin = if state.layout_wm.is_vertical() {
+                taffy::Point {
+                    x: origin.y,
+                    y: origin.x,
+                }
             } else {
-                available_space
-            }
-        };
-        taffy::compute_root_layout(&mut state, root_element_id, available_space);
-        #[cfg(feature = "writing-mode")]
-        state.physicalise_and_round_layout(root_element_id, snap);
-        #[cfg(not(feature = "writing-mode"))]
-        crate::layout::round::round_layout(&mut state, root_element_id, snap);
+                origin
+            };
+            let mut root_layout = taffy::RoundTree::get_unrounded_layout(&state, root_element_id);
+            root_layout.location.x += origin.x;
+            root_layout.location.y += origin.y;
+            taffy::LayoutPartialTree::set_unrounded_layout(
+                &mut state,
+                root_element_id,
+                &root_layout,
+            );
+            #[cfg(feature = "writing-mode")]
+            state.physicalise_and_round_layout(root_element_id, snap);
+            #[cfg(not(feature = "writing-mode"))]
+            crate::layout::round::round_layout(&mut state, root_element_id, snap);
+        }
 
         // println!("\n\n");
         // taffy::print_tree(self, root_node_id)
