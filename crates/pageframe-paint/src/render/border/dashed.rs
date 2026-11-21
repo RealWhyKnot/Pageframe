@@ -1,9 +1,11 @@
 use anyrender::PaintScene;
-use kurbo::{BezPath, Cap, Join, Point, Shape as _, Stroke, Vec2};
+use kurbo::{BezPath, Cap, Join, Point, Rect, Shape as _, Stroke, Vec2};
 use peniko::{Color, Fill};
 
 use super::{contour::dashed_contour, open_dash_gap};
 use crate::{kurbo_css::Edge, render::ElementCx};
+
+const MAX_SNAPPED_DASHES: f64 = 4096.0;
 
 pub(super) fn dashed_ratios(thickness: f64) -> (f64, f64) {
     if thickness >= 3.0 {
@@ -20,6 +22,45 @@ fn dash_stroke(thickness: f64, dash: f64, gap: f64) -> Stroke {
     } else {
         solid
     }
+}
+
+fn quarter(value: f64, phase: f64) -> f64 {
+    ((value + phase) * 4.0).round() / 4.0 - phase
+}
+
+fn quarter_dashes(
+    band: Rect,
+    horizontal: bool,
+    dash: f64,
+    gap: f64,
+    phase: Vec2,
+) -> Option<BezPath> {
+    let (from, to) = if horizontal {
+        (band.x0, band.x1)
+    } else {
+        (band.y0, band.y1)
+    };
+    let period = dash + gap;
+    if gap <= 0.0 || period <= 0.0 || (to - from) / period > MAX_SNAPPED_DASHES {
+        return None;
+    }
+    let mut path = BezPath::new();
+    let mut index = 0.0;
+    while from + index * period < to {
+        let start = from + index * period;
+        let end = (start + dash).min(to);
+        let rect = if horizontal {
+            Rect::new(start, band.y0, end, band.y1)
+        } else {
+            Rect::new(band.x0, start, band.x1, end)
+        };
+        let (top, bottom) = (quarter(rect.y0, phase.y), quarter(rect.y1, phase.y));
+        if rect.x1 > rect.x0 && bottom > top {
+            path.extend(Rect::new(rect.x0, top, rect.x1, bottom).path_elements(0.0));
+        }
+        index += 1.0;
+    }
+    Some(path)
 }
 
 impl ElementCx<'_, '_> {
@@ -67,7 +108,7 @@ impl ElementCx<'_, '_> {
             return;
         }
         let (dash_ratio, gap_ratio) = dashed_ratios(thickness);
-        let (centerline, dash, gap) = {
+        let (centerline, dash, gap, band) = {
             let bb = self.frame.border_box;
             let half = thickness / 2.0;
             let (start, end, length) = match edge {
@@ -109,17 +150,30 @@ impl ElementCx<'_, '_> {
             let mut line = BezPath::new();
             line.move_to(start);
             line.line_to(end);
-            (line, dash, gap)
+            let band = match edge {
+                Edge::Top => Rect::new(bb.x0, bb.y0, bb.x1, bb.y0 + thickness),
+                Edge::Bottom => Rect::new(bb.x0, bb.y1 - thickness, bb.x1, bb.y1),
+                Edge::Left => Rect::new(bb.x0, bb.y0, bb.x0 + thickness, bb.y1),
+                Edge::Right => Rect::new(bb.x1 - thickness, bb.y0, bb.x1, bb.y1),
+            };
+            (line, dash, gap, band)
         };
 
         scene.push_clip_layer(Fill::NonZero, self.transform, clip);
-        scene.stroke(
-            &dash_stroke(thickness, dash, gap),
-            self.transform,
-            color,
-            None,
-            &centerline,
-        );
+        let horizontal = matches!(edge, Edge::Top | Edge::Bottom);
+        let snapped = self.frame.pixel_phase.and_then(|_| {
+            quarter_dashes(band, horizontal, dash, gap, self.transform.translation())
+        });
+        match snapped {
+            Some(dashes) => scene.fill(Fill::NonZero, self.transform, color, None, &dashes),
+            None => scene.stroke(
+                &dash_stroke(thickness, dash, gap),
+                self.transform,
+                color,
+                None,
+                &centerline,
+            ),
+        }
         scene.pop_layer();
     }
 
