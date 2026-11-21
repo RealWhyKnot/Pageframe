@@ -5,6 +5,7 @@
 //! layout reconstruction.
 
 use pageframe_traits::node_id::NodeId;
+use std::collections::HashSet;
 
 /// Represents one endpoint (anchor or focus) of a text selection.
 ///
@@ -121,25 +122,181 @@ impl TextSelection {
     }
 }
 
+struct EndpointPath {
+    node: NodeId,
+    offset: usize,
+    chain: HashSet<NodeId>,
+    boxes: Vec<(NodeId, usize, NodeId)>,
+    key: Vec<usize>,
+}
+
 impl crate::BaseDocument {
+    fn inline_text_len(&self, node: NodeId) -> Option<usize> {
+        self.get_node(node)
+            .and_then(|node| node.element_data())
+            .and_then(|data| data.inline_layout_data.as_ref())
+            .map(|inline_layout| inline_layout.text.len())
+    }
+
+    fn endpoint_path(&self, point: &SelectionEndpoint) -> Option<EndpointPath> {
+        let lookup = |parent_id, idx| self.find_anonymous_block_by_index(parent_id, idx);
+        let node = point.resolve_node_id(lookup)?;
+        let clamped = point.offset.min(self.inline_text_len(node).unwrap_or(0));
+        let mut chain = HashSet::from([node]);
+        let mut boxes = Vec::new();
+        let mut key = vec![clamped * 2];
+        let mut child = node;
+        while let Some(parent) = self
+            .get_node(child)
+            .and_then(|node| node.layout_parent.get().or(node.parent))
+            .filter(|parent| !chain.contains(parent))
+        {
+            let parent_node = self.get_node(parent)?;
+            let inline_box = parent_node
+                .element_data()
+                .and_then(|data| data.inline_layout_data.as_ref())
+                .and_then(|inline_layout| {
+                    inline_layout.layout.inline_boxes().find(|inline_box| {
+                        inline_box.kind == parley::InlineBoxKind::InFlow
+                            && chain.contains(&NodeId::from_u64(inline_box.id))
+                    })
+                })
+                .map(|inline_box| (inline_box.index, NodeId::from_u64(inline_box.id)));
+            if let Some((index, box_id)) = inline_box {
+                boxes.push((parent, index, box_id));
+                key.push(index * 2 + 1);
+            } else {
+                let position = parent_node
+                    .layout_children
+                    .borrow()
+                    .as_ref()
+                    .and_then(|children| children.iter().position(|&id| id == child))
+                    .or_else(|| parent_node.children.iter().position(|&id| id == child))
+                    .unwrap_or(0);
+                key.push(position);
+            }
+            chain.insert(parent);
+            child = parent;
+        }
+        key.reverse();
+        Some(EndpointPath {
+            node,
+            offset: point.offset,
+            chain,
+            boxes,
+            key,
+        })
+    }
+
+    fn clip_nested_root_ranges(
+        &self,
+        ranges: &mut Vec<(NodeId, usize, usize)>,
+        first: &EndpointPath,
+        last: &EndpointPath,
+    ) -> Vec<NodeId> {
+        let roots = [first.node, last.node]
+            .into_iter()
+            .chain(first.boxes.iter().chain(&last.boxes).map(|entry| entry.0));
+        for root in roots {
+            if ranges.iter().all(|&(id, ..)| id != root)
+                && let Some(text_len) = self.inline_text_len(root)
+            {
+                ranges.push((root, 0, text_len));
+            }
+        }
+        let mut holding = Vec::new();
+        for (root, start, end) in ranges.iter_mut() {
+            let first_box = first.boxes.iter().find(|entry| entry.0 == *root);
+            let last_box = last.boxes.iter().find(|entry| entry.0 == *root);
+            if *root == first.node {
+                *start = first.offset;
+            } else if let Some(&(_, index, box_id)) = first_box {
+                *start = index;
+                holding.push(box_id);
+            } else if *root == last.node || last_box.is_some() {
+                *start = 0;
+            }
+            if *root == last.node {
+                *end = last.offset;
+            } else if let Some(&(_, index, box_id)) = last_box {
+                *end = index;
+                holding.push(box_id);
+            } else if *root == first.node || first_box.is_some() {
+                *end = self.inline_text_len(*root).unwrap_or(*end);
+            }
+        }
+        holding.dedup();
+        holding
+    }
+
+    fn atomic_children(
+        &self,
+        id: NodeId,
+        first: &EndpointPath,
+        last: &EndpointPath,
+    ) -> Vec<NodeId> {
+        let Some(node) = self.get_node(id) else {
+            return Vec::new();
+        };
+        let children = node.layout_children.borrow();
+        let Some(children) = children.as_ref() else {
+            return Vec::new();
+        };
+        let from = first
+            .chain
+            .contains(&id)
+            .then(|| {
+                children
+                    .iter()
+                    .position(|child| first.chain.contains(child))
+            })
+            .flatten()
+            .unwrap_or(0);
+        let to = last
+            .chain
+            .contains(&id)
+            .then(|| children.iter().position(|child| last.chain.contains(child)))
+            .flatten()
+            .map_or(children.len(), |to| to + 1);
+        children.iter().take(to).skip(from).rev().copied().collect()
+    }
+
     pub(crate) fn with_atomic_contents(
         &self,
         mut ranges: Vec<(NodeId, usize, usize)>,
     ) -> Vec<(NodeId, usize, usize)> {
-        let mut seen: std::collections::HashSet<NodeId> =
-            ranges.iter().map(|&(root, ..)| root).collect();
-        let lookup = |parent_id, idx| self.find_anonymous_block_by_index(parent_id, idx);
-        let mut holds_endpoint = std::collections::HashSet::new();
-        for point in [&self.text_selection.anchor, &self.text_selection.focus] {
-            let mut cursor = point.resolve_node_id(lookup);
-            while let Some(id) = cursor.filter(|&id| holds_endpoint.insert(id)) {
-                cursor = self
-                    .get_node(id)
-                    .and_then(|node| node.layout_parent.get().or(node.parent));
-            }
+        if ranges.is_empty() {
+            return ranges;
         }
+        let (Some(anchor), Some(focus)) = (
+            self.endpoint_path(&self.text_selection.anchor),
+            self.endpoint_path(&self.text_selection.focus),
+        ) else {
+            return ranges;
+        };
+        let (first, last) = if anchor.key <= focus.key {
+            (anchor, focus)
+        } else {
+            (focus, anchor)
+        };
+        let mut pending = self.clip_nested_root_ranges(&mut ranges, &first, &last);
+        let mut seen: HashSet<NodeId> = ranges.iter().map(|&(root, ..)| root).collect();
         let mut at = 0;
-        while let Some(&(root, start, end)) = ranges.get(at) {
+        loop {
+            while let Some(id) = pending.pop() {
+                let holds = first.chain.contains(&id) || last.chain.contains(&id);
+                match self.inline_text_len(id) {
+                    Some(text_len) => {
+                        if text_len > 0 && !holds && seen.insert(id) {
+                            ranges.push((id, 0, text_len));
+                        }
+                    }
+                    None => pending.extend(self.atomic_children(id, &first, &last)),
+                }
+            }
+            let Some(&(root, start, end)) = ranges.get(at) else {
+                break;
+            };
             at += 1;
             let Some(inline_layout) = self
                 .get_node(root)
@@ -148,7 +305,7 @@ impl crate::BaseDocument {
             else {
                 continue;
             };
-            let mut pending: Vec<NodeId> = inline_layout
+            let mut boxes: Vec<NodeId> = inline_layout
                 .layout
                 .inline_boxes()
                 .filter(|inline_box| {
@@ -157,30 +314,10 @@ impl crate::BaseDocument {
                 })
                 .map(|inline_box| NodeId::from_u64(inline_box.id))
                 .collect();
-            while let Some(id) = pending.pop() {
-                let Some(node) = self.get_node(id) else {
-                    continue;
-                };
-                let holds = holds_endpoint.contains(&id);
-                let text_len = node
-                    .element_data()
-                    .and_then(|data| data.inline_layout_data.as_ref())
-                    .map(|inline_layout| inline_layout.text.len());
-                if let Some(text_len) = text_len {
-                    if text_len > 0 && !holds && seen.insert(id) {
-                        ranges.push((id, 0, text_len));
-                    }
-                    continue;
-                }
-                if let Some(children) = node.layout_children.borrow().as_ref() {
-                    let before = children
-                        .iter()
-                        .position(|child| holds && holds_endpoint.contains(child))
-                        .unwrap_or(children.len());
-                    pending.extend(children.iter().take(before).rev());
-                }
-            }
+            boxes.reverse();
+            pending.extend(boxes);
         }
+        ranges.retain(|&(_, start, end)| start < end);
         ranges
     }
 }

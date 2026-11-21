@@ -71,8 +71,8 @@ fn a_selection_ending_inside_ruby_keeps_only_what_comes_before_it() {
     assert_eq!(
         [into_annotation, into_base],
         [
-            vec!["div:1..4", "div:0..2", "rt:0..1"],
-            vec!["div:1..4", "div:0..1"],
+            vec!["div:1..2", "div:0..2", "rt:0..1"],
+            vec!["div:1..2", "div:0..1"],
         ]
     );
 }
