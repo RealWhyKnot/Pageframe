@@ -1,5 +1,7 @@
 use super::*;
 
+mod blur;
+
 /// The largest side, in pixels, of the image a blurred shadow is rendered into. Larger
 /// shadows are drawn without blur.
 const MAX_SHADOW_IMAGE_SIDE: f64 = 4096.0;
@@ -54,18 +56,20 @@ pub(super) fn blurred_shadow_image(
         width,
         height,
     );
-    let mut alpha: Vec<f32> = coverage
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .map(|px| f32::from(px[3]) / 255.0)
-        .collect();
-    gaussian_blur(&mut alpha, width as usize, height as usize, std_deviation);
+    let mut alpha: Vec<u8> = coverage.as_chunks::<4>().0.iter().map(|px| px[3]).collect();
+    blur::mask_blur(&mut alpha, width as usize, height as usize, std_deviation);
 
     let [r, g, b, a] = color.to_rgba8().to_u8_array();
     let data: Vec<u8> = alpha
         .iter()
-        .flat_map(|coverage| [r, g, b, (coverage * f32::from(a)).round() as u8])
+        .flat_map(|&coverage| {
+            [
+                r,
+                g,
+                b,
+                (f32::from(coverage) * f32::from(a) / 255.0).round() as u8,
+            ]
+        })
         .collect();
     let image = peniko::ImageBrush {
         image: peniko::ImageData {
