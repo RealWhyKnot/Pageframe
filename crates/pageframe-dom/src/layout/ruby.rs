@@ -522,14 +522,15 @@ impl LayoutPassState<'_> {
                     y: placed.location.y + offset.y,
                 };
                 layout.size = placed.measured.size;
-                let style = self.nodes[child].layout_style();
-                layout.padding = style
-                    .padding()
-                    .resolve_or_zero(Some(size.width), resolve_calc_value);
-                layout.border = style
-                    .border()
-                    .resolve_or_zero(Some(size.width), resolve_calc_value);
-                drop(style);
+                {
+                    let style = self.nodes[child].layout_style();
+                    layout.padding = style
+                        .padding()
+                        .resolve_or_zero(Some(size.width), resolve_calc_value);
+                    layout.border = style
+                        .border()
+                        .resolve_or_zero(Some(size.width), resolve_calc_value);
+                }
                 self.set_unrounded_layout(taffy_node_id(child), &layout);
             }
         }

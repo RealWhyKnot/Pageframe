@@ -88,62 +88,65 @@ impl LayoutPassState<'_> {
             run_mode,
             ..
         } = inputs;
-        let style = self.nodes[node_id].layout_style();
+        let (is_scroll_container, styled_based_known_dimensions) = {
+            let style = self.nodes[node_id].layout_style();
 
-        let is_scroll_container =
-            style.overflow().x.is_scroll_container() || style.overflow().y.is_scroll_container();
-        let padding = style
-            .padding()
-            .resolve_or_zero(parent_size.width, resolve_calc_value);
-        let border = style
-            .border()
-            .resolve_or_zero(parent_size.width, resolve_calc_value);
-        let padding_border_size = (padding + border).sum_axes();
-        let box_sizing_adjustment = if style.box_sizing() == BoxSizing::ContentBox {
-            padding_border_size
-        } else {
-            Size::ZERO
+            let is_scroll_container = style.overflow().x.is_scroll_container()
+                || style.overflow().y.is_scroll_container();
+            let padding = style
+                .padding()
+                .resolve_or_zero(parent_size.width, resolve_calc_value);
+            let border = style
+                .border()
+                .resolve_or_zero(parent_size.width, resolve_calc_value);
+            let padding_border_size = (padding + border).sum_axes();
+            let box_sizing_adjustment = if style.box_sizing() == BoxSizing::ContentBox {
+                padding_border_size
+            } else {
+                Size::ZERO
+            };
+
+            let (clamped_style_size, min_size, max_size, _aspect_ratio) = match inputs.sizing_mode {
+                SizingMode::ContentSize => {
+                    let node_size = known_dimensions;
+                    let node_min_size = Size::NONE;
+                    let node_max_size = Size::NONE;
+                    (node_size, node_min_size, node_max_size, None)
+                }
+                SizingMode::InherentSize => {
+                    let aspect_ratio = style.aspect_ratio();
+                    let style_size = style
+                        .size()
+                        .maybe_resolve(parent_size, resolve_calc_value)
+                        .maybe_apply_aspect_ratio(aspect_ratio)
+                        .maybe_add(box_sizing_adjustment);
+                    let style_min_size = style
+                        .min_size()
+                        .maybe_resolve(parent_size, resolve_calc_value)
+                        .maybe_apply_aspect_ratio(aspect_ratio)
+                        .maybe_add(box_sizing_adjustment);
+                    let style_max_size = style
+                        .max_size()
+                        .maybe_resolve(parent_size, resolve_calc_value)
+                        .maybe_add(box_sizing_adjustment);
+
+                    let node_size =
+                        known_dimensions.or(style_size.maybe_clamp(style_min_size, style_max_size));
+                    (node_size, style_min_size, style_max_size, aspect_ratio)
+                }
+            };
+
+            let min_max_definite_size = min_size.zip_map(max_size, |min, max| match (min, max) {
+                (Some(min), Some(max)) if max <= min => Some(min),
+                _ => None,
+            });
+
+            let styled_based_known_dimensions = known_dimensions
+                .or(min_max_definite_size)
+                .or(clamped_style_size)
+                .maybe_max(padding_border_size);
+            (is_scroll_container, styled_based_known_dimensions)
         };
-
-        let (clamped_style_size, min_size, max_size, _aspect_ratio) = match inputs.sizing_mode {
-            SizingMode::ContentSize => {
-                let node_size = known_dimensions;
-                let node_min_size = Size::NONE;
-                let node_max_size = Size::NONE;
-                (node_size, node_min_size, node_max_size, None)
-            }
-            SizingMode::InherentSize => {
-                let aspect_ratio = style.aspect_ratio();
-                let style_size = style
-                    .size()
-                    .maybe_resolve(parent_size, resolve_calc_value)
-                    .maybe_apply_aspect_ratio(aspect_ratio)
-                    .maybe_add(box_sizing_adjustment);
-                let style_min_size = style
-                    .min_size()
-                    .maybe_resolve(parent_size, resolve_calc_value)
-                    .maybe_apply_aspect_ratio(aspect_ratio)
-                    .maybe_add(box_sizing_adjustment);
-                let style_max_size = style
-                    .max_size()
-                    .maybe_resolve(parent_size, resolve_calc_value)
-                    .maybe_add(box_sizing_adjustment);
-
-                let node_size =
-                    known_dimensions.or(style_size.maybe_clamp(style_min_size, style_max_size));
-                (node_size, style_min_size, style_max_size, aspect_ratio)
-            }
-        };
-
-        let min_max_definite_size = min_size.zip_map(max_size, |min, max| match (min, max) {
-            (Some(min), Some(max)) if max <= min => Some(min),
-            _ => None,
-        });
-
-        let styled_based_known_dimensions = known_dimensions
-            .or(min_max_definite_size)
-            .or(clamped_style_size)
-            .maybe_max(padding_border_size);
 
         if run_mode == RunMode::ComputeSize {
             if let Size {
@@ -154,8 +157,6 @@ impl LayoutPassState<'_> {
                 return LayoutOutput::from_outer_size(Size { width, height });
             }
         }
-
-        drop(style);
 
         match block_ctx {
             Some(inherited_bfc) if !is_scroll_container => self.compute_inline_layout_inner(
@@ -239,42 +240,64 @@ impl LayoutPassState<'_> {
             if ibox.kind == parley::InlineBoxKind::EmptySpan {
                 continue;
             }
-            let style = self.child_layout_style(&self.nodes[NodeId::from_u64(ibox.id)]);
-            let margin = style
-                .margin()
-                .resolve_or_zero(parent_size, resolve_calc_value);
+            let (
+                margin,
+                is_floated,
+                is_out_of_flow,
+                is_flow,
+                uses_last_baseline,
+                exports_baseline,
+                is_block_level,
+                box_inputs,
+                is_scroll_container,
+            ) = {
+                let style = self.child_layout_style(&self.nodes[NodeId::from_u64(ibox.id)]);
+                let margin = style
+                    .margin()
+                    .resolve_or_zero(parent_size, resolve_calc_value);
 
-            #[cfg(feature = "floats")]
-            let is_floated = style.float().is_floated();
-            #[cfg(not(feature = "floats"))]
-            let is_floated = false;
+                #[cfg(feature = "floats")]
+                let is_floated = style.float().is_floated();
+                #[cfg(not(feature = "floats"))]
+                let is_floated = false;
 
-            let is_out_of_flow = style.position().is_out_of_flow();
-            let overflow = style.overflow();
-            let box_style = style.style.get_box();
-            let is_flow = matches!(
-                style.effective_display().inside(),
-                DisplayInside::Flow | DisplayInside::FlowRoot
-            );
-            let baseline_source = box_style.slow_clone_baseline_source();
-            let uses_last_baseline = match baseline_source {
-                BaselineSource::Auto => is_flow,
-                BaselineSource::First => false,
-                BaselineSource::Last => true,
+                let is_out_of_flow = style.position().is_out_of_flow();
+                let overflow = style.overflow();
+                let box_style = style.style.get_box();
+                let is_flow = matches!(
+                    style.effective_display().inside(),
+                    DisplayInside::Flow | DisplayInside::FlowRoot
+                );
+                let baseline_source = box_style.slow_clone_baseline_source();
+                let uses_last_baseline = match baseline_source {
+                    BaselineSource::Auto => is_flow,
+                    BaselineSource::First => false,
+                    BaselineSource::Last => true,
+                };
+                let is_scroll_container = !matches!(overflow.y, Overflow::Visible | Overflow::Clip);
+                let is_block_axis_scroll_container = is_flow
+                    && is_scroll_container
+                    && !style
+                        .flags
+                        .intersects(StyleFlags::IS_BUTTON | StyleFlags::IS_BUTTON_INPUT);
+                let contain_layout = box_style.slow_clone_contain().contains(Contain::LAYOUT);
+                let exports_baseline = !(contain_layout
+                    || (baseline_source == BaselineSource::Auto && is_block_axis_scroll_container));
+                let is_block_level = style.effective_display().outside() == DisplayOutside::Block;
+                let box_inputs =
+                    inline_box_inputs(style.size().width, margin, child_inputs, is_block_level);
+                (
+                    margin,
+                    is_floated,
+                    is_out_of_flow,
+                    is_flow,
+                    uses_last_baseline,
+                    exports_baseline,
+                    is_block_level,
+                    box_inputs,
+                    is_scroll_container,
+                )
             };
-            let is_scroll_container = !matches!(overflow.y, Overflow::Visible | Overflow::Clip);
-            let is_block_axis_scroll_container = is_flow
-                && is_scroll_container
-                && !style
-                    .flags
-                    .intersects(StyleFlags::IS_BUTTON | StyleFlags::IS_BUTTON_INPUT);
-            let contain_layout = box_style.slow_clone_contain().contains(Contain::LAYOUT);
-            let exports_baseline = !(contain_layout
-                || (baseline_source == BaselineSource::Auto && is_block_axis_scroll_container));
-            let is_block_level = style.effective_display().outside() == DisplayOutside::Block;
-            let box_inputs =
-                inline_box_inputs(style.size().width, margin, child_inputs, is_block_level);
-            drop(style);
             let box_id = NodeId::from_u64(ibox.id);
             let margin = self.ruby_line_margin(box_id, margin, parent_size);
             let walks_blocks = is_flow

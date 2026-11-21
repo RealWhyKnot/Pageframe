@@ -41,23 +41,25 @@ impl BaseDocument {
         let height_is_auto =
             styles.get_position().height.is_auto() && inputs.known_dimensions.height.is_none();
         drop(styles);
-        let style = node.layout_style();
-        let inset = style
-            .padding()
-            .resolve_or_zero(inputs.parent_size.width, resolve_calc_value)
-            + style
-                .border()
-                .resolve_or_zero(inputs.parent_size.width, resolve_calc_value);
-        let min_height = style
-            .min_size()
-            .maybe_resolve(inputs.parent_size, resolve_calc_value)
-            .height
-            .map(|height| match style.box_sizing() {
-                BoxSizing::ContentBox => height + inset.top + inset.bottom,
-                BoxSizing::BorderBox => height,
-            })
-            .unwrap_or(0.0);
-        drop(style);
+        let (inset, min_height) = {
+            let style = node.layout_style();
+            let inset = style
+                .padding()
+                .resolve_or_zero(inputs.parent_size.width, resolve_calc_value)
+                + style
+                    .border()
+                    .resolve_or_zero(inputs.parent_size.width, resolve_calc_value);
+            let min_height = style
+                .min_size()
+                .maybe_resolve(inputs.parent_size, resolve_calc_value)
+                .height
+                .map(|height| match style.box_sizing() {
+                    BoxSizing::ContentBox => height + inset.top + inset.bottom,
+                    BoxSizing::BorderBox => height,
+                })
+                .unwrap_or(0.0);
+            (inset, min_height)
+        };
 
         let keeps_result = inputs.run_mode == RunMode::PerformLayout;
         let mut walk = ClampWalk {

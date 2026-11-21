@@ -25,18 +25,20 @@ pub(crate) fn layout(node: &mut Node, mut inputs: LayoutInput) -> LayoutOutput {
         .attr(local_name!("alt"))
         .is_some_and(|alt| !alt.is_empty());
     let missing_source = source.is_none();
-    let source_style = node.layout_style();
-    let mut style: taffy::Style = taffy::Style {
-        size: source_style.size(),
-        min_size: source_style.min_size(),
-        max_size: source_style.max_size(),
-        padding: source_style.padding(),
-        border: source_style.border(),
-        margin: source_style.margin(),
-        box_sizing: source_style.box_sizing(),
-        aspect_ratio: source_style.aspect_ratio(),
-        overflow: source_style.overflow(),
-        ..Default::default()
+    let mut style: taffy::Style = {
+        let source_style = node.layout_style();
+        taffy::Style {
+            size: source_style.size(),
+            min_size: source_style.min_size(),
+            max_size: source_style.max_size(),
+            padding: source_style.padding(),
+            border: source_style.border(),
+            margin: source_style.margin(),
+            box_sizing: source_style.box_sizing(),
+            aspect_ratio: source_style.aspect_ratio(),
+            overflow: source_style.overflow(),
+            ..Default::default()
+        }
     };
     let inline = node
         .display_style()
@@ -135,7 +137,6 @@ pub(crate) fn layout(node: &mut Node, mut inputs: LayoutInput) -> LayoutOutput {
         output.baselines.first = Some(output.size.height - pb.bottom);
         output.baselines.last = output.baselines.first;
     }
-    drop(source_style);
     if let Some(element) = node.element_data_mut() {
         element.special_data = SpecialElementData::ImageFallback(fallback);
     }

@@ -72,59 +72,95 @@ impl LayoutPassState<'_> {
                     let order = ibox_order;
                     ibox_order += 1;
                     let node = &self.nodes[NodeId::from_u64(ibox.id)];
-                    let style = self.child_layout_style(node);
-                    let padding = style
-                        .padding()
-                        .resolve_or_zero(child_inputs.parent_size, resolve_calc_value);
-                    let border = style
-                        .border()
-                        .resolve_or_zero(child_inputs.parent_size, resolve_calc_value);
-                    let margin = style
-                        .margin()
-                        .resolve_or_zero(child_inputs.parent_size, resolve_calc_value);
+                    let (
+                        padding,
+                        border,
+                        margin,
+                        is_floated,
+                        position,
+                        is_absolute,
+                        item_direction,
+                        justify_self,
+                        align_self,
+                        is_inline_level,
+                        inset,
+                        is_block_level,
+                        auto_margins,
+                        box_inputs,
+                    ) = {
+                        let style = self.child_layout_style(node);
+                        let padding = style
+                            .padding()
+                            .resolve_or_zero(child_inputs.parent_size, resolve_calc_value);
+                        let border = style
+                            .border()
+                            .resolve_or_zero(child_inputs.parent_size, resolve_calc_value);
+                        let margin = style
+                            .margin()
+                            .resolve_or_zero(child_inputs.parent_size, resolve_calc_value);
 
-                    #[cfg(feature = "floats")]
-                    let is_floated = style.float() != Float::None;
-                    #[cfg(not(feature = "floats"))]
-                    let is_floated = false;
+                        #[cfg(feature = "floats")]
+                        let is_floated = style.float() != Float::None;
+                        #[cfg(not(feature = "floats"))]
+                        let is_floated = false;
 
-                    let position = style.position();
-                    let is_absolute = position.is_out_of_flow();
-                    let item_direction = style.direction();
-                    let justify_self =
-                        OofItemStyle::justify_self(&style).unwrap_or(taffy::AlignItems::NORMAL);
-                    let align_self =
-                        OofItemStyle::align_self(&style).unwrap_or(taffy::AlignItems::NORMAL);
+                        let position = style.position();
+                        let is_absolute = position.is_out_of_flow();
+                        let item_direction = style.direction();
+                        let justify_self =
+                            OofItemStyle::justify_self(&style).unwrap_or(taffy::AlignItems::NORMAL);
+                        let align_self =
+                            OofItemStyle::align_self(&style).unwrap_or(taffy::AlignItems::NORMAL);
 
-                    let is_inline_level =
-                        style.style.get_box().original_display.outside() == DisplayOutside::Inline;
+                        let is_inline_level = style.style.get_box().original_display.outside()
+                            == DisplayOutside::Inline;
 
-                    let container_content_size = final_size - content_box_inset.sum_axes();
-                    let inset_style = style.inset();
-                    let inset = taffy::Rect {
-                        left: inset_style
-                            .left
-                            .maybe_resolve(container_content_size.width, resolve_calc_value),
-                        right: inset_style
-                            .right
-                            .maybe_resolve(container_content_size.width, resolve_calc_value),
-                        top: inset_style
-                            .top
-                            .maybe_resolve(container_content_size.height, resolve_calc_value),
-                        bottom: inset_style
-                            .bottom
-                            .maybe_resolve(container_content_size.height, resolve_calc_value),
+                        let container_content_size = final_size - content_box_inset.sum_axes();
+                        let inset_style = style.inset();
+                        let inset = taffy::Rect {
+                            left: inset_style
+                                .left
+                                .maybe_resolve(container_content_size.width, resolve_calc_value),
+                            right: inset_style
+                                .right
+                                .maybe_resolve(container_content_size.width, resolve_calc_value),
+                            top: inset_style
+                                .top
+                                .maybe_resolve(container_content_size.height, resolve_calc_value),
+                            bottom: inset_style
+                                .bottom
+                                .maybe_resolve(container_content_size.height, resolve_calc_value),
+                        };
+                        let is_block_level = !is_floated
+                            && !is_absolute
+                            && style.effective_display().outside() == DisplayOutside::Block;
+                        let auto_margins = [
+                            style.margin().left.is_auto(),
+                            style.margin().right.is_auto(),
+                        ];
+                        let box_inputs = inline_box_inputs(
+                            style.size().width,
+                            margin,
+                            child_inputs,
+                            is_block_level,
+                        );
+                        (
+                            padding,
+                            border,
+                            margin,
+                            is_floated,
+                            position,
+                            is_absolute,
+                            item_direction,
+                            justify_self,
+                            align_self,
+                            is_inline_level,
+                            inset,
+                            is_block_level,
+                            auto_margins,
+                            box_inputs,
+                        )
                     };
-                    let is_block_level = !is_floated
-                        && !is_absolute
-                        && style.effective_display().outside() == DisplayOutside::Block;
-                    let auto_margins = [
-                        style.margin().left.is_auto(),
-                        style.margin().right.is_auto(),
-                    ];
-                    let box_inputs =
-                        inline_box_inputs(style.size().width, margin, child_inputs, is_block_level);
-                    drop(style);
 
                     if is_absolute {
                         let line_metrics = line.metrics();

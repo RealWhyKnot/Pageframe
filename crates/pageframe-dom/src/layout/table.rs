@@ -2404,7 +2404,6 @@ impl TableTreeWrapper<'_, '_> {
                         width + padding.left + padding.right + border.left + border.right
                     }
                 });
-            drop(style);
             floor = floor.max(specified.unwrap_or(content) + margin.left + margin.right);
         }
         floor

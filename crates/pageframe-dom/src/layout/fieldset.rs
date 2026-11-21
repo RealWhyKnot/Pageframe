@@ -116,41 +116,46 @@ impl LayoutPassState<'_> {
         let Some(legend_id) = self.rendered_legend(fieldset) else {
             return;
         };
-        let node = &self.nodes[fieldset];
-        let style = node.layout_style();
         let parent_size = inputs.parent_size;
-        let border = style
-            .border()
-            .resolve_or_zero(parent_size.width, resolve_calc_value);
-        let padding = style
-            .padding()
-            .resolve_or_zero(parent_size.width, resolve_calc_value);
-        let edges = FieldsetEdges {
-            border_top: border.top,
-            horizontal: border.left + border.right + padding.left + padding.right,
-            vertical: border.top + border.bottom + padding.top + padding.bottom,
+        let (edges, box_sizing, size, min_size, max_size, margin) = {
+            let style = self.nodes[fieldset].layout_style();
+            let border = style
+                .border()
+                .resolve_or_zero(parent_size.width, resolve_calc_value);
+            let padding = style
+                .padding()
+                .resolve_or_zero(parent_size.width, resolve_calc_value);
+            let edges = FieldsetEdges {
+                border_top: border.top,
+                horizontal: border.left + border.right + padding.left + padding.right,
+                vertical: border.top + border.bottom + padding.top + padding.bottom,
+            };
+            (
+                edges,
+                style.box_sizing(),
+                style.size().maybe_resolve(parent_size, resolve_calc_value),
+                style
+                    .min_size()
+                    .maybe_resolve(parent_size, resolve_calc_value),
+                style
+                    .max_size()
+                    .maybe_resolve(parent_size, resolve_calc_value),
+                style
+                    .margin()
+                    .resolve_or_zero(parent_size.width, resolve_calc_value),
+            )
         };
-        let box_sizing = style.box_sizing();
         let to_border_box = |length: f32, edge: f32| match box_sizing {
             BoxSizing::ContentBox => length + edge,
             BoxSizing::BorderBox => length,
         };
-        let size = style.size().maybe_resolve(parent_size, resolve_calc_value);
         let height_is_auto = inputs.known_dimensions.height.is_none() && size.height.is_none();
-        let min_height = style
-            .min_size()
-            .maybe_resolve(parent_size, resolve_calc_value)
+        let min_height = min_size
             .height
             .map_or(0.0, |height| to_border_box(height, edges.vertical));
-        let max_height = style
-            .max_size()
-            .maybe_resolve(parent_size, resolve_calc_value)
+        let max_height = max_size
             .height
             .map(|height| to_border_box(height, edges.vertical));
-        let margin = style
-            .margin()
-            .resolve_or_zero(parent_size.width, resolve_calc_value);
-        drop(style);
 
         let border_box_width = inputs.known_dimensions.width.or(size
             .width
