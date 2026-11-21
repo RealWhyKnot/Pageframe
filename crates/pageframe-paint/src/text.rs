@@ -188,6 +188,27 @@ fn starts_group(styles: &style::properties::ComputedValues) -> bool {
         && (styles.get_effects().opacity < 1.0 || is_positioned(styles))
 }
 
+pub(crate) fn run_group(
+    doc: &BaseDocument,
+    node_id: NodeId,
+    inline_root_id: NodeId,
+) -> Option<NodeId> {
+    let mut next_id = Some(node_id);
+    while let Some(node) = next_id
+        .filter(|node_id| *node_id != inline_root_id)
+        .and_then(|node_id| doc.get_node(node_id))
+    {
+        if node
+            .primary_styles()
+            .is_some_and(|styles| starts_group(&styles))
+        {
+            return Some(node.id);
+        }
+        next_id = node.parent;
+    }
+    None
+}
+
 pub(crate) fn parent_group(
     doc: &BaseDocument,
     group: NodeId,

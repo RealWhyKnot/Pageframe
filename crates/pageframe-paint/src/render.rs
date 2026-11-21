@@ -7,6 +7,7 @@ mod clip_path;
 mod column_rule;
 mod date_field;
 mod form_controls;
+mod inline_groups;
 mod mask;
 mod miter;
 mod outline;
@@ -100,6 +101,7 @@ pub struct PageframeDomPainter<'dom, 'a> {
     pub(crate) draw_text_context: RefCell<DrawTextContext>,
     pub(crate) deferred_paints: RefCell<Vec<DeferredPaint>>,
     pub(crate) table_edges: RefCell<HashMap<NodeId, Option<Rc<table_borders::Edges>>>>,
+    inline_paints: RefCell<HashMap<NodeId, Rc<inline_groups::InlinePaint>>>,
     /// Cached selection ranges for O(1) lookup: node_id -> (start_offset, end_offset)
     pub(crate) selection_ranges: HashMap<NodeId, (usize, usize)>,
 
@@ -151,6 +153,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
             draw_text_context: RefCell::new(DrawTextContext::default()),
             deferred_paints: RefCell::new(Vec::new()),
             table_edges: RefCell::new(HashMap::new()),
+            inline_paints: RefCell::new(HashMap::new()),
             selection_ranges,
             custom_widget_scenes,
             backdrop_stop: None,
@@ -1187,20 +1190,6 @@ struct OwnBox {
     transform: Affine,
 }
 
-#[derive(Clone, Copy)]
-struct InlinePass<'a> {
-    fragments: &'a [crate::text::InlineFragment],
-    runs: &'a [crate::text::GroupedRun],
-    visible_lines: usize,
-    ellipsis: Option<LineEllipsis>,
-}
-
-struct PaintGroup {
-    id: NodeId,
-    parent: Option<NodeId>,
-    bounds: Rect,
-}
-
 impl ElementCx<'_, '_> {
     pub(crate) fn is_hidden(&self) -> bool {
         self.style.get_inherited_box().visibility != StyloVisibility::Visible
@@ -1688,102 +1677,8 @@ impl ElementCx<'_, '_> {
                 pageframe_dom::util::inherited_clamp_line(self.node),
             );
 
-            // Render inline element backgrounds (e.g. `<span style="background: ...">`)
-            // behind the text and selection highlight.
-            let mut fragments = crate::text::inline_fragments(
-                text_layout.layout.lines().take(visible_lines),
-                self.context.dom,
-                self.node.id,
-                &text_layout.text,
-                self.scale,
-            );
-            let mut groups: Vec<PaintGroup> = Vec::new();
-            for fragment in &fragments {
-                let mut next_group = fragment.group;
-                while let Some(group) = next_group {
-                    if let Some(known) = groups.iter_mut().find(|known| known.id == group) {
-                        known.bounds = known.bounds.union(fragment.rect);
-                        next_group = known.parent;
-                        continue;
-                    }
-                    let parent = crate::text::parent_group(self.context.dom, group, self.node.id);
-                    groups.push(PaintGroup {
-                        id: group,
-                        parent,
-                        bounds: fragment.rect,
-                    });
-                    next_group = parent;
-                }
-            }
-            fragments
-                .retain(|fragment| !crate::text::is_invisible(self.context.dom, fragment.node_id));
-            let runs = if self.context.selection_ranges.contains_key(&self.node.id) {
-                crate::text::grouped_runs(
-                    &text_layout.layout,
-                    self.context.dom,
-                    self.node.id,
-                    self.scale,
-                )
-            } else {
-                Vec::new()
-            };
-            let pass = InlinePass {
-                fragments: &fragments,
-                runs: &runs,
-                visible_lines,
-                ellipsis,
-            };
-            if only.is_none() {
-                self.draw_inline_group(scene, transform, pass, None);
-            }
-            let is_drawn = |group: &&PaintGroup| match only {
-                Some(layer) => group.id == layer,
-                None => !self.node.flags.hoists_inline_layers(),
-            };
-            for group in groups
-                .iter()
-                .filter(|group| group.parent.is_none())
-                .filter(is_drawn)
-            {
-                self.draw_paint_group(scene, transform, pass, &groups, group);
-            }
+            self.draw_inline_pass(scene, transform, visible_lines, ellipsis, only);
         }
-    }
-
-    fn draw_paint_group(
-        &self,
-        scene: &mut impl PaintScene,
-        transform: Affine,
-        pass: InlinePass<'_>,
-        groups: &[PaintGroup],
-        group: &PaintGroup,
-    ) {
-        let Some(opacity) = self
-            .context
-            .dom
-            .get_node(group.id)
-            .and_then(|node| node.primary_styles())
-            .map(|style| style.get_effects().opacity)
-        else {
-            return;
-        };
-        let reach = SPAN_GROUP_REACH * self.scale;
-        self.context.layer_manager.maybe_with_layer(
-            scene,
-            opacity < 1.0,
-            peniko::Mix::Normal.into(),
-            opacity,
-            transform,
-            &group.bounds.inflate(reach, reach),
-            None,
-            None,
-            |scene| {
-                self.draw_inline_group(scene, transform, pass, Some(group.id));
-                for child in groups.iter().filter(|child| child.parent == Some(group.id)) {
-                    self.draw_paint_group(scene, transform, pass, groups, child);
-                }
-            },
-        );
     }
 
     fn inline_axes(&self, is_vertical: bool) -> Affine {
@@ -1819,57 +1714,6 @@ impl ElementCx<'_, '_> {
             f64::from(content_width) * self.scale,
             0.0,
         ])
-    }
-
-    fn draw_inline_group(
-        &self,
-        scene: &mut impl PaintScene,
-        transform: Affine,
-        pass: InlinePass<'_>,
-        group: Option<NodeId>,
-    ) {
-        let InlinePass {
-            fragments,
-            runs,
-            visible_lines,
-            ellipsis,
-        } = pass;
-        let Some(text_layout) = self.element.inline_layout_data.as_ref() else {
-            return;
-        };
-        for fragment in fragments.iter().filter(|fragment| fragment.group == group) {
-            self.draw_inline_fragment(scene, transform, fragment);
-        }
-        if let Some(&range) = self.context.selection_ranges.get(&self.node.id) {
-            crate::text::draw_text_selection(
-                scene,
-                &text_layout.layout,
-                transform,
-                crate::text::SelectionPaint {
-                    range,
-                    visible_lines,
-                    runs,
-                    group,
-                },
-            );
-        }
-        let mut draw_text_context = self.context.draw_text_context.borrow_mut();
-        crate::text::stroke_text(
-            scene,
-            text_layout.layout.lines().take(visible_lines),
-            self.context.dom,
-            transform,
-            TextPaintOptions {
-                scale: self.scale,
-                brush_override: None,
-                ellipsis,
-                text: Some(&text_layout.text),
-                group,
-                flat_ancestors: false,
-            },
-            self.node.id,
-            &mut draw_text_context,
-        );
     }
 
     fn draw_text_input_text(&self, scene: &mut impl PaintScene, pos: Point) {
