@@ -188,6 +188,12 @@ assert_is_empty = "deny"
 print_stdout = "deny"
 print_stderr = "deny"
 
+[profile.dev.package.boa_engine]
+opt-level = 1
+
+[profile.dev.package.boa_parser]
+opt-level = 1
+
 [profile.profile]
 inherits = "release"
 debug = true
