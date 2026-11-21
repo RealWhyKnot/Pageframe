@@ -12,9 +12,26 @@ border-spacing:5px 6px\"><caption>cap</caption><thead id=g1><tr id=r1><th>h</th>
 <table id=t3 style=\"position:relative;margin-left:20px\"><tbody id=g3 style=\"position:relative\">\
 <tr id=r6><td id=c6>g</td></tr></tbody></table>";
 
+const EMPTY_SECTIONS: &str = "<div style=\"margin:10px 0 0 7px\"><table id=t1 \
+style=\"border:4px solid;border-spacing:5px 6px\"><caption>cap</caption><thead id=e1></thead>\
+<tbody><tr><td>a</td><td>b</td></tr></tbody><tbody id=e2></tbody><tbody><tr><td>c</td><td>d</td>\
+</tr></tbody><tfoot id=e3></tfoot></table></div><table id=t5 style=\"direction:rtl;\
+border:2px solid\"><thead id=e9></thead><tbody><tr><td>z</td><td>w</td></tr></tbody></table>\
+<table id=t3 style=\"border:3px solid;position:relative\"><tbody id=e5 style=\"position:relative\">\
+</tbody><tbody><tr><td>x</td></tr></tbody></table>";
+
+const LATE_SECTIONS: &str = "<table id=t7 style=\"border:1px solid\"><tfoot id=f1></tfoot><tbody>\
+<tr><td>q</td></tr></tbody><thead id=h1><tr><td>h</td></tr></thead><thead id=h2></thead>\
+<tbody id=b9></tbody></table><table id=t8 style=\"border:2px solid;padding:3px\"><thead id=z1>\
+</thead><tbody id=z2></tbody></table>";
+
 fn page() -> Harness<Page<()>> {
+    page_with(BODY)
+}
+
+fn page_with(body: &str) -> Harness<Page<()>> {
     let html = format!(
-        "<!doctype html><html><head><style>{STYLE}</style></head><body>{BODY}</body></html>"
+        "<!doctype html><html><head><style>{STYLE}</style></head><body>{body}</body></html>"
     );
     let page = App::new((), &html)
         .page(640, 400)
@@ -104,6 +121,76 @@ fn positioned_rows_and_groups_become_offset_parents() {
             [0.0, 0.0, 14.0, 22.0],
             "g3",
         ),
+    ] {
+        let found = geometry(&harness, id);
+        assert_eq!(found.client, client, "{id} client rect");
+        assert_eq!(found.offset, offset, "{id} offset rect");
+        assert_eq!(found.parent.as_deref(), Some(parent), "{id} offsetParent");
+    }
+}
+
+#[test]
+fn empty_row_groups_get_a_zero_height_box_between_their_siblings() {
+    let harness = page_with(EMPTY_SECTIONS);
+    for (id, client, offset, parent) in [
+        (
+            "e1",
+            [16.0, 30.0, 32.59375, 0.0],
+            [5.0, 16.0, 33.0, 0.0],
+            "t1",
+        ),
+        (
+            "e2",
+            [16.0, 58.0, 32.59375, 0.0],
+            [5.0, 44.0, 33.0, 0.0],
+            "t1",
+        ),
+        (
+            "e3",
+            [16.0, 86.0, 32.59375, 0.0],
+            [5.0, 72.0, 33.0, 0.0],
+            "t1",
+        ),
+        ("e9", [4.0, 98.0, 31.125, 0.0], [2.0, 0.0, 31.0, 0.0], "t5"),
+        ("e5", [5.0, 129.0, 13.0, 0.0], [2.0, 0.0, 13.0, 0.0], "t3"),
+    ] {
+        let found = geometry(&harness, id);
+        assert_eq!(found.client, client, "{id} client rect");
+        assert_eq!(found.offset, offset, "{id} offset rect");
+        assert_eq!(found.parent.as_deref(), Some(parent), "{id} offsetParent");
+    }
+}
+
+#[test]
+fn empty_row_groups_follow_chrome_order_and_rowless_tables() {
+    let harness = page_with(LATE_SECTIONS);
+    for (id, client, offset, parent) in [
+        (
+            "h1",
+            [3.0, 3.0, 13.796875, 22.0],
+            [2.0, 2.0, 14.0, 22.0],
+            "t7",
+        ),
+        (
+            "h2",
+            [3.0, 49.0, 13.796875, 0.0],
+            [2.0, 48.0, 14.0, 0.0],
+            "t7",
+        ),
+        (
+            "b9",
+            [3.0, 49.0, 13.796875, 0.0],
+            [2.0, 48.0, 14.0, 0.0],
+            "t7",
+        ),
+        (
+            "f1",
+            [3.0, 49.0, 13.796875, 0.0],
+            [2.0, 48.0, 14.0, 0.0],
+            "t7",
+        ),
+        ("z1", [5.0, 57.0, 0.0, 0.0], [3.0, 3.0, 0.0, 0.0], "t8"),
+        ("z2", [5.0, 57.0, 0.0, 0.0], [3.0, 3.0, 0.0, 0.0], "t8"),
     ] {
         let found = geometry(&harness, id);
         assert_eq!(found.client, client, "{id} client rect");

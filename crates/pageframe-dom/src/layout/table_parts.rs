@@ -2,19 +2,22 @@ use std::sync::Arc;
 
 use pageframe_traits::node_id::NodeId;
 use style::computed_values::direction::T as Direction;
+use style::values::specified::box_::DisplayInside;
 use stylo_taffy::CopyStyleGetters;
-use taffy::{Layout, Line, Point, Size};
+use taffy::{Layout, Line, Point, ResolveOrZero, Size};
 
-use super::LayoutPassState;
 use super::round::{DeviceSnap, snap_layout};
 use super::table::{TableContext, TableTreeWrapper};
+use super::{LayoutPassState, resolve_calc_value};
 use crate::node::SpecialElementData;
 use crate::taffy_node_id;
 
 impl TableContext {
-    fn row_tracks(&self) -> Option<(Line<f32>, Vec<Line<f32>>)> {
+    fn row_tracks(&self) -> (Option<Line<f32>>, Vec<Line<f32>>) {
         let info = self.computed_grid_info.borrow();
-        let info = info.as_ref()?;
+        let Some(info) = info.as_ref() else {
+            return (None, Vec::new());
+        };
         let columns = info
             .columns
             .positions
@@ -33,7 +36,7 @@ impl TableContext {
                         end: span.end.max(high),
                     },
                 ))
-            })?;
+            });
         let rows = info
             .rows
             .positions
@@ -42,7 +45,17 @@ impl TableContext {
             .take(self.rows.len())
             .copied()
             .collect();
-        Some((columns, rows))
+        (columns, rows)
+    }
+
+    fn content_start(&self) -> Point<f32> {
+        let border = self.style.border.resolve_or_zero(None, resolve_calc_value);
+        let padding = self.style.padding.resolve_or_zero(None, resolve_calc_value);
+        let gap = |value: taffy::LengthPercentage| value.resolve_or_zero(None, resolve_calc_value);
+        Point {
+            x: border.left + padding.left - gap(self.style.gap.width),
+            y: border.top + padding.top - gap(self.style.gap.height),
+        }
     }
 
     fn parts(&self) -> Vec<NodeId> {
@@ -65,9 +78,15 @@ impl TableTreeWrapper<'_, '_> {
             return;
         }
         let ctx = Arc::clone(&self.ctx);
-        let Some((columns, tracks)) = ctx.row_tracks() else {
+        let (columns, tracks) = ctx.row_tracks();
+        let start = ctx.content_start();
+        if columns.is_none() && !ctx.rows.is_empty() {
             return;
-        };
+        }
+        let columns = columns.unwrap_or(Line {
+            start: start.x,
+            end: start.x,
+        });
         let above: f32 = ctx
             .captions
             .iter()
@@ -97,6 +116,18 @@ impl TableTreeWrapper<'_, '_> {
                 }
                 None => groups.push((group, track)),
             }
+        }
+        let mut cursor = start.y + above;
+        for section in sections(&self.doc.nodes[table]) {
+            if let Some(&(_, span)) = groups.iter().find(|(id, _)| *id == section) {
+                cursor = span.end;
+                continue;
+            }
+            let empty = Line {
+                start: cursor,
+                end: cursor,
+            };
+            self.place_part(&ctx, section, columns, empty, is_rtl);
         }
         for (group, span) in groups {
             self.place_part(&ctx, group, columns, span, is_rtl);
@@ -145,9 +176,47 @@ impl LayoutPassState<'_> {
             Some(SpecialElementData::TableRoot(ctx)) => ctx.parts(),
             _ => return,
         };
+        let mut parts = parts;
+        for section in sections(node) {
+            if !parts.contains(&section) {
+                parts.push(section);
+            }
+        }
         for part in parts {
             let unrounded = physical(*self.nodes[part].unrounded_layout());
             snap_layout(self, taffy_node_id(part), unrounded, position, snap);
         }
     }
+}
+
+fn sections(table: &crate::Node) -> Vec<NodeId> {
+    let mut header = false;
+    let mut footer = false;
+    let mut order = |child: &crate::Node| {
+        let style = child.primary_styles()?;
+        if style.clone_position().is_absolutely_positioned() {
+            return None;
+        }
+        match style.clone_display().inside() {
+            DisplayInside::TableHeaderGroup if !header => {
+                header = true;
+                Some(0)
+            }
+            DisplayInside::TableFooterGroup if !footer => {
+                footer = true;
+                Some(2)
+            }
+            DisplayInside::TableHeaderGroup
+            | DisplayInside::TableRowGroup
+            | DisplayInside::TableFooterGroup => Some(1),
+            _ => None,
+        }
+    };
+    let mut sections: Vec<(u8, NodeId)> = table
+        .children
+        .iter()
+        .filter_map(|&child| order(table.with(child)).map(|rank| (rank, child)))
+        .collect();
+    sections.sort_by_key(|&(rank, _)| rank);
+    sections.into_iter().map(|(_, child)| child).collect()
 }
