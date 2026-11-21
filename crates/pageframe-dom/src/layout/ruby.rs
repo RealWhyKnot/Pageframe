@@ -60,6 +60,25 @@ fn pair_columns(children: &[NodeId], is_annotation: impl Fn(NodeId) -> bool) -> 
     columns
 }
 
+fn em_ascent(ascent: f32, descent: f32, font_size: f32, vertical: bool) -> f32 {
+    if vertical {
+        (ascent.round() - descent.round() + font_size) / 2.0
+    } else {
+        font_size.floor() - descent.round()
+    }
+}
+
+fn collapse_spaces(text: &str) -> String {
+    let mut collapsed = String::with_capacity(text.len());
+    for character in text.chars() {
+        let is_space = matches!(character, ' ' | '\t' | '\n' | '\r' | '\x0c');
+        if !(is_space && collapsed.ends_with(' ')) {
+            collapsed.push(if is_space { ' ' } else { character });
+        }
+    }
+    collapsed
+}
+
 fn child_input(run_mode: RunMode, known_dimensions: Size<Option<f32>>) -> LayoutInput {
     LayoutInput {
         run_mode,
@@ -110,7 +129,14 @@ impl LayoutPassState<'_> {
             font_size,
             scale,
         )?;
-        Some((font_size * scale - metrics.descent.round()) / scale)
+        let vertical = style.writing_mode.is_vertical();
+        Some(em_ascent(metrics.ascent, metrics.descent, font_size * scale, vertical) / scale)
+    }
+
+    fn is_vertical(&self, node: NodeId) -> bool {
+        self.nodes[node]
+            .primary_styles()
+            .is_some_and(|style| style.writing_mode.is_vertical())
     }
 
     fn atomic_top(&self, base: NodeId) -> Option<f32> {
@@ -136,6 +162,7 @@ impl LayoutPassState<'_> {
         let scale = inline.layout.scale();
         let layout = node.unrounded_layout();
         let inset = layout.padding.top + layout.border.top + inline.block_offset;
+        let vertical = self.is_vertical(base);
         inline
             .layout
             .lines()
@@ -143,9 +170,23 @@ impl LayoutPassState<'_> {
                 line.items()
                     .filter_map(|item| match item {
                         parley::PositionedLayoutItem::GlyphRun(glyph_run) => {
+                            let owner = glyph_run.style().brush.id;
+                            let primary = self.em_above_baseline(owner).or_else(|| {
+                                self.nodes[owner]
+                                    .parent
+                                    .and_then(|parent| self.em_above_baseline(parent))
+                            });
                             let run = glyph_run.run();
-                            let descent = run.font_metrics().descent.round();
-                            Some((glyph_run.baseline() - run.font_size() + descent) / scale)
+                            let metrics = run.font_metrics();
+                            let above = primary.unwrap_or_else(|| {
+                                em_ascent(
+                                    metrics.ascent,
+                                    metrics.descent,
+                                    run.font_size(),
+                                    vertical,
+                                ) / scale
+                            });
+                            Some(glyph_run.baseline() / scale - above)
                         }
                         parley::PositionedLayoutItem::InlineBox(_) => None,
                     })
@@ -169,6 +210,31 @@ impl LayoutPassState<'_> {
             metrics.ascent.round() / scale,
             metrics.descent.round() / scale,
         ))
+    }
+
+    fn text_item_width(&self, text_node: NodeId) -> Option<f32> {
+        let node = &self.nodes[text_node];
+        let NodeData::Text(text) = &node.data else {
+            return None;
+        };
+        let style = self.nodes[node.parent?].primary_styles()?;
+        let content = if style.clone_white_space_collapse() == WhiteSpaceCollapse::Collapse {
+            collapse_spaces(&text.content)
+        } else {
+            text.content.to_string()
+        };
+        let font_size = style.slow_clone_font_size().used_size().px();
+        let mut fonts = self.font_ctx.lock().ok()?;
+        Some(
+            crate::font_metrics::text_advances(
+                &mut fonts,
+                style.get_font(),
+                font_size,
+                &[&content],
+            )
+            .into_iter()
+            .sum(),
+        )
     }
 
     fn font_size(&self, node: NodeId) -> Option<f32> {
@@ -246,9 +312,12 @@ impl LayoutPassState<'_> {
             return 0.0;
         }
         let scale = self.viewport.scale();
+        let room = self
+            .text_item_width(neighbour)
+            .map_or(blank, |width| blank.min(width / 2.0));
         self.font_size(annotation.measured.node)
             .map_or(0.0, |size| {
-                ((size * scale / 2.0).floor() / scale).min(blank).max(0.0)
+                ((size * scale / 2.0).floor() / scale).min(room).max(0.0)
             })
     }
 
@@ -394,7 +463,8 @@ impl LayoutPassState<'_> {
                 ]
                 .into_iter()
                 .flatten()
-                .fold(em_top, |highest, top| highest.min(base.location.y + top))
+                .reduce(f32::min)
+                .map_or(em_top, |top| base.location.y + top)
             }));
         }
         let fallback_em_top = em_tops
