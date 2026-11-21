@@ -176,16 +176,28 @@ pub(crate) fn stroke_text<'a>(
                         )
                 };
 
+                let disclosure_marker = (run.text_range().start == 0
+                    && font.data.as_ref() == pageframe_dom::BULLET_FONT)
+                    .then(|| doc.get_node(inline_root_id))
+                    .flatten()
+                    .and_then(|node| node.element_data())
+                    .and_then(|element| element.list_item_data.as_deref())
+                    .and_then(|list| match list.marker {
+                        pageframe_dom::node::Marker::Char(marker) => Some(marker),
+                        _ => None,
+                    });
                 #[cfg(target_os = "windows")]
-                let disclosure = run.text_range().start == 0
-                    && font.data.as_ref() == pageframe_dom::BULLET_FONT
-                    && doc
-                        .get_node(inline_root_id)
-                        .and_then(|node| node.element_data())
-                        .and_then(|element| element.list_item_data.as_deref())
-                        .is_some_and(|list| {
-                            matches!(list.marker, pageframe_dom::node::Marker::Char(_))
-                        });
+                let disclosure = disclosure_marker.is_some();
+                let symbol = disclosure_marker.and_then(|marker| {
+                    disclosure_symbol(
+                        doc,
+                        inline_root_id,
+                        marker,
+                        &glyph_run,
+                        font_size,
+                        transform,
+                    )
+                });
 
                 let face = RunFace {
                     #[cfg(target_os = "windows")]
@@ -296,14 +308,19 @@ pub(crate) fn stroke_text<'a>(
 
                 // Zero-size text is invisible, but hinting can give its glyphs ink.
                 if font_size > 0.0 {
-                    fill_glyphs(
-                        scene,
-                        sampled,
-                        sampled_paths,
-                        &face,
-                        (transform, fill_color),
-                        glyphs,
-                    );
+                    match &symbol {
+                        Some(path) => {
+                            scene.fill(Fill::NonZero, Affine::IDENTITY, fill_color, None, path);
+                        }
+                        None => fill_glyphs(
+                            scene,
+                            sampled,
+                            sampled_paths,
+                            &face,
+                            (transform, fill_color),
+                            glyphs,
+                        ),
+                    }
                 }
 
                 // Accumulate this run's contribution to each decorating box on its ancestor
@@ -445,4 +462,64 @@ fn embolden_scale(color: Color) -> f64 {
         prev = *point;
     }
     prev.1
+}
+
+fn disclosure_symbol(
+    doc: &BaseDocument,
+    root: NodeId,
+    marker: char,
+    glyph_run: &parley::GlyphRun<'_, TextBrush>,
+    font_size: f32,
+    transform: Affine,
+) -> Option<BezPath> {
+    let [scale_x, shear_y, shear_x, scale_y, _, _] = transform.as_coeffs();
+    if shear_y != 0.0
+        || shear_x != 0.0
+        || !scale_x.is_finite()
+        || !scale_y.is_finite()
+        || scale_x <= 0.0
+        || scale_y <= 0.0
+    {
+        return None;
+    }
+    let writing_mode = doc.get_node(root)?.primary_styles()?.writing_mode;
+    if writing_mode.is_vertical() {
+        return None;
+    }
+    let ltr = writing_mode.is_bidi_ltr();
+    let points = match (marker, ltr) {
+        ('▾', _) => [(0.0, 0.07), (0.5, 0.93), (1.0, 0.07)],
+        ('▸', true) => [(0.0, 0.0), (0.86, 0.5), (0.0, 1.0)],
+        ('▸', false) => [(1.0, 0.0), (0.14, 0.5), (1.0, 1.0)],
+        _ => return None,
+    };
+    let size = (f64::from(font_size) * 0.66 * 64.0).trunc() / 64.0;
+    if !size.is_finite() || size <= 0.0 {
+        return None;
+    }
+    let start = f64::from(glyph_run.offset());
+    let left = if ltr {
+        start
+    } else {
+        start + f64::from(glyph_run.advance()) - size
+    };
+    let origin = Point::new(left, f64::from(glyph_run.baseline()) - size);
+    let mut path = BezPath::new();
+    for (index, (x, y)) in points.into_iter().enumerate() {
+        let device = transform * (origin + Vec2::new(x * size, y * size));
+        let snapped = Point::new(
+            (device.x * 256.0).trunc() / 256.0,
+            (device.y * 4.0 + 0.5).floor() / 4.0,
+        );
+        if !snapped.is_finite() {
+            return None;
+        }
+        if index == 0 {
+            path.move_to(snapped);
+        } else {
+            path.line_to(snapped);
+        }
+    }
+    path.close_path();
+    Some(path)
 }
