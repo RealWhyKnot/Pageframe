@@ -9,6 +9,7 @@ use pageframe_dom::CopyStyleGetters;
 use pageframe_dom::node::{ImageData, ImageResourceData, SpecialElementData, SvgImageData};
 use pageframe_dom::{BaseDocument, Node, NodeId, local_name};
 use peniko::{self, BlendMode, Compose, Fill, Mix};
+use raster::{AxisSpan, RasterAxisInput, raster_axis};
 use std::sync::Arc;
 use style::values::generics::color::GenericColor;
 use style::{
@@ -33,6 +34,9 @@ use taffy::Layout;
 
 #[cfg(feature = "tracing")]
 use tracing::warn;
+
+mod raster;
+mod resample;
 
 const MAX_TILES: u64 = 500;
 const MAX_TILE_SIDE: u32 = 4096;
@@ -91,6 +95,7 @@ pub(super) struct ImageLayerStyles<'a> {
     pub text_clip: bool,
     pub origin: BoxModelBox,
     pub attachment: StyloBackgroundAttachment,
+    pub is_mask: bool,
 }
 
 impl<'a> ImageLayerStyles<'a> {
@@ -110,6 +115,7 @@ impl<'a> ImageLayerStyles<'a> {
             text_clip: *get_cyclic(&bg_styles.background_clip.0, idx) == StyloBackgroundClip::Text,
             origin: (*get_cyclic(&bg_styles.background_origin.0, idx)).into(),
             attachment: *get_cyclic(&bg_styles.background_attachment.0, idx),
+            is_mask: false,
         }
     }
 
@@ -130,6 +136,7 @@ impl<'a> ImageLayerStyles<'a> {
             origin: (*get_cyclic(&svg_styles.mask_origin.0, idx)).into(),
             // There is no `mask-attachment` property
             attachment: StyloBackgroundAttachment::Scroll,
+            is_mask: true,
         }
     }
 }
@@ -683,11 +690,17 @@ impl ElementCx<'_, '_> {
         let image_rendering = self.style.clone_image_rendering();
         let quality = to_image_quality(image_rendering);
 
-        let (origin_rect, base_transform, clip_rect) = if self.layer_is_fixed(layer) {
+        let fixed = self.layer_is_fixed(layer);
+        let (origin_rect, base_transform, clip_rect) = if fixed {
             let (viewport_rect, transform) = self.fixed_positioning_area();
             (viewport_rect, transform, viewport_rect)
         } else {
             (self.box_rect(layer.origin), self.transform, clip_rect)
+        };
+        let dest_rect = if fixed || layer.is_mask {
+            clip_rect
+        } else {
+            self.background_dest_rect(layer.clip, clip_rect)
         };
 
         let image_width = image_data.width as f64;
@@ -703,49 +716,84 @@ impl ElementCx<'_, '_> {
         let bg_pos = (bg_pos.to_vec2() * self.scale).to_point();
         let bg_size = bg_size * self.scale;
 
-        let x_ratio = bg_size.width / image_width;
-        let y_ratio = bg_size.height / image_height;
-
         let BackgroundRepeat(repeat_x, repeat_y) = layer.repeat;
+        let device_offset = base_transform.translation();
 
-        let x = raster_axis_tiling(
-            *repeat_x,
-            (origin_rect.x0, origin_rect.width()),
-            (clip_rect.x0, clip_rect.width()),
-            bg_pos.x,
-            bg_size.width,
-            image_width,
-            x_ratio,
-        );
-        let y = raster_axis_tiling(
-            *repeat_y,
-            (origin_rect.y0, origin_rect.height()),
-            (clip_rect.y0, clip_rect.height()),
-            bg_pos.y,
-            bg_size.height,
-            image_height,
-            y_ratio,
-        );
+        let x = raster_axis(RasterAxisInput {
+            repeat: *repeat_x,
+            origin: AxisSpan {
+                start: origin_rect.x0,
+                len: origin_rect.width(),
+            },
+            clip: AxisSpan {
+                start: clip_rect.x0,
+                len: clip_rect.width(),
+            },
+            dest: AxisSpan {
+                start: dest_rect.x0,
+                len: dest_rect.width(),
+            },
+            bg_pos: bg_pos.x,
+            tile_len: bg_size.width,
+            image_len: image_width,
+            device_offset: device_offset.x,
+        });
+        let y = raster_axis(RasterAxisInput {
+            repeat: *repeat_y,
+            origin: AxisSpan {
+                start: origin_rect.y0,
+                len: origin_rect.height(),
+            },
+            clip: AxisSpan {
+                start: clip_rect.y0,
+                len: clip_rect.height(),
+            },
+            dest: AxisSpan {
+                start: dest_rect.y0,
+                len: dest_rect.height(),
+            },
+            bg_pos: bg_pos.y,
+            tile_len: bg_size.height,
+            image_len: image_height,
+            device_offset: device_offset.y,
+        });
 
         let transform = base_transform
-            .pre_scale_non_uniform(x_ratio, y_ratio)
+            .pre_scale_non_uniform(x.ratio, y.ratio)
             .then_translate(Vec2 {
-                x: x.translate,
-                y: y.translate,
+                x: x.tiling.translate,
+                y: y.tiling.translate,
             });
-        let tile_rect = Rect::new(0.0, 0.0, x.rect_len, y.rect_len);
+        let tile_rect = Rect::new(0.0, 0.0, x.tiling.rect_len, y.tiling.rect_len);
+        let single = x.tiling.count == 1 && y.tiling.count == 1 && x.extend == y.extend;
+        if single
+            && quality != peniko::ImageQuality::Low
+            && resample::draw_filtered(
+                scene,
+                image_data,
+                transform,
+                tile_rect,
+                base_transform.transform_rect_bbox(dest_rect),
+                x.extend,
+            )
+        {
+            return;
+        }
+        let mut brush = to_peniko_image(image_data, quality);
+        brush.sampler.x_extend = x.extend;
+        brush.sampler.y_extend = y.extend;
 
-        for hc in 0..y.count {
-            for wc in 0..x.count {
+        for hc in 0..y.tiling.count {
+            for wc in 0..x.tiling.count {
                 let transform = transform.then_translate(Vec2 {
-                    x: wc as f64 * x.stride,
-                    y: hc as f64 * y.stride,
+                    x: wc as f64 * x.tiling.stride,
+                    y: hc as f64 * y.tiling.stride,
                 });
 
                 scene.fill(
                     peniko::Fill::NonZero,
                     transform,
-                    to_peniko_image(image_data, quality).as_ref(),
+                    brush.as_ref(),
                     None,
                     &tile_rect,
                 );
@@ -1039,53 +1087,6 @@ struct AxisTiling {
     count: u32,
     /// Stride (in device pixels) between the starts of consecutive tiles
     stride: f64,
-}
-
-/// Per-axis placement and tiling for a raster image layer. `Repeat`/`Round`
-/// produce a single fill covering the whole positioning area (relying on the
-/// image brush repeating), while `Space` produces `count` explicit tiles
-/// spaced `stride` apart.
-///
-/// The fill rect is in image pixel coordinates (the drawing transform is
-/// pre-scaled by `ratio`), while translations are in device pixels.
-fn raster_axis_tiling(
-    repeat: BackgroundRepeatKeyword,
-    (origin_start, origin_len): (f64, f64),
-    clip: (f64, f64),
-    bg_pos: f64,
-    tile_len: f64,
-    image_len: f64,
-    ratio: f64,
-) -> AxisTiling {
-    use BackgroundRepeatKeyword::*;
-
-    match repeat {
-        Repeat | Round => {
-            let (area_start, area_len) = tiled_area((origin_start, origin_len), clip);
-            let extend_len = extend((origin_start - area_start) + bg_pos, tile_len);
-            AxisTiling {
-                translate: area_start - extend_len,
-                rect_len: (area_len + extend_len) / ratio,
-                count: 1,
-                stride: 0.0,
-            }
-        }
-        Space => {
-            let (count, stride) = compute_space_count_and_stride(origin_len, tile_len);
-            AxisTiling {
-                translate: origin_start + if count == 1 { bg_pos } else { 0.0 },
-                rect_len: image_len,
-                count,
-                stride,
-            }
-        }
-        NoRepeat => AxisTiling {
-            translate: origin_start + bg_pos,
-            rect_len: image_len,
-            count: 1,
-            stride: 0.0,
-        },
-    }
 }
 
 /// Per-axis placement and tiling for a gradient layer. Unlike raster images,
