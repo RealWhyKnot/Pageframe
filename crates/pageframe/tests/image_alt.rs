@@ -416,10 +416,10 @@ fn icon_outline(doctype: &str, attributes: &str, x: usize, y: usize) -> [u8; 4] 
 
 #[test]
 fn a_framed_fallback_paints_its_icon_inside_the_frame() {
-    let outline = [150, 150, 150, 255];
+    let outline = [149, 149, 149, 255];
     let attributes = "src='data:,bad' alt='Hello' width='80' height='30'";
     assert_eq!(icon_outline("", attributes, 2, 12), outline);
-    assert_eq!(icon_outline("", attributes, 17, 12), outline);
+    assert_eq!(icon_outline("", attributes, 17, 14), [146, 146, 146, 255]);
     assert_eq!(icon_outline("", "src='' width='80'", 2, 12), outline);
     assert_eq!(
         icon_outline("", "src='data:,bad' alt='' height='30'", 2, 12),
@@ -429,11 +429,14 @@ fn a_framed_fallback_paints_its_icon_inside_the_frame() {
 
 #[test]
 fn standards_alt_text_paints_its_icon_at_the_box_corner() {
-    let outline = [150, 150, 150, 255];
+    let outline = [149, 149, 149, 255];
     let attributes =
         "src='data:,bad' alt='Hello' width='80' height='30' style='display:inline-block'";
     assert_eq!(icon_outline("<!doctype html>", attributes, 0, 10), outline);
-    assert_eq!(icon_outline("<!doctype html>", attributes, 15, 10), outline);
+    assert_eq!(
+        icon_outline("<!doctype html>", attributes, 15, 12),
+        [146, 146, 146, 255]
+    );
 }
 
 #[test]
@@ -446,7 +449,7 @@ fn standards_images_without_alt_text_need_both_dimensions_for_an_icon() {
         ),
         (60.0, 0.0)
     );
-    let outline = [150, 150, 150, 255];
+    let outline = [149, 149, 149, 255];
     let attributes = "src='' width='80' height='30'";
     assert_eq!(icon_outline("<!doctype html>", attributes, 2, 12), outline);
 }
