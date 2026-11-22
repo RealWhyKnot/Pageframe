@@ -12,14 +12,15 @@ use vello::{
     Scene as VelloScene,
 };
 use wgpu::{
-    CompositeAlphaMode, Features, Limits, PipelineCache, PresentMode, Texture, TextureFormat,
-    TextureUsages,
+    Backends, CompositeAlphaMode, CreateSurfaceError, Features, Instance, Limits, PipelineCache,
+    PresentMode, Surface, Texture, TextureFormat, TextureUsages,
 };
 use wgpu_context::{
     AlphaConversion, DeviceHandle, SurfaceRenderer, SurfaceRendererConfiguration,
-    TextureConfiguration, WGPUContext,
+    TextureConfiguration, WgpuContextError,
 };
 
+use crate::backends::{BackendChoice, create_instance};
 use crate::{DEFAULT_THREADS, VelloScenePainter};
 
 /// Drive the wgpu init future. On wasm32 we spawn it onto the JS microtask
@@ -41,8 +42,6 @@ struct ActiveRenderState {
     render_surface: SurfaceRenderer<'static>,
 }
 
-/// Result of a successful asynchronous resume; both the active state and the
-/// `WGPUContext` are returned so the renderer can reclaim the context.
 struct InitOutput {
     active: ActiveRenderState,
 }
@@ -161,7 +160,7 @@ pub struct VelloWindowRenderer {
     render_state: RenderState,
     window_handle: Option<Arc<dyn WindowHandle>>,
 
-    wgpu_context: WGPUContext,
+    wgpu_context: GpuContext,
     scene: VelloScene,
     config: VelloRendererOptions,
 
@@ -179,7 +178,7 @@ impl VelloWindowRenderer {
         let config = config.into();
         Self {
             render_state: RenderState::Suspended,
-            wgpu_context: build_wgpu_context(&config),
+            wgpu_context: GpuContext::new(&config),
             config,
             window_handle: None,
             scene: VelloScene::new(),
@@ -235,10 +234,116 @@ impl RenderContext for VelloWindowRenderer {
     }
 }
 
-fn build_wgpu_context(config: &VelloRendererOptions) -> WGPUContext {
-    let features =
-        config.features.unwrap_or_default() | Features::CLEAR_TEXTURE | Features::PIPELINE_CACHE;
-    WGPUContext::with_features_and_limits(Some(features), config.limits.clone())
+struct GpuContext {
+    instance: Instance,
+    fallback_backends: Option<Backends>,
+    device_pool: Vec<DeviceHandle>,
+    extra_features: Option<Features>,
+    override_limits: Option<Limits>,
+}
+
+impl GpuContext {
+    fn new(config: &VelloRendererOptions) -> Self {
+        Self::with_backends(config, BackendChoice::from_env())
+    }
+
+    fn with_backends(config: &VelloRendererOptions, backends: BackendChoice) -> Self {
+        let features = config.features.unwrap_or_default()
+            | Features::CLEAR_TEXTURE
+            | Features::PIPELINE_CACHE;
+        Self {
+            instance: create_instance(backends.primary),
+            fallback_backends: backends.fallback,
+            device_pool: Vec::new(),
+            extra_features: Some(features),
+            override_limits: config.limits.clone(),
+        }
+    }
+
+    fn find_compatible_device_handle(&self, surface: &Surface<'_>) -> Option<DeviceHandle> {
+        self.device_pool
+            .iter()
+            .filter(|device_handle| device_handle.instance == self.instance)
+            .find(|device_handle| device_handle.adapter.is_surface_supported(surface))
+            .cloned()
+    }
+
+    fn adopt(&mut self, device_handle: DeviceHandle) {
+        if device_handle.instance != self.instance {
+            self.instance = device_handle.instance.clone();
+            self.fallback_backends = None;
+            let instance = &self.instance;
+            self.device_pool
+                .retain(|pooled| pooled.instance == *instance);
+        }
+        if !self.device_pool.iter().any(|pooled| {
+            pooled.instance == device_handle.instance && pooled.device == device_handle.device
+        }) {
+            self.device_pool.push(device_handle);
+        }
+    }
+}
+
+fn antialiasing_support(method: AaConfig) -> AaSupport {
+    std::iter::once(method).collect()
+}
+
+type ConnectError = (WgpuContextError, Option<WgpuContextError>);
+
+async fn connect_surface(
+    instance: Instance,
+    primary_surface: Result<Surface<'static>, CreateSurfaceError>,
+    fallback: Option<(Backends, Arc<dyn WindowHandle>)>,
+    extra_features: Option<Features>,
+    override_limits: Option<Limits>,
+) -> Result<(Surface<'static>, DeviceHandle), ConnectError> {
+    let primary = match primary_surface {
+        Ok(surface) => DeviceHandle::new_from_compatible_surface(
+            instance,
+            Some(&surface),
+            extra_features,
+            override_limits.clone(),
+        )
+        .await
+        .map(|device_handle| (surface, device_handle)),
+        Err(error) => Err(WgpuContextError::from(error)),
+    };
+    let fallback = fallback.map(|(backends, window_handle)| {
+        connect_fallback(backends, window_handle, extra_features, override_limits)
+    });
+    or_fallback(primary, fallback).await
+}
+
+async fn or_fallback<T, E>(
+    primary: Result<T, E>,
+    fallback: Option<impl Future<Output = Result<T, E>>>,
+) -> Result<T, (E, Option<E>)> {
+    let primary = match primary {
+        Ok(connected) => return Ok(connected),
+        Err(error) => error,
+    };
+    let Some(fallback) = fallback else {
+        return Err((primary, None));
+    };
+    fallback.await.map_err(|fallback| (primary, Some(fallback)))
+}
+
+async fn connect_fallback(
+    backends: Backends,
+    window_handle: Arc<dyn WindowHandle>,
+    extra_features: Option<Features>,
+    override_limits: Option<Limits>,
+) -> Result<(Surface<'static>, DeviceHandle), WgpuContextError> {
+    let instance = create_instance(backends);
+    let surface = instance.create_surface(window_handle)?;
+    let device_handle = DeviceHandle::new_from_compatible_surface(
+        instance,
+        Some(&surface),
+        extra_features,
+        override_limits,
+    )
+    .await?;
+    Ok((surface, device_handle))
 }
 
 impl WindowRenderer for VelloWindowRenderer {
@@ -263,9 +368,7 @@ impl WindowRenderer for VelloWindowRenderer {
         on_ready: F,
     ) {
         // Each `resume` must be preceded by `suspend` (or be the first call after
-        // construction). Calling while `Pending` or `Active` is a state-machine bug
-        // in the embedder: it would orphan the in-flight init's `WGPUContext` and
-        // pay for a fresh adapter+device init on the fallback path below.
+        // construction).
         if !matches!(self.render_state, RenderState::Suspended) {
             // #[cfg(feature = "tracing")]
             // tracing::warn!("WindowRenderer::resume called from non-Suspended state");
@@ -276,13 +379,15 @@ impl WindowRenderer for VelloWindowRenderer {
         self.render_state = RenderState::Pending { receiver };
         self.window_handle = Some(window_handle.clone());
 
-        let surface = self
+        let fallback = self
             .wgpu_context
-            .create_surface(window_handle)
-            .expect("Error creating surface");
+            .fallback_backends
+            .map(|backends| (backends, Arc::clone(&window_handle)));
+        let surface = self.wgpu_context.instance.create_surface(window_handle);
         let instance = self.wgpu_context.instance.clone();
-        let extra_features = self.wgpu_context.extra_features();
-        let override_limits = self.wgpu_context.override_limits();
+        let extra_features = self.wgpu_context.extra_features;
+        let override_limits = self.wgpu_context.override_limits.clone();
+        let antialiasing_support = antialiasing_support(self.config.antialiasing_method);
         let mut composite_alpha_mode = match self.config.composite_alpha_mode {
             anyrender::CompositeAlphaMode::Auto => CompositeAlphaMode::Auto,
             anyrender::CompositeAlphaMode::Opaque => CompositeAlphaMode::Opaque,
@@ -301,21 +406,19 @@ impl WindowRenderer for VelloWindowRenderer {
         };
         let pipeline_cache = self.config.pipeline_cache.clone();
         let desired_maximum_frame_latency = self.config.desired_maximum_frame_latency;
-        let existing_device_handle = self
-            .wgpu_context
-            .find_compatible_device_handle(Some(&surface));
+        let existing_device_handle = surface
+            .as_ref()
+            .ok()
+            .and_then(|surface| self.wgpu_context.find_compatible_device_handle(surface));
 
         spawn_init(async move {
-            let device_handle = match existing_device_handle {
-                Some(device_handle) => device_handle,
-                None => DeviceHandle::new_from_compatible_surface(
-                    instance,
-                    Some(&surface),
-                    extra_features,
-                    override_limits,
-                )
-                .await
-                .expect("Error creating DeviceHandle"),
+            let (surface, device_handle) = match (surface, existing_device_handle) {
+                (Ok(surface), Some(device_handle)) => (surface, device_handle),
+                (surface, _) => {
+                    connect_surface(instance, surface, fallback, extra_features, override_limits)
+                        .await
+                        .expect("Error creating DeviceHandle")
+                }
             };
 
             let adapter = &device_handle.adapter;
@@ -385,7 +488,7 @@ impl WindowRenderer for VelloWindowRenderer {
             let renderer = VelloRenderer::new(
                 render_surface.device(),
                 RendererOptions {
-                    antialiasing_support: AaSupport::all(),
+                    antialiasing_support,
                     use_cpu: false,
                     num_init_threads: DEFAULT_THREADS,
                     pipeline_cache,
@@ -410,7 +513,7 @@ impl WindowRenderer for VelloWindowRenderer {
             RenderState::Pending { receiver } => match receiver.try_recv() {
                 Ok(Some(InitOutput { active })) => {
                     let device_handle = active.render_surface.device_handle.clone();
-                    self.wgpu_context.device_pool.push(device_handle);
+                    self.wgpu_context.adopt(device_handle);
                     self.render_state = RenderState::Active(active);
                     true
                 }
@@ -499,5 +602,117 @@ impl WindowRenderer for VelloWindowRenderer {
 
         // Empty the Vello scene (memory optimisation)
         self.scene.reset();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_configured_antialiasing_method_is_compiled() {
+        assert_eq!(
+            antialiasing_support(VelloRendererOptions::default().antialiasing_method),
+            AaSupport {
+                area: false,
+                msaa8: false,
+                msaa16: true,
+            }
+        );
+        assert_eq!(antialiasing_support(AaConfig::Area), AaSupport::area_only());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    mod native {
+        use std::cell::Cell;
+        use std::future::ready;
+
+        use super::*;
+
+        fn connect(
+            primary: Result<u32, &'static str>,
+            fallback: Option<Result<u32, &'static str>>,
+        ) -> Result<u32, (&'static str, Option<&'static str>)> {
+            pollster::block_on(or_fallback(primary, fallback.map(ready)))
+        }
+
+        #[test]
+        fn a_working_primary_connection_skips_the_fallback() {
+            let fallback_ran = Cell::new(false);
+            let fallback = async {
+                fallback_ran.set(true);
+                Ok(2)
+            };
+            assert_eq!(
+                pollster::block_on(or_fallback::<u32, &str>(Ok(1), Some(fallback))),
+                Ok(1)
+            );
+            assert!(!fallback_ran.get());
+        }
+
+        #[test]
+        fn a_failed_primary_connection_without_a_fallback_reports_the_primary_error() {
+            assert_eq!(connect(Err("primary"), None), Err(("primary", None)));
+        }
+
+        #[test]
+        fn a_failed_primary_connection_uses_the_fallback() {
+            assert_eq!(connect(Err("primary"), Some(Ok(2))), Ok(2));
+        }
+
+        #[test]
+        fn a_failed_fallback_reports_both_errors() {
+            assert_eq!(
+                connect(Err("primary"), Some(Err("fallback"))),
+                Err(("primary", Some("fallback")))
+            );
+        }
+
+        fn gpu_device(context: &GpuContext, instance: Instance) -> DeviceHandle {
+            pollster::block_on(DeviceHandle::new_from_compatible_surface(
+                instance,
+                None,
+                context.extra_features,
+                context.override_limits.clone(),
+            ))
+            .expect("a GPU adapter on the requested backends")
+        }
+
+        fn adopt_a_fallback_gpu_device(choice: BackendChoice) {
+            let fallback_backends = choice.fallback.expect("a fallback to switch to");
+            let mut context = GpuContext::with_backends(&VelloRendererOptions::default(), choice);
+            assert_eq!(context.fallback_backends, Some(fallback_backends));
+            let primary = gpu_device(&context, context.instance.clone());
+            context.adopt(primary.clone());
+            context.adopt(primary.clone());
+            assert_eq!(context.instance, primary.instance);
+            assert_eq!(context.device_pool.len(), 1);
+            assert_eq!(context.fallback_backends, Some(fallback_backends));
+
+            let fallback = gpu_device(&context, create_instance(fallback_backends));
+            assert_ne!(fallback.instance, primary.instance);
+            context.adopt(fallback.clone());
+            context.adopt(fallback.clone());
+            assert_eq!(context.instance, fallback.instance);
+            assert_eq!(context.fallback_backends, None);
+            assert_eq!(context.device_pool.len(), 1);
+            assert_eq!(context.device_pool[0].instance, fallback.instance);
+            assert_eq!(context.device_pool[0].device, fallback.device);
+            assert!(
+                context
+                    .device_pool
+                    .iter()
+                    .all(|pooled| pooled.instance != primary.instance)
+            );
+        }
+
+        #[test]
+        #[ignore = "needs a GPU adapter"]
+        fn adopting_a_device_from_another_instance_switches_instance_and_prunes_the_pool() {
+            adopt_a_fallback_gpu_device(BackendChoice {
+                primary: Backends::PRIMARY,
+                fallback: Some(Backends::PRIMARY),
+            });
+        }
     }
 }
