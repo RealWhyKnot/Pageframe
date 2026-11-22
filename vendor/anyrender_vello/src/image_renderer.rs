@@ -1,3 +1,5 @@
+use std::sync::{Mutex, PoisonError};
+
 use anyrender::{ImageRenderer, RenderContext, ResourceId};
 use peniko::ImageData;
 use rustc_hash::FxHashMap;
@@ -9,7 +11,7 @@ use crate::{DEFAULT_THREADS, VelloScenePainter};
 
 pub struct VelloImageRenderer {
     buffer_renderer: BufferRenderer,
-    vello_renderer: VelloRenderer,
+    vello_renderer: Mutex<VelloRenderer>,
     scene: VelloScene,
     texture_handles: FxHashMap<ResourceId, ImageData>,
 }
@@ -49,7 +51,7 @@ impl VelloImageRenderer {
 
         Self {
             buffer_renderer,
-            vello_renderer,
+            vello_renderer: Mutex::new(vello_renderer),
             scene: VelloScene::new(),
             texture_handles: FxHashMap::default(),
         }
@@ -92,17 +94,21 @@ impl ImageRenderer for VelloImageRenderer {
     ) {
         draw_fn(&mut VelloScenePainter {
             inner: &mut self.scene,
-            renderer: Some(&mut self.vello_renderer),
+            renderer: Some(&self.vello_renderer),
             device_handle: Some(&self.buffer_renderer.device_handle),
             texture_handles: Some(&mut self.texture_handles),
         });
 
+        let vello_renderer = self
+            .vello_renderer
+            .get_mut()
+            .unwrap_or_else(PoisonError::into_inner);
         for handle in self.texture_handles.values() {
-            self.vello_renderer.mark_override_image_dirty(handle);
+            vello_renderer.mark_override_image_dirty(handle);
         }
 
         let size = self.buffer_renderer.size();
-        self.vello_renderer
+        vello_renderer
             .render_to_texture(
                 self.buffer_renderer.device(),
                 self.buffer_renderer.queue(),

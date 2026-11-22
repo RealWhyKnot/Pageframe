@@ -4,6 +4,7 @@ mod backends;
 #[cfg(not(target_arch = "wasm32"))]
 mod image_renderer;
 mod scene;
+mod shared;
 mod window_renderer;
 
 #[cfg(not(target_arch = "wasm32"))]

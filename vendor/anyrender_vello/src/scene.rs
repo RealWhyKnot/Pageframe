@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyrender::{Filter, NormalizedCoord, Paint, PaintRef, PaintScene, RenderContext, ResourceId};
 use kurbo::{Affine, Rect, Shape, Stroke};
@@ -8,8 +8,10 @@ use vello::Renderer as VelloRenderer;
 use wgpu::Texture;
 use wgpu_context::DeviceHandle;
 
+use crate::shared::lock;
+
 pub struct VelloScenePainter<'r, 's> {
-    pub(crate) renderer: Option<&'r mut VelloRenderer>,
+    pub(crate) renderer: Option<&'r Mutex<VelloRenderer>>,
     pub(crate) device_handle: Option<&'r DeviceHandle>,
     pub(crate) texture_handles: Option<&'r mut FxHashMap<ResourceId, ImageData>>,
     pub(crate) inner: &'s mut vello::Scene,
@@ -20,12 +22,12 @@ impl RenderContext for VelloScenePainter<'_, '_> {
         &mut self,
         resource: Box<dyn std::any::Any>,
     ) -> Result<ResourceId, anyrender::RegisterResourceError> {
-        if let Some(renderer) = &mut self.renderer
+        if let Some(renderer) = self.renderer
             && let Some(texture_handles) = &mut self.texture_handles
         {
             if let Ok(texture) = resource.downcast::<Texture>() {
                 let id = ResourceId::new();
-                texture_handles.insert(id, renderer.register_texture(*texture));
+                texture_handles.insert(id, lock(renderer).register_texture(*texture));
                 Ok(id)
             } else {
                 Err(anyrender::RegisterResourceErrorKind::UnsupportedResourceKind.into())
@@ -36,11 +38,11 @@ impl RenderContext for VelloScenePainter<'_, '_> {
     }
 
     fn unregister_resource(&mut self, resource_id: ResourceId) {
-        if let Some(renderer) = &mut self.renderer
+        if let Some(renderer) = self.renderer
             && let Some(texture_handles) = &mut self.texture_handles
             && let Some(handle) = texture_handles.remove(&resource_id)
         {
-            renderer.unregister_texture(handle);
+            lock(renderer).unregister_texture(handle);
         }
     }
 

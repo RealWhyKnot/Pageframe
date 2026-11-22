@@ -7,10 +7,7 @@ use peniko::{Color, ImageData};
 use rustc_hash::FxHashMap;
 use std::future::Future;
 use std::sync::Arc;
-use vello::{
-    AaConfig, AaSupport, RenderParams, Renderer as VelloRenderer, RendererOptions,
-    Scene as VelloScene,
-};
+use vello::{AaConfig, RenderParams, Scene as VelloScene};
 use wgpu::{
     Backends, CompositeAlphaMode, CreateSurfaceError, Features, Instance, Limits, PipelineCache,
     PresentMode, Surface, Texture, TextureFormat, TextureUsages,
@@ -20,8 +17,9 @@ use wgpu_context::{
     TextureConfiguration, WgpuContextError,
 };
 
+use crate::VelloScenePainter;
 use crate::backends::{BackendChoice, create_instance};
-use crate::{DEFAULT_THREADS, VelloScenePainter};
+use crate::shared::{DevicePool, PoolKey, PooledHandle, RendererKey, SharedRenderer, lock};
 
 /// Drive the wgpu init future. On wasm32 we spawn it onto the JS microtask
 /// queue (blocking is not allowed). On native we drive it inline with
@@ -38,12 +36,13 @@ fn spawn_init<F: Future<Output = ()>>(f: F) {
 }
 
 struct ActiveRenderState {
-    renderer: VelloRenderer,
+    renderer: Arc<SharedRenderer>,
     render_surface: SurfaceRenderer<'static>,
 }
 
 struct InitOutput {
     active: ActiveRenderState,
+    pool: Arc<DevicePool>,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -176,9 +175,14 @@ impl VelloWindowRenderer {
 
     pub fn with_options(config: impl Into<VelloRendererOptions>) -> Self {
         let config = config.into();
+        let wgpu_context = GpuContext::new(&config);
+        Self::with_context(config, wgpu_context)
+    }
+
+    fn with_context(config: VelloRendererOptions, wgpu_context: GpuContext) -> Self {
         Self {
             render_state: RenderState::Suspended,
-            wgpu_context: GpuContext::new(&config),
+            wgpu_context,
             config,
             window_handle: None,
             scene: VelloScene::new(),
@@ -194,6 +198,12 @@ impl VelloWindowRenderer {
     }
 }
 
+impl Drop for VelloWindowRenderer {
+    fn drop(&mut self) {
+        self.suspend();
+    }
+}
+
 impl RenderContext for VelloWindowRenderer {
     fn try_register_custom_resource(
         &mut self,
@@ -206,7 +216,7 @@ impl RenderContext for VelloWindowRenderer {
         if let Ok(texture) = resource.downcast::<Texture>() {
             let id = ResourceId::new();
             self.texture_handles
-                .insert(id, active.renderer.register_texture(*texture));
+                .insert(id, lock(&active.renderer.vello).register_texture(*texture));
             Ok(id)
         } else {
             Err(anyrender::RegisterResourceErrorKind::UnsupportedResourceKind.into())
@@ -219,7 +229,7 @@ impl RenderContext for VelloWindowRenderer {
         };
 
         if let Some(handle) = self.texture_handles.remove(&resource_id) {
-            active.renderer.unregister_texture(handle);
+            lock(&active.renderer.vello).unregister_texture(handle);
         }
     }
 
@@ -235,57 +245,54 @@ impl RenderContext for VelloWindowRenderer {
 }
 
 struct GpuContext {
-    instance: Instance,
+    pool: Arc<DevicePool>,
     fallback_backends: Option<Backends>,
-    device_pool: Vec<DeviceHandle>,
     extra_features: Option<Features>,
     override_limits: Option<Limits>,
 }
 
 impl GpuContext {
     fn new(config: &VelloRendererOptions) -> Self {
-        Self::with_backends(config, BackendChoice::from_env())
+        Self::with_pool(config, BackendChoice::from_env(), DevicePool::shared)
     }
 
-    fn with_backends(config: &VelloRendererOptions, backends: BackendChoice) -> Self {
-        let features = config.features.unwrap_or_default()
-            | Features::CLEAR_TEXTURE
-            | Features::PIPELINE_CACHE;
+    fn with_pool(
+        config: &VelloRendererOptions,
+        backends: BackendChoice,
+        pool: impl FnOnce(PoolKey) -> Arc<DevicePool>,
+    ) -> Self {
+        let key = pool_key(config, backends);
         Self {
-            instance: create_instance(backends.primary),
             fallback_backends: backends.fallback,
-            device_pool: Vec::new(),
-            extra_features: Some(features),
-            override_limits: config.limits.clone(),
+            extra_features: Some(key.features),
+            override_limits: key.limits.clone(),
+            pool: pool(key),
         }
     }
 
-    fn find_compatible_device_handle(&self, surface: &Surface<'_>) -> Option<DeviceHandle> {
-        self.device_pool
-            .iter()
-            .filter(|device_handle| device_handle.instance == self.instance)
-            .find(|device_handle| device_handle.adapter.is_surface_supported(surface))
-            .cloned()
-    }
-
-    fn adopt(&mut self, device_handle: DeviceHandle) {
-        if device_handle.instance != self.instance {
-            self.instance = device_handle.instance.clone();
+    fn adopt(&mut self, pool: Arc<DevicePool>) {
+        if !Arc::ptr_eq(&self.pool, &pool) {
+            self.pool = pool;
             self.fallback_backends = None;
-            let instance = &self.instance;
-            self.device_pool
-                .retain(|pooled| pooled.instance == *instance);
-        }
-        if !self.device_pool.iter().any(|pooled| {
-            pooled.instance == device_handle.instance && pooled.device == device_handle.device
-        }) {
-            self.device_pool.push(device_handle);
         }
     }
 }
 
-fn antialiasing_support(method: AaConfig) -> AaSupport {
-    std::iter::once(method).collect()
+fn pool_key(config: &VelloRendererOptions, backends: BackendChoice) -> PoolKey {
+    PoolKey {
+        backends,
+        features: config.features.unwrap_or_default()
+            | Features::CLEAR_TEXTURE
+            | Features::PIPELINE_CACHE,
+        limits: config.limits.clone(),
+    }
+}
+
+fn renderer_key(config: &VelloRendererOptions) -> RendererKey {
+    RendererKey {
+        antialiasing: config.antialiasing_method,
+        pipeline_cache: config.pipeline_cache.clone(),
+    }
 }
 
 type ConnectError = (WgpuContextError, Option<WgpuContextError>);
@@ -383,11 +390,12 @@ impl WindowRenderer for VelloWindowRenderer {
             .wgpu_context
             .fallback_backends
             .map(|backends| (backends, Arc::clone(&window_handle)));
-        let surface = self.wgpu_context.instance.create_surface(window_handle);
-        let instance = self.wgpu_context.instance.clone();
+        let pool = Arc::clone(&self.wgpu_context.pool);
+        let surface = pool.instance().create_surface(window_handle);
+        let instance = pool.instance().clone();
         let extra_features = self.wgpu_context.extra_features;
         let override_limits = self.wgpu_context.override_limits.clone();
-        let antialiasing_support = antialiasing_support(self.config.antialiasing_method);
+        let renderer_key = renderer_key(&self.config);
         let mut composite_alpha_mode = match self.config.composite_alpha_mode {
             anyrender::CompositeAlphaMode::Auto => CompositeAlphaMode::Auto,
             anyrender::CompositeAlphaMode::Opaque => CompositeAlphaMode::Opaque,
@@ -404,22 +412,30 @@ impl WindowRenderer for VelloWindowRenderer {
                 }
             }
         };
-        let pipeline_cache = self.config.pipeline_cache.clone();
         let desired_maximum_frame_latency = self.config.desired_maximum_frame_latency;
-        let existing_device_handle = surface
+        let existing_device = surface
             .as_ref()
             .ok()
-            .and_then(|surface| self.wgpu_context.find_compatible_device_handle(surface));
+            .and_then(|surface| pool.compatible_device(surface));
 
         spawn_init(async move {
-            let (surface, device_handle) = match (surface, existing_device_handle) {
-                (Ok(surface), Some(device_handle)) => (surface, device_handle),
+            let (surface, device) = match (surface, existing_device) {
+                (Ok(surface), Some(device)) => (surface, device),
                 (surface, _) => {
-                    connect_surface(instance, surface, fallback, extra_features, override_limits)
-                        .await
-                        .expect("Error creating DeviceHandle")
+                    let (surface, device_handle) = connect_surface(
+                        instance,
+                        surface,
+                        fallback,
+                        extra_features,
+                        override_limits,
+                    )
+                    .await
+                    .expect("Error creating DeviceHandle");
+                    (surface, PooledHandle::watch(device_handle))
                 }
             };
+            let pool = pool.for_instance(device.handle.instance.clone());
+            let (device_handle, renderer) = pool.attach(device, &surface, &renderer_key);
 
             let adapter = &device_handle.adapter;
             let caps = surface.get_capabilities(adapter);
@@ -485,22 +501,12 @@ impl WindowRenderer for VelloWindowRenderer {
             )
             .expect("Error creating SurfaceRenderer");
 
-            let renderer = VelloRenderer::new(
-                render_surface.device(),
-                RendererOptions {
-                    antialiasing_support,
-                    use_cpu: false,
-                    num_init_threads: DEFAULT_THREADS,
-                    pipeline_cache,
-                },
-            )
-            .unwrap();
-
             let _ = sender.send(InitOutput {
                 active: ActiveRenderState {
                     renderer,
                     render_surface,
                 },
+                pool,
             });
             on_ready();
         });
@@ -511,9 +517,8 @@ impl WindowRenderer for VelloWindowRenderer {
             RenderState::Active { .. } => true,
             RenderState::Suspended => false,
             RenderState::Pending { receiver } => match receiver.try_recv() {
-                Ok(Some(InitOutput { active })) => {
-                    let device_handle = active.render_surface.device_handle.clone();
-                    self.wgpu_context.adopt(device_handle);
+                Ok(Some(InitOutput { active, pool })) => {
+                    self.wgpu_context.adopt(pool);
                     self.render_state = RenderState::Active(active);
                     true
                 }
@@ -525,8 +530,9 @@ impl WindowRenderer for VelloWindowRenderer {
     fn suspend(&mut self) {
         if let RenderState::Active(active) = &mut self.render_state {
             // Unregister all textures on suspend
+            let mut renderer = lock(&active.renderer.vello);
             for (_id, handle) in self.texture_handles.drain() {
-                active.renderer.unregister_texture(handle);
+                renderer.unregister_texture(handle);
             }
         }
         self.render_state = RenderState::Suspended;
@@ -550,7 +556,7 @@ impl WindowRenderer for VelloWindowRenderer {
         // Regenerate the vello scene
         draw_fn(&mut VelloScenePainter {
             inner: &mut self.scene,
-            renderer: Some(&mut state.renderer),
+            renderer: Some(&state.renderer.vello),
             device_handle: Some(&render_surface.device_handle),
             texture_handles: Some(&mut self.texture_handles),
         });
@@ -563,25 +569,26 @@ impl WindowRenderer for VelloWindowRenderer {
             return;
         };
 
-        for handle in self.texture_handles.values() {
-            state.renderer.mark_override_image_dirty(handle);
+        {
+            let mut renderer = lock(&state.renderer.vello);
+            for handle in self.texture_handles.values() {
+                renderer.mark_override_image_dirty(handle);
+            }
+            renderer
+                .render_to_texture(
+                    render_surface.device(),
+                    render_surface.queue(),
+                    &self.scene,
+                    &texture_view,
+                    &RenderParams {
+                        base_color: self.config.base_color,
+                        width: render_surface.config.width,
+                        height: render_surface.config.height,
+                        antialiasing_method: self.config.antialiasing_method,
+                    },
+                )
+                .expect("failed to render to texture");
         }
-
-        state
-            .renderer
-            .render_to_texture(
-                render_surface.device(),
-                render_surface.queue(),
-                &self.scene,
-                &texture_view,
-                &RenderParams {
-                    base_color: self.config.base_color,
-                    width: render_surface.config.width,
-                    height: render_surface.config.height,
-                    antialiasing_method: self.config.antialiasing_method,
-                },
-            )
-            .expect("failed to render to texture");
         timer.record_time("render");
 
         drop(texture_view);
@@ -607,19 +614,98 @@ impl WindowRenderer for VelloWindowRenderer {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use super::*;
+    use crate::shared::{Registry, WeakList};
+
+    fn assert_send<T: Send>() {}
 
     #[test]
-    fn only_the_configured_antialiasing_method_is_compiled() {
+    fn a_window_renderer_can_move_to_another_thread() {
+        assert_send::<VelloWindowRenderer>();
+    }
+
+    const DEFAULT_CHOICE: BackendChoice = BackendChoice {
+        primary: Backends::PRIMARY,
+        fallback: Some(Backends::GL),
+    };
+
+    #[test]
+    fn windows_with_the_same_device_settings_ask_for_the_same_pool() {
+        let default = VelloRendererOptions::default();
+        let key = pool_key(&default, DEFAULT_CHOICE);
         assert_eq!(
-            antialiasing_support(VelloRendererOptions::default().antialiasing_method),
-            AaSupport {
-                area: false,
-                msaa8: false,
-                msaa16: true,
-            }
+            key.features,
+            Features::CLEAR_TEXTURE | Features::PIPELINE_CACHE
         );
-        assert_eq!(antialiasing_support(AaConfig::Area), AaSupport::area_only());
+        let per_window = default
+            .clone()
+            .base_color(Color::BLACK)
+            .desired_maximum_frame_latency(2)
+            .composite_alpha_mode(anyrender::CompositeAlphaMode::Opaque)
+            .antialiasing_method(AaConfig::Area);
+        assert_eq!(pool_key(&per_window, DEFAULT_CHOICE), key);
+    }
+
+    #[test]
+    fn windows_with_other_features_limits_or_backends_ask_for_another_pool() {
+        let default = VelloRendererOptions::default();
+        let key = pool_key(&default, DEFAULT_CHOICE);
+        let features = default.clone().features(Features::TIMESTAMP_QUERY);
+        assert_ne!(pool_key(&features, DEFAULT_CHOICE), key);
+        let limits = default.clone().limits(Limits::default());
+        assert_ne!(pool_key(&limits, DEFAULT_CHOICE), key);
+        let backends = BackendChoice {
+            primary: Backends::DX12,
+            fallback: None,
+        };
+        assert_ne!(pool_key(&default, backends), key);
+    }
+
+    #[test]
+    fn windows_only_share_a_renderer_built_for_their_antialiasing() {
+        let default = VelloRendererOptions::default();
+        let key = renderer_key(&default);
+        assert_eq!(key.antialiasing, AaConfig::Msaa16);
+        assert_eq!(renderer_key(&default.clone().base_color(Color::BLACK)), key);
+        assert_ne!(
+            renderer_key(&default.clone().antialiasing_method(AaConfig::Area)),
+            key
+        );
+    }
+
+    #[test]
+    fn adopting_a_pool_on_another_instance_switches_to_it_without_sharing_it() {
+        static REGISTRY: Registry = Mutex::new(WeakList::new());
+        let choice = BackendChoice {
+            primary: Backends::PRIMARY,
+            fallback: Some(Backends::PRIMARY),
+        };
+        let options = VelloRendererOptions::default();
+        let shared_pool = |key| DevicePool::shared_in(&REGISTRY, key);
+        let mut context = GpuContext::with_pool(&options, choice, shared_pool);
+        let shared = Arc::clone(&context.pool);
+        let same = shared.for_instance(shared.instance().clone());
+        assert!(Arc::ptr_eq(&same, &shared));
+        context.adopt(same);
+        assert!(Arc::ptr_eq(&context.pool, &shared));
+        assert_eq!(context.fallback_backends, Some(Backends::PRIMARY));
+
+        let fallback = shared.for_instance(create_instance(Backends::PRIMARY));
+        assert!(!Arc::ptr_eq(&fallback, &shared));
+        assert_ne!(fallback.instance(), shared.instance());
+        context.adopt(Arc::clone(&fallback));
+        context.adopt(Arc::clone(&fallback));
+        assert!(Arc::ptr_eq(&context.pool, &fallback));
+        assert_eq!(context.fallback_backends, None);
+
+        let other = GpuContext::with_pool(&options, choice, shared_pool);
+        assert!(Arc::ptr_eq(&other.pool, &shared));
+        drop((other, context, fallback));
+        assert_eq!(lock(&REGISTRY).live(), 1);
+        drop(shared);
+        assert_eq!(lock(&REGISTRY).live(), 0);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -667,52 +753,495 @@ mod tests {
                 Err(("primary", Some("fallback")))
             );
         }
+    }
 
-        fn gpu_device(context: &GpuContext, instance: Instance) -> DeviceHandle {
-            pollster::block_on(DeviceHandle::new_from_compatible_surface(
-                instance,
-                None,
-                context.extra_features,
-                context.override_limits.clone(),
-            ))
-            .expect("a GPU adapter on the requested backends")
+    #[cfg(target_os = "windows")]
+    mod gpu {
+        use std::ffi::c_void;
+        use std::num::NonZeroIsize;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{Barrier, Weak};
+        use std::thread;
+
+        use kurbo::{Affine, Circle, Rect};
+        use peniko::{Blob, Fill, FontData, Gradient, ImageAlphaType, ImageBrush, ImageFormat};
+        use vello::Glyph;
+        use wgpu::rwh::{
+            DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawWindowHandle,
+            Win32WindowHandle, WindowHandle as RawHandle,
+        };
+
+        use super::*;
+
+        const WIDTH: u32 = 320;
+        const HEIGHT: u32 = 240;
+        const WS_OVERLAPPEDWINDOW: u32 = 0x00CF_0000;
+
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn CreateWindowExW(
+                ex_style: u32,
+                class_name: *const u16,
+                window_name: *const u16,
+                style: u32,
+                x: i32,
+                y: i32,
+                width: i32,
+                height: i32,
+                parent: isize,
+                menu: isize,
+                instance: isize,
+                param: *mut c_void,
+            ) -> isize;
+            fn IsWindowVisible(window: isize) -> i32;
         }
 
-        fn adopt_a_fallback_gpu_device(choice: BackendChoice) {
-            let fallback_backends = choice.fallback.expect("a fallback to switch to");
-            let mut context = GpuContext::with_backends(&VelloRendererOptions::default(), choice);
-            assert_eq!(context.fallback_backends, Some(fallback_backends));
-            let primary = gpu_device(&context, context.instance.clone());
-            context.adopt(primary.clone());
-            context.adopt(primary.clone());
-            assert_eq!(context.instance, primary.instance);
-            assert_eq!(context.device_pool.len(), 1);
-            assert_eq!(context.fallback_backends, Some(fallback_backends));
+        struct HiddenWindow(NonZeroIsize);
 
-            let fallback = gpu_device(&context, create_instance(fallback_backends));
-            assert_ne!(fallback.instance, primary.instance);
-            context.adopt(fallback.clone());
-            context.adopt(fallback.clone());
-            assert_eq!(context.instance, fallback.instance);
-            assert_eq!(context.fallback_backends, None);
-            assert_eq!(context.device_pool.len(), 1);
-            assert_eq!(context.device_pool[0].instance, fallback.instance);
-            assert_eq!(context.device_pool[0].device, fallback.device);
-            assert!(
-                context
-                    .device_pool
-                    .iter()
-                    .all(|pooled| pooled.instance != primary.instance)
+        impl HiddenWindow {
+            fn new() -> Arc<Self> {
+                let class: Vec<u16> = "STATIC".encode_utf16().chain([0]).collect();
+                // SAFETY: `class` is a NUL-terminated UTF-16 string that outlives the call and every other argument is a plain value or null.
+                let window = unsafe {
+                    CreateWindowExW(
+                        0,
+                        class.as_ptr(),
+                        class.as_ptr(),
+                        WS_OVERLAPPEDWINDOW,
+                        0,
+                        0,
+                        WIDTH as i32,
+                        HEIGHT as i32,
+                        0,
+                        0,
+                        0,
+                        std::ptr::null_mut(),
+                    )
+                };
+                let window = NonZeroIsize::new(window).expect("a hidden test window");
+                // SAFETY: `window` is a valid window handle this thread just created.
+                assert_eq!(unsafe { IsWindowVisible(window.get()) }, 0);
+                Arc::new(Self(window))
+            }
+        }
+
+        impl HasWindowHandle for HiddenWindow {
+            fn window_handle(&self) -> Result<RawHandle<'_>, HandleError> {
+                let raw = RawWindowHandle::Win32(Win32WindowHandle::new(self.0));
+                // SAFETY: test windows are never destroyed before their creating thread exits, which outlives every renderer that holds this handle.
+                Ok(unsafe { RawHandle::borrow_raw(raw) })
+            }
+        }
+
+        impl HasDisplayHandle for HiddenWindow {
+            fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
+                Ok(DisplayHandle::windows())
+            }
+        }
+
+        fn open(registry: &'static Registry, config: VelloRendererOptions) -> VelloWindowRenderer {
+            let context = GpuContext::with_pool(&config, BackendChoice::from_env(), |key| {
+                DevicePool::shared_in(registry, key)
+            });
+            let mut renderer = VelloWindowRenderer::with_context(config, context);
+            renderer.resume(HiddenWindow::new(), WIDTH, HEIGHT, || {});
+            assert!(renderer.complete_resume());
+            renderer
+        }
+
+        fn reopen(renderer: &mut VelloWindowRenderer) {
+            renderer.suspend();
+            assert!(!renderer.is_active());
+            let window = renderer
+                .window_handle
+                .clone()
+                .expect("a window to resume on");
+            renderer.resume(window, WIDTH, HEIGHT, || {});
+            assert!(renderer.complete_resume());
+        }
+
+        fn active(renderer: &VelloWindowRenderer) -> &ActiveRenderState {
+            match &renderer.render_state {
+                RenderState::Active(active) => active,
+                RenderState::Pending { .. } | RenderState::Suspended => {
+                    panic!("the window renderer is not active")
+                }
+            }
+        }
+
+        fn device(renderer: &VelloWindowRenderer) -> &DeviceHandle {
+            &active(renderer).render_surface.device_handle
+        }
+
+        fn shares_renderer(first: &VelloWindowRenderer, second: &VelloWindowRenderer) -> bool {
+            Arc::ptr_eq(&active(first).renderer, &active(second).renderer)
+        }
+
+        struct Content {
+            font: FontData,
+            image: ImageData,
+            color: Color,
+            seed: u8,
+        }
+
+        fn pixels(seed: u8) -> Blob<u8> {
+            let pixels: Vec<u8> = (0..32u8)
+                .flat_map(|y| (0..32u8).flat_map(move |x| [x * 8, y * 8, seed, 255]))
+                .collect();
+            Blob::new(Arc::new(pixels))
+        }
+
+        fn image(seed: u8) -> ImageData {
+            ImageData {
+                data: pixels(seed),
+                format: ImageFormat::Rgba8,
+                alpha_type: ImageAlphaType::Alpha,
+                width: 32,
+                height: 32,
+            }
+        }
+
+        fn content(seed: u8) -> Content {
+            let font = std::fs::read(r"C:\Windows\Fonts\arial.ttf").expect("Arial to draw with");
+            Content {
+                font: FontData::new(Blob::new(Arc::new(font)), 0),
+                image: image(seed),
+                color: Color::from_rgb8(seed, 120, 255 - seed),
+                seed,
+            }
+        }
+
+        fn scene(content: &Content) -> VelloScene {
+            let mut scene = VelloScene::new();
+            let panel = Rect::new(10.0, 10.0, 150.0, 90.0);
+            scene.fill(Fill::NonZero, Affine::IDENTITY, content.color, None, &panel);
+            let gradient = Gradient::new_linear((160.0, 0.0), (320.0, 0.0))
+                .with_stops([Color::from_rgb8(255, 0, 0), content.color]);
+            let circle = Circle::new((230.0, 70.0), 55.0);
+            scene.fill(Fill::NonZero, Affine::IDENTITY, &gradient, None, &circle);
+            let kept = ImageBrush::new(content.image.clone());
+            scene.draw_image(&kept, Affine::translate((20.0, 110.0)).pre_scale(2.0));
+            let fresh = ImageBrush::new(image(content.seed));
+            scene.draw_image(&fresh, Affine::translate((100.0, 110.0)));
+            let glyphs = (0..14u32).map(|index| Glyph {
+                id: 36 + index + u32::from(content.seed % 7),
+                x: 16.0 + index as f32 * 20.0,
+                y: 220.0,
+            });
+            scene
+                .draw_glyphs(&content.font)
+                .font_size(24.0)
+                .brush(Color::BLACK)
+                .draw(Fill::NonZero, glyphs);
+            scene
+        }
+
+        fn present(renderer: &mut VelloWindowRenderer, scene: &VelloScene) {
+            renderer.render(|painter| painter.inner.append(scene, None));
+        }
+
+        fn read_back(renderer: &VelloWindowRenderer, scene: &VelloScene) -> Vec<u8> {
+            let active = active(renderer);
+            let DeviceHandle { device, queue, .. } = &active.render_surface.device_handle;
+            let size = wgpu::Extent3d {
+                width: WIDTH,
+                height: HEIGHT,
+                depth_or_array_layers: 1,
+            };
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: None,
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: TextureFormat::Rgba8Unorm,
+                usage: TextureUsages::STORAGE_BINDING | TextureUsages::COPY_SRC,
+                view_formats: &[],
+            });
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            lock(&active.renderer.vello)
+                .render_to_texture(
+                    device,
+                    queue,
+                    scene,
+                    &view,
+                    &RenderParams {
+                        base_color: renderer.config.base_color,
+                        width: WIDTH,
+                        height: HEIGHT,
+                        antialiasing_method: renderer.config.antialiasing_method,
+                    },
+                )
+                .expect("render to the readback texture");
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: u64::from(WIDTH * HEIGHT * 4),
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            let mut encoder =
+                device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            encoder.copy_texture_to_buffer(
+                texture.as_image_copy(),
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &buffer,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(WIDTH * 4),
+                        rows_per_image: Some(HEIGHT),
+                    },
+                },
+                size,
             );
+            queue.submit([encoder.finish()]);
+            buffer.slice(..).map_async(wgpu::MapMode::Read, |_| {});
+            device
+                .poll(wgpu::PollType::wait_indefinitely())
+                .expect("wait for the readback");
+            buffer
+                .slice(..)
+                .get_mapped_range()
+                .expect("the mapped readback")
+                .to_vec()
+        }
+
+        fn alone(registry: &'static Registry, content: &Content) -> Vec<u8> {
+            let mut renderer = open(registry, VelloRendererOptions::default());
+            let scene = scene(content);
+            present(&mut renderer, &scene);
+            let pixels = read_back(&renderer, &scene);
+            assert!(pixels.chunks(4).any(|pixel| pixel != [255, 255, 255, 255]));
+            pixels
         }
 
         #[test]
         #[ignore = "needs a GPU adapter"]
-        fn adopting_a_device_from_another_instance_switches_instance_and_prunes_the_pool() {
-            adopt_a_fallback_gpu_device(BackendChoice {
-                primary: Backends::PRIMARY,
-                fallback: Some(Backends::PRIMARY),
+        fn compatible_windows_share_one_instance_device_and_renderer() {
+            static ALONE: Registry = Mutex::new(WeakList::new());
+            static REGISTRY: Registry = Mutex::new(WeakList::new());
+            let (red, blue) = (content(40), content(200));
+            let expected = [alone(&ALONE, &red), alone(&ALONE, &blue)];
+            assert_ne!(expected[0], expected[1]);
+
+            let mut first = open(&REGISTRY, VelloRendererOptions::default());
+            let mut second = open(&REGISTRY, VelloRendererOptions::default());
+            assert!(Arc::ptr_eq(
+                &first.wgpu_context.pool,
+                &second.wgpu_context.pool
+            ));
+            assert_eq!(lock(&REGISTRY).live(), 1);
+            assert_eq!(first.wgpu_context.pool.device_count(), 1);
+            assert_eq!(device(&first).instance, device(&second).instance);
+            assert_eq!(device(&first).device, device(&second).device);
+            assert!(shares_renderer(&first, &second));
+            assert_ne!(
+                active(&first).render_surface.surface,
+                active(&second).render_surface.surface
+            );
+
+            for _ in 0..3 {
+                for (renderer, content, expected) in [
+                    (&mut first, &red, &expected[0]),
+                    (&mut second, &blue, &expected[1]),
+                ] {
+                    let scene = scene(content);
+                    present(renderer, &scene);
+                    assert!(read_back(renderer, &scene) == *expected);
+                }
+            }
+        }
+
+        #[test]
+        #[ignore = "needs a GPU adapter"]
+        fn a_window_with_other_antialiasing_shares_the_device_but_not_the_renderer() {
+            static REGISTRY: Registry = Mutex::new(WeakList::new());
+            let msaa = open(&REGISTRY, VelloRendererOptions::default());
+            let area = VelloRendererOptions::default().antialiasing_method(AaConfig::Area);
+            let mut area = open(&REGISTRY, area);
+            assert!(Arc::ptr_eq(
+                &msaa.wgpu_context.pool,
+                &area.wgpu_context.pool
+            ));
+            assert_eq!(device(&msaa).device, device(&area).device);
+            assert!(!shares_renderer(&msaa, &area));
+            present(&mut area, &scene(&content(90)));
+        }
+
+        #[test]
+        #[ignore = "needs a GPU adapter"]
+        fn a_window_with_other_limits_gets_its_own_instance_and_device() {
+            static REGISTRY: Registry = Mutex::new(WeakList::new());
+            let default = open(&REGISTRY, VelloRendererOptions::default());
+            let limits = Limits {
+                max_inter_stage_shader_variables: 15,
+                ..Limits::default()
+            };
+            let limited = open(&REGISTRY, VelloRendererOptions::default().limits(limits));
+            assert!(!Arc::ptr_eq(
+                &default.wgpu_context.pool,
+                &limited.wgpu_context.pool
+            ));
+            assert_eq!(lock(&REGISTRY).live(), 2);
+            assert_ne!(device(&default).instance, device(&limited).instance);
+            assert_eq!(default.wgpu_context.pool.device_count(), 1);
+            assert_eq!(limited.wgpu_context.pool.device_count(), 1);
+            assert!(!shares_renderer(&default, &limited));
+        }
+
+        #[test]
+        #[ignore = "needs a GPU adapter"]
+        fn the_last_window_releases_the_shared_state_and_a_new_window_builds_it_again() {
+            static ALONE: Registry = Mutex::new(WeakList::new());
+            static REGISTRY: Registry = Mutex::new(WeakList::new());
+            let green = content(120);
+            let expected = alone(&ALONE, &green);
+
+            let mut first = open(&REGISTRY, VelloRendererOptions::default());
+            let mut second = open(&REGISTRY, VelloRendererOptions::default());
+            let pool = Arc::downgrade(&first.wgpu_context.pool);
+            let renderer = Arc::downgrade(&active(&first).renderer);
+            first.suspend();
+            assert!(renderer.upgrade().is_some());
+            second.suspend();
+            assert!(renderer.upgrade().is_none());
+            assert!(pool.upgrade().is_some());
+            reopen(&mut first);
+            let renderer = Arc::downgrade(&active(&first).renderer);
+            drop(first);
+            assert!(pool.upgrade().is_some());
+            drop(second);
+            assert!(pool.upgrade().is_none());
+            assert!(renderer.upgrade().is_none());
+            assert_eq!(lock(&REGISTRY).live(), 0);
+
+            let mut third = open(&REGISTRY, VelloRendererOptions::default());
+            assert_eq!(lock(&REGISTRY).live(), 1);
+            let scene = scene(&green);
+            present(&mut third, &scene);
+            assert!(read_back(&third, &scene) == expected);
+        }
+
+        #[test]
+        #[ignore = "needs a GPU adapter"]
+        fn two_threads_render_through_one_renderer_and_keep_their_pixels() {
+            static ALONE: Registry = Mutex::new(WeakList::new());
+            static REGISTRY: Registry = Mutex::new(WeakList::new());
+            const FRAMES: usize = 60;
+            let contents = [content(10), content(230)];
+            let expected = [alone(&ALONE, &contents[0]), alone(&ALONE, &contents[1])];
+            let windows = [
+                open(&REGISTRY, VelloRendererOptions::default()),
+                open(&REGISTRY, VelloRendererOptions::default()),
+            ];
+            assert!(shares_renderer(&windows[0], &windows[1]));
+            let start = Barrier::new(2);
+            thread::scope(|scope| {
+                for ((mut renderer, content), expected) in
+                    windows.into_iter().zip(&contents).zip(&expected)
+                {
+                    let start = &start;
+                    scope.spawn(move || {
+                        start.wait();
+                        for frame in 0..FRAMES {
+                            let scene = scene(content);
+                            present(&mut renderer, &scene);
+                            assert!(
+                                read_back(&renderer, &scene) == *expected,
+                                "frame {frame} of seed {} changed",
+                                content.seed
+                            );
+                        }
+                    });
+                }
             });
+        }
+
+        #[test]
+        #[ignore = "needs a GPU adapter"]
+        fn suspending_and_resuming_one_window_leaves_the_other_rendering() {
+            static ALONE: Registry = Mutex::new(WeakList::new());
+            static REGISTRY: Registry = Mutex::new(WeakList::new());
+            const CYCLES: usize = 8;
+            let (steady, cycled) = (content(60), content(180));
+            let expected = [alone(&ALONE, &steady), alone(&ALONE, &cycled)];
+            let mut first = open(&REGISTRY, VelloRendererOptions::default());
+            let mut second = open(&REGISTRY, VelloRendererOptions::default());
+            let shared: Weak<SharedRenderer> = Arc::downgrade(&active(&first).renderer);
+            let done = AtomicBool::new(false);
+            let frames = thread::scope(|scope| {
+                let rendering = scope.spawn(|| {
+                    let mut frames = 0;
+                    while !done.load(Ordering::Acquire) || frames < 20 {
+                        let scene = scene(&steady);
+                        present(&mut first, &scene);
+                        assert!(read_back(&first, &scene) == expected[0], "frame {frames}");
+                        frames += 1;
+                    }
+                    frames
+                });
+                for _ in 0..CYCLES {
+                    reopen(&mut second);
+                    assert!(Weak::ptr_eq(
+                        &shared,
+                        &Arc::downgrade(&active(&second).renderer)
+                    ));
+                    let scene = scene(&cycled);
+                    present(&mut second, &scene);
+                    assert!(read_back(&second, &scene) == expected[1]);
+                }
+                done.store(true, Ordering::Release);
+                rendering.join().expect("the steady window kept rendering")
+            });
+            assert!(frames >= 20);
+        }
+
+        #[test]
+        #[ignore = "needs a GPU adapter"]
+        fn a_lost_device_is_not_handed_to_the_next_window() {
+            static ALONE: Registry = Mutex::new(WeakList::new());
+            static REGISTRY: Registry = Mutex::new(WeakList::new());
+            let yellow = content(250);
+            let expected = alone(&ALONE, &yellow);
+            let first = open(&REGISTRY, VelloRendererOptions::default());
+            let lost = device(&first).device.clone();
+            lost.destroy();
+            let _ = lost.poll(wgpu::PollType::wait_indefinitely());
+            let mut second = open(&REGISTRY, VelloRendererOptions::default());
+            assert!(Arc::ptr_eq(
+                &first.wgpu_context.pool,
+                &second.wgpu_context.pool
+            ));
+            assert_ne!(device(&second).device, lost);
+            assert!(!shares_renderer(&first, &second));
+            assert_eq!(second.wgpu_context.pool.device_count(), 1);
+            let scene = scene(&yellow);
+            present(&mut second, &scene);
+            assert!(read_back(&second, &scene) == expected);
+        }
+
+        #[test]
+        #[ignore = "needs a GPU adapter"]
+        fn a_device_lost_while_a_window_attaches_does_not_return_to_the_pool() {
+            static REGISTRY: Registry = Mutex::new(WeakList::new());
+            let options = VelloRendererOptions::default();
+            let first = open(&REGISTRY, options.clone());
+            let pool = Arc::clone(&first.wgpu_context.pool);
+            let surface = pool
+                .instance()
+                .create_surface(HiddenWindow::new())
+                .expect("a surface for the second window");
+            let device = pool
+                .compatible_device(&surface)
+                .expect("the first window's device");
+            device.handle.device.destroy();
+            let _ = device
+                .handle
+                .device
+                .poll(wgpu::PollType::wait_indefinitely());
+            assert!(pool.compatible_device(&surface).is_none());
+            let _attached = pool.attach(device, &surface, &renderer_key(&options));
+            assert!(pool.compatible_device(&surface).is_none());
+            assert_eq!(pool.device_count(), 0);
         }
     }
 }
