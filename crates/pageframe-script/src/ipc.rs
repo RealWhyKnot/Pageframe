@@ -76,6 +76,11 @@ pub(crate) fn emit(runtime: &mut ScriptRuntime, channel: &str, json: &str) {
     call_hook(runtime, "__pageframe_ipc_emit", &args);
 }
 
+pub(crate) fn dispatch_document_event(runtime: &mut ScriptRuntime, name: &str) {
+    let args = [JsString::from(name).into()];
+    call_hook(runtime, "__pageframe_document_event", &args);
+}
+
 pub(crate) fn dispatch_window_event(runtime: &mut ScriptRuntime, name: &str) {
     let args = [JsString::from(name).into()];
     call_hook(runtime, "__pageframe_window_event", &args);

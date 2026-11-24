@@ -236,3 +236,20 @@ fn pointer_capture_tracks_pointers() {
     );
     assert_eq!(doc.take_js_errors(), Vec::<String>::new());
 }
+
+#[test]
+fn clipboard_write_text_rejects_without_a_clipboard() {
+    let mut doc = page(
+        r#"<div id="out"></div><script>
+            const clip = navigator.clipboard;
+            let constructed = "";
+            try { new Clipboard(); } catch (e) { constructed = e.name; }
+            clip.writeText("denied").catch((error) => {
+                document.getElementById("out").textContent =
+                    [clip === navigator.clipboard, clip instanceof EventTarget, constructed, error instanceof DOMException, error.name].join(",");
+            });
+        </script>"#,
+        None,
+    );
+    assert_eq!(pump(&mut doc), "true,true,TypeError,true,NotAllowedError");
+}

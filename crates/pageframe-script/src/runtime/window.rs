@@ -7,6 +7,14 @@ use super::ScriptRuntime;
 use crate::dom::{dom_ctx, node_wrapper};
 
 impl ScriptRuntime {
+    pub fn set_hidden(&mut self, hidden: bool) -> bool {
+        let changed = self.ctx.doc.borrow_mut().set_page_hidden(hidden);
+        if changed {
+            crate::ipc::dispatch_document_event(self, "visibilitychange");
+        }
+        changed
+    }
+
     /// HTML named element access: expose elements with an `id` attribute as
     /// properties of the global (`window`) object, without overriding existing
     /// globals. Should be called before evaluating scripts so that newly
@@ -144,6 +152,31 @@ pub(super) fn window_scroll_by(
         parsed.behavior,
     );
     Ok(JsValue::undefined())
+}
+
+pub(super) fn document_hidden(
+    _: &JsValue,
+    _: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let ctx = dom_ctx(context)?;
+    let hidden = ctx.doc.borrow().is_page_hidden();
+    Ok(hidden.into())
+}
+
+pub(super) fn clipboard_write_text(
+    _: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let ctx = dom_ctx(context)?;
+    let text = args
+        .first()
+        .unwrap_or(&JsValue::undefined())
+        .to_string(context)?
+        .to_std_string_lossy();
+    let shell = std::sync::Arc::clone(&ctx.doc.borrow().shell_provider);
+    Ok(shell.set_clipboard_text(text).is_ok().into())
 }
 
 pub(super) fn send_message(

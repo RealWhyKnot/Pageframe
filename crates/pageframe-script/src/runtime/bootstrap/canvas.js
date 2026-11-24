@@ -6,6 +6,8 @@
         const resizeContext = __pageframe_canvas_resize;
         const snapshotContext = __pageframe_canvas_snapshot;
         const contextMatrix = __pageframe_canvas_matrix;
+        const encodeDataUrl = __pageframe_canvas_data_url;
+        const encodeBytes = __pageframe_canvas_encode;
         const nativeDrawImage = contextProto.drawImage;
         const offscreenState = new WeakMap();
         const bitmapState = new WeakMap();
@@ -94,6 +96,15 @@
             }
         }
 
+        const encodeType = (type) => (type === undefined ? undefined : String(type));
+        const encodeQuality = (quality) => (typeof quality === "number" ? quality : undefined);
+
+        const encodeBlob = (source, type, quality) => {
+            const encoded = encodeBytes(source, encodeType(type), encodeQuality(quality));
+            if (!encoded) return null;
+            return new Blob([encoded[1]], { type: encoded[0] });
+        };
+
         const makeBitmap = (context, width, height) => {
             const bitmap = Object.create(ImageBitmap.prototype);
             bitmapState.set(bitmap, { context, width, height });
@@ -151,8 +162,23 @@
                 const copy = snapshotContext(offscreenContext(this));
                 return makeBitmap(copy, state.width, state.height);
             }
-            convertToBlob() {
-                return Promise.reject(new DOMException("convertToBlob is not supported", "NotSupportedError"));
+            convertToBlob(options = {}) {
+                const state = offscreenState.get(this);
+                if (state.width === 0 || state.height === 0) {
+                    return Promise.reject(new DOMException(
+                        "Failed to execute 'convertToBlob' on 'OffscreenCanvas': The canvas has no pixels.",
+                        "IndexSizeError",
+                    ));
+                }
+                const { type, quality } = options ?? {};
+                const blob = encodeBlob(offscreenContext(this), type, quality);
+                if (!blob) {
+                    return Promise.reject(new DOMException(
+                        "Failed to execute 'convertToBlob' on 'OffscreenCanvas': Encoding failed.",
+                        "EncodingError",
+                    ));
+                }
+                return Promise.resolve(blob);
             }
         }
 
@@ -237,11 +263,20 @@
             return new DOMMatrix(contextMatrix(this));
         };
 
-        if (typeof HTMLCanvasElement === "function" && !HTMLCanvasElement.prototype.toDataURL) {
-            HTMLCanvasElement.prototype.toDataURL = function toDataURL() {
-                return "data:,";
-            };
-        }
+        const canvasProto = Object.getPrototypeOf(document.createElement("canvas"));
+        const defineCanvasMethod = (name, method) => {
+            Object.defineProperty(canvasProto, name, { value: method, writable: true, configurable: true });
+        };
+        defineCanvasMethod("toDataURL", function toDataURL(type, quality) {
+            return encodeDataUrl(this, encodeType(type), encodeQuality(quality));
+        });
+        defineCanvasMethod("toBlob", function toBlob(callback, type, quality) {
+            if (typeof callback !== "function") {
+                throw new TypeError("Failed to execute 'toBlob' on 'HTMLCanvasElement': parameter 1 is not of type 'BlobCallback'.");
+            }
+            const blob = encodeBlob(this, type, quality);
+            setTimeout(() => callback(blob), 0);
+        });
 
         globalThis.ImageData = ImageData;
         globalThis.ImageBitmap = ImageBitmap;

@@ -446,6 +446,7 @@ pub struct BaseDocument {
     // Tracks in-flight "critical" resources (e.g. stylesheets linked from the `<head>`),
     // keyed by request id
     pub(crate) pending_critical_resources: HashSet<usize>,
+    page_hidden: bool,
 
     // Service providers
     /// Network provider. Can be used to fetch assets.
@@ -603,6 +604,7 @@ impl BaseDocument {
             pending_style_image_nodes: Vec::new(),
             pending_placeholder_hosts: Vec::new(),
             pending_critical_resources: HashSet::new(),
+            page_hidden: false,
             controls_to_form: HashMap::new(),
             net_provider,
             navigation_provider,
@@ -663,6 +665,16 @@ impl BaseDocument {
     /// Set the Document's shell provider
     pub fn set_shell_provider(&mut self, shell_provider: Arc<dyn ShellProvider>) {
         self.shell_provider = shell_provider;
+    }
+
+    pub fn is_page_hidden(&self) -> bool {
+        self.page_hidden
+    }
+
+    pub fn set_page_hidden(&mut self, hidden: bool) -> bool {
+        let changed = self.page_hidden != hidden;
+        self.page_hidden = hidden;
+        changed
     }
 
     /// Set (or clear) the Document's devtools provider, which is notified of DOM mutations
@@ -1114,6 +1126,7 @@ impl BaseDocument {
             DragMode::Panning(state) => state.target == node_id,
             DragMode::ScrollbarDrag(state) => state.scrollbar.node_id == node_id,
             DragMode::Resize(state) => state.node_id == node_id,
+            DragMode::Range(state) => state.node_id == node_id,
             DragMode::Selecting | DragMode::None => false,
         };
         if drag_references_node {

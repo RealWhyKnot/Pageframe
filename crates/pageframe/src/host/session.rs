@@ -41,6 +41,7 @@ pub struct HostSession {
     events: Vec<HostEvent>,
     dirty: bool,
     fresh: bool,
+    hidden: bool,
 }
 
 const MAX_SURFACE: u32 = 16_384;
@@ -86,7 +87,7 @@ impl HostSession {
         };
         let (width, height) = (physical(width, scale), physical(height, scale));
         let viewport = Viewport::new(width, height, narrow(scale), color_scheme);
-        let loaded = loader.load(&source, viewport)?;
+        let loaded = loader.load(&source, viewport, false)?;
         Ok(Self {
             doc: loaded.doc,
             url: loaded.url,
@@ -105,6 +106,7 @@ impl HostSession {
             events: Vec::new(),
             dirty: true,
             fresh: true,
+            hidden: false,
         })
     }
 
@@ -162,15 +164,28 @@ impl HostSession {
         self.drain_ipc();
     }
 
+    pub fn set_hidden(&mut self, hidden: bool) -> bool {
+        self.hidden = hidden;
+        let changed = self.doc.set_hidden(hidden);
+        if changed {
+            self.drain_ipc();
+        }
+        changed
+    }
+
+    pub fn is_hidden(&self) -> bool {
+        self.hidden
+    }
+
     pub fn take_events(&mut self) -> Vec<HostEvent> {
         self.process_signals();
         std::mem::take(&mut self.events)
     }
 
     pub fn navigate(&mut self, url: Url) -> Result<(), Error> {
-        let loaded = self
-            .loader
-            .load(&HostSource::Url(url.clone()), self.viewport())?;
+        let loaded =
+            self.loader
+                .load(&HostSource::Url(url.clone()), self.viewport(), self.hidden)?;
         self.install(loaded, url);
         Ok(())
     }
@@ -367,7 +382,9 @@ impl HostSession {
             self.push_event(HostEvent::NavigationBlocked(landed));
             return;
         }
-        let loaded = self.loader.build(&html, Some(landed), self.viewport());
+        let loaded = self
+            .loader
+            .build(&html, Some(landed), self.viewport(), self.hidden);
         self.install(loaded, url);
     }
 

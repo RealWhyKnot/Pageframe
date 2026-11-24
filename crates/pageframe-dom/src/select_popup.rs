@@ -1,6 +1,6 @@
 use keyboard_types::{Key, NamedKey};
 use markup5ever::local_name;
-use pageframe_traits::events::{DomEvent, DomEventData, HitResult, PageframeInputEvent};
+use pageframe_traits::events::{DomEvent, HitResult};
 use pageframe_traits::node_id::NodeId;
 
 use crate::BaseDocument;
@@ -375,10 +375,7 @@ impl BaseDocument {
         self.pick_option(select, option, true);
         self.shell_provider.request_redraw();
         let value = self.option_value(option);
-        dispatch_event(DomEvent::new(
-            select,
-            DomEventData::Input(PageframeInputEvent { value }),
-        ));
+        crate::events::dispatch_input_and_change(select, value, dispatch_event);
     }
 
     pub(crate) fn click_select(

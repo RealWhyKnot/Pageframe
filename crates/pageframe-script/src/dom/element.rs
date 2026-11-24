@@ -44,6 +44,13 @@ pub(crate) fn init_element_proto(proto: &JsObject, context: &mut Context) {
     );
     define_accessor(
         proto,
+        "valueAsNumber",
+        Some(form_controls::get_value_as_number),
+        Some(form_controls::set_value_as_number),
+        context,
+    );
+    define_accessor(
+        proto,
         "checked",
         Some(form_controls::get_checked),
         Some(form_controls::set_checked),

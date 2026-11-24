@@ -31,6 +31,19 @@ pub(crate) fn handle_key_or_input_event<F: FnMut(DomEvent)>(
             return;
         }
     }
+    if let KeyboardOrTextInputEvent::KeyPress(event) = &event
+        && event.state.is_pressed()
+        && !event.modifiers.contains(ACTION_MOD)
+        && let Some(range) = doc.focus_node_id.filter(|&id| {
+            id == target
+                && doc.nodes[id]
+                    .element_data()
+                    .is_some_and(|el| el.is_range_input() && !el.is_disabled())
+        })
+        && doc.range_key(range, &event.key, &mut dispatch_event)
+    {
+        return;
+    }
     if let KeyboardOrTextInputEvent::KeyPress(event) = &event {
         if event.key == Key::Named(NamedKey::Tab) {
             let backwards = event.modifiers.contains(Modifiers::SHIFT);

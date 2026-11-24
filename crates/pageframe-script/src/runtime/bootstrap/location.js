@@ -172,13 +172,19 @@
         globalThis.history = new History();
 
         const documentProto = Object.getPrototypeOf(document);
+        const documentHidden = __pageframe_document_hidden;
+        delete globalThis.__pageframe_document_hidden;
+        Object.defineProperty(globalThis, "__pageframe_document_event", {
+            value: (name) => document.dispatchEvent(new Event(name, { bubbles: true })),
+            configurable: true,
+        });
         const documentAccessors = {
             location: { get() { return location; }, set(value) { location.href = value; } },
             URL: { get() { return currentUrl().href; } },
             documentURI: { get() { return currentUrl().href; } },
             baseURI: { get() { return currentUrl().href; } },
-            visibilityState: { get() { return "visible"; } },
-            hidden: { get() { return false; } },
+            visibilityState: { get() { return documentHidden() ? "hidden" : "visible"; } },
+            hidden: { get() { return documentHidden(); } },
         };
         for (const [name, accessor] of Object.entries(documentAccessors)) {
             if (!(name in documentProto)) {

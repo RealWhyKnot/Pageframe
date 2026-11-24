@@ -162,6 +162,18 @@ pub(super) fn register_globals(ctx: &DomCtx, context: &mut Context) {
 
     // Embedder message channel (see `ScriptDocument::take_messages`)
     register_global_fn(context, "__pageframe_send_message", 1, window::send_message);
+    register_global_fn(
+        context,
+        "__pageframe_document_hidden",
+        0,
+        window::document_hidden,
+    );
+    register_global_fn(
+        context,
+        "__pageframe_clipboard_write_text",
+        1,
+        window::clipboard_write_text,
+    );
     register_mutation_natives(context);
     register_global_fn(context, "__pageframe_ipc_send", 3, crate::ipc::send);
 

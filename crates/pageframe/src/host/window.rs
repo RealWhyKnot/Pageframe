@@ -88,6 +88,10 @@ impl<W: HasWindowHandle + HasDisplayHandle + Send + Sync + 'static> PageframeHos
         handled
     }
 
+    pub fn set_hidden(&mut self, hidden: bool) -> bool {
+        self.session.set_hidden(hidden)
+    }
+
     pub fn poll(&mut self) -> bool {
         self.session.poll()
     }

@@ -9,11 +9,59 @@ pub use driver::{EventDriver, EventHandler, NoopEventHandler};
 use focus::generate_focus_events;
 pub(crate) use ime::handle_ime_event;
 use keyboard::{KeyboardOrTextInputEvent, handle_key_or_input_event};
-use pageframe_traits::events::{DomEvent, DomEventData, PointerCoords, UiEvent};
+use pageframe_traits::events::{
+    DomEvent, DomEventData, PageframeInputEvent, PointerCoords, UiEvent,
+};
+use pageframe_traits::node_id::NodeId;
 pub(crate) use pointer::DragMode;
 use pointer::{handle_click, handle_pointerdown, handle_pointermove, handle_pointerup};
 
 use crate::{BaseDocument, events::pointer::handle_wheel};
+
+pub(crate) fn dispatch_input(
+    target: NodeId,
+    value: String,
+    dispatch_event: &mut dyn FnMut(DomEvent),
+) {
+    dispatch_event(DomEvent::new(
+        target,
+        DomEventData::Input(PageframeInputEvent { value }),
+    ));
+}
+
+pub(crate) fn dispatch_change(
+    target: NodeId,
+    value: String,
+    dispatch_event: &mut dyn FnMut(DomEvent),
+) {
+    dispatch_event(DomEvent::new(
+        target,
+        DomEventData::Change(PageframeInputEvent { value }),
+    ));
+}
+
+pub(crate) fn dispatch_input_and_change(
+    target: NodeId,
+    value: String,
+    dispatch_event: &mut dyn FnMut(DomEvent),
+) {
+    dispatch_input(target, value.clone(), dispatch_event);
+    dispatch_change(target, value, dispatch_event);
+}
+
+pub(crate) fn focus_node(
+    doc: &mut BaseDocument,
+    target: NodeId,
+    dispatch_event: &mut dyn FnMut(DomEvent),
+) {
+    generate_focus_events(
+        doc,
+        &mut |doc| {
+            doc.set_focus_to(target);
+        },
+        dispatch_event,
+    );
+}
 
 fn adjust_coords_for_subdocument(
     coords: &mut PointerCoords,
@@ -89,7 +137,7 @@ fn map_dom_event_to_ui_event(
         DomEventData::Click(_) => None,
         DomEventData::ContextMenu(_) => None,
         DomEventData::DoubleClick(_) => None,
-        DomEventData::Input(_) => None,
+        DomEventData::Input(_) | DomEventData::Change(_) => None,
         DomEventData::Wheel(data) => Some(UiEvent::Wheel(data)),
         DomEventData::Scroll(_) => None,
         DomEventData::Focus(_) => None,
@@ -239,7 +287,7 @@ pub(crate) fn handle_dom_event<F: FnMut(DomEvent)>(
         DomEventData::Ime(event) => {
             handle_ime_event(doc, event.clone(), dispatch_event);
         }
-        DomEventData::Input(_) => {
+        DomEventData::Input(_) | DomEventData::Change(_) => {
             // Do nothing (no default action)
         }
         DomEventData::ContextMenu(_) => {

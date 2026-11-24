@@ -80,6 +80,9 @@ pub(super) fn get_value(this: &JsValue, _: &[JsValue], context: &mut Context) ->
             .and_then(|node| node.element_data())
             .map(|element| match element.text_input_data() {
                 Some(input_data) => input_data.value().to_string(),
+                None if element.is_range_input() => {
+                    pageframe_dom::format_input_number(element.range_value())
+                }
                 None => element
                     .attrs()
                     .iter()
@@ -104,7 +107,97 @@ pub(super) fn set_value(
         ctx.doc.borrow_mut().set_select_value(node_id, &value);
         return Ok(JsValue::undefined());
     }
+    if is_range(&ctx, node_id) {
+        let value = to_rust_string(args.first().unwrap_or(&JsValue::undefined()), context)?;
+        ctx.doc.borrow_mut().set_range_input_text(node_id, &value);
+        return Ok(JsValue::undefined());
+    }
     attr_setter("value", this, args, context)
+}
+
+fn is_range(ctx: &crate::state::DomCtx, node_id: NodeId) -> bool {
+    ctx.doc
+        .borrow()
+        .get_node(node_id)
+        .and_then(|node| node.element_data())
+        .is_some_and(pageframe_dom::ElementData::is_range_input)
+}
+
+fn input_kind(ctx: &crate::state::DomCtx, node_id: NodeId) -> Option<String> {
+    let doc = ctx.doc.borrow();
+    let element = doc.get_node(node_id)?.element_data()?;
+    if element.name.local != pageframe_dom::local_name!("input") {
+        return None;
+    }
+    Some(
+        element
+            .input_type()
+            .map_or_else(String::new, |kind| kind.into_owned()),
+    )
+}
+
+pub(super) fn get_value_as_number(
+    this: &JsValue,
+    _: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let ctx = dom_ctx(context)?;
+    let node_id = this_node_id(this)?;
+    let number = match input_kind(&ctx, node_id).as_deref() {
+        Some("range") => {
+            let doc = ctx.doc.borrow();
+            doc.get_node(node_id)
+                .and_then(|node| node.element_data())
+                .map_or(f64::NAN, pageframe_dom::ElementData::range_value)
+        }
+        Some("number") => {
+            let text = get_value(this, &[], context)?.to_string(context)?;
+            let text = text.to_std_string_lossy();
+            if text.trim().is_empty() {
+                f64::NAN
+            } else {
+                js_str(&text).to_number(context)?
+            }
+        }
+        _ => f64::NAN,
+    };
+    Ok(JsValue::from(number))
+}
+
+pub(super) fn set_value_as_number(
+    this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let ctx = dom_ctx(context)?;
+    let node_id = this_node_id(this)?;
+    let number = args
+        .first()
+        .cloned()
+        .unwrap_or_default()
+        .to_number(context)?;
+    if number.is_infinite() {
+        return Err(boa_engine::JsNativeError::typ()
+            .with_message(
+                "Failed to set the 'valueAsNumber' property on 'HTMLInputElement': The value provided is infinite.",
+            )
+            .into());
+    }
+    match input_kind(&ctx, node_id).as_deref() {
+        Some("range") => {
+            ctx.doc.borrow_mut().set_range_input_value(node_id, number);
+        }
+        Some("number") => {
+            let text = if number.is_nan() {
+                String::new()
+            } else {
+                pageframe_dom::format_input_number(number)
+            };
+            write_attr(context, &ctx, node_id, "value", &text);
+        }
+        _ => {}
+    }
+    Ok(JsValue::undefined())
 }
 
 pub(super) fn get_checked(

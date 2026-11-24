@@ -44,7 +44,7 @@ impl<'e> Event<'e> {
 
     pub fn value(&self) -> Option<&str> {
         match self.data {
-            EventData::Input(input) => Some(&input.value),
+            EventData::Input(input) | EventData::Change(input) => Some(&input.value),
             _ => None,
         }
     }

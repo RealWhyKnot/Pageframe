@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use pageframe_dom::DocumentConfig;
+use pageframe_dom::{Document, DocumentConfig};
 use pageframe_script::{HttpClient, HttpRequest, ScriptDocument};
 use pageframe_traits::net::NetProvider;
 use pageframe_traits::shell::Viewport;
@@ -68,7 +68,12 @@ impl Loader {
         }
     }
 
-    pub(super) fn load(&self, source: &HostSource, viewport: Viewport) -> Result<Loaded, Error> {
+    pub(super) fn load(
+        &self,
+        source: &HostSource,
+        viewport: Viewport,
+        hidden: bool,
+    ) -> Result<Loaded, Error> {
         let (html, url) = match source {
             HostSource::Html { html, base_url } => (html.clone(), base_url.clone()),
             HostSource::Url(url) => {
@@ -76,14 +81,20 @@ impl Loader {
                 (html, Some(final_url))
             }
         };
-        Ok(self.build(&html, url, viewport))
+        Ok(self.build(&html, url, viewport, hidden))
     }
 
     pub(super) fn read(&self, url: &Url) -> Result<(String, Url), Error> {
         self.fetch(url)
     }
 
-    pub(super) fn build(&self, html: &str, url: Option<Url>, viewport: Viewport) -> Loaded {
+    pub(super) fn build(
+        &self,
+        html: &str,
+        url: Option<Url>,
+        viewport: Viewport,
+        hidden: bool,
+    ) -> Loaded {
         let config = DocumentConfig {
             viewport: Some(viewport),
             base_url: url.as_ref().map(Url::to_string),
@@ -96,6 +107,7 @@ impl Loader {
         if !self.timer_thread {
             doc = doc.without_timer_thread();
         }
+        doc.inner_mut().set_page_hidden(hidden);
         doc.eval(&url_hook());
         doc.execute_scripts();
         Loaded { doc, url }

@@ -22,13 +22,13 @@ pub use attributes::{Attribute, Attributes};
 pub use custom_widget::{
     ComputedStyles, CustomWidgetData, CustomWidgetStatus, ProxyRenderContext, Widget,
 };
-pub(crate) use element::parse_classes;
 pub use element::{
     CanvasData, DateField, DateIndicator, DocumentData, ElementData, GaugeRegion, ImageData,
     ImageFallback, ImageResourceData, LayoutData, ListItemLayout, ListItemLayoutPosition, Marker,
     MarkerShape, MarkerSymbol, RasterImageData, SpecialElementData, SpecialElementType, Status,
     UnsnappedBox,
 };
+pub(crate) use element::{parse_classes, parse_html_float};
 pub use node::*;
 pub use resizer::{OverflowControl, RESIZER_SIZE, resizer_size};
 pub use scrollbar::{ScrollbarColor, ScrollbarRef, ScrollbarWidth};

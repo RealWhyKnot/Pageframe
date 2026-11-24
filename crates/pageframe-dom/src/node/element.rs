@@ -419,6 +419,7 @@ pub enum SpecialElementData {
     TextInput(TextInputData),
     /// Checkbox checked state
     CheckboxInput(bool),
+    RangeInput(f64),
     /// Selected files
     #[cfg(feature = "file-input")]
     FileInput(FileData),
@@ -441,6 +442,7 @@ impl Clone for SpecialElementData {
             Self::TableRoot(data) => Self::TableRoot(data.clone()),
             Self::TextInput(data) => Self::TextInput(data.clone()),
             Self::CheckboxInput(data) => Self::CheckboxInput(*data),
+            Self::RangeInput(value) => Self::RangeInput(*value),
             #[cfg(feature = "file-input")]
             Self::FileInput(data) => Self::FileInput(data.clone()),
             Self::None => Self::None,
@@ -913,47 +915,6 @@ impl ElementData {
         })
     }
 
-    pub fn range_input_fraction(&self) -> f64 {
-        let number = |name: LocalName| self.attr(name).and_then(parse_html_float);
-        let minimum = number(local_name!("min")).unwrap_or(0.0);
-        let maximum = number(local_name!("max")).unwrap_or(100.0).max(minimum);
-        let half_span = maximum / 2.0 - minimum / 2.0;
-        if half_span <= 0.0 {
-            return 0.0;
-        }
-        let written = number(local_name!("value"));
-        let value = written
-            .unwrap_or(minimum + half_span)
-            .clamp(minimum, maximum);
-        let step = match self.attr(local_name!("step")) {
-            Some(step) if step.eq_ignore_ascii_case("any") => None,
-            Some(step) => Some(
-                parse_html_float(step)
-                    .filter(|step| *step > 0.0)
-                    .unwrap_or(1.0),
-            ),
-            None => Some(1.0),
-        };
-        let value = match step {
-            Some(step) => {
-                let base = number(local_name!("min")).or(written).unwrap_or(0.0);
-                let steps = ((value / 2.0 - base / 2.0) / step * 2.0 + 0.5).floor();
-                let rounded = (base / 2.0 + steps * (step / 2.0)) * 2.0;
-                if !rounded.is_finite() {
-                    value
-                } else if rounded > maximum {
-                    rounded - step
-                } else if rounded < minimum {
-                    rounded + step
-                } else {
-                    rounded
-                }
-            }
-            None => value,
-        };
-        ((value / 2.0 - minimum / 2.0) / half_span).clamp(0.0, 1.0)
-    }
-
     pub fn progress_position(&self) -> Option<f64> {
         self.attr(local_name!("value"))?;
         let number = |name: LocalName| self.attr(name).and_then(parse_html_float_prefix);
@@ -1160,6 +1121,7 @@ impl std::fmt::Debug for SpecialElementData {
             SpecialElementData::TableRoot(_) => f.write_str("NodeSpecificData::TableRoot"),
             SpecialElementData::TextInput(_) => f.write_str("NodeSpecificData::TextInput"),
             SpecialElementData::CheckboxInput(_) => f.write_str("NodeSpecificData::CheckboxInput"),
+            SpecialElementData::RangeInput(_) => f.write_str("NodeSpecificData::RangeInput"),
             #[cfg(feature = "file-input")]
             SpecialElementData::FileInput(_) => f.write_str("NodeSpecificData::FileInput"),
             SpecialElementData::None => f.write_str("NodeSpecificData::None"),
@@ -1287,7 +1249,7 @@ pub enum GaugeRegion {
     EvenLessGood,
 }
 
-fn parse_html_float(text: &str) -> Option<f64> {
+pub(crate) fn parse_html_float(text: &str) -> Option<f64> {
     let valid = !text.starts_with('+')
         && !text.ends_with('.')
         && text

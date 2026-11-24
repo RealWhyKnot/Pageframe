@@ -557,3 +557,35 @@ field.addEventListener("input", () => ipc.postMessage("input:" + field.value));
     assert_eq!(posts.last(), Some(&format!("value:{length}")));
     assert_clean(&mut session);
 }
+
+#[test]
+fn clipboard_write_text_resolves_and_reaches_the_host() {
+    let mut session = blank("<p></p>");
+    let posts = collect_posts(&mut session);
+    session.poll();
+    session.take_events();
+    session.eval(
+        r#"
+        navigator.clipboard.writeText("hello").then((value) => ipc.postMessage("resolved:" + value));
+        navigator.clipboard.writeText(42).then(() => ipc.postMessage("number"));
+        navigator.clipboard.writeText().catch((error) => ipc.postMessage("missing:" + error.name));
+    "#,
+    );
+    assert_eq!(
+        taken(&posts),
+        ["resolved:undefined", "number", "missing:TypeError"]
+    );
+    let texts: Vec<HostEvent> = session
+        .take_events()
+        .into_iter()
+        .filter(|event| matches!(event, HostEvent::ClipboardText(_)))
+        .collect();
+    assert_eq!(
+        texts,
+        [
+            HostEvent::ClipboardText(String::from("hello")),
+            HostEvent::ClipboardText(String::from("42"))
+        ]
+    );
+    assert_clean(&mut session);
+}

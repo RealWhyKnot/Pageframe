@@ -3439,6 +3439,7 @@ dependencies = [
  "boa_runtime",
  "data-url",
  "icu_properties",
+ "image",
  "keyboard-types",
  "markup5ever",
  "pageframe-dom",

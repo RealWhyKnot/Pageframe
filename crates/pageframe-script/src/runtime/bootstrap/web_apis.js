@@ -394,3 +394,40 @@
         globalThis.FileReader = FileReader;
         globalThis.__pageframe_blob_bytes = (blob) => blobBytes.get(blob);
     }
+
+    {
+        const writeClipboardText = __pageframe_clipboard_write_text;
+        delete globalThis.__pageframe_clipboard_write_text;
+        const token = Symbol("Clipboard");
+        class Clipboard extends EventTarget {
+            constructor(key) {
+                if (key !== token) throw new TypeError("Illegal constructor");
+                super();
+            }
+            writeText(data) {
+                if (arguments.length < 1) {
+                    return Promise.reject(new TypeError(
+                        "Failed to execute 'writeText' on 'Clipboard': 1 argument required, but only 0 present.",
+                    ));
+                }
+                let text;
+                try {
+                    text = String(data);
+                } catch (error) {
+                    return Promise.reject(error);
+                }
+                if (writeClipboardText(text)) return Promise.resolve(undefined);
+                return Promise.reject(new DOMException(
+                    "Failed to execute 'writeText' on 'Clipboard': Write permission denied.",
+                    "NotAllowedError",
+                ));
+            }
+        }
+        const clipboard = new Clipboard(token);
+        globalThis.Clipboard = Clipboard;
+        Object.defineProperty(navigator, "clipboard", {
+            get: () => clipboard,
+            enumerable: true,
+            configurable: true,
+        });
+    }

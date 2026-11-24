@@ -55,6 +55,7 @@ mod iframe;
 mod layout;
 mod mutator;
 mod query_selector;
+mod range_input;
 mod relative_selectors;
 mod resolve;
 /// Computation of resolved CSS property values (`getComputedStyle()`)
@@ -119,6 +120,7 @@ pub use markup5ever::{
 pub use mutator::DocumentMutator;
 pub use node::{Attribute, DocumentData, ElementData, GaugeRegion, Node, NodeData, TextNodeData};
 pub use parley::FontContext;
+pub use range_input::{RANGE_THUMB_SIZE, RangeBounds, format_input_number};
 pub use scrolling::{ScrollBehavior, ScrollLogicalPosition};
 pub use select_list::select_list_rows;
 pub use select_popup::{PopupLayout, PopupRow};

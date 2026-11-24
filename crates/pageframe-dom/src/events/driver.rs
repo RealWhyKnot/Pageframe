@@ -1,4 +1,5 @@
 use crate::Document;
+use crate::events::DragMode;
 use pageframe_traits::events::{
     DomEvent, DomEventData, EventState, PageframePointerEvent, PageframePointerId, Point,
     PointerCoords, UiEvent,
@@ -199,6 +200,7 @@ impl<'doc, Handler: EventHandler> EventDriver<'doc, Handler> {
                 }
             }
             UiEvent::PointerCancel(event) => {
+                self.abort_range_drag();
                 hover_node_id = self.handle_pointer_move(event);
                 let mut doc = self.doc.inner_mut();
                 doc.unactive_node();
@@ -208,6 +210,7 @@ impl<'doc, Handler: EventHandler> EventDriver<'doc, Handler> {
                 }
             }
             UiEvent::PointerLeave(event) => {
+                self.abort_range_drag();
                 self.handle_pointer_leave(event);
                 hover_node_id = None;
             }
@@ -313,6 +316,20 @@ impl<'doc, Handler: EventHandler> EventDriver<'doc, Handler> {
         let doc = self.doc.inner();
         if !is_leave && doc.hover_state() != prev_hover {
             doc.update_cursor();
+        }
+    }
+
+    fn abort_range_drag(&mut self) {
+        let mut events = Vec::new();
+        {
+            let mut doc = self.doc.inner_mut();
+            if let DragMode::Range(state) = doc.drag_mode {
+                doc.drag_mode = DragMode::None;
+                doc.finish_range_drag(state, &mut |event| events.push(event));
+            }
+        }
+        for event in events {
+            self.handle_dom_event(event);
         }
     }
 

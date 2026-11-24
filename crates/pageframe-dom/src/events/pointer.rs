@@ -20,6 +20,7 @@ use taffy::AbsoluteAxis;
 use crate::{
     BaseDocument,
     node::{ScrollbarRef, SpecialElementData},
+    range_input::RangeDragState,
     scrolling::{FlingState, ScrollAnimationState},
 };
 
@@ -63,6 +64,7 @@ pub(crate) enum DragMode {
     /// We are currently dragging a scrollbar thumb
     ScrollbarDrag(ScrollbarDragState),
     Resize(ResizeDragState),
+    Range(RangeDragState),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -293,6 +295,10 @@ pub(crate) fn handle_pointermove<F: FnMut(DomEvent)>(
         return resize_to(doc, state, x, y) || changed;
     }
 
+    if let DragMode::Range(state) = doc.drag_mode {
+        return doc.drag_range(state, x, &mut dispatch_event) || changed;
+    }
+
     if let DragMode::ScrollbarDrag(state) = &mut doc.drag_mode {
         let ScrollbarRef { node_id, axis } = state.scrollbar;
         let pos = match axis {
@@ -457,6 +463,16 @@ pub(crate) fn handle_pointerdown(
         }
     }
 
+    if button == MouseEventButton::Main
+        && doc.nodes[hit.node_id]
+            .element_data()
+            .is_some_and(|el| el.is_range_input() && !el.is_disabled())
+    {
+        doc.clear_text_selection();
+        doc.start_range_drag(hit.node_id, x, dispatch_event);
+        return;
+    }
+
     // Use hit.node_id for determining the actual clicked element.
     // This may differ from `target` for anonymous blocks (which are layout children
     // but not DOM children), so we use the hit result for text selection.
@@ -598,7 +614,14 @@ pub(crate) fn handle_pointerup<F: FnMut(DomEvent)>(
 
     // Don't dispatch click if we were doing a text selection drag or panning
     // the document with a touch
-    let do_click = matches!(drag_mode, DragMode::None | DragMode::Resize(_));
+    let do_click = matches!(
+        drag_mode,
+        DragMode::None | DragMode::Resize(_) | DragMode::Range(_)
+    );
+
+    if let DragMode::Range(state) = drag_mode {
+        doc.finish_range_drag(state, &mut dispatch_event);
+    }
 
     // Repaint so a dragged scrollbar thumb drops its active styling, and
     // restart its fade-out delay now that the drag no longer holds it shown

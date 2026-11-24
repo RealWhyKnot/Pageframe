@@ -412,6 +412,7 @@ pub(crate) fn create_event_for_dom_event(
         DomEventData::Input(input) => {
             define_value(&event, "data", js_str(&input.value), context);
             define_value(&event, "inputType", js_str("insertText"), context);
+            define_value(&event, "composed", JsValue::from(true), context);
         }
 
         _ => {}
@@ -454,7 +455,9 @@ fn interface_name(data: &DomEventData) -> &'static str {
         | DomEventData::Blur(_)
         | DomEventData::FocusIn(_)
         | DomEventData::FocusOut(_) => "FocusEvent",
-        DomEventData::Scroll(_) | DomEventData::AppleStandardKeybinding(_) => "Event",
+        DomEventData::Scroll(_)
+        | DomEventData::Change(_)
+        | DomEventData::AppleStandardKeybinding(_) => "Event",
     }
 }
 

@@ -1,4 +1,5 @@
 mod content;
+mod encode;
 mod ops;
 mod props;
 
@@ -65,6 +66,13 @@ pub(crate) fn init(ctx: &DomCtx, context: &mut Context) {
     register(context, "__pageframe_canvas_create", 3, create_detached);
     register(context, "__pageframe_canvas_resize", 3, resize_detached);
     register(context, "__pageframe_canvas_snapshot", 1, snapshot);
+    register(
+        context,
+        "__pageframe_canvas_data_url",
+        3,
+        encode::to_data_url,
+    );
+    register(context, "__pageframe_canvas_encode", 3, encode::to_bytes);
     let mut state = ctx.state.borrow_mut();
     state.canvas.context_proto = Some(context_proto);
     state.canvas.gradient_proto = Some(gradient_proto);

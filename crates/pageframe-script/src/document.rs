@@ -272,6 +272,18 @@ impl ScriptDocument {
         self.after_script();
     }
 
+    pub fn set_hidden(&mut self, hidden: bool) -> bool {
+        let changed = self.runtime.set_hidden(hidden);
+        if changed {
+            self.after_script();
+        }
+        changed
+    }
+
+    pub fn is_hidden(&self) -> bool {
+        self.runtime.ctx.doc.borrow().is_page_hidden()
+    }
+
     fn after_script(&mut self) {
         self.request_redraw();
         self.arm_timer_thread();

@@ -1,6 +1,6 @@
 use keyboard_types::Key;
 use markup5ever::local_name;
-use pageframe_traits::events::{DomEvent, DomEventData, PageframeInputEvent};
+use pageframe_traits::events::DomEvent;
 use pageframe_traits::node_id::NodeId;
 
 use crate::BaseDocument;
@@ -62,10 +62,7 @@ impl BaseDocument {
         }
         self.shell_provider.request_redraw();
         let value = self.select_value(select).unwrap_or_default();
-        dispatch_event(DomEvent::new(
-            select,
-            DomEventData::Input(PageframeInputEvent { value }),
-        ));
+        crate::events::dispatch_input_and_change(select, value, dispatch_event);
     }
 
     pub(crate) fn click_list_option(
