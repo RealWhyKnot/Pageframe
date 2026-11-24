@@ -5,6 +5,7 @@ version = "0.15.0"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/dioxuslabs/anyrender"
 edition = "2024"
+publish = false
 
 [features]
 log_frame_times = ["debug_timer/enable"]
