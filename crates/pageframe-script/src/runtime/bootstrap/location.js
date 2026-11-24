@@ -1,4 +1,6 @@
     {
+        const setDocumentUrl = __pageframe_set_document_url;
+        delete globalThis.__pageframe_set_document_url;
         const currentUrl = () => new URL(__pageframe_document_url());
         const entries = [{ url: __pageframe_document_url(), state: null }];
         let entryIndex = 0;
@@ -10,7 +12,7 @@
             return left.href === right.href;
         };
         const commit = (href) => {
-            __pageframe_set_document_url(href);
+            setDocumentUrl(href);
             entries[entryIndex].url = href;
         };
         const fireHashChange = (oldURL, newURL, state) => {
@@ -115,7 +117,7 @@
             const previous = entries[entryIndex];
             entryIndex = next;
             const entry = entries[next];
-            __pageframe_set_document_url(entry.url);
+            setDocumentUrl(entry.url);
             fireHashChange(previous.url, entry.url, entry.state);
         };
         const canRewrite = (current, target) => {

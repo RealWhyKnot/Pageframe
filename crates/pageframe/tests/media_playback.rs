@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use anyrender::render_to_buffer;
 use anyrender_vello_cpu::VelloCpuImageRenderer;
-use media_support::serve;
+use media_support::{fixture_dir, serve};
 use pageframe::host::{HostConfig, HostSession};
 use pageframe_dom::Document as _;
 use pageframe_paint::paint_scene;
@@ -431,4 +431,112 @@ fn dropping_a_session_while_media_loads_stops_promptly() {
             "dropping after {pumps} pumps took {elapsed:?}"
         );
     }
+}
+
+fn local_fixtures() -> Url {
+    Url::from_directory_path(fixture_dir()).expect("the fixture directory has a file URL")
+}
+
+#[test]
+fn an_http_page_cannot_load_local_media_files() {
+    let server = serve();
+    let local = local_fixtures();
+    let clip = local.join("clip.mp4").expect("a file URL for the clip");
+    let missing = local
+        .join("missing.mp4")
+        .expect("a file URL for a missing clip");
+    let body = format!(
+        "<video id='v' src='{clip}' preload='auto' autoplay></video><video id='s'><source src='{clip}' type='video/mp4'></video><audio id='m' src='{missing}'></audio><canvas id='c' width='160' height='120'></canvas>"
+    );
+    let mut page = Page::open(&body, &server.base);
+    page.run(&format!(
+        "window.assigned = document.createElement('video'); assigned.src = '{clip}'; window.reloaded = document.createElement('video'); reloaded.setAttribute('src', '{clip}'); reloaded.load(); window.attached = document.createElement('video'); document.body.append(attached); attached.setAttribute('src', '{clip}'); window.tone = new Audio('{clip}'); window.swapped = document.createElement('audio'); swapped.src = 'tone.wav'; swapped.src = '{clip}'; window.all = [v, s, m, assigned, reloaded, attached, tone, swapped];"
+    ));
+    page.wait_for("all.every((el) => el.error !== null)");
+    assert_eq!(
+        page.query("all.every((el) => el.error.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED && el.networkState === el.NETWORK_NO_SOURCE && el.readyState === 0)"),
+        "true"
+    );
+    assert_eq!(
+        page.query("v.error.message"),
+        format!("this page cannot load {clip}")
+    );
+    assert_eq!(
+        page.query("m.error.message"),
+        format!("this page cannot load {missing}")
+    );
+    assert_eq!(
+        page.query(
+            "all.filter((el) => el !== m).every((el) => el.error.message === v.error.message)"
+        ),
+        "true"
+    );
+    assert_eq!(page.query("log.includes('error')"), "true");
+    assert_eq!(page.query("log.includes('loadedmetadata')"), "false");
+
+    page.pump_for(Duration::from_millis(300));
+    assert_eq!(
+        page.query(
+            "all.every((el) => el.readyState === 0 && el.paused && Number.isNaN(el.duration))"
+        ),
+        "true"
+    );
+    assert_eq!(page.query("v.videoWidth + 'x' + v.videoHeight"), "0x0");
+    assert_eq!(
+        page.query("(() => { const ctx = c.getContext('2d'); try { ctx.drawImage(v, 0, 0); } catch {} return [...ctx.getImageData(80, 60, 1, 1).data].join(); })()"),
+        "0,0,0,0"
+    );
+    page.run("v.play().then(() => log.push('played'), (e) => log.push('rejected:' + e.name));");
+    page.pump();
+    assert_eq!(page.query("log.at(-1)"), "rejected:NotSupportedError");
+    assert!(
+        !server
+            .requests()
+            .iter()
+            .any(|(path, _)| path.ends_with(".mp4")),
+        "refused media never falls back to the network: {:?}",
+        server.requests()
+    );
+    page.assert_clean();
+}
+
+#[test]
+fn a_file_page_still_plays_local_media_files() {
+    let base = local_fixtures();
+    let mut page = Page::open(VIDEO_PAGE, &base);
+    page.wait_for("v.readyState >= 2");
+    assert_eq!(page.query("v.error"), "null");
+    assert_eq!(page.query("v.videoWidth + 'x' + v.videoHeight"), "160x120");
+    assert_eq!(page.query("v.currentSrc"), format!("{base}clip.mp4"));
+    let painted = pixel(&page.render(), 80, 60);
+    assert!(is_red(painted), "the local video painted {painted:?}");
+    page.run("window.extra = document.createElement('video'); extra.src = new URL('clip.mp4', document.baseURI).href;");
+    page.wait_for("extra.readyState >= 1");
+    assert_eq!(page.query("extra.error"), "null");
+    page.assert_clean();
+}
+
+#[test]
+fn an_http_page_cannot_pose_as_a_local_document() {
+    let server = serve();
+    let local = local_fixtures();
+    let clip = local.join("clip.mp4").expect("a file URL for the clip");
+    let mut page = Page::open("<p>remote</p>", &server.base);
+    page.run(&format!(
+        "window.exposed = typeof __pageframe_set_document_url; try {{ __pageframe_set_document_url('{clip}'); log.push('called'); }} catch (e) {{ log.push('call:' + e.name); }} for (const method of ['pushState', 'replaceState']) {{ try {{ history[method](null, '', '{clip}'); log.push(method); }} catch (e) {{ log.push(method + ':' + e.name); }} }} window.v = document.createElement('video'); v.src = '{clip}'; fetch('{clip}').then(() => log.push('fetched'), (e) => log.push('fetch:' + e.name));"
+    ));
+    page.wait_for("v.error !== null && log.some((entry) => entry.startsWith('fetch'))");
+    assert_eq!(page.query("exposed"), "undefined");
+    assert_eq!(
+        page.query("log.join(' ')"),
+        "call:ReferenceError pushState:SecurityError replaceState:SecurityError fetch:TypeError"
+    );
+    assert_eq!(page.query("location.href"), server.base.as_str());
+    assert_eq!(
+        page.query("v.error.message"),
+        format!("this page cannot load {clip}")
+    );
+    assert_eq!(page.query("v.readyState"), "0");
+    assert_eq!(page.session.url(), Some(&server.base));
+    page.assert_clean();
 }

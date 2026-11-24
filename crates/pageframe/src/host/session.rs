@@ -407,19 +407,22 @@ impl HostSession {
         left == right && target.fragment().is_some()
     }
 
-    fn url_changed(&mut self, href: &str) {
-        let (Some(current), Ok(next)) = (&self.url, Url::parse(href)) else {
+    fn url_changed(&mut self, next: &Url) {
+        let Some(current) = &self.url else {
             return;
         };
-        if *current == next || !same_authority(current, &next) {
+        if current == next || !same_authority(current, next) {
             return;
         }
         self.url = Some(next.clone());
-        self.push_event(HostEvent::UrlChanged(next));
+        self.push_event(HostEvent::UrlChanged(next.clone()));
     }
 
     fn drain_ipc(&mut self) {
         for _ in 0..MAX_IPC_ROUNDS {
+            for url in self.doc.take_url_changes() {
+                self.url_changed(&url);
+            }
             let messages = self.doc.take_ipc();
             if messages.is_empty() {
                 return;
@@ -434,12 +437,7 @@ impl HostSession {
 
     fn dispatch_ipc(&mut self, message: IpcMessage) {
         match message {
-            IpcMessage::Invoke {
-                id,
-                channel,
-                payload,
-            } if channel == URL_CHANNEL => {
-                self.url_changed(&payload);
+            IpcMessage::Invoke { id, channel, .. } if channel == URL_CHANNEL => {
                 self.doc.settle_ipc(id, Err("reserved IPC channel"));
             }
             IpcMessage::Post(text) => {

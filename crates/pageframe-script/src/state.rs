@@ -107,6 +107,7 @@ pub(crate) struct RuntimeState {
     pub random_counter: u64,
     pub mutations: crate::dom::mutations::MutationQueue,
     pub ipc_outbound: Vec<crate::ipc::IpcMessage>,
+    pub url_changes: Vec<Url>,
     pub canvas: crate::canvas::CanvasRegistry,
     pub media: crate::media::MediaRegistry,
 }

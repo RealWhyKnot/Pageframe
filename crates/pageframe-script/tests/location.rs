@@ -178,3 +178,43 @@ fn push_state_rejects_credential_changes() {
     );
     assert_eq!(pump(&mut doc), "SecurityError http://127.0.0.1:8123/start");
 }
+
+#[test]
+fn pages_cannot_rewrite_the_document_url_across_origins() {
+    let mut doc = page(
+        "http://app.test/index.html",
+        r#"<div id="out"></div><script>
+            const seen = [typeof __pageframe_set_document_url, "__pageframe_set_document_url" in globalThis];
+            for (const target of ["file:///etc/passwd", "https://app.test/", "http://other.test/"]) {
+                try {
+                    history.replaceState(null, "", target);
+                    seen.push("rewrote " + target);
+                } catch (error) {
+                    seen.push(error.name);
+                }
+            }
+            history.pushState(null, "", "/next#top");
+            location.hash = "end";
+            fetch("file:///etc/passwd").then(
+                () => seen.push("fetched"),
+                (error) => seen.push(error.name),
+            ).then(() => {
+                document.getElementById("out").textContent = [...seen, location.href].join(" ");
+            });
+        </script>"#,
+    );
+    assert_eq!(
+        pump(&mut doc),
+        "undefined false SecurityError SecurityError SecurityError TypeError http://app.test/next#end"
+    );
+    let changes: Vec<String> = doc
+        .take_url_changes()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(
+        changes,
+        ["http://app.test/next#top", "http://app.test/next#end"]
+    );
+    assert_eq!(doc.take_js_errors(), Vec::<String>::new());
+}

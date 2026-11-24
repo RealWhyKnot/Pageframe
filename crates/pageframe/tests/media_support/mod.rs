@@ -31,10 +31,19 @@ struct Fixtures {
     tone: Vec<u8>,
 }
 
+fn fixture_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("media_playback")
+}
+
+pub(crate) fn fixture_dir() -> PathBuf {
+    fixtures();
+    fixture_root()
+}
+
 fn fixtures() -> &'static Fixtures {
     static FIXTURES: OnceLock<Fixtures> = OnceLock::new();
     FIXTURES.get_or_init(|| {
-        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("media_playback");
+        let dir = fixture_root();
         fs::create_dir_all(&dir).expect("create the fixture directory");
         let clip_path = dir.join("clip.mp4");
         write_clip(&clip_path);

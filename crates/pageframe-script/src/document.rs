@@ -258,6 +258,10 @@ impl ScriptDocument {
         std::mem::take(&mut self.runtime.ctx.state.borrow_mut().ipc_outbound)
     }
 
+    pub fn take_url_changes(&mut self) -> Vec<Url> {
+        std::mem::take(&mut self.runtime.ctx.state.borrow_mut().url_changes)
+    }
+
     pub fn settle_ipc(&mut self, id: u64, result: Result<&str, &str>) {
         crate::ipc::settle(&mut self.runtime, id, result);
         self.after_script();

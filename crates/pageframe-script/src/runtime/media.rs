@@ -161,10 +161,44 @@ pub(super) fn set_document_url(
 ) -> JsResult<JsValue> {
     let ctx = dom_ctx(context)?;
     let value = to_rust_string(args.first().unwrap_or(&JsValue::undefined()), context)?;
-    if let Ok(url) = Url::parse(&value) {
-        ctx.state.borrow_mut().base_url = Some(url);
+    let Ok(url) = Url::parse(&value) else {
+        return Ok(JsValue::from(false));
+    };
+    let mut state = ctx.state.borrow_mut();
+    let blank = Url::parse("about:blank").expect("about:blank parses");
+    if !may_rewrite_url(state.base_url.as_ref().unwrap_or(&blank), &url) {
+        return Ok(JsValue::from(false));
     }
-    Ok(JsValue::undefined())
+    state.base_url = Some(url.clone());
+    if state.url_changes.len() >= MAX_URL_CHANGES {
+        state.url_changes.remove(0);
+    }
+    state.url_changes.push(url);
+    Ok(JsValue::from(true))
+}
+
+const MAX_URL_CHANGES: usize = 256;
+
+fn may_rewrite_url(current: &Url, target: &Url) -> bool {
+    if current.scheme() != target.scheme()
+        || current.username() != target.username()
+        || current.password() != target.password()
+        || current.host() != target.host()
+        || current.port() != target.port()
+    {
+        return false;
+    }
+    match target.scheme() {
+        "http" | "https" => true,
+        "file" => current.path() == target.path(),
+        _ => {
+            let mut left = current.clone();
+            let mut right = target.clone();
+            left.set_fragment(None);
+            right.set_fragment(None);
+            left == right
+        }
+    }
 }
 
 pub(super) fn navigate(_: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
@@ -192,4 +226,36 @@ pub(super) fn random_bytes(
     let bytes = ctx.state.borrow_mut().random_bytes(count);
     let values: Vec<JsValue> = bytes.into_iter().map(JsValue::from).collect();
     Ok(JsArray::from_iter(values, context).into())
+}
+
+#[cfg(test)]
+mod tests {
+    use url::Url;
+
+    use super::may_rewrite_url;
+
+    fn allowed(current: &str, target: &str) -> bool {
+        may_rewrite_url(&Url::parse(current).unwrap(), &Url::parse(target).unwrap())
+    }
+
+    #[test]
+    fn document_urls_stay_within_their_origin() {
+        assert!(allowed("http://app.test/a", "http://app.test/b?x#y"));
+        assert!(allowed(
+            "file:///C:/site/index.html",
+            "file:///C:/site/index.html?q#top"
+        ));
+        assert!(allowed("about:blank", "about:blank#top"));
+        assert!(!allowed("http://app.test/", "file:///C:/site/index.html"));
+        assert!(!allowed("http://app.test/", "https://app.test/"));
+        assert!(!allowed("http://app.test/", "http://app.test:8080/"));
+        assert!(!allowed("http://app.test/", "http://user@app.test/"));
+        assert!(!allowed("http://app.test/", "http://other.test/"));
+        assert!(!allowed(
+            "file:///C:/site/index.html",
+            "file:///C:/site/other.html"
+        ));
+        assert!(!allowed("about:blank", "file:///C:/site/index.html"));
+        assert!(!allowed("about:blank", "about:srcdoc"));
+    }
 }

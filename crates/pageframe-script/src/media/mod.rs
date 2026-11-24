@@ -23,8 +23,11 @@ use pageframe_dom::{BaseDocument, NodeId, local_name};
 use url::Url;
 use web_time::{Duration, Instant};
 
-use self::shared::{Command, Failure, Frame, MEDIA_ERR_ABORTED, Metadata, Shared};
+use self::shared::{
+    Command, Failure, Frame, MEDIA_ERR_ABORTED, MEDIA_ERR_SRC_NOT_SUPPORTED, Metadata, Shared,
+};
 use crate::dom::{dom_ctx, js_str, node_id_of_value, node_wrapper, to_rust_string};
+use crate::fetch::document_may_load;
 use crate::http::HttpClient;
 use crate::state::DomCtx;
 
@@ -55,6 +58,19 @@ impl Player {
             shared,
             commands: Some(commands),
             worker,
+        }
+    }
+
+    fn refuse(url: &Url, waker: Arc<Mutex<Option<Waker>>>) -> Self {
+        let shared = Arc::new(Shared::new(waker));
+        shared.fail(Failure::new(
+            MEDIA_ERR_SRC_NOT_SUPPORTED,
+            format!("this page cannot load {url}"),
+        ));
+        Self {
+            shared,
+            commands: None,
+            worker: None,
         }
     }
 
@@ -233,14 +249,19 @@ fn open(_: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValu
         None => String::new(),
     };
     remove_entry(&ctx, node_id);
-    let url = {
+    let resolved = {
         let state = ctx.state.borrow();
-        match state.base_url.as_ref() {
+        let base = state.base_url.as_ref();
+        let url = match base {
             Some(base) => base.join(&raw).ok(),
             None => Url::parse(&raw).ok(),
-        }
+        };
+        url.map(|url| {
+            let allowed = document_may_load(base, &url);
+            (url, allowed)
+        })
     };
-    let Some(url) = url else {
+    let Some((url, allowed)) = resolved else {
         return Ok(JsValue::from(false));
     };
     let connected = ctx
@@ -249,14 +270,18 @@ fn open(_: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValu
         .get_node(node_id)
         .is_some_and(|node| node.flags.is_in_document());
     let waker = Arc::clone(&ctx.state.borrow().net.waker);
-    let http = ctx
-        .state
-        .borrow()
-        .fetcher
-        .as_ref()
-        .and_then(|fetcher| fetcher.borrow().http_client())
-        .unwrap_or_default();
-    let player = Player::open(url, http, waker);
+    let player = if allowed {
+        let http = ctx
+            .state
+            .borrow()
+            .fetcher
+            .as_ref()
+            .and_then(|fetcher| fetcher.borrow().http_client())
+            .unwrap_or_default();
+        Player::open(url, http, waker)
+    } else {
+        Player::refuse(&url, waker)
+    };
     ctx.state.borrow_mut().media.entries.insert(
         node_id,
         Entry {
