@@ -23,6 +23,23 @@ impl ScriptRuntime {
         Some(state.clock.now() + IMAGE_POLL_INTERVAL)
     }
 
+    pub fn media_poll_deadline(&self) -> Option<Instant> {
+        let state = self.ctx.state.borrow();
+        if state.clock.is_virtual() {
+            return None;
+        }
+        state.media.deadline(state.clock.now())
+    }
+
+    pub fn deliver_media(&mut self) -> (bool, bool) {
+        let ctx = self.ctx.clone();
+        let (ran, redraw) = crate::media::deliver(&ctx, &mut self.context);
+        if ran {
+            self.run_jobs("media events");
+        }
+        (ran, redraw)
+    }
+
     pub fn deliver_image_events(&mut self) -> bool {
         if self.ctx.state.borrow().watched_images.is_empty() {
             return false;

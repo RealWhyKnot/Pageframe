@@ -53,6 +53,7 @@ mod html;
 mod iframe;
 /// Integration of taffy and the DOM.
 mod layout;
+pub mod media;
 mod mutator;
 mod query_selector;
 mod range_input;

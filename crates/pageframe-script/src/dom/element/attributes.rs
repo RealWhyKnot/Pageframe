@@ -49,6 +49,7 @@ pub(crate) fn store_attr(ctx: &DomCtx, node_id: NodeId, name: &str, value: &str)
     }
     drop(doc);
     crate::canvas::reset_for_attribute(ctx, node_id, name);
+    crate::media::note_attribute(ctx, node_id, name);
 }
 
 pub(super) fn clear_attr(context: &mut Context, ctx: &DomCtx, node_id: NodeId, name: &str) {
@@ -67,6 +68,7 @@ pub(super) fn clear_attr(context: &mut Context, ctx: &DomCtx, node_id: NodeId, n
             .retain(|watched| *watched != node_id);
     }
     crate::canvas::reset_for_attribute(ctx, node_id, name);
+    crate::media::note_attribute(ctx, node_id, name);
 }
 
 pub(super) fn attr_getter(name: &str, this: &JsValue, context: &mut Context) -> JsResult<JsValue> {

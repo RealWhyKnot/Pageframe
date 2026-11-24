@@ -3324,6 +3324,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tracing",
  "url",
+ "windows",
  "winit",
 ]
 
@@ -3442,6 +3443,7 @@ dependencies = [
  "image",
  "keyboard-types",
  "markup5ever",
+ "num-traits",
  "pageframe-dom",
  "pageframe-html",
  "pageframe-traits",
@@ -3449,6 +3451,8 @@ dependencies = [
  "tracing",
  "url",
  "web-time",
+ "windows",
+ "windows-core",
 ]
 
 [[package]]

@@ -40,6 +40,7 @@ mod http;
 mod http_net;
 mod inner_text;
 mod ipc;
+mod media;
 mod net;
 mod runtime;
 mod state;

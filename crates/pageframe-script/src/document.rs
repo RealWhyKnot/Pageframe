@@ -151,6 +151,7 @@ impl ScriptDocument {
             return;
         }
         self.scripts_executed = true;
+        crate::media::scan(&self.runtime.ctx);
 
         for script in self.collect_scripts() {
             // HTML named element access: elements with ids are exposed as globals
@@ -441,6 +442,12 @@ fn timer_thread_main(rx: Receiver<Instant>, waker: Arc<Mutex<Option<Waker>>>) {
     }
 }
 
+impl Drop for ScriptDocument {
+    fn drop(&mut self) {
+        crate::media::close_all(&self.runtime.ctx);
+    }
+}
+
 impl Document for ScriptDocument {
     fn inner(&self) -> DocGuard<'_> {
         DocGuard::RefCell(self.inner.borrow())
@@ -485,6 +492,11 @@ impl Document for ScriptDocument {
         ran |= self.runtime.deliver_network();
         ran |= self.runtime.deliver_image_events();
         ran |= self.runtime.deliver_media_changes();
+        let (media_ran, media_redraw) = self.runtime.deliver_media();
+        ran |= media_ran;
+        if media_redraw {
+            self.inner.borrow().shell_provider.request_redraw();
+        }
         ran |= self.runtime.run_due_timers();
         crate::canvas::flush(&self.runtime.ctx);
         self.arm_timer_thread();

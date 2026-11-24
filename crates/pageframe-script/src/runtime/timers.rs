@@ -11,10 +11,14 @@ impl ScriptRuntime {
     /// The deadline of the soonest pending timer (if any)
     pub fn next_timer_deadline(&self) -> Option<Instant> {
         let timer = self.ctx.state.borrow().timers.next_deadline();
-        match (timer, self.image_poll_deadline()) {
-            (Some(timer), Some(image)) => Some(timer.min(image)),
-            (timer, image) => timer.or(image),
-        }
+        [
+            timer,
+            self.image_poll_deadline(),
+            self.media_poll_deadline(),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     /// Run all timers that are currently due. Returns `true` if any JavaScript was run.

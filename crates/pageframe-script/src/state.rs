@@ -108,6 +108,7 @@ pub(crate) struct RuntimeState {
     pub mutations: crate::dom::mutations::MutationQueue,
     pub ipc_outbound: Vec<crate::ipc::IpcMessage>,
     pub canvas: crate::canvas::CanvasRegistry,
+    pub media: crate::media::MediaRegistry,
 }
 
 /// Maximum number of errors stored in [`RuntimeState::uncaught_errors`] between
