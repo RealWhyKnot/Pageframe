@@ -64,6 +64,7 @@ bitflags! {
         /// Whether the node is an inline box whose in-flow content is block-level only
         const IS_INLINE_WITH_ONLY_BLOCK_CHILDREN = 0b00001000;
         const HOISTS_INLINE_LAYERS = 0b00010000;
+        const IN_TOP_LAYER = 0b00100000;
     }
 }
 
@@ -81,6 +82,11 @@ impl NodeFlags {
     #[inline(always)]
     pub fn is_in_document(&self) -> bool {
         self.contains(Self::IS_IN_DOCUMENT)
+    }
+
+    #[inline(always)]
+    pub fn is_in_top_layer(&self) -> bool {
+        self.contains(Self::IN_TOP_LAYER)
     }
 
     #[inline(always)]

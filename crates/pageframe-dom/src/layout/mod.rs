@@ -1046,7 +1046,10 @@ impl LayoutPassState<'_> {
                         compute_flexbox_layout(self, node_id, inputs)
                     }
                     Display::Grid => compute_grid_layout(self, node_id, inputs),
-                    Display::None => taffy::LayoutOutput::HIDDEN,
+                    Display::None => {
+                        self.clear_hoisted_children(node_id);
+                        taffy::LayoutOutput::HIDDEN
+                    }
                 }
             }
             NodeData::Document(_) => compute_block_layout(self, node_id, inputs, None),

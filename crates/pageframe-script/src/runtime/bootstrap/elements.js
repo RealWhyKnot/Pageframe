@@ -1,3 +1,9 @@
+    const setDialogModal = __pageframe_dialog_set_modal;
+    const isDialogModal = __pageframe_dialog_is_modal;
+    const activeModal = __pageframe_active_modal;
+    delete globalThis.__pageframe_dialog_set_modal;
+    delete globalThis.__pageframe_dialog_is_modal;
+    delete globalThis.__pageframe_active_modal;
     if (document.documentElement) {
         const elementProto = Object.getPrototypeOf(document.documentElement);
         const isTag = (element, name) => element.localName === name && (element.namespaceURI ?? "http://www.w3.org/1999/xhtml") === "http://www.w3.org/1999/xhtml";
@@ -49,12 +55,33 @@
         const dialogState = (dialog) => {
             let state = dialogs.get(dialog);
             if (!state) {
-                state = { returnValue: "", modal: false };
+                state = { returnValue: "", opener: null };
                 dialogs.set(dialog, state);
             }
             return state;
         };
-        const modalStack = [];
+        const focusDialog = (dialog) => {
+            const target = dialog.querySelector("[autofocus]") ?? dialog.querySelector("button, input, select, textarea, a[href], [tabindex]");
+            const focusable = target && typeof target.focus === "function" ? target : dialog;
+            if (typeof focusable.focus === "function") focusable.focus();
+        };
+        const restoreFocus = (dialog, opener) => {
+            const active = document.activeElement;
+            const usable = opener && opener !== document.body && opener !== document.documentElement
+                && opener.isConnected && typeof opener.focus === "function"
+                && !(typeof opener.closest === "function" && opener.closest("dialog:not([open])"));
+            if (usable) {
+                try {
+                    opener.focus();
+                } catch {
+                    return;
+                }
+                if (document.activeElement === opener) return;
+            }
+            if (active && active !== document.body && dialog.contains(active) && typeof active.blur === "function") {
+                active.blur();
+            }
+        };
         accessor("open",
             function () { return this.hasAttribute("open"); },
             function (value) {
@@ -70,35 +97,37 @@
         method("show", function show() {
             if (!isTag(this, "dialog")) return;
             if (this.hasAttribute("open")) {
-                if (dialogState(this).modal) throw invalidState("show", "The dialog is already open as a modal dialog.");
+                if (isDialogModal(this)) throw invalidState("show", "The dialog is already open as a modal dialog.");
                 return;
             }
-            dialogState(this).modal = false;
+            dialogState(this).opener = document.activeElement;
             this.setAttribute("open", "");
         });
         method("showModal", function showModal() {
             if (!isTag(this, "dialog")) return;
             const state = dialogState(this);
             if (this.hasAttribute("open")) {
-                if (state.modal) return;
+                if (isDialogModal(this)) return;
                 throw invalidState("showModal", "The dialog is already open as a non-modal dialog.");
             }
             if (!this.isConnected) throw invalidState("showModal", "The element is not in a Document.");
-            state.modal = true;
             state.opener = document.activeElement;
             this.setAttribute("open", "");
-            modalStack.push(this);
-            const target = this.querySelector("[autofocus]") ?? this.querySelector("button, input, select, textarea, a[href], [tabindex]");
-            if (target && typeof target.focus === "function") target.focus();
+            setDialogModal(this, true);
+            focusDialog(this);
         });
         method("close", function close(result) {
             if (!isTag(this, "dialog") || !this.hasAttribute("open")) return;
             const state = dialogState(this);
+            const wasModal = isDialogModal(this);
+            const active = document.activeElement;
+            const hadFocus = active !== null && active !== document.body && this.contains(active);
             this.removeAttribute("open");
             if (result !== undefined) state.returnValue = String(result);
-            state.modal = false;
-            const index = modalStack.indexOf(this);
-            if (index >= 0) modalStack.splice(index, 1);
+            setDialogModal(this, false);
+            const opener = state.opener;
+            state.opener = null;
+            if (wasModal || hadFocus) restoreFocus(this, opener);
             setTimeout(() => this.dispatchEvent(new Event("close")), 0);
         });
         method("requestClose", function requestClose(result) {
@@ -107,8 +136,8 @@
         });
         globalThis.addEventListener("keydown", (event) => {
             if (event.key !== "Escape" || event.defaultPrevented) return;
-            const dialog = modalStack[modalStack.length - 1];
-            if (!dialog || !dialog.isConnected || !dialog.hasAttribute("open")) return;
+            const dialog = activeModal();
+            if (!dialog || !dialog.hasAttribute("open")) return;
             event.preventDefault();
             dialog.requestClose();
         });

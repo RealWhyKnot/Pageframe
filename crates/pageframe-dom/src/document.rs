@@ -365,6 +365,9 @@ pub struct BaseDocument {
     pub(crate) last_client_pointer_position: Option<taffy::Point<f32>>,
     /// The node which is currently focussed (if any)
     pub(crate) focus_node_id: Option<NodeId>,
+    pub(crate) top_layer: Vec<NodeId>,
+    pub(crate) backdrop_styles: HashMap<NodeId, ServoArc<ComputedValues>>,
+    pub(crate) modal_openers: HashMap<NodeId, NodeId>,
     /// The node which is currently active (if any)
     pub(crate) active_node_id: Option<NodeId>,
     /// The node which recieved a mousedown event (if any)
@@ -584,6 +587,9 @@ impl BaseDocument {
             hover_node_is_text: false,
             last_client_pointer_position: None,
             focus_node_id: None,
+            top_layer: Vec::new(),
+            backdrop_styles: HashMap::new(),
+            modal_openers: HashMap::new(),
             active_node_id: None,
             mousedown_node_id: None,
             has_active_animations: false,
@@ -1894,7 +1900,9 @@ impl BaseDocument {
 
     pub fn focus_next_node(&mut self) -> Option<NodeId> {
         let focussed_node_id = self.get_focussed_node_id()?;
-        let id = self.next_node(&self.nodes[focussed_node_id], |node| node.is_focussable())?;
+        let id = self.next_node(&self.nodes[focussed_node_id], |node| {
+            self.is_sequentially_focusable(node)
+        })?;
         self.set_focus_to(id);
         Some(id)
     }
@@ -1902,7 +1910,9 @@ impl BaseDocument {
     /// Move focus to the previous focussable node in the document
     pub fn focus_prev_node(&mut self) -> Option<NodeId> {
         let focussed_node_id = self.get_focussed_node_id()?;
-        let id = self.prev_node(&self.nodes[focussed_node_id], |node| node.is_focussable())?;
+        let id = self.prev_node(&self.nodes[focussed_node_id], |node| {
+            self.is_sequentially_focusable(node)
+        })?;
         self.set_focus_to(id);
         Some(id)
     }
@@ -1932,7 +1942,7 @@ impl BaseDocument {
         let Some(focus_node_id) = self.nearest_non_anonymous_ancestor(focus_node_id) else {
             return false;
         };
-        if Some(focus_node_id) == self.focus_node_id {
+        if Some(focus_node_id) == self.focus_node_id || self.is_inert(focus_node_id) {
             return false;
         }
         // A node that is not in the document cannot be focused
@@ -2097,6 +2107,10 @@ impl BaseDocument {
             return (None, None);
         }
         let mut control = None;
+        if self.active_modal().is_some() {
+            let hit = self.hit_active_modal(x, y, &mut control);
+            return (hit, control);
+        }
         let hit = self
             .root_element()
             .hit_inner(x, y, self.viewport().scale_f64(), &mut control);

@@ -556,7 +556,7 @@ impl selectors::Element for PageframeNode<'_> {
             NonTSPseudoClass::Default => false,
 
             NonTSPseudoClass::InRange => false,
-            NonTSPseudoClass::Modal => false,
+            NonTSPseudoClass::Modal => self.element_state().contains(ElementState::MODAL),
             NonTSPseudoClass::MozInert => self.element_state().contains(ElementState::INERT),
             NonTSPseudoClass::Open => self.element_state().contains(ElementState::OPEN),
             NonTSPseudoClass::Optional => false,

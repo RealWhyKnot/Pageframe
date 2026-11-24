@@ -174,6 +174,19 @@ pub(super) fn register_globals(ctx: &DomCtx, context: &mut Context) {
         1,
         window::clipboard_write_text,
     );
+    register_global_fn(
+        context,
+        "__pageframe_dialog_set_modal",
+        2,
+        window::dialog_set_modal,
+    );
+    register_global_fn(
+        context,
+        "__pageframe_dialog_is_modal",
+        1,
+        window::dialog_is_modal,
+    );
+    register_global_fn(context, "__pageframe_active_modal", 0, window::active_modal);
     register_mutation_natives(context);
     register_global_fn(context, "__pageframe_ipc_send", 3, crate::ipc::send);
 

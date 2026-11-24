@@ -113,6 +113,7 @@ pub struct PageframeDomPainter<'dom, 'a> {
     backdrop_started: Cell<bool>,
     backdrop_depth: usize,
     backdrops: Rc<RefCell<HashMap<NodeId, Option<backdrop::Backdrop>>>>,
+    top_layer_node: Cell<Option<NodeId>>,
 }
 
 impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
@@ -162,6 +163,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
             backdrop_started: Cell::new(true),
             backdrop_depth: 0,
             backdrops: Rc::default(),
+            top_layer_node: Cell::new(None),
         }
     }
 
@@ -222,6 +224,7 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
             }),
             viewport_clip_rect,
         );
+        self.draw_top_layer(scene, viewport_clip_rect);
         self.draw_select_popup(scene);
 
         // Render debug overlay
@@ -254,6 +257,44 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                     self.initial_y,
                 );
             }
+        }
+    }
+
+    fn draw_top_layer(&self, scene: &mut impl PaintScene, clip_rect: Rect) {
+        let dom = self.dom;
+        let viewport = Rect::from_origin_size(
+            (self.initial_x, self.initial_y),
+            (f64::from(self.width), f64::from(self.height)),
+        );
+        for &node_id in dom.top_layer() {
+            if self.backdrop_reached.get() {
+                return;
+            }
+            let Some(node) = dom.get_node(node_id) else {
+                continue;
+            };
+            if matches!(node.taffy_display(), taffy::Display::None) {
+                continue;
+            }
+            if let Some(style) = dom.backdrop_style(node_id) {
+                let current_color = style.clone_color();
+                let color = style
+                    .get_background_color()
+                    .resolve_to_absolute(&current_color)
+                    .as_srgb_color()
+                    .multiply_alpha(style.get_effects().opacity);
+                if color.components[3] > 0.0 {
+                    scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &viewport);
+                }
+            }
+            let origin = dom.top_layer_origin(node_id);
+            let transform = Affine::translate(Vec2 {
+                x: self.initial_x + f64::from(origin.x) * self.scale,
+                y: self.initial_y + f64::from(origin.y) * self.scale,
+            });
+            self.top_layer_node.set(Some(node_id));
+            self.render_element(scene, node_id, transform, clip_rect);
+            self.top_layer_node.set(None);
         }
     }
 
@@ -446,6 +487,10 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
             self.backdrop_reached.set(true);
         }
         if self.backdrop_reached.get() {
+            return;
+        }
+        if self.top_layer_node.get() != Some(node_id) && self.dom.as_ref().is_in_top_layer(node_id)
+        {
             return;
         }
         let is_backdrop_root = self.backdrop_root == Some(node_id);

@@ -193,3 +193,36 @@ pub(super) fn send_message(
     ctx.state.borrow_mut().outbound_messages.push(message);
     Ok(JsValue::undefined())
 }
+
+pub(super) fn dialog_set_modal(
+    _: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let ctx = dom_ctx(context)?;
+    let Some(node_id) = args.first().and_then(crate::dom::node_id_of_value) else {
+        return Ok(false.into());
+    };
+    let modal = args.get(1).is_some_and(JsValue::to_boolean);
+    let changed = ctx.doc.borrow_mut().set_dialog_modal(node_id, modal);
+    Ok(changed.into())
+}
+
+pub(super) fn dialog_is_modal(
+    _: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let ctx = dom_ctx(context)?;
+    let modal = args
+        .first()
+        .and_then(crate::dom::node_id_of_value)
+        .is_some_and(|node_id| ctx.doc.borrow().is_in_top_layer(node_id));
+    Ok(modal.into())
+}
+
+pub(super) fn active_modal(_: &JsValue, _: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let ctx = dom_ctx(context)?;
+    let modal = ctx.doc.borrow().active_modal();
+    Ok(crate::dom::node_or_null(&ctx, modal, context))
+}

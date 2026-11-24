@@ -135,6 +135,7 @@ impl BaseDocument {
         }
         timer.record_time("container");
         self.nodes.bump_geometry_generation();
+        self.refresh_top_layer();
 
         // Resolve transforms
         self.resolve_transforms(root_node_id);
@@ -533,6 +534,11 @@ impl BaseDocument {
                 }
             };
             taffy::compute_root_layout(&mut state, root_element_id, available_space);
+            crate::top_layer::place_top_layer_in_viewport(
+                &mut state,
+                root_element_id,
+                available_space,
+            );
             #[cfg(feature = "writing-mode")]
             let origin = if state.layout_wm.is_vertical() {
                 taffy::Point {

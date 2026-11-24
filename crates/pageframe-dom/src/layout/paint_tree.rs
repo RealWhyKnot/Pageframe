@@ -800,6 +800,9 @@ impl Node {
     fn ancestor_group(&self) -> AncestorGroup {
         use style::values::computed::basic_shape::ClipPath;
 
+        if self.flags.is_in_top_layer() {
+            return AncestorGroup::Left(1.0);
+        }
         let Some(containing_block) = self.oof_containing_block.get() else {
             return AncestorGroup::Left(1.0);
         };

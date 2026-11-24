@@ -878,7 +878,7 @@ pub(crate) fn handle_click(
     };
 
     // If nothing is matched then clear focus
-    if !matched {
+    if !matched && !doc.has_focus_in_modal() {
         generate_focus_events(doc, &mut |doc| doc.clear_focus(), dispatch_event);
     }
 

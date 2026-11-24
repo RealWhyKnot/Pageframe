@@ -489,6 +489,9 @@ impl DocumentMutator<'_> {
     }
 
     pub fn clear_attribute(&mut self, node_id: NodeId, name: QualName) {
+        if name.local == local_name!("open") {
+            self.doc.remove_from_top_layer(node_id);
+        }
         let node_is_in_document = self.doc.nodes[node_id].flags.is_in_document();
         if node_is_in_document {
             self.doc.snapshot_node(node_id, &name.local);
@@ -1408,6 +1411,7 @@ impl<'doc> DocumentMutator<'doc> {
     }
 
     fn process_removed_subtree(&mut self, node_id: NodeId) {
+        let mut openers = Vec::new();
         self.doc.iter_subtree_mut(node_id, |node_id, doc| {
             doc.nodes[node_id]
                 .flags
@@ -1417,6 +1421,11 @@ impl<'doc> DocumentMutator<'doc> {
             // the usual teardown steps (unhover/unactive the surviving
             // ancestor chain, IME disable on blur of a focused input).
             doc.clear_interaction_state_for_removed_node(node_id);
+            if doc.nodes[node_id].flags.is_in_top_layer()
+                && let Some(opener) = doc.remove_detached_modal(node_id)
+            {
+                openers.push(opener);
+            }
 
             let node = &mut doc.nodes[node_id];
 
@@ -1477,6 +1486,9 @@ impl<'doc> DocumentMutator<'doc> {
                 SpecialElementData::None => {}
             }
         });
+        for opener in openers.into_iter().rev() {
+            self.doc.restore_modal_opener(opener);
+        }
 
         self.flush_eager_ops();
     }
