@@ -1,5 +1,7 @@
+use keyboard_types::{Code, Key, Location, Modifiers};
 use pageframe_dom::{Document, DocumentConfig};
 use pageframe_script::ScriptDocument;
+use pageframe_traits::events::{DomEvent, KeyState, PageframeKeyEvent, UiEvent};
 
 fn run(html: &str) -> (String, Vec<String>) {
     let mut doc = ScriptDocument::from_html(html, DocumentConfig::default()).without_timer_thread();
@@ -152,5 +154,63 @@ fn redispatching_an_event_in_flight_throws() {
     assert_eq!(
         text,
         "InvalidStateError,InvalidStateError,InvalidStateError,true"
+    );
+}
+
+#[test]
+fn host_input_bubbles_through_the_document_to_the_window() {
+    let mut doc = ScriptDocument::from_html(
+        "<div id='out'></div><button id='go'>go</button>",
+        DocumentConfig::default(),
+    )
+    .without_timer_thread();
+    doc.eval(
+        r#"
+        const seen = [];
+        const note = (label) => (event) => seen.push(label + ":" + event.type + ":" + event.eventPhase);
+        go.addEventListener("click", note("button"));
+        document.addEventListener("keydown", (event) => seen.push("document:" + (event.currentTarget === document)), true);
+        document.addEventListener("click", note("document"));
+        window.addEventListener("keydown", note("window"));
+        window.addEventListener("click", note("window"));
+        globalThis.report = () => { out.textContent = seen.join(","); };
+    "#,
+    );
+    doc.inner_mut().resolve(0.0);
+    doc.handle_ui_event(UiEvent::KeyDown(PageframeKeyEvent {
+        key: Key::Character("k".into()),
+        code: Code::KeyK,
+        modifiers: Modifiers::empty(),
+        location: Location::Standard,
+        is_auto_repeating: false,
+        is_composing: false,
+        state: KeyState::Pressed,
+        text: Some("k".into()),
+    }));
+    let click = {
+        let inner = doc.inner();
+        let go = inner
+            .query_selector("#go")
+            .expect("a valid selector")
+            .expect("the button");
+        DomEvent::new(
+            go,
+            inner
+                .get_node(go)
+                .expect("the button node")
+                .synthetic_click_event(Modifiers::empty()),
+        )
+    };
+    doc.dispatch_dom_event(click);
+    doc.eval("report();");
+    assert_eq!(doc.take_js_errors(), Vec::<String>::new());
+    let inner = doc.inner();
+    let out = inner
+        .query_selector("#out")
+        .expect("a valid selector")
+        .expect("the output");
+    assert_eq!(
+        inner.get_node(out).expect("the output node").text_content(),
+        "document:true,window:keydown:3,button:click:2,document:click:3,window:click:3"
     );
 }

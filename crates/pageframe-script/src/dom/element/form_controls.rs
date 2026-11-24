@@ -412,6 +412,15 @@ pub(super) fn set_selection_range(
     Ok(JsValue::undefined())
 }
 
+pub(super) fn select(this: &JsValue, _: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let ctx = dom_ctx(context)?;
+    let node_id = this_node_id(this)?;
+    let mut doc = ctx.doc.borrow_mut();
+    doc.resolve(0.0);
+    set_selection_utf16_range(&mut doc, node_id, 0, usize::MAX);
+    Ok(JsValue::undefined())
+}
+
 // === Focus ===
 
 pub(super) fn focus(this: &JsValue, _: &[JsValue], context: &mut Context) -> JsResult<JsValue> {

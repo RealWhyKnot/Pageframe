@@ -256,3 +256,36 @@ fn fetch_rejects_methods_and_headers_that_would_split_the_request() {
     );
     assert_eq!(pump_until(&mut doc, "#out"), "TypeError|POST ok");
 }
+
+#[test]
+fn a_post_survives_a_server_that_answers_after_one_read() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a local port");
+    let port = listener.local_addr().expect("the port").port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut buffer = [0; 8192];
+            if stream.read(&mut buffer).is_err() {
+                continue;
+            }
+            let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
+        }
+    });
+    let url = Url::parse(&format!("http://127.0.0.1:{port}/notice")).expect("a valid URL");
+    let client = HttpClient::new();
+    let failures: Vec<String> = (0..300)
+        .filter_map(|_| {
+            let request = HttpRequest {
+                method: "POST".to_string(),
+                body: b"{}".to_vec(),
+                ..HttpRequest::get(url.clone())
+            };
+            match client.request(&request) {
+                Ok(response) if response.body == b"ok" => None,
+                Ok(response) => Some(format!("{} {:?}", response.status, response.body)),
+                Err(error) => Some(error.to_string()),
+            }
+        })
+        .collect();
+    assert_eq!(failures, Vec::<String>::new());
+}

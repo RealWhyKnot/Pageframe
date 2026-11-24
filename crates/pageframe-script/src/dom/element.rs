@@ -113,6 +113,7 @@ pub(crate) fn init_element_proto(proto: &JsObject, context: &mut Context) {
         form_controls::set_selection_range,
         context,
     );
+    define_method(proto, "select", 0, form_controls::select, context);
     define_accessor(
         proto,
         "placeholder",

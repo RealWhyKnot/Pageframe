@@ -17,9 +17,17 @@ pub(crate) trait ByteSource: Read + Send {
     fn content_type(&self) -> Option<&str>;
 }
 
-pub(crate) fn open(url: &Url, shared: &Shared) -> Result<Box<dyn ByteSource>, Failure> {
+pub(crate) fn open(
+    url: &Url,
+    http: &HttpClient,
+    shared: &Shared,
+) -> Result<Box<dyn ByteSource>, Failure> {
     match url.scheme() {
-        "http" => Ok(Box::new(HttpSource::open(url, shared.socket())?)),
+        "http" => Ok(Box::new(HttpSource::open(
+            url,
+            http.clone(),
+            shared.socket(),
+        )?)),
         "file" => Ok(Box::new(FileSource::open(url)?)),
         scheme => Err(Failure::new(
             MEDIA_ERR_SRC_NOT_SUPPORTED,
@@ -132,8 +140,7 @@ fn total_length(content_range: &str) -> Option<u64> {
 }
 
 impl HttpSource {
-    fn open(url: &Url, socket: Arc<TrackedSocket>) -> Result<Self, Failure> {
-        let client = HttpClient::new();
+    fn open(url: &Url, client: HttpClient, socket: Arc<TrackedSocket>) -> Result<Self, Failure> {
         let mut request = HttpRequest::get(url.clone());
         request
             .headers
@@ -396,7 +403,7 @@ mod tests {
     use url::Url;
 
     use super::{ByteSource, HttpSource};
-    use crate::http::TrackedSocket;
+    use crate::http::{HttpClient, HttpRequest, TrackedSocket};
 
     const TOTAL: u64 = 4 << 30;
 
@@ -471,7 +478,8 @@ mod tests {
         });
         let url = Url::parse(&format!("http://{address}/huge.mp4")).expect("test url");
         let socket = Arc::new(TrackedSocket::default());
-        let mut source = HttpSource::open(&url, Arc::clone(&socket)).expect("open the source");
+        let mut source = HttpSource::open(&url, HttpClient::new(), Arc::clone(&socket))
+            .expect("open the source");
         assert_eq!(source.len(), TOTAL);
         assert_eq!(source.content_type(), Some("video/mp4"));
 
@@ -502,6 +510,98 @@ mod tests {
         assert!(matches(&skip, near));
 
         assert_eq!(*starts.lock().expect("range log"), vec![0, deep]);
+        socket.close();
+    }
+
+    const SESSION: &str = "session=1";
+
+    fn reply(status: &str, headers: &[(&str, &str)], body: &str) -> String {
+        let lines: String = headers
+            .iter()
+            .map(|(name, value)| format!("{name}: {value}\r\n"))
+            .collect();
+        format!(
+            "HTTP/1.1 {status}\r\n{lines}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    fn serve_session(stream: TcpStream, sent: &Mutex<Vec<Option<String>>>) {
+        let mut reader = BufReader::new(stream.try_clone().expect("clone the test stream"));
+        let mut request = String::new();
+        reader
+            .read_line(&mut request)
+            .expect("read the request line");
+        let mut carried = None;
+        let mut line = String::new();
+        loop {
+            line.clear();
+            if reader.read_line(&mut line).unwrap_or(0) == 0 || line.trim().is_empty() {
+                break;
+            }
+            if let Some((name, value)) = line.split_once(':')
+                && name.trim().eq_ignore_ascii_case("cookie")
+            {
+                carried = Some(value.trim().to_string());
+            }
+        }
+        let session = format!("{SESSION}; Path=/");
+        let text = if request.starts_with("GET /login ") {
+            reply("200 OK", &[("Set-Cookie", &session)], "")
+        } else {
+            sent.lock().expect("request log").push(carried.clone());
+            if carried.as_deref() == Some(SESSION) {
+                reply(
+                    "206 Partial Content",
+                    &[
+                        ("Content-Type", "video/mp4"),
+                        ("Content-Range", "bytes 0-3/4"),
+                    ],
+                    "moov",
+                )
+            } else {
+                reply("401 Unauthorized", &[], "")
+            }
+        };
+        let mut stream = stream;
+        let _ = stream.write_all(text.as_bytes());
+    }
+
+    #[test]
+    fn http_source_sends_the_page_session() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind a test port");
+        let address = listener.local_addr().expect("test address");
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&sent);
+        thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let log = Arc::clone(&log);
+                thread::spawn(move || serve_session(stream, &log));
+            }
+        });
+        let url = |path: &str| Url::parse(&format!("http://{address}{path}")).expect("test url");
+        let socket = Arc::new(TrackedSocket::default());
+        let stranger = HttpSource::open(&url("/clip.mp4"), HttpClient::new(), Arc::clone(&socket))
+            .err()
+            .expect("a client without the session is refused");
+        assert!(
+            stranger.message.contains("HTTP 401"),
+            "{}",
+            stranger.message
+        );
+
+        let page = HttpClient::new();
+        page.request(&HttpRequest::get(url("/login")))
+            .expect("log in");
+        let mut source = HttpSource::open(&url("/clip.mp4"), page, Arc::clone(&socket))
+            .expect("the page's client opens the clip");
+        let mut body = [0_u8; 4];
+        source.read_exact(&mut body).expect("read the clip");
+        assert_eq!(&body, b"moov");
+        assert_eq!(
+            *sent.lock().expect("request log"),
+            vec![None, Some(SESSION.to_string())]
+        );
         socket.close();
     }
 }

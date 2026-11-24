@@ -586,6 +586,42 @@ fn input_selection_offsets() {
 }
 
 #[test]
+fn select_selects_all_of_a_text_field() {
+    let mut doc = ScriptDocument::from_html(
+        r#"
+        <html><body>
+            <input id="field" value="héllo">
+            <textarea id="area">two
+lines</textarea>
+            <div id="out"></div>
+            <script>
+                const f = document.getElementById("field");
+                const t = document.getElementById("area");
+                f.setSelectionRange(1, 1);
+                f.select();
+                t.focus();
+                t.select();
+                document.getElementById("out").textContent =
+                    `${f.selectionStart}-${f.selectionEnd}|${t.selectionStart}-${t.selectionEnd}|${document.activeElement === t}`;
+            </script>
+        </body></html>
+        "#,
+        DocumentConfig {
+            viewport: Some(pageframe_traits::shell::Viewport::new(
+                800,
+                600,
+                1.0,
+                pageframe_traits::shell::ColorScheme::Light,
+            )),
+            ..Default::default()
+        },
+    );
+    doc.execute_scripts();
+    assert_eq!(doc.take_js_errors(), Vec::<String>::new());
+    assert_eq!(text_of_selector(&doc, "#out"), "0-5|0-9|true");
+}
+
+#[test]
 fn password_selection_offsets_count_the_real_value() {
     let mut doc = ScriptDocument::from_html(
         r#"

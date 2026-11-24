@@ -25,6 +25,7 @@ use web_time::{Duration, Instant};
 
 use self::shared::{Command, Failure, Frame, MEDIA_ERR_ABORTED, Metadata, Shared};
 use crate::dom::{dom_ctx, js_str, node_id_of_value, node_wrapper, to_rust_string};
+use crate::http::HttpClient;
 use crate::state::DomCtx;
 
 const PLAYING_POLL: Duration = Duration::from_millis(50);
@@ -37,10 +38,10 @@ struct Player {
 }
 
 impl Player {
-    fn open(url: Url, waker: Arc<Mutex<Option<Waker>>>) -> Self {
+    fn open(url: Url, http: HttpClient, waker: Arc<Mutex<Option<Waker>>>) -> Self {
         let shared = Arc::new(Shared::new(waker));
         let (commands, receiver) = channel();
-        let worker = match backend::spawn(url, receiver, Arc::clone(&shared)) {
+        let worker = match backend::spawn(url, http, receiver, Arc::clone(&shared)) {
             Ok(worker) => Some(worker),
             Err(error) => {
                 shared.fail(Failure::new(
@@ -248,7 +249,14 @@ fn open(_: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValu
         .get_node(node_id)
         .is_some_and(|node| node.flags.is_in_document());
     let waker = Arc::clone(&ctx.state.borrow().net.waker);
-    let player = Player::open(url, waker);
+    let http = ctx
+        .state
+        .borrow()
+        .fetcher
+        .as_ref()
+        .and_then(|fetcher| fetcher.borrow().http_client())
+        .unwrap_or_default();
+    let player = Player::open(url, http, waker);
     ctx.state.borrow_mut().media.entries.insert(
         node_id,
         Entry {

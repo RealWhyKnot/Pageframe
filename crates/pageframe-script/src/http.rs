@@ -247,10 +247,10 @@ impl HttpClient {
             .set_read_timeout(Some(self.read_timeout))
             .and_then(|()| stream.set_write_timeout(Some(self.read_timeout)))
             .map_err(FetchError::Io)?;
-        let head = request_head(request, self.cookie_header(url));
+        let mut message = request_head(request, self.cookie_header(url)).into_bytes();
+        message.extend_from_slice(&request.body);
         stream
-            .write_all(head.as_bytes())
-            .and_then(|()| stream.write_all(&request.body))
+            .write_all(&message)
             .and_then(|()| stream.flush())
             .map_err(FetchError::Io)?;
         let mut reader = BufReader::new(stream);

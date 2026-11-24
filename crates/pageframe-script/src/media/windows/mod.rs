@@ -36,6 +36,7 @@ use super::shared::{
     Metadata, Shared,
 };
 use super::source;
+use crate::http::HttpClient;
 
 pub(crate) const SUPPORTED: bool = true;
 const TICKS: f64 = 10_000_000.0;
@@ -47,21 +48,23 @@ const MIN_STEP: Duration = Duration::from_millis(1);
 
 pub(crate) fn spawn(
     url: Url,
+    http: HttpClient,
     commands: Receiver<Command>,
     shared: Arc<Shared>,
 ) -> std::io::Result<JoinHandle<()>> {
     std::thread::Builder::new()
         .name("pageframe-media".to_string())
-        .spawn(move || run(&url, &commands, &shared))
+        .spawn(move || run(&url, &http, &commands, &shared))
 }
 
-fn run(url: &Url, commands: &Receiver<Command>, shared: &Arc<Shared>) {
+fn run(url: &Url, http: &HttpClient, commands: &Receiver<Command>, shared: &Arc<Shared>) {
     // SAFETY: this worker thread initialises COM once and balances it with CoUninitialize before exiting.
     let com = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok();
     // SAFETY: MFStartup is balanced by MFShutdown below on the same thread after every MF object is released.
     let started = unsafe { MFStartup(MF_VERSION, MFSTARTUP_LITE) }.is_ok();
     if started {
-        let outcome = Session::open(url, shared).and_then(|mut session| session.run(commands));
+        let outcome =
+            Session::open(url, http, shared).and_then(|mut session| session.run(commands));
         if let Err(failure) = outcome {
             if !shared.is_stopped() {
                 shared.fail(shared.take_network().unwrap_or(failure));
@@ -115,8 +118,12 @@ fn ticks(seconds: f64) -> i64 {
     (seconds * TICKS).round().to_i64().unwrap_or(0)
 }
 
-fn open_reader(url: &Url, shared: &Arc<Shared>) -> Result<IMFSourceReader, Failure> {
-    let mut source = source::open(url, shared)?;
+fn open_reader(
+    url: &Url,
+    http: &HttpClient,
+    shared: &Arc<Shared>,
+) -> Result<IMFSourceReader, Failure> {
+    let mut source = source::open(url, http, shared)?;
     let hint = HSTRING::from(format!(
         "media{}",
         source::sniff_extension(source.as_mut(), url)
@@ -532,8 +539,8 @@ struct Session<'a> {
 }
 
 impl<'a> Session<'a> {
-    fn open(url: &Url, shared: &'a Arc<Shared>) -> Result<Self, Failure> {
-        let first = open_reader(url, shared)?;
+    fn open(url: &Url, http: &HttpClient, shared: &'a Arc<Shared>) -> Result<Self, Failure> {
+        let first = open_reader(url, http, shared)?;
         proceed(shared)?;
         let duration = duration(&first);
         let has_audio = has_stream(&first, MF_SOURCE_READER_FIRST_AUDIO_STREAM.0);
@@ -554,7 +561,7 @@ impl<'a> Session<'a> {
                 eos: false,
             };
             let audio_reader = if has_audio && !shared.is_stopped() {
-                open_reader(url, shared).ok()
+                open_reader(url, http, shared).ok()
             } else {
                 None
             };
@@ -625,7 +632,7 @@ impl<'a> Session<'a> {
 
     fn prime(&mut self, to: f64) -> windows_core::Result<()> {
         if let Some(video) = self.video.as_mut() {
-            if to > 0.0 {
+            if to > 0.0 || video.last > 0.0 {
                 set_position(&video.reader, to)?;
             }
             video.eos = false;

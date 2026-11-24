@@ -403,7 +403,13 @@ impl<'doc, Handler: EventHandler> EventDriver<'doc, Handler> {
     ) -> EventState {
         let chain = if event.bubbles {
             let doc = self.doc.inner();
-            doc.node_chain(event.target)
+            let mut chain = doc.node_chain(event.target);
+            let root = doc.root_node().id;
+            let top = chain.last().and_then(|id| doc.get_node(*id));
+            if top.is_some_and(|node| node.parent == Some(root)) {
+                chain.push(root);
+            }
+            chain
         } else {
             vec![event.target]
         };

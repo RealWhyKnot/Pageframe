@@ -279,6 +279,23 @@ fn playback_advances_reports_frames_seeks_and_pauses() {
 }
 
 #[test]
+fn seeking_back_to_the_start_shows_the_first_frame_again() {
+    let server = serve();
+    let mut page = Page::open(VIDEO_PAGE, &server.base);
+    page.wait_for("v.readyState === 4");
+    assert!(is_red(pixel(&page.render(), 80, 60)), "the first frame");
+    page.run("v.currentTime = 1.5;");
+    page.wait_for("log.filter((name) => name === 'seeked').length === 1");
+    let later = pixel(&page.render(), 80, 60);
+    assert!(is_blue(later), "after seeking forward {later:?}");
+    page.run("v.currentTime = 0;");
+    page.wait_for("log.filter((name) => name === 'seeked').length === 2");
+    let start = pixel(&page.render(), 80, 60);
+    assert!(is_red(start), "after seeking back {start:?}");
+    page.assert_clean();
+}
+
+#[test]
 fn audio_plays_through_an_audio_context_gain_chain() {
     let server = serve();
     let mut page = Page::open("<audio id='a' src='tone.wav'></audio>", &server.base);
