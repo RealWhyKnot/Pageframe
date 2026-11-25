@@ -19,6 +19,7 @@ use tungstenite::protocol::Role;
 use crate::session::Session;
 use crate::{
     CdpCommand, CdpEvent, CdpEventData, Connection, JsonValue, MessageWriter, TargetId, frontend,
+    guard,
 };
 
 pub(crate) fn run_cdp_server(
@@ -85,6 +86,16 @@ fn handle_connection(
         if let Some((name, value)) = line.split_once(':') {
             headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_string());
         }
+    }
+
+    let host = headers.get("host").map(String::as_str);
+    let origin = headers.get("origin").map(String::as_str);
+    if !guard::host_allowed(host) || !guard::origin_allowed(origin, host) {
+        tracing::warn!("CDP: refused a request from host {host:?} and origin {origin:?}");
+        stream.write_all(
+            b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        )?;
+        return Ok(());
     }
 
     let is_websocket_upgrade = headers

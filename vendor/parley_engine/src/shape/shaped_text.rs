@@ -728,6 +728,7 @@ pub struct ShapedRun {
     pub advance: f32,
     /// The font metrics of this run.
     pub font_metrics: FontMetrics,
+    /// Whether the run's glyphs stand upright in vertical text.
     pub upright: bool,
 }
 

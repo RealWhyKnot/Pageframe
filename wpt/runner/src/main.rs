@@ -23,7 +23,6 @@ use rayon::prelude::*;
 use regex::Regex;
 
 use bitflags::bitflags;
-use log::{error, info};
 use owo_colors::OwoColorize;
 use std::cell::RefCell;
 use std::fmt::Display;
@@ -37,6 +36,7 @@ use std::sync::atomic::Ordering;
 use std::sync::atomic::{AtomicU32, AtomicUsize};
 use std::time::{Duration, Instant, SystemTime};
 use std::{env, fs};
+use tracing::{error, info};
 
 mod test_runners;
 

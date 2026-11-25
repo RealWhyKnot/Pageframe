@@ -5,8 +5,8 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use log::{debug, warn};
 use pageframe_script::{FetchError, ScriptFetcher};
+use tracing::{debug, warn};
 use url::Url;
 
 use super::{SubtestResult, parse_and_resolve_document, pump_timers, run_document_scripts};

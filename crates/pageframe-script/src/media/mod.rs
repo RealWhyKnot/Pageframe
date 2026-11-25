@@ -89,9 +89,14 @@ impl Player {
 impl Drop for Player {
     fn drop(&mut self) {
         self.halt();
-        if let Some(worker) = self.worker.take() {
+        let Some(worker) = self.worker.take() else {
+            return;
+        };
+        if worker.is_finished() {
             let _ = worker.join();
+            return;
         }
+        drop(worker);
     }
 }
 

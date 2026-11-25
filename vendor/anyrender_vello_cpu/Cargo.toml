@@ -19,15 +19,15 @@ log_frame_times = [
 filters = []
 
 [dependencies]
-anyrender = { git = "https://github.com/DioxusLabs/anyrender", branch = "main" }
+anyrender = { git = "https://github.com/DioxusLabs/anyrender", rev = "812644a68722626e6755ca8319ffebf53c9cdc4e" }
 anyrender_directwrite = { path = "../../crates/anyrender_directwrite" }
 bytemuck = { version = "1", features = ["extern_crate_alloc"] }
 color = { version = "0.3", features = ["bytemuck"] }
-debug_timer = "0.1.1"
+debug_timer = { path = "../../crates/debug_timer" }
 kurbo = "0.13.1"
 peniko = "0.6"
 glifo = { version = "0.4" }
-softbuffer_window_renderer = { git = "https://github.com/DioxusLabs/anyrender", branch = "main", optional = true }
-pixels_window_renderer = { git = "https://github.com/DioxusLabs/anyrender", branch = "main", optional = true }
+softbuffer_window_renderer = { git = "https://github.com/DioxusLabs/anyrender", rev = "812644a68722626e6755ca8319ffebf53c9cdc4e", optional = true }
+pixels_window_renderer = { git = "https://github.com/DioxusLabs/anyrender", rev = "812644a68722626e6755ca8319ffebf53c9cdc4e", optional = true }
 vello_cpu = { version = "0.3", default-features = false, features = ["std", "text", "u8_pipeline"] }
 vello_common = { version = "0.3" }

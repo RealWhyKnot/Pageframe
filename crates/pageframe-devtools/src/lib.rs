@@ -29,6 +29,7 @@ mod devtools_provider;
 pub mod documents;
 mod dom;
 mod frontend;
+mod guard;
 mod session;
 mod style_sheets;
 mod transport;

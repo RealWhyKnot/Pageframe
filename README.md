@@ -1,6 +1,6 @@
 # Pageframe
 
-Build desktop app UIs in Rust with HTML and CSS. Pageframe styles your page with Stylo, lays it out with Taffy and Parley, and draws it with Vello. Your Rust code handles the events and edits the DOM; there's no browser or JavaScript engine in the app.
+Pageframe renders HTML and CSS natively for Rust desktop apps. Stylo styles the page, Taffy and Parley lay it out, and Vello draws it. You can drive the page from Rust, or load a page that runs its own JavaScript.
 
 Pageframe started as a fork of [Blitz](https://github.com/DioxusLabs/blitz) at commit [b6bb45c](https://github.com/DioxusLabs/blitz/commit/b6bb45c550a9490afa6c43468c77535c6d76856d). The history before that commit is in the Blitz repository.
 
@@ -23,38 +23,56 @@ fn main() -> Result<(), Error> {
 }
 ```
 
-Run it with `cargo run -p pageframe --example counter`. For something bigger, `cargo run -p pageframe --example todo` opens the to-do list in `crates/pageframe/examples/todo`.
+Run it with `cargo run -p pageframe --example counter`. `cargo run -p pageframe --example todo` opens a bigger example, the to-do list in `crates/pageframe/examples/todo`.
 
-## Building
+## What it does
 
-Rust 1.99 or newer, and Python 3 for Stylo's build script. On Linux you also need `pkg-config` and `libfontconfig-dev`; [CONTRIBUTING.MD](CONTRIBUTING.MD) has the full package list.
+- HTML and CSS: Stylo handles selectors, the cascade and computed styles, and Taffy and Parley handle layout and text.
+- JavaScript and the DOM through the [Boa](https://github.com/boa-dev/boa) engine, including ES modules.
+- `fetch()` and `EventSource` over plain HTTP. The built-in client doesn't speak HTTPS, so an `https:` URL fails with a clear error. To load HTTPS pages, pass your own `NetProvider`.
+- Cookies, and an `ipc` object that lets page scripts call into your Rust code.
+- Canvas 2D and `OffscreenCanvas`, modal `<dialog>`, form controls, and clipboard access through the host.
+- Audio, video and Web Audio through Windows Media Foundation. On other platforms, media elements load but don't play.
+- An opt-in Chrome DevTools server for inspecting a running page.
 
-## Usage
+Pages loaded over the network can't read local `file:` URLs. Pages loaded from disk, and pages built into an `App`, can.
 
-`App::new(state, html)` takes your starting state and the page. `App::from_file(state, path)` reads the page from disk and resolves relative links from its folder.
+## Two ways to use it
 
+`App` is for apps written in Rust. Your Rust handlers react to events and edit the DOM, and the page runs no scripts.
+
+- `App::new(state, html)` takes your starting state and the page. `App::from_file(state, path)` reads the page from disk and resolves relative links from its folder.
 - `.stylesheet(css)` adds CSS after the page's own styles.
-- `.asset(path, bytes)` serves a file the page links to (`<link href="app.css">`, images) from memory. Pair it with `include_bytes!` to build everything into the binary.
+- `.asset(path, bytes)` serves a file the page links to, such as `app.css` or an image, from memory. Pair it with `include_bytes!` to build everything into the binary.
 - `.on(selector, kind, handler)` calls `handler(&mut state, &mut ui, &mut event)` when an event of that kind reaches an element matching `selector`. Events bubble, so clicking a `<span>` inside `#add` still runs the `#add` handler.
-- `.on_start(f)` runs once after the page loads.
-- `.title(..)` and `.size(..)` set up the window, and `.run()` opens it.
+- `.on_start(f)` runs once after the page loads. `.title(..)` and `.size(..)` set up the window, and `.run()` opens it.
 
-In a handler, `ui.select(selector)` returns the matching elements. Read them with `text`, `value`, `attr`, `checked` and `has_class`, or change them with `set_text`, `set_html`, `set_attr`, `set_value`, `add_class`, `set_style`, `append` and `remove`. `ui.instantiate("#row-template")` clones a `<template>`'s contents, and `find`, `closest`, `parent` and `children` walk the tree.
+In a handler, `ui.select(selector)` returns the matching elements. Read them with `text`, `value`, `attr`, `checked` and `has_class`, or change them with `set_text`, `set_html`, `set_attr`, `set_value`, `add_class`, `set_style`, `append` and `remove`. `ui.instantiate("#row-template")` clones a `<template>`'s contents, and `find`, `closest`, `parent` and `children` walk the tree. `ui.select("#chart").draw(|canvas| ..)` draws on a `<canvas>` from Rust.
 
-`event.target()` is the element that was hit and `event.current_target()` the one your selector matched. `value()` has the text for input events and `key()` the key for keyboard events. `prevent_default()` and `stop_propagation()` work like they do in a browser.
+`pageframe::host` is for pages that run their own JavaScript. `HostSession` loads a URL or an HTML string, runs its scripts, and takes input events from your window loop. `PageframeHost` wraps a session around a window and draws it.
+
+- `on_ipc` answers `ipc.invoke(channel, payload)` calls from the page, and `emit` sends events that the page hears with `ipc.on(channel, listener)`.
+- `on_navigation` decides which links the page may follow. Without it, a session only follows links on the same origin.
+- `take_events` reports title, cursor, clipboard and navigation changes for your window to act on.
+
+The IPC handler answers whichever page is loaded. If you let a session navigate to a remote site, that site's scripts can call your handlers too, so check `session.url()` before acting on a request.
 
 ## Features
 
 `gpu`, `svg` and `accessibility` are on by default.
 
-- `gpu` draws windows with Vello on the GPU.
-- `svg` renders inline `<svg>` and SVG images.
-- `accessibility` exposes the page to screen readers through AccessKit.
-- `software` draws windows on the CPU. It's used when `gpu` is off, so set `default-features = false` with it.
+| Feature         | What it does                                                                                      |
+| --------------- | ------------------------------------------------------------------------------------------------- |
+| `gpu`           | Draws windows with Vello on the GPU.                                                              |
+| `svg`           | Renders inline `<svg>` and SVG images.                                                            |
+| `accessibility` | Exposes the page to screen readers through AccessKit.                                             |
+| `software`      | Draws windows on the CPU. It's used when `gpu` is off, so set `default-features = false` with it. |
 
-With neither `gpu` nor `software` there's no `.run()`. `app.page(..)` still builds the page.
+With neither `gpu` nor `software` there's no `.run()`, but `app.page(..)` still builds the page.
 
-## Testing
+DevTools is a feature of `pageframe-shell`. Turn on `devtools` to start a Chrome DevTools Protocol server on localhost, and `embedded-devtools-frontend` to serve the DevTools page from that server, so any Chromium browser can open it.
+
+## Testing your app
 
 `app.page(width, height)` builds the page without opening a window. Wrap it in `pageframe-test-harness` to click, type and check layout:
 
@@ -64,25 +82,55 @@ harness.click("#add");
 assert_eq!(harness.text_content("#count"), "1");
 ```
 
-`cargo test -p pageframe` runs the crate's tests, including pixel checks rendered on the CPU.
+## Crates
+
+| Crate                    | What it holds                                |
+| ------------------------ | -------------------------------------------- |
+| `pageframe`              | The `App` and `host` APIs that apps use.     |
+| `pageframe-dom`          | The DOM, styling and layout.                 |
+| `pageframe-html`         | The HTML parser.                             |
+| `pageframe-paint`        | Paints a document through anyrender.         |
+| `pageframe-script`       | JavaScript, `fetch`, IPC and media, on Boa.  |
+| `pageframe-shell`        | The winit window shell.                      |
+| `pageframe-devtools`     | The Chrome DevTools Protocol server.         |
+| `pageframe-traits`       | Types shared between the crates.             |
+| `pageframe-test-harness` | Headless clicking, typing and layout checks. |
+| `stylo_taffy`            | Converts Stylo styles to Taffy styles.       |
+
+## Adding it to your project
+
+The crates aren't published to crates.io. Depend on the repository, and add a `[patch]` section so Cargo uses the same vello/glifo, Parley and anyrender copies the workspace does:
+
+```toml
+[dependencies]
+pageframe = { git = "https://github.com/RealWhyKnot/Pageframe" }
+```
+
+Copy the `[patch.crates-io]` and `[patch."https://github.com/DioxusLabs/anyrender"]` sections from this repository's `Cargo.toml`, pointing each `path` at a checkout of Pageframe.
+
+You need Rust 1.99 or newer and Python 3, which Stylo's build script uses. On Linux you also need `pkg-config` and `libfontconfig-dev`. [CONTRIBUTING.md](CONTRIBUTING.md) has the full list.
 
 ## Status
 
-Early, and the API will change. CSS support comes from Blitz. Flexbox, CSS variables, rounded corners, box and text shadows, gradients, `mix-blend-mode`, 2D and 3D transforms including `perspective()`, `text-overflow: ellipsis` and `line-clamp` work. The prefixed `-webkit-line-clamp` isn't parsed yet, and text shadows skip underlines.
+Pageframe is early, and the API will change. The version number tells you when.
 
-Draw on a `<canvas>` from Rust:
+## Versioning
 
-```rust
-ui.select("#chart").draw(|canvas| {
-    canvas.set_fill(Color::rgb(59, 130, 246)).fill_rect(10.0, 10.0, 80.0, 40.0);
-    canvas.set_font("Arial", 12.0).fill_text("March", 10.0, 64.0);
-});
-```
+Pageframe follows [Semantic Versioning](https://semver.org) (`MAJOR.MINOR.PATCH`), starting at `0.1.0`.
 
-Rectangles, paths, arcs, strokes, transforms, clipping, alpha and text work. Images, gradients and dashed lines don't yet.
+Before `1.0.0`, a minor bump (`0.1.0` to `0.2.0`) means something in the API or its behavior broke, and a patch bump (`0.1.0` to `0.1.1`) is safe to take without changes on your side.
 
-`crates/pageframe` is the API apps use. The engine under it is in the other crates in `crates/`, which started as Blitz's packages.
+From `1.0.0` on, a major bump breaks things, a minor bump adds features that keep working with your code, and a patch bump fixes bugs.
+
+Nightly prereleases are tagged like `v0.2.0-beta.20261124.0`: the version the next release will get, the date in `YYYYMMDD` form, and a counter for that day. The part before `-beta` shows whether the next release breaks anything. If a commit since the last release is marked as breaking, with a `!` after its type (`feat!:`) or a `BREAKING CHANGE:` footer, it jumps to the next breaking version.
+
+## Links
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) explains how to build, test and report bugs.
+- [.github/SECURITY.md](.github/SECURITY.md) explains how to report a security problem.
+- [CHANGELOG.md](CHANGELOG.md) lists changes by release.
+- [docs/licensing.md](docs/licensing.md) covers dependency licenses.
 
 ## License
 
-MIT or Apache-2.0, at your option, like Blitz ([LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)). Some dependencies, Stylo among them, are MPL-2.0; [docs/licensing.md](docs/licensing.md) is Blitz's review of what that means for your app. [NOTICE](NOTICE) credits the Blitz authors.
+MIT or Apache-2.0, at your option ([LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)). The vendored Stylo in `vendor/stylo` and some dependencies are MPL-2.0. [docs/licensing.md](docs/licensing.md) explains what that means for an app you ship, and [NOTICE](NOTICE) credits the Blitz authors and the other code included here.

@@ -13,6 +13,15 @@ const MAX_HEADER_BYTES: usize = 64 * 1024;
 const MAX_CHUNK_LINE_BYTES: usize = 4096;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const READ_TIMEOUT: Duration = Duration::from_secs(30);
+pub const MAX_RESPONSE_BYTES: u64 = 256 * 1024 * 1024;
+
+struct SharedStream(Arc<TcpStream>);
+
+impl Read for SharedStream {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        (&*self.0).read(buf)
+    }
+}
 
 #[derive(Clone, Copy)]
 enum BodyWait<'a> {
@@ -27,16 +36,16 @@ pub(crate) struct TrackedSocket(Mutex<SocketSlot>);
 #[derive(Default)]
 struct SocketSlot {
     closed: bool,
-    stream: Option<TcpStream>,
+    stream: Option<Arc<TcpStream>>,
 }
 
 impl TrackedSocket {
-    fn track(&self, stream: &TcpStream) -> Result<(), FetchError> {
+    fn track(&self, stream: &Arc<TcpStream>) -> Result<(), FetchError> {
         let mut slot = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         if slot.closed {
             return Err(FetchError::Io(std::io::ErrorKind::ConnectionAborted.into()));
         }
-        slot.stream = stream.try_clone().ok();
+        slot.stream = Some(Arc::clone(stream));
         Ok(())
     }
 
@@ -117,6 +126,7 @@ fn find_header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a st
 pub struct HttpClient {
     jar: Arc<Mutex<CookieJar>>,
     read_timeout: Duration,
+    max_response_bytes: u64,
 }
 
 impl Default for HttpClient {
@@ -124,6 +134,7 @@ impl Default for HttpClient {
         Self {
             jar: Arc::default(),
             read_timeout: READ_TIMEOUT,
+            max_response_bytes: MAX_RESPONSE_BYTES,
         }
     }
 }
@@ -138,18 +149,39 @@ impl HttpClient {
         self
     }
 
+    pub fn with_max_response_bytes(mut self, limit: u64) -> Self {
+        self.max_response_bytes = limit;
+        self
+    }
+
     pub fn cookie_header(&self, url: &Url) -> Option<String> {
         self.jar.lock().ok()?.header_for(url)
     }
 
     pub fn request(&self, request: &HttpRequest) -> Result<HttpResponse, FetchError> {
-        let (mut response, mut body) = self.follow(request, BodyWait::Timed)?;
+        let (mut response, body) = self.follow(request, BodyWait::Timed)?;
         let skip_body =
             request.method.eq_ignore_ascii_case("HEAD") || matches!(response.status, 204 | 304);
-        if !skip_body {
-            body.read_to_end(&mut response.body)
-                .map_err(FetchError::Io)?;
+        if skip_body {
+            return Ok(response);
         }
+        let limit = self.max_response_bytes;
+        let too_large = || FetchError::TooLarge(response.url.clone(), limit);
+        if response
+            .header("content-length")
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .is_some_and(|length| length > limit)
+        {
+            return Err(too_large());
+        }
+        let mut bytes = Vec::new();
+        body.take(limit.saturating_add(1))
+            .read_to_end(&mut bytes)
+            .map_err(FetchError::Io)?;
+        if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > limit {
+            return Err(too_large());
+        }
+        response.body = bytes;
         Ok(response)
     }
 
@@ -186,6 +218,11 @@ impl HttpClient {
                 .and_then(|location| current.url.join(location).ok());
             let Some(mut next) = location else {
                 response.redirected = redirected;
+                let bodyless = current.method.eq_ignore_ascii_case("HEAD")
+                    || matches!(response.status, 204 | 304);
+                if bodyless {
+                    return Ok((response, Box::new(std::io::empty())));
+                }
                 return Ok((response, body));
             };
             if next.fragment().is_none() {
@@ -226,8 +263,10 @@ impl HttpClient {
         wait: BodyWait<'_>,
     ) -> Result<(HttpResponse, Box<dyn Read + Send>), FetchError> {
         let url = &request.url;
-        if url.scheme() != "http" {
-            return Err(FetchError::UnsupportedScheme(url.scheme().to_string()));
+        match url.scheme() {
+            "http" => {}
+            "https" => return Err(FetchError::HttpsUnsupported(url.clone())),
+            scheme => return Err(FetchError::UnsupportedScheme(scheme.to_string())),
         }
         if !is_token(&request.method) {
             return Err(FetchError::InvalidData(format!(
@@ -239,7 +278,7 @@ impl HttpClient {
             .host_str()
             .ok_or_else(|| FetchError::InvalidData(format!("{url} has no host")))?;
         let port = url.port_or_known_default().unwrap_or(80);
-        let mut stream = connect(host, port)?;
+        let stream = Arc::new(connect(host, port)?);
         if let BodyWait::Tracked(socket) = &wait {
             socket.track(&stream)?;
         }
@@ -249,15 +288,17 @@ impl HttpClient {
             .map_err(FetchError::Io)?;
         let mut message = request_head(request, self.cookie_header(url)).into_bytes();
         message.extend_from_slice(&request.body);
-        stream
+        let mut writer = &*stream;
+        writer
             .write_all(&message)
-            .and_then(|()| stream.flush())
+            .and_then(|()| writer.flush())
             .map_err(FetchError::Io)?;
-        let mut reader = BufReader::new(stream);
+        let mut reader = BufReader::new(SharedStream(stream));
         let (status, status_text, headers) = read_head(&mut reader)?;
         if matches!(wait, BodyWait::Unbounded | BodyWait::Tracked(_)) {
             reader
                 .get_ref()
+                .0
                 .set_read_timeout(None)
                 .map_err(FetchError::Io)?;
         }
@@ -278,7 +319,11 @@ impl HttpClient {
             .header("content-length")
             .and_then(|value| value.trim().parse::<u64>().ok())
         {
-            Box::new(reader.take(length))
+            Box::new(LengthReader {
+                inner: reader,
+                length,
+                remaining: length,
+            })
         } else {
             Box::new(reader)
         };
@@ -448,8 +493,7 @@ impl<R: BufRead> ChunkedReader<R> {
             line.clear();
             let limit = u64::try_from(MAX_CHUNK_LINE_BYTES).unwrap_or(u64::MAX);
             if (&mut self.inner).take(limit).read_line(&mut line)? == 0 {
-                self.done = true;
-                return Ok(());
+                return Err(truncated("the connection closed before the last chunk"));
             }
         }
         let size = line.trim().split(';').next().unwrap_or_default().trim();
@@ -479,17 +523,47 @@ impl<R: BufRead> Read for ChunkedReader<R> {
             .min(usize::try_from(self.remaining).unwrap_or(usize::MAX));
         let read = self.inner.read(&mut buf[..limit])?;
         if read == 0 {
-            self.done = true;
+            return Err(truncated("the connection closed in the middle of a chunk"));
+        }
+        self.remaining -= u64::try_from(read).unwrap_or(u64::MAX).min(self.remaining);
+        Ok(read)
+    }
+}
+
+fn truncated(message: &str) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::UnexpectedEof, message.to_string())
+}
+
+struct LengthReader<R> {
+    inner: R,
+    length: u64,
+    remaining: u64,
+}
+
+impl<R: Read> Read for LengthReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.remaining == 0 || buf.is_empty() {
             return Ok(0);
         }
-        self.remaining -= read as u64;
+        let limit = buf
+            .len()
+            .min(usize::try_from(self.remaining).unwrap_or(usize::MAX));
+        let read = self.inner.read(&mut buf[..limit])?;
+        if read == 0 {
+            let received = self.length - self.remaining;
+            return Err(truncated(&format!(
+                "the connection closed after {received} of {} bytes",
+                self.length
+            )));
+        }
+        self.remaining -= u64::try_from(read).unwrap_or(u64::MAX).min(self.remaining);
         Ok(read)
     }
 }
 
 impl ScriptFetcher for HttpClient {
     fn fetch(&self, url: &Url) -> Result<String, FetchError> {
-        if url.scheme() != "http" {
+        if !matches!(url.scheme(), "http" | "https") {
             return DefaultScriptFetcher.fetch(url);
         }
         let response = HttpClient::request(self, &HttpRequest::get(url.clone()))?;
@@ -500,7 +574,7 @@ impl ScriptFetcher for HttpClient {
     }
 
     fn request(&self, request: &HttpRequest) -> Result<HttpResponse, FetchError> {
-        if request.url.scheme() != "http" {
+        if !matches!(request.url.scheme(), "http" | "https") {
             return DefaultScriptFetcher.request(request);
         }
         HttpClient::request(self, request)

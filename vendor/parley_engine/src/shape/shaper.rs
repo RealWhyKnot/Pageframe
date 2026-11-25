@@ -36,14 +36,19 @@ pub struct ShapeOptions<'a> {
     pub features: &'a [FontFeature],
     /// The font variations that are constant over an item.
     pub variations: &'a [FontVariation],
+    /// Which glyphs of the item stand upright in vertical text.
     pub upright: UprightGlyphs,
 }
 
+/// Which glyphs of an item stand upright in vertical text.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum UprightGlyphs {
+    /// Every glyph is rotated sideways.
     #[default]
     None,
+    /// Glyphs follow their Unicode vertical orientation.
     Mixed,
+    /// Every glyph stands upright.
     All,
 }
 

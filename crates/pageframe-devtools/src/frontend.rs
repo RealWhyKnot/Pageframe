@@ -2,7 +2,7 @@
 //! feature (see [`blitz_chrome_devtools_frontend`]), or a local build of it.
 
 use std::borrow::Cow;
-use std::path::Path;
+use std::path::{Component, Path};
 
 /// Environment variable naming a directory to serve the frontend from
 /// instead of the embedded copy (e.g. the `dist/` of a local
@@ -35,17 +35,34 @@ pub fn frontend_url(addr: std::net::SocketAddr, target_id: &str) -> String {
 /// The `Content-Type` and contents of the frontend file at `path` (relative
 /// to the frontend's root), if the server serves a frontend and it has one
 pub(crate) fn file(path: &str) -> Option<(&'static str, Cow<'static, [u8]>)> {
-    if path
-        .split('/')
-        .any(|segment| segment.is_empty() || segment == "..")
-    {
+    if !is_relative_file(path) {
         return None;
     }
     let body = match std::env::var_os(FRONTEND_DIR_VAR) {
-        Some(dir) => Cow::Owned(std::fs::read(Path::new(&dir).join(path)).ok()?),
+        Some(dir) => Cow::Owned(read_inside(Path::new(&dir), path)?),
         None => Cow::Borrowed(embedded_file(path)?),
     };
     Some((content_type(path), body))
+}
+
+fn is_relative_file(path: &str) -> bool {
+    !path.is_empty()
+        && !path.contains(['\\', ':', '\0'])
+        && path
+            .split('/')
+            .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
+        && Path::new(path)
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+}
+
+fn read_inside(dir: &Path, path: &str) -> Option<Vec<u8>> {
+    let base = dir.canonicalize().ok()?;
+    let full = base.join(path).canonicalize().ok()?;
+    if !full.starts_with(&base) || !full.is_file() {
+        return None;
+    }
+    std::fs::read(full).ok()
 }
 
 #[cfg(feature = "embedded-frontend")]
@@ -83,5 +100,70 @@ fn content_type(path: &str) -> &'static str {
         Some("wasm") => "application/wasm",
         Some("txt") => "text/plain; charset=utf-8",
         _ => "application/octet-stream",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::{is_relative_file, read_inside};
+
+    #[test]
+    fn plain_relative_paths_are_accepted() {
+        for path in ["devtools_app.html", "core/sdk/sdk.js", "a.b/c-d_e.json"] {
+            assert!(is_relative_file(path), "{path}");
+        }
+    }
+
+    #[test]
+    fn paths_that_could_leave_the_folder_are_refused() {
+        for path in [
+            "",
+            "/etc/passwd",
+            "../Cargo.toml",
+            "core/../../secret",
+            "./devtools_app.html",
+            "core//sdk.js",
+            r"..\secret",
+            r"core\..\..\secret",
+            "C:/Windows/win.ini",
+            "C:secret",
+            r"\\server\share\file",
+            "//server/share/file",
+            "core/sdk.js\0.png",
+        ] {
+            assert!(!is_relative_file(path), "{path:?}");
+        }
+    }
+
+    struct Scratch(PathBuf);
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn reads_stay_inside_the_frontend_folder() {
+        let root = std::env::temp_dir().join(format!(
+            "pageframe-devtools-frontend-{}",
+            std::process::id()
+        ));
+        let scratch = Scratch(root.clone());
+        let frontend = root.join("frontend");
+        std::fs::create_dir_all(frontend.join("core")).expect("create the test folder");
+        std::fs::write(frontend.join("core").join("app.js"), b"app").expect("write app.js");
+        std::fs::write(root.join("secret.txt"), b"secret").expect("write secret.txt");
+
+        assert_eq!(
+            read_inside(&frontend, "core/app.js").as_deref(),
+            Some(&b"app"[..])
+        );
+        assert_eq!(read_inside(&frontend, "../secret.txt"), None);
+        assert_eq!(read_inside(&frontend, "core"), None);
+        assert_eq!(read_inside(&frontend, "missing.js"), None);
+        drop(scratch);
     }
 }

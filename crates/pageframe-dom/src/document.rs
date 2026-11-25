@@ -4,7 +4,8 @@ use crate::layout::construct::ConstructionTask;
 use crate::layout::damage::{ALL_DAMAGE, ONLY_RELAYOUT};
 use crate::mutator::ViewportMut;
 use crate::net::{
-    Resource, ResourceHandler, ResourceLoadResponse, StylesheetHandler, StylesheetLoader,
+    LocalFileGate, Resource, ResourceHandler, ResourceLoadResponse, StylesheetHandler,
+    StylesheetLoader, may_read_local_files,
 };
 use crate::node::{ImageData, NodeFlags, RasterImageData, SpecialElementData, Status, TextBrush};
 use crate::scrolling::ScrollAnimationState;
@@ -38,7 +39,7 @@ use std::collections::{BTreeMap, Bound, HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{
     Arc, LazyLock, Mutex, MutexGuard, Once, OnceLock, RwLockReadGuard, RwLockWriteGuard,
@@ -450,6 +451,7 @@ pub struct BaseDocument {
     // keyed by request id
     pub(crate) pending_critical_resources: HashSet<usize>,
     page_hidden: bool,
+    local_files: Arc<AtomicBool>,
 
     // Service providers
     /// Network provider. Can be used to fetch assets.
@@ -538,9 +540,13 @@ impl BaseDocument {
             .and_then(|url| DocumentUrl::from_str(&url).ok())
             .unwrap_or_default();
 
-        let net_provider = config
-            .net_provider
-            .unwrap_or_else(|| Arc::new(DummyNetProvider));
+        let local_files = Arc::new(AtomicBool::new(may_read_local_files(&base_url)));
+        let net_provider = LocalFileGate::wrap(
+            config
+                .net_provider
+                .unwrap_or_else(|| Arc::new(DummyNetProvider)),
+            &local_files,
+        );
         let navigation_provider = config
             .navigation_provider
             .unwrap_or_else(|| Arc::new(DummyNavigationProvider));
@@ -611,6 +617,7 @@ impl BaseDocument {
             pending_placeholder_hosts: Vec::new(),
             pending_critical_resources: HashSet::new(),
             page_hidden: false,
+            local_files,
             controls_to_form: HashMap::new(),
             net_provider,
             navigation_provider,
@@ -660,7 +667,7 @@ impl BaseDocument {
 
     /// Set the Document's networking provider
     pub fn set_net_provider(&mut self, net_provider: Arc<dyn NetProvider>) {
-        self.net_provider = net_provider;
+        self.net_provider = LocalFileGate::wrap(net_provider, &self.local_files);
     }
 
     /// Set the Document's navigation provider
@@ -715,6 +722,8 @@ impl BaseDocument {
     /// Set base url for resolving linked resources (stylesheets, images, fonts, etc)
     pub fn set_base_url(&mut self, url: &str) {
         self.url = DocumentUrl::from(Url::parse(url).unwrap());
+        self.local_files
+            .store(may_read_local_files(&self.url), Ordering::Release);
     }
 
     /// The base url used for resolving linked resources (stylesheets, images, fonts, etc)

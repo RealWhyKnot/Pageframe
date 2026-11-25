@@ -9,3 +9,4 @@
 /sites
 .pageframe-cache
 node_modules/
+__pycache__/

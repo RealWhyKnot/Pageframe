@@ -1,12 +1,13 @@
 [package]
 name = "pageframe-script"
-description = "JavaScript execution for Pageframe using the Boa engine"
 version.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "JavaScript execution for Pageframe using the Boa engine"
 license.workspace = true
 categories.workspace = true
 edition.workspace = true
-rust-version.workspace = true
-publish = false
 
 [features]
 default = []
@@ -59,3 +60,9 @@ pageframe-traits = { workspace = true }
 pageframe-dom = { workspace = true, features = ["system-fonts", "text-transform-icu"] }
 keyboard-types = { workspace = true }
 url = { workspace = true }
+
+[lints.rust]
+unknown_lints = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }

@@ -8,8 +8,18 @@ use wptreport::{
 
 use crate::{TestKind, TestResult, TestStatus};
 
+fn git_command() -> Command {
+    let mut command = Command::new("git");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    command
+}
+
 fn get_git_hash(path: &Path) -> String {
-    let output = Command::new("git")
+    let output = git_command()
         .current_dir(path)
         .args(["rev-parse", "HEAD"])
         .output()

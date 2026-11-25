@@ -3,7 +3,11 @@ use selectors::context::QuirksMode;
 use std::sync::atomic::Ordering as Ao;
 use std::{
     io::Cursor,
-    sync::{Arc, atomic::AtomicUsize, mpsc::Sender},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize},
+        mpsc::Sender,
+    },
 };
 use style::{
     font_face::{
@@ -27,6 +31,43 @@ use pageframe_traits::shell::ShellProvider;
 use url::Url;
 
 use crate::{document::DocumentEvent, util::ImageType};
+
+pub(crate) fn may_read_local_files(document_url: &Url) -> bool {
+    matches!(document_url.scheme(), "file" | "pageframe")
+}
+
+pub(crate) struct LocalFileGate {
+    inner: Arc<dyn NetProvider>,
+    local: Arc<AtomicBool>,
+}
+
+impl LocalFileGate {
+    pub(crate) fn wrap(
+        inner: Arc<dyn NetProvider>,
+        local: &Arc<AtomicBool>,
+    ) -> Arc<dyn NetProvider> {
+        Arc::new(Self {
+            inner,
+            local: Arc::clone(local),
+        })
+    }
+}
+
+impl NetProvider for LocalFileGate {
+    fn fetch(&self, doc_id: usize, request: Request, handler: Box<dyn NetHandler>) {
+        if request.url.scheme() == "file" && !self.local.load(Ao::Acquire) {
+            let url = request.url.to_string();
+            let reason = format!("not allowed to load {url} from this document");
+            handler.error(url, reason);
+            return;
+        }
+        self.inner.fetch(doc_id, request, handler);
+    }
+
+    fn is_noop(&self) -> bool {
+        self.inner.is_noop()
+    }
+}
 
 pub(crate) fn stamped_request(url: Url, signal: Option<&AbortSignal>) -> Request {
     let mut req = Request::get(url);

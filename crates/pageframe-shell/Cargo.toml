@@ -1,12 +1,13 @@
 [package]
 name = "pageframe-shell"
-description = "Pageframe application shell"
 version.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Pageframe application shell"
 license.workspace = true
 categories.workspace = true
 edition.workspace = true
-rust-version.workspace = true
-publish = false
 
 [features]
 default = ["accessibility", "file-dialog"]
@@ -65,3 +66,9 @@ rfd = { workspace = true, optional = true, features = ["xdg-portal"] }
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[lints.rust]
+unknown_lints = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }

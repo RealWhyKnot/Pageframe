@@ -1,6 +1,5 @@
 use anyrender::{ImageRenderer as _, PaintScene as _};
 use image::{ImageBuffer, ImageFormat};
-use log::warn;
 use pageframe_dom::util::Color;
 use pageframe_dom::{BaseDocument, Document as _};
 use pageframe_paint::paint_scene;
@@ -11,6 +10,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::time::Duration;
+use tracing::warn;
 use url::Url;
 
 use super::fuzzy::{FuzzySpec, fuzzy_buffer_diff, parse_fuzzy_metas, tolerance_for_reference};

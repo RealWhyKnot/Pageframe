@@ -11,9 +11,9 @@ publish = false
 log_frame_times = ["debug_timer/enable"]
 
 [dependencies]
-anyrender = { git = "https://github.com/DioxusLabs/anyrender", branch = "main" }
-wgpu_context = { git = "https://github.com/DioxusLabs/anyrender", branch = "main" }
-debug_timer = "0.1.1"
+anyrender = { git = "https://github.com/DioxusLabs/anyrender", rev = "812644a68722626e6755ca8319ffebf53c9cdc4e" }
+wgpu_context = { git = "https://github.com/DioxusLabs/anyrender", rev = "812644a68722626e6755ca8319ffebf53c9cdc4e" }
+debug_timer = { path = "../../crates/debug_timer" }
 kurbo = "0.13.1"
 peniko = "0.6"
 vello = { version = "0.11", features = ["wgpu"] }

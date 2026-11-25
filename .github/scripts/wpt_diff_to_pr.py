@@ -267,7 +267,14 @@ def gh_api(*args, method=None, fields=None):
     cmd += list(args)
     for key, value in (fields or {}).items():
         cmd += ["-f", f"{key}={value}"]
-    return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
+    return subprocess.run(
+        cmd,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    ).stdout
 
 
 def main():

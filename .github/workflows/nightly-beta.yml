@@ -13,8 +13,11 @@ jobs:
     permissions:
       contents: write
       actions: read
-    uses: RealWhyKnot/workflows/.github/workflows/nightly-beta.yml@v1
+    uses: RealWhyKnot/workflows/.github/workflows/nightly-beta-scripted.yml@v1
     with:
+      planner: ./.github/scripts/Get-NightlyBetaPlan.ps1
+      validate-scripts: ./.github/scripts/Test-GetNightlyBetaPlan.ps1
+      dispatch-release: false
       ci-workflow: ci.yml
       ignore-paths: |
         wpt/**

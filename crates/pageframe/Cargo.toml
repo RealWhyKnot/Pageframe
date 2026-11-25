@@ -1,11 +1,12 @@
 [package]
 name = "pageframe"
+version.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+repository.workspace = true
 description = "Build native Rust apps with HTML and CSS"
-version = "0.0.0"
 license.workspace = true
 edition = "2024"
-rust-version = "1.99"
-publish = false
 
 [features]
 default = ["gpu", "svg", "accessibility"]

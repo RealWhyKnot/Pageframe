@@ -1,5 +1,4 @@
 use data_url::DataUrl;
-use log::{debug, warn};
 use pageframe_traits::net::{Bytes, NetHandler, NetProvider, Request};
 use std::{
     collections::HashMap,
@@ -10,6 +9,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
 };
+use tracing::{debug, warn};
 
 static REQUEST_ID: AtomicUsize = AtomicUsize::new(0);
 

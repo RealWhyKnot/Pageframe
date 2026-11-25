@@ -15,6 +15,4 @@ node_modules/
 /crates/stylo_taffy/
 /tests/
 /wpt/
-/docs/
 /.github/scripts/
-/.github/workflows/

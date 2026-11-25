@@ -32,8 +32,7 @@ use style::global_style_data::STYLE_THREAD_POOL;
 /// Serialises `Parallel` style traversals across documents. Stylo's per-worker
 /// caches (`StyleSharingCache`, `StyleBloom`) live in native thread-locals that
 /// a traversal borrows mutably for its whole duration, so two traversals in
-/// flight on the shared pool at once panic with `already mutably borrowed`
-/// (<https://github.com/DioxusLabs/blitz/issues/430>).
+/// flight on the shared pool at once panic with `already mutably borrowed`.
 static PARALLEL_TRAVERSAL_LOCK: Mutex<()> = Mutex::new(());
 use style::invalidation::element::restyle_hints::RestyleHint;
 use style::properties::ComputedValues;
@@ -1747,25 +1746,6 @@ fn needs_style_image_flush(node: &Node, style: &ComputedValues) -> bool {
                 &el.border_images,
             )
     })
-}
-
-#[test]
-fn assert_size_of_equals() {
-    // use std::mem;
-
-    // fn assert_layout<E>() {
-    //     assert_eq!(
-    //         mem::size_of::<SharingCache<E>>(),
-    //         mem::size_of::<TypelessSharingCache>()
-    //     );
-    //     assert_eq!(
-    //         mem::align_of::<SharingCache<E>>(),
-    //         mem::align_of::<TypelessSharingCache>()
-    //     );
-    // }
-
-    // let size = mem::size_of::<StyleSharingCandidate<PageframeNode>>();
-    // dbg!(size);
 }
 
 #[test]

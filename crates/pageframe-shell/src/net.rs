@@ -1,28 +1,3 @@
-// use std::sync::Arc;
-
-// use pageframe_traits::net::NetWaker;
-// use winit::event_loop::EventLoopProxy;
-
-// use crate::{PageframeShellEvent, event::PageframeShellProxy};
-
-// /// A NetWaker that wakes up our winit event loop
-// pub struct PageframeShellNetWaker(PageframeShellProxy);
-
-// impl PageframeShellNetWaker {
-//     pub fn new(proxy: PageframeShellProxy) -> Self {
-//         Self(proxy)
-//     }
-
-//     pub fn shared(proxy: PageframeShellProxy) -> Arc<dyn NetWaker> {
-//         Arc::new(Self(proxy))
-//     }
-// }
-// impl NetWaker for PageframeShellNetWaker {
-//     fn wake(&self, doc_id: usize) {
-//         self.0.send_event(PageframeShellEvent::RequestRedraw { doc_id })
-//     }
-// }
-
 #[cfg(feature = "data-uri")]
 mod data_uri_net_provider {
     //! Data-URI only networking for Pageframe

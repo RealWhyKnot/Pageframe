@@ -17,8 +17,8 @@ impl DocumentUrl {
     }
 
     pub(crate) fn resolve_relative(&self, raw: &str) -> Option<url::Url> {
-        // Dioxus `asset!()` paths are absolute filesystem paths when not bundled. On Windows
-        // these start with a drive letter (`C:\...`), which URL parsing reads as a `c:` scheme.
+        // Absolute filesystem paths on Windows start with a drive letter (`C:\...`),
+        // which URL parsing reads as a `c:` scheme.
         if cfg!(windows)
             && let Some(path) = windows_absolute_path_as_url_path(raw)
         {

@@ -1,9 +1,9 @@
 use pageframe_dom::CopyStyleGetters;
 use std::time::Duration;
 
-use log::warn;
 use pageframe_dom::{BaseDocument, Document as _, Node, NodeId};
 use style_traits::ToCss;
+use tracing::warn;
 
 use super::harness_test;
 use super::{

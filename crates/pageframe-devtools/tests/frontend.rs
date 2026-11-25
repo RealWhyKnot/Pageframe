@@ -63,3 +63,68 @@ fn serves_the_frontend() {
     assert_eq!(get(addr, "/missing.js").0, "HTTP/1.1 404 Not Found");
     assert_eq!(get(addr, "/../Cargo.toml").0, "HTTP/1.1 404 Not Found");
 }
+
+fn status_for(addr: SocketAddr, head: &str) -> String {
+    let mut stream = TcpStream::connect(addr).expect("connect to the CDP server");
+    stream
+        .write_all(format!("{head}\r\n").as_bytes())
+        .expect("send the request");
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .expect("read the response");
+    let text = String::from_utf8_lossy(&response).into_owned();
+    text.lines().next().unwrap_or_default().to_string()
+}
+
+#[test]
+fn refuses_requests_from_web_pages() {
+    let mut server = CdpServer::new(Arc::new(NoopWaker));
+    server.start_listening("127.0.0.1:0");
+    let addr = server
+        .wait_for_local_addr(Duration::from_secs(10))
+        .expect("server should start listening");
+    let forbidden = "HTTP/1.1 403 Forbidden";
+    let upgrade = "Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13";
+
+    assert_eq!(
+        status_for(
+            addr,
+            "GET /json/list HTTP/1.1\r\nHost: evil.example:9222\r\n"
+        ),
+        forbidden
+    );
+    assert_eq!(status_for(addr, "GET /json/list HTTP/1.1\r\n"), forbidden);
+    assert_eq!(
+        status_for(
+            addr,
+            &format!(
+                "GET /json/version HTTP/1.1\r\nHost: {addr}\r\nOrigin: https://evil.example\r\n"
+            )
+        ),
+        forbidden
+    );
+    assert_eq!(
+        status_for(
+            addr,
+            &format!(
+                "GET /devtools/page/1 HTTP/1.1\r\nHost: {addr}\r\nOrigin: https://evil.example\r\n{upgrade}\r\n"
+            )
+        ),
+        forbidden
+    );
+    assert_eq!(
+        status_for(
+            addr,
+            &format!("GET /json/version HTTP/1.1\r\nHost: {addr}\r\n")
+        ),
+        "HTTP/1.1 200 OK"
+    );
+    assert_eq!(
+        status_for(
+            addr,
+            &format!("GET /json/version HTTP/1.1\r\nHost: {addr}\r\nOrigin: http://{addr}\r\n")
+        ),
+        "HTTP/1.1 200 OK"
+    );
+}

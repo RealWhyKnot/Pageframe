@@ -81,6 +81,52 @@ fn open_stream_outlives_the_read_timeout() {
     assert_eq!(text, "data: late\n\n");
 }
 
+fn opened_body(reply: &'static [u8], method: &str) -> (u16, Vec<u8>) {
+    let url = serve_once(move |mut stream| {
+        let _ = stream.write_all(reply);
+        let _ = stream.flush();
+        hold_open(stream);
+    });
+    let mut request = HttpRequest::get(url);
+    request.method = method.to_string();
+    let (done, finished) = channel();
+    std::thread::spawn(move || {
+        let opened = HttpClient::new()
+            .open(&request)
+            .map(|(response, mut body)| {
+                let mut bytes = Vec::new();
+                body.read_to_end(&mut bytes)
+                    .map(|_| (response.status, bytes))
+            });
+        let _ = done.send(opened);
+    });
+    finished
+        .recv_timeout(Duration::from_secs(5))
+        .expect("open returns without waiting for a body")
+        .expect("open succeeds")
+        .expect("read the opened body")
+}
+
+#[test]
+fn open_head_response_has_an_empty_body_despite_its_content_length() {
+    let (status, body) = opened_body(
+        b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n",
+        "HEAD",
+    );
+    assert_eq!(status, 200);
+    assert_eq!(body, b"");
+}
+
+#[test]
+fn open_no_content_response_has_an_empty_body_despite_its_content_length() {
+    let (status, body) = opened_body(
+        b"HTTP/1.1 204 No Content\r\nContent-Length: 10\r\nConnection: close\r\n\r\n",
+        "GET",
+    );
+    assert_eq!(status, 204);
+    assert_eq!(body, b"");
+}
+
 fn cookie_reply(cookie: &'static str) -> impl FnOnce(TcpStream) + Send + 'static {
     move |mut stream| {
         let reply = format!(
@@ -145,4 +191,84 @@ fn methods_that_are_not_tokens_are_refused() {
     let mut request = HttpRequest::get(url);
     request.method = "GET / HTTP/1.1\r\nX: y".to_string();
     assert!(HttpClient::new().request(&request).is_err());
+}
+
+fn reply_and_close(reply: &'static [u8]) -> impl FnOnce(TcpStream) + Send + 'static {
+    move |mut stream| {
+        let _ = stream.write_all(reply);
+    }
+}
+
+fn error_text(url: Url, client: &HttpClient) -> String {
+    client
+        .request(&HttpRequest::get(url))
+        .expect_err("the response should be refused")
+        .to_string()
+}
+
+#[test]
+fn chunked_body_cut_off_before_the_last_chunk_is_an_error() {
+    let url = serve_once(reply_and_close(
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n",
+    ));
+    let error = error_text(url, &HttpClient::new());
+    assert!(error.contains("before the last chunk"), "{error}");
+}
+
+#[test]
+fn chunked_body_cut_off_inside_a_chunk_is_an_error() {
+    let url = serve_once(reply_and_close(
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\na\r\nhel",
+    ));
+    let error = error_text(url, &HttpClient::new());
+    assert!(error.contains("in the middle of a chunk"), "{error}");
+}
+
+#[test]
+fn complete_chunked_body_still_loads() {
+    let url = serve_once(reply_and_close(
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n1\r\n!\r\n0\r\n\r\n",
+    ));
+    let response = HttpClient::new()
+        .request(&HttpRequest::get(url))
+        .expect("a complete chunked body loads");
+    assert_eq!(response.body, b"hello!");
+}
+
+#[test]
+fn body_shorter_than_its_content_length_is_an_error() {
+    let url = serve_once(reply_and_close(
+        b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabc",
+    ));
+    let error = error_text(url, &HttpClient::new());
+    assert!(error.contains("after 3 of 10 bytes"), "{error}");
+}
+
+#[test]
+fn response_larger_than_the_limit_is_refused() {
+    let url = serve_once(reply_and_close(
+        b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n0123456789",
+    ));
+    let error = error_text(url, &HttpClient::new().with_max_response_bytes(4));
+    assert!(error.contains("larger than 4 bytes"), "{error}");
+}
+
+#[test]
+fn declared_length_over_the_limit_is_refused_before_reading() {
+    let url = serve_once(|mut stream| {
+        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 999999\r\n\r\n");
+        hold_open(stream);
+    });
+    let error = error_text(url, &HttpClient::new().with_max_response_bytes(16));
+    assert!(error.contains("larger than 16 bytes"), "{error}");
+}
+
+#[test]
+fn https_gets_a_clear_error() {
+    let url = Url::parse("https://example.invalid/").expect("test url");
+    let error = error_text(url, &HttpClient::new());
+    assert!(
+        error.contains("only speaks plain http, not https"),
+        "{error}"
+    );
 }

@@ -2,83 +2,122 @@ name: WPT
 
 on:
   pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE-*'
+      - 'NOTICE'
+      - '.gitignore'
+      - '.gitattributes'
+      - '.editorconfig'
   push:
-    branches:
-      - main
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE-*'
+      - 'NOTICE'
+      - '.gitignore'
+      - '.gitattributes'
+      - '.editorconfig'
+  workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: wpt-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  RUSTDOCFLAGS: "-D warnings"
-  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: "sparse"
-  WPT_DIR: "./wpt/tests"
+  WPT_DIR: ./wpt/tests
 
 permissions:
   contents: read
 
 jobs:
   wpt:
-    name: "Run WPT Tests"
+    name: Run WPT tests
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: RealWhyKnot/workflows/setup-rust@v1
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          toolchain: stable
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: RealWhyKnot/workflows/setup-rust@v1
+        with:
           cache: 'false'
-      - uses: Swatinem/rust-cache@v2
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          key: "pageframe-wpt-linux"
-          cache-all-crates: "true"
-          cache-workspace-crates: "true"
+          key: pageframe-wpt-linux
+          cache-all-crates: 'true'
+          cache-workspace-crates: 'true'
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      # fonts-tlwg-loma-otf provides a Thai font; some WPT reftests (e.g.
-      # css/css-text/i18n/css3-text-line-break-opclns-201.html) depend on Thai glyphs
-      # rendering at a realistic width rather than as a narrow .notdef box.
+
       - name: Install Fontconfig and fonts
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev fonts-tlwg-loma-otf
+
       - name: Clone WPT tests
         run: git clone --depth 1 --revision "$(cat ./wpt/WPT_COMMIT)" https://github.com/web-platform-tests/wpt ./wpt/tests
+
       - name: Build WPT runner
-        run: cargo build -rp wpt
+        run: cargo build --locked -rp wpt
+
       - name: Run WPT tests
-        run: cargo run -rp wpt css svg
-      - name: Compress report (zstd)
+        run: cargo run --locked -rp wpt css svg
+
+      - name: Compress report
         run: zstd -22 --ultra -o ./wpt/output/wptreport.json.zst ./wpt/output/wptreport.json
-      - uses: actions/upload-artifact@v7
+
+      - name: Upload report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wpt-report.json.zst
           path: ./wpt/output/wptreport.json.zst
-          archive: false # Disables zipping. We are already using zstd compression
-      - name: Copy files for Github pages
+          archive: false
+
+      - name: Fetch the main-branch report
+        id: baseline
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
-          mkdir -p ./sites/gh-pages
-          cp ./wpt/output/wptreport.json ./sites/gh-pages/wptreport.json
-          cp ./wpt/output/wptreport.json.zst ./sites/gh-pages/wptreport.json.zst
+          run_id="$(gh run list --repo "$REPO" --workflow wpt.yml --branch main --event push --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          if [ -z "$run_id" ]; then
+            echo "No finished WPT run on main yet, so there is nothing to compare against."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mkdir -p ./wpt/output/main
+          gh run download "$run_id" --repo "$REPO" --name wpt-report.json.zst --dir ./wpt/output/main
+          zstd -d -o ./wpt/output/main-wptreport.json ./wpt/output/main/wptreport.json.zst
+          echo "found=true" >> "$GITHUB_OUTPUT"
+
       - name: Install wpt cli
-        run: cargo install wpt@0.0.14
-      - name: Generate scores.json
-        run: |
-          wpt calc-scores --in ./sites/gh-pages/wptreport.json --out ./sites/gh-pages/wptscores.json
-          zstd -22 --long --ultra -o ./sites/gh-pages/wptscores.json.zst ./sites/gh-pages/wptscores.json
-      - name: Fetch main-branch results
-        run: curl https://dioxuslabs.github.io/blitz/wptreport.json -o ./wpt/output/main-wptreport.json
+        if: steps.baseline.outputs.found == 'true'
+        run: cargo install --locked wpt@0.0.14
+
       - name: Diff WPT results
+        if: steps.baseline.outputs.found == 'true'
         run: |
           wpt diff ./wpt/output/main-wptreport.json ./wpt/output/wptreport.json | tee ./wpt/output/wptdiff.txt
           wpt diff --verbose --format json ./wpt/output/main-wptreport.json ./wpt/output/wptreport.json > ./wpt/output/wptdiff.json
           python3 ./.github/scripts/wpt_area_changes.py ./wpt/output/main-wptreport.json ./wpt/output/wptreport.json > ./wpt/output/wptareas.json
+
       - name: Render results in step summary
-        if: github.event_name == 'pull_request'
+        if: steps.baseline.outputs.found == 'true'
         env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: python3 ./.github/scripts/wpt_diff_to_pr.py --dry-run --areas ./wpt/output/wptareas.json ./wpt/output/wptdiff.json
+
       - name: Upload WPT diff
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v7
+        if: steps.baseline.outputs.found == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wpt-diff
           path: |

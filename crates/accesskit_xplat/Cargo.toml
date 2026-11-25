@@ -1,11 +1,13 @@
 [package]
 name = "accesskit_xplat"
-version = "0.2.1"
+version.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+repository.workspace = true
 license = "Apache-2.0"
 description = "AccessKit UI accessibility infrastructure: cross-platform adapter"
 keywords = ["gui", "ui", "accessibility"]
 edition.workspace = true
-rust-version.workspace = true
 
 [features]
 default = ["accesskit_unix", "async-io"]
@@ -32,3 +34,9 @@ android-activity = { version = "0.6.0" }
 [dev-dependencies]
 winit-core = { version = "0.31.0-beta.2"}
 raw-window-handle = { version = "0.6"}
+
+[lints.rust]
+unknown_lints = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }

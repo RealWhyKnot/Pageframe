@@ -21,25 +21,27 @@ exclude = ["sites", "vendor"]
 resolver = "2"
 
 [workspace.package]
-version = "0.3.0-beta.4"
+version = "0.1.0"
 license = "MIT OR Apache-2.0"
 categories = ["gui"]
 edition = "2024"
-rust-version = "1.91.0"
+rust-version = "1.99"
+publish = false
+repository = "https://github.com/RealWhyKnot/Pageframe"
 
 [workspace.dependencies]
 # In-repo crates
-pageframe-dom = { version = "=0.3.0-beta.4", path = "./crates/pageframe-dom", default-features = false }
-pageframe-html = { version = "=0.3.0-beta.4", path = "./crates/pageframe-html", default-features = false }
-pageframe-paint = { version = "=0.3.0-beta.4", path = "./crates/pageframe-paint", default-features = false }
-pageframe-script = { version = "=0.3.0-beta.4", path = "./crates/pageframe-script", default-features = false }
-pageframe-shell = { version = "=0.3.0-beta.4", path = "./crates/pageframe-shell", default-features = false }
-pageframe-devtools = { version = "=0.3.0-beta.4", path = "./crates/pageframe-devtools", default-features = false }
-pageframe-traits = { version = "=0.3.0-beta.4", path = "./crates/pageframe-traits", default-features = false }
-stylo_taffy = { version = "=0.3.0-beta.4", path = "./crates/stylo_taffy", default-features = false }
-debug_timer = { version = "0.1.2", path = "./crates/debug_timer" }
+pageframe-dom = { path = "./crates/pageframe-dom", default-features = false }
+pageframe-html = { path = "./crates/pageframe-html", default-features = false }
+pageframe-paint = { path = "./crates/pageframe-paint", default-features = false }
+pageframe-script = { path = "./crates/pageframe-script", default-features = false }
+pageframe-shell = { path = "./crates/pageframe-shell", default-features = false }
+pageframe-devtools = { path = "./crates/pageframe-devtools", default-features = false }
+pageframe-traits = { path = "./crates/pageframe-traits", default-features = false }
+stylo_taffy = { path = "./crates/stylo_taffy", default-features = false }
+debug_timer = { path = "./crates/debug_timer" }
 anyrender_directwrite = { path = "./crates/anyrender_directwrite" }
-accesskit_xplat = { version = "0.2", path = "./crates/accesskit_xplat", default-features = false }
+accesskit_xplat = { path = "./crates/accesskit_xplat", default-features = false }
 pageframe-test-harness = { path = "./crates/pageframe-test-harness" }
 thiserror = "2"
 
@@ -81,10 +83,10 @@ skrifa = { version = "0.44", default-features = false, features = [
 ] } # Should match parley and vello versions
 
 # AnyRender
-anyrender = { git = "https://github.com/DioxusLabs/anyrender", branch = "main" }
-anyrender_vello = { git = "https://github.com/DioxusLabs/anyrender", branch = "main" }
-anyrender_vello_cpu = { git = "https://github.com/DioxusLabs/anyrender", branch = "main" }
-anyrender_svg = { git = "https://github.com/DioxusLabs/anyrender", branch = "main" }
+anyrender = { git = "https://github.com/DioxusLabs/anyrender", rev = "812644a68722626e6755ca8319ffebf53c9cdc4e" }
+anyrender_vello = { git = "https://github.com/DioxusLabs/anyrender", rev = "812644a68722626e6755ca8319ffebf53c9cdc4e" }
+anyrender_vello_cpu = { git = "https://github.com/DioxusLabs/anyrender", rev = "812644a68722626e6755ca8319ffebf53c9cdc4e" }
+anyrender_svg = { git = "https://github.com/DioxusLabs/anyrender", rev = "812644a68722626e6755ca8319ffebf53c9cdc4e" }
 
 # Linebender + Fontations + WGPU + SVG
 color = "0.3"
@@ -106,14 +108,12 @@ cursor-icon = "1"
 url = "2.5.0"
 http = "1.1.0"
 data-url = "0.3.1"
-tokio = "1.42"
 
 # Media & Decoding
 image = { version = "0.25.6", default-features = false }
 wuff = "0.2"
 html-escape = "0.2.13"
 percent-encoding = "2.3.1"
-png = "0.18"
 serde = "1"
 serde_json = "1"
 tungstenite = "0.30"
@@ -235,48 +235,14 @@ opt-level = 3
 [profile.tiny.package.skrifa]
 opt-level = 3
 
-# This is a "virtual package"
-# It is not meant to be published, but is used so "cargo run --example XYZ" works properly
 # glifo 0.4.0 with the unhinted embolden fix (linebender/vello#2049). Drop once it ships.
 [patch.crates-io]
-glifo = { git = "https://github.com/DioxusLabs/vello", branch = "devin/glifo-0.4.0-embolden-2049" }
-vello_common = { git = "https://github.com/DioxusLabs/vello", branch = "devin/glifo-0.4.0-embolden-2049" }
-vello_cpu = { git = "https://github.com/DioxusLabs/vello", branch = "devin/glifo-0.4.0-embolden-2049" }
-vello_gpu = { git = "https://github.com/DioxusLabs/vello", branch = "devin/glifo-0.4.0-embolden-2049" }
+glifo = { git = "https://github.com/DioxusLabs/vello", rev = "be500db2b3a9cb3613de0e2c43f9358635c1f309" }
+vello_common = { git = "https://github.com/DioxusLabs/vello", rev = "be500db2b3a9cb3613de0e2c43f9358635c1f309" }
+vello_cpu = { git = "https://github.com/DioxusLabs/vello", rev = "be500db2b3a9cb3613de0e2c43f9358635c1f309" }
 parley_engine = { path = "./vendor/parley_engine" }
 parley = { path = "./vendor/parley" }
 
 [patch."https://github.com/DioxusLabs/anyrender"]
 anyrender_vello = { path = "./vendor/anyrender_vello" }
 anyrender_vello_cpu = { path = "./vendor/anyrender_vello_cpu" }
-
-# [patch.crates-io]
-# anyrender = { path = "../anyrender/crates/anyrender" }
-# anyrender_skia = { path = "../anyrender/crates/anyrender_skia" }
-# anyrender_vello = { path = "../anyrender/crates/anyrender_vello" }
-# anyrender_vello_cpu = { path = "../anyrender/crates/anyrender_vello_cpu" }
-# anyrender_vello_hybrid = { path = "../anyrender/crates/anyrender_vello_hybrid" }
-# anyrender_svg = { path = "../anyrender/crates/anyrender_svg" }
-# wgpu_context = { path = "../anyrender/crates/wgpu_context" }
-
-# vello = { path = "../vello/vello" }
-# vello_cpu = { path = "../vello/sparse_strips/vello_cpu" }
-# vello_gpu = { path = "../vello/sparse_strips/vello_gpu" }
-# vello_common = { path = "../vello/sparse_strips/vello_common" }
-# glifo = { path = "../vello/glifo" }
-
-# [patch.crates-io]
-# style = { path = "../stylo/style", package = "stylo" }
-# style_traits = { path = "../stylo/style_traits", package = "stylo_traits" }
-# style_atoms = { path = "../stylo/stylo_atoms", package = "stylo_atoms" }
-# style_config = { path = "../stylo/stylo_config", package = "stylo_config" }
-# style_dom = { path = "../stylo/stylo_dom", package = "stylo_dom" }
-# selectors = { path = "../stylo/selectors", package = "selectors" }
-
-# [patch.crates-io]
-# [patch."https://github.com/dioxuslabs/taffy"]
-# taffy = { path = "../taffy" }
-
-# [patch."https://github.com/linebender/parley"]
-# parley = { path = "../parley/parley" }
-# fontique = { path = "../parley/fontique" }

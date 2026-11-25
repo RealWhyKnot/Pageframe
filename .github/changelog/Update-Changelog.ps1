@@ -72,7 +72,7 @@ function ConvertFrom-CommitSubject {
     [CmdletBinding()]
     [OutputType([hashtable])]
 
-    param([string]$Sha, [string]$Subject)
+    param([string]$Sha, [string]$Subject, [string]$Body = '')
 
     $stripped = (Remove-BuildStamp -Subject $Subject) -replace '\s*\(#\d+\)$', ''
     if ([string]::IsNullOrWhiteSpace($stripped)) { return $null }
@@ -88,7 +88,7 @@ function ConvertFrom-CommitSubject {
 
     $type = $m.Groups['type'].Value
     $scope = $m.Groups['scope'].Value
-    $isBreaking = $m.Groups['bang'].Success
+    $isBreaking = $m.Groups['bang'].Success -or $Body -match '(?m)^BREAKING[ -]CHANGE:'
     $desc = $m.Groups['desc'].Value
 
     if ($desc.Length -gt 0) {
@@ -107,8 +107,8 @@ function ConvertFrom-CommitSubject {
         default { $null }
     }
 
-    if (-not $bucket) { return $null }
     if ($isBreaking) { $bucket = 'Breaking' }
+    if (-not $bucket) { return $null }
 
     $scopePrefix = if ($scope) { "**${scope}:** " } else { '' }
     $shortSha = $Sha.Substring(0, 7)
@@ -180,7 +180,7 @@ function ConvertTo-UnreleasedBody {
     param([hashtable]$Buckets)
 
     if ($Buckets.Count -eq 0) {
-        return @('', '_No notable changes since the last release._', '')
+        return @('', '_No notable changes yet._', '')
     }
 
     $out = [Collections.Generic.List[string]]::new()
@@ -210,7 +210,7 @@ function Test-IsAncestor {
 
     param([string]$Sha, [string]$Ref)
 
-    Push-Location $RepoRoot
+    Push-Location -LiteralPath $RepoRoot
     try {
         & git merge-base --is-ancestor $Sha $Ref 2>$null
         $code = $LASTEXITCODE
@@ -273,21 +273,21 @@ function Update-OneFile {
 }
 
 if (-not $RepoRoot) {
-    $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+    $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 }
 
 $RootChangelog = Join-Path $RepoRoot 'CHANGELOG.md'
 
-if (-not (Test-Path $RootChangelog)) { throw "CHANGELOG.md not found at $RootChangelog" }
+if (-not (Test-Path -LiteralPath $RootChangelog)) { throw "CHANGELOG.md not found at $RootChangelog" }
 
 $BucketOrder = @('Breaking', 'Added', 'Changed', 'Fixed')
 
 if ($Mode -eq 'Append') {
     if (-not $Range) { throw 'Append mode requires -Range (e.g. abc..def).' }
 
-    Push-Location $RepoRoot
+    Push-Location -LiteralPath $RepoRoot
     try {
-        $log = & git log --first-parent --no-merges --format='%H%x09%s%x09%ae' $Range 2>$null
+        $log = & git log --first-parent --no-merges --format='%H%x1f%s%x1f%ae%x1f%b%x1e' $Range 2>$null
         if ($LASTEXITCODE -ne 0) {
             Write-Host "::warning::git log returned non-zero for range '$Range' -- treating as no commits."
             return
@@ -304,16 +304,17 @@ if ($Mode -eq 'Append') {
     $newBullets = @{}
     $considered = 0
     $included = 0
-    foreach ($line in ($log -split "`r?`n")) {
-        if ([string]::IsNullOrWhiteSpace($line)) { continue }
-        $parts = $line -split "`t"
+    foreach ($record in (($log -join "`n") -split [char]0x1e)) {
+        if ([string]::IsNullOrWhiteSpace($record)) { continue }
+        $parts = $record.Trim() -split [char]0x1f
         if ($parts.Length -lt 3) { continue }
         $sha = $parts[0]; $subject = $parts[1]; $email = $parts[2]
+        $body = if ($parts.Length -gt 3) { $parts[3] } else { '' }
         $considered++
 
         if ($email -match 'github-actions\[bot\]' -or $email -match 'noreply@github.com') { continue }
 
-        $parsed = ConvertFrom-CommitSubject -Sha $sha -Subject $subject
+        $parsed = ConvertFrom-CommitSubject -Sha $sha -Subject $subject -Body $body
         if (-not $parsed) { continue }
 
         $bucket = $parsed.Bucket
@@ -336,7 +337,7 @@ if ($Mode -eq 'Append') {
 }
 
 if ($Mode -eq 'Promote') {
-    if (-not $Version) { throw 'Promote mode requires -Version (e.g. v2026.4.27.3).' }
+    if (-not $Version) { throw 'Promote mode requires -Version (e.g. v0.1.0).' }
     if (-not $Repo) { throw "Promote mode requires -Repo or `$env:GITHUB_REPOSITORY (e.g. owner/repo)." }
 
     $today = Get-ReleaseDateStamp -NowUtc $NowUtc -Format 'yyyy-MM-dd'

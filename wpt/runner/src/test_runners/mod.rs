@@ -3,12 +3,12 @@ use std::sync::LazyLock;
 use std::time::Duration;
 use std::{fs, sync::Arc, time::Instant};
 
-use log::{debug, warn};
 use pageframe_dom::traversal::TreeTraverser;
 use pageframe_dom::{BaseDocument, Document as _, DocumentConfig};
 use pageframe_html::{HtmlDocument, HtmlProvider};
 use pageframe_script::ScriptDocument;
 use regex::Regex;
+use tracing::{debug, warn};
 
 use harness_test::WptScriptFetcher;
 

@@ -1,21 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 shopt -s inherit_errexit
-
-root=$(git rev-parse --show-toplevel)
-cd "${root}"
-python -B .github/lint/style_check.py
-cargo fmt --all --check
-timeout 1200 cargo clippy -p pageframe --all-targets --locked -- -D warnings
-timeout 1200 cargo test -p pageframe --locked
-timeout 600 pwsh -NoProfile -File .github/lint/Invoke-PSLint.ps1
-timeout 600 pwsh -NoProfile -File .github/changelog/Test-UpdateChangelog.ps1
-npx --no-install stylelint '**/*.{css,html}' --max-warnings 0
-npx --no-install prettier --check .
-if [[ ${OSTYPE} == msys* || ${OSTYPE} == cygwin* ]]; then
-  windows_root=$(pwd -W)
-  MSYS_NO_PATHCONV=1 timeout 180 wsl --distribution "${LINT_WSL_DISTRO:?Set LINT_WSL_DISTRO to your lint distro}" \
-    --cd "${windows_root}" -- bash .githooks/check-shell
-else
-  bash .githooks/check-shell
+repo_root=$(git rev-parse --show-toplevel)
+cd "${repo_root}"
+if [[ ! -d node_modules ]]; then
+  printf '%s\n' 'npm ci'
+  npm ci
 fi
+printf '%s\n' 'cargo fmt --check'
+cargo fmt --check
+printf '%s\n' 'cargo clippy --workspace --all-targets --locked -- -D warnings'
+cargo clippy --workspace --all-targets --locked -- -D warnings
+printf '%s\n' 'cargo test --workspace --all-targets --locked'
+cargo test --workspace --all-targets --locked
+printf '%s\n' 'rust-style.awk'
+git ls-files -z -- '*.rs' | xargs -0 -r awk -f .github/lint/rust-style.awk
+printf '%s\n' 'prettier --check'
+git ls-files -z | xargs -0 -r -n 150 npx --no-install prettier --check --ignore-unknown --log-level warn
+printf '%s\n' 'stylelint'
+git ls-files -z -- '*.css' '*.html' | xargs -0 -r npx --no-install stylelint --max-warnings 0
+printf '%s\n' 'python -B .github/lint/style_check.py'
+python -B .github/lint/style_check.py .
+printf '%s\n' 'python -m unittest discover -s .github/scripts'
+python -B -m unittest discover -s .github/scripts
+printf '%s\n' 'repo_checks.sh'
+bash .github/lint/repo_checks.sh
+printf '%s\n' 'Invoke-PSLint.ps1'
+pwsh -NoProfile -File .github/lint/Invoke-PSLint.ps1
+printf '%s\n' 'Test-UpdateChangelog.ps1'
+pwsh -NoProfile -File .github/changelog/Test-UpdateChangelog.ps1
+printf '%s\n' 'Test-GetNightlyBetaPlan.ps1'
+pwsh -NoProfile -File .github/scripts/Test-GetNightlyBetaPlan.ps1
+printf '%s\n' 'check-shell'
+bash .github/lint/check-shell

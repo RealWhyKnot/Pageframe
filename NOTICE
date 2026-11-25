@@ -1,9 +1,57 @@
 Pageframe
+Copyright (c) 2026 WhyKnot
 
-Pageframe is a fork of Blitz (https://github.com/DioxusLabs/blitz) by
-DioxusLabs and the Blitz contributors, used under the MIT and Apache-2.0
-licenses. The code in crates/ (other than crates/pageframe), tests/, wpt/ and
-docs/ comes from Blitz, with changes.
+Pageframe is licensed under MIT OR Apache-2.0 (LICENSE-MIT, LICENSE-APACHE).
+It includes code from the projects below. docs/licensing.md covers what their
+licenses mean for an app you ship.
 
-Some dependencies, including Stylo from the Servo project, are licensed under
-MPL-2.0. See docs/licensing.md.
+Blitz
+  https://github.com/DioxusLabs/blitz
+  Copyright (c) DioxusLabs and the Blitz contributors. MIT OR Apache-2.0.
+  Pageframe started from Blitz at commit b6bb45c. The crates in crates/ other
+  than crates/pageframe, and the code in tests/, wpt/ and docs/, come from
+  Blitz and have been changed since.
+
+Stylo
+  https://github.com/servo/stylo
+  Copyright (c) the Servo and Mozilla contributors. MPL-2.0, with servo_arc
+  and malloc_size_of under MIT OR Apache-2.0.
+  vendor/stylo holds a copy of Stylo 0.23.0 with local changes, including
+  :has() and container queries, CSS counters and quotes, -webkit-line-clamp,
+  text-wrap: balance, column rules and column filling, scrollbar-gutter, and
+  device-pixel snapping for borders. The changed files stay under MPL-2.0, and
+  their source is the vendor/stylo folder of this repository. The license text
+  is in vendor/stylo/LICENSE-MPL-2.0.
+
+Parley
+  https://github.com/linebender/parley
+  Copyright (c) the Linebender contributors. Apache-2.0 OR MIT.
+  vendor/parley and vendor/parley_engine hold a copy of Parley 0.12.0 with
+  local changes to line breaking, bidi text and vertical text.
+
+anyrender
+  https://github.com/DioxusLabs/anyrender
+  Copyright (c) DioxusLabs and the anyrender contributors. MIT OR Apache-2.0.
+  vendor/anyrender_vello and vendor/anyrender_vello_cpu hold copies of the
+  anyrender Vello backends with local changes, including DirectWrite glyph
+  drawing on Windows.
+
+AccessKit
+  https://github.com/AccessKit/accesskit
+  Copyright (c) the AccessKit contributors. Apache-2.0.
+  crates/accesskit_xplat is based on AccessKit's cross-platform adapter.
+
+Servo user-agent stylesheet
+  crates/pageframe-dom/assets/default.css comes from Servo and is MPL-2.0, as
+  its header says.
+
+Mozilla Bullet font
+  crates/pageframe-dom/assets/moz-bullet-font.otf is the Mozilla Bullet font
+  by Mats Palmgren for Mozilla, version 1.0. The file has no license notice.
+  See docs/licensing.md.
+
+Preact
+  https://github.com/preactjs/preact
+  Copyright (c) 2015-present Jason Miller. MIT.
+  crates/pageframe-script/tests/preact_app/vendor holds an unmodified copy of
+  Preact 10.29.4, used only by tests. Its license is in that folder.

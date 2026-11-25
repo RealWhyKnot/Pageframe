@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing release tag to publish (vYYYY.M.D.N or vYYYY.M.D.N-beta)
+        description: Existing release tag to publish (vX.Y.Z or vX.Y.Z-beta.YYYYMMDD.N)
         required: true
         type: string
   workflow_call:
@@ -17,7 +17,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release
@@ -38,8 +38,9 @@ jobs:
       prerelease: ${{ steps.tag.outputs.prerelease }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
           ref: ${{ inputs.tag || github.ref }}
 
@@ -48,12 +49,29 @@ jobs:
         uses: RealWhyKnot/workflows/resolve-tag@v1
         with:
           tag: ${{ inputs.tag || github.ref_name }}
-          tag-pattern: '^v\d{4}\.\d+\.\d+\.\d+(-beta)?$'
+          tag-pattern: '^v\d+\.\d+\.\d+(-beta\.\d{8}\.\d+)?$'
+          prerelease-pattern: '-beta\.'
 
-      - name: Validate release version sequence
-        uses: RealWhyKnot/workflows/version-sequence@v1
-        with:
-          tag: ${{ steps.tag.outputs.tag }}
+      - name: Check Cargo.toml matches the release
+        if: steps.tag.outputs.prerelease != 'true'
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          $section = ''
+          $cargo = ''
+          foreach ($line in [System.IO.File]::ReadAllLines((Join-Path (Get-Location) 'Cargo.toml'))) {
+            $trimmed = $line.Trim()
+            if ($trimmed -match '^\[.*\]$') { $section = $trimmed; continue }
+            if ($section -eq '[workspace.package]' -and $trimmed -match '^version\s*=\s*"([^"]*)"') {
+              $cargo = $Matches[1]
+              break
+            }
+          }
+          if ($cargo -ne $env:VERSION) {
+            throw "Cargo.toml [workspace.package] version is '$cargo' but the tag is v$($env:VERSION)."
+          }
+          Write-Host "Cargo.toml version $cargo matches the tag."
 
       - name: Wait for CI
         uses: RealWhyKnot/workflows/wait-for-ci@v1
@@ -71,8 +89,9 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ needs.validate.outputs.tag }}
 
       - name: Install Linux build dependencies
@@ -83,25 +102,31 @@ jobs:
       - name: Set up Rust
         uses: RealWhyKnot/workflows/setup-rust@v1
         with:
-          toolchain: stable
           cache-key: cargo-release
 
       - name: Test
-        run: cargo test -p pageframe --locked
+        run: cargo test --workspace --all-targets --locked
 
       - name: Test the changelog scripts
         shell: pwsh
         run: ./.github/changelog/Test-UpdateChangelog.ps1
+
+      - name: Test the nightly beta planner
+        shell: pwsh
+        run: ./.github/scripts/Test-GetNightlyBetaPlan.ps1
 
   publish:
     name: Publish ${{ needs.validate.outputs.tag }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [validate, test]
+    permissions:
+      contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
           fetch-tags: true
           ref: ${{ needs.validate.outputs.tag }}
@@ -128,13 +153,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [validate, publish]
+    permissions:
+      contents: write
     concurrency:
       group: changelog-append
       cancel-in-progress: false
     steps:
       - name: Checkout main
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: main
           fetch-depth: 0
           fetch-tags: true
