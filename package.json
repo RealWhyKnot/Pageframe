@@ -2,10 +2,10 @@
   "name": "pageframe-lint",
   "private": true,
   "devDependencies": {
-    "postcss-html": "2.0.0",
+    "postcss-html": "2.0.1",
     "prettier": "3.10.1",
-    "stylelint": "18.0.0",
-    "stylelint-config-standard": "41.0.0",
+    "stylelint": "18.1.0",
+    "stylelint-config-standard": "41.1.0",
     "stylelint-high-performance-animation": "2.1.0"
   },
   "overrides": {
