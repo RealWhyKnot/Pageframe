@@ -1,8 +1,6 @@
 # Contributing to Pageframe
 
-I maintain Pageframe on my own, and I'm picky about how the code is structured, how it's styled, and how features fit together. If you hit a bug or want something changed, please [open an issue](https://github.com/RealWhyKnot/Pageframe/issues/new) before you write a pull request. A description of the problem, the HTML and CSS that shows it, or what you're trying to build helps me more than a PR I didn't expect.
-
-If you have a bigger change in mind, open an issue first so we can agree on the approach before you spend time on code.
+I maintain Pageframe on my own. Before writing a pull request, [open an issue](https://github.com/RealWhyKnot/Pageframe/issues/new) and describe the bug or what you're trying to build. For a bigger change, let's agree on the approach before you spend time on the code.
 
 Pageframe is early and changes faster than the docs. If the docs and the code disagree, go by the code.
 
@@ -10,11 +8,11 @@ Pageframe is early and changes faster than the docs. If the docs and the code di
 
 For a rendering bug, include the smallest page that shows it, what Chrome draws, and what Pageframe draws. For a crash, paste the panic message and backtrace exactly as they appeared.
 
-Report security problems through the private advisory form described in [SECURITY.md](.github/SECURITY.md), never in a public issue.
+Use the private advisory form in the [security policy](.github/SECURITY.md) for security reports.
 
 ## Building
 
-You need Rust 1.99 or newer from [rustup](https://rustup.rs), Python 3 for Stylo's build script, and a C toolchain. The repository pins the toolchain it's tested with in `rust-toolchain.toml`, and rustup picks it up on its own.
+You need Rust 1.99 or newer from [rustup](https://rustup.rs), Python 3 for Stylo's build script, and a C toolchain. Rustup reads `rust-toolchain.toml` and selects the version Pageframe tests with.
 
 - Windows: install the Visual Studio C++ build tools and any Python 3.
 - macOS: Python comes with the Xcode Command Line Tools, which also provide the C toolchain.
@@ -22,11 +20,11 @@ You need Rust 1.99 or newer from [rustup](https://rustup.rs), Python 3 for Stylo
 
 The file dialog in `pageframe-shell` uses `rfd` with its `xdg-portal` backend on Linux. A dialog only opens if `xdg-desktop-portal` and a backend for your desktop are running, or if `zenity` is installed.
 
-Audio and video play through Windows Media Foundation, so the media playback tests only build and run on Windows. On other platforms media elements use a stub that never plays.
+Audio and video playback uses Windows Media Foundation. The playback tests run on Windows. Media elements can load on other platforms, where playback is unavailable.
 
 ## Checks
 
-Turn on the repository's git hooks once after cloning:
+Turn on the Git hooks after cloning.
 
 ```sh
 git config core.hooksPath .githooks
@@ -34,7 +32,7 @@ git config core.hooksPath .githooks
 
 The `commit-msg` hook checks the subject format described under [Commit messages](#commit-messages).
 
-The `pre-push` hook runs the same checks as CI, natively on Windows, macOS and Linux:
+The `pre-push` hook runs the following checks on Windows, macOS and Linux.
 
 - `cargo fmt --check`
 - `cargo clippy --workspace --all-targets --locked -- -D warnings`
@@ -56,11 +54,11 @@ Subjects use [Conventional Commits](https://www.conventionalcommits.org): `type(
 
 - `type` is one of `feat`, `fix`, `chore`, `ci`, `docs`, `refactor`, `revert`, `test`, `perf`, `diag` or `style`. The `commit-msg` hook checks this.
 - If the change breaks the public API or changes behavior people rely on, mark it: put `!` after the type or scope (`feat(dom)!: drop Document::old_call`), or add a `BREAKING CHANGE:` footer that says what broke and how to update. The nightly beta and the changelog both read these markers.
-- If there's a body, it explains why. The diff already shows what.
+- Use the body to explain why you made the change.
 
 ## Releases
 
-Versions follow [Semantic Versioning](https://semver.org), as described in the [README](README.md#versioning). The version lives in `[workspace.package]` in the root `Cargo.toml`, and every crate inherits it.
+Versions follow [Semantic Versioning](https://semver.org), as described in the [README](README.md#versioning). Pageframe crates inherit their version from `[workspace.package]` in the root `Cargo.toml`.
 
 - A nightly job tags a prerelease like `v0.2.0-beta.20261124.0` when `main` has shippable changes. It picks the version from the commit markers above.
 - A stable release is tagged `vX.Y.Z`. Bump `Cargo.toml` to `X.Y.Z` first. The release workflow fails if the tag and `Cargo.toml` disagree.

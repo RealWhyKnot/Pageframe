@@ -1,8 +1,25 @@
 # Pageframe
 
-Pageframe renders HTML and CSS natively for Rust desktop apps. Stylo styles the page, Taffy and Parley lay it out, and Vello draws it. You can drive the page from Rust, or load a page that runs its own JavaScript.
+<p align="center"><img src=".github/assets/banner.png" alt="Pageframe" width="100%"></p>
 
-Pageframe started as a fork of [Blitz](https://github.com/DioxusLabs/blitz) at commit [b6bb45c](https://github.com/DioxusLabs/blitz/commit/b6bb45c550a9490afa6c43468c77535c6d76856d). The history before that commit is in the Blitz repository.
+<p align="center">
+  <a href="https://github.com/RealWhyKnot/Pageframe/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/RealWhyKnot/Pageframe/ci.yml?branch=main&amp;label=ci&amp;style=flat-square&amp;labelColor=121316"></a>
+  <img alt="Windows, macOS and Linux" src="https://img.shields.io/badge/platform-windows%20%7C%20macos%20%7C%20linux-e27252?style=flat-square&amp;labelColor=121316">
+  <a href="#license"><img alt="MIT / Apache-2.0" src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-e27252?style=flat-square&amp;labelColor=121316"></a>
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="https://github.com/RealWhyKnot/Pageframe/issues/new">Report a bug</a> ·
+  <a href="https://github.com/RealWhyKnot/Pageframe/releases">Releases</a> ·
+  <a href=".github/SECURITY.md">Security</a>
+</p>
+
+Pageframe renders HTML and CSS natively in Rust desktop apps. You can handle events and update the page from Rust or load a page that runs its own JavaScript. Stylo computes styles, Taffy and Parley handle layout, and Vello draws the page.
+
+Pageframe forked [Blitz](https://github.com/DioxusLabs/blitz) at [commit b6bb45c](https://github.com/DioxusLabs/blitz/commit/b6bb45c550a9490afa6c43468c77535c6d76856d). Earlier history is in the Blitz repository.
+
+## Quick start
 
 ```rust
 use pageframe::{App, Error, EventKind};
@@ -23,14 +40,14 @@ fn main() -> Result<(), Error> {
 }
 ```
 
-Run it with `cargo run -p pageframe --example counter`. `cargo run -p pageframe --example todo` opens a bigger example, the to-do list in `crates/pageframe/examples/todo`.
+Run the counter with `cargo run -p pageframe --example counter`. For a larger example, run `cargo run -p pageframe --example todo` or read the [to-do list source](crates/pageframe/examples/todo).
 
 ## What it does
 
-- HTML and CSS: Stylo handles selectors, the cascade and computed styles, and Taffy and Parley handle layout and text.
+- HTML and CSS, including selectors, the cascade, layout and text.
 - JavaScript and the DOM through the [Boa](https://github.com/boa-dev/boa) engine, including ES modules.
-- `fetch()` and `EventSource` over plain HTTP. The built-in client doesn't speak HTTPS, so an `https:` URL fails with a clear error. To load HTTPS pages, pass your own `NetProvider`.
-- Cookies, and an `ipc` object that lets page scripts call into your Rust code.
+- `fetch()` and `EventSource` over HTTP. To load HTTPS pages, supply your own `NetProvider`.
+- Cookies and an `ipc` object that lets page scripts call into your Rust code.
 - Canvas 2D and `OffscreenCanvas`, modal `<dialog>`, form controls, and clipboard access through the host.
 - Audio, video and Web Audio through Windows Media Foundation. On other platforms, media elements load but don't play.
 - An opt-in Chrome DevTools server for inspecting a running page.
@@ -55,7 +72,7 @@ In a handler, `ui.select(selector)` returns the matching elements. Read them wit
 - `on_navigation` decides which links the page may follow. Without it, a session only follows links on the same origin.
 - `take_events` reports title, cursor, clipboard and navigation changes for your window to act on.
 
-The IPC handler answers whichever page is loaded. If you let a session navigate to a remote site, that site's scripts can call your handlers too, so check `session.url()` before acting on a request.
+Scripts on the loaded page can call your IPC handlers. If the session can navigate to a remote site, check `session.url()` before acting on an IPC request.
 
 ## Features
 
@@ -68,7 +85,7 @@ The IPC handler answers whichever page is loaded. If you let a session navigate 
 | `accessibility` | Exposes the page to screen readers through AccessKit.                                             |
 | `software`      | Draws windows on the CPU. It's used when `gpu` is off, so set `default-features = false` with it. |
 
-With neither `gpu` nor `software` there's no `.run()`, but `app.page(..)` still builds the page.
+Use either `gpu` or `software` to open a window with `.run()`. `app.page(..)` also works with both features off.
 
 DevTools is a feature of `pageframe-shell`. Turn on `devtools` to start a Chrome DevTools Protocol server on localhost, and `embedded-devtools-frontend` to serve the DevTools page from that server, so any Chromium browser can open it.
 
@@ -99,26 +116,33 @@ assert_eq!(harness.text_content("#count"), "1");
 
 ## Adding it to your project
 
-The crates aren't published to crates.io. Depend on the repository, and add a `[patch]` section so Cargo uses the same vello/glifo, Parley and anyrender copies the workspace does:
+Pageframe is available through Git. Add the dependency and both patch tables to your workspace root `Cargo.toml`. Replace `PAGEFRAME_COMMIT` with the same commit SHA in all five entries.
 
 ```toml
 [dependencies]
-pageframe = { git = "https://github.com/RealWhyKnot/Pageframe" }
+pageframe = { git = "https://github.com/RealWhyKnot/Pageframe.git", rev = "PAGEFRAME_COMMIT" }
+
+[patch.crates-io]
+glifo = { git = "https://github.com/DioxusLabs/vello", rev = "be500db2b3a9cb3613de0e2c43f9358635c1f309" }
+vello_common = { git = "https://github.com/DioxusLabs/vello", rev = "be500db2b3a9cb3613de0e2c43f9358635c1f309" }
+vello_cpu = { git = "https://github.com/DioxusLabs/vello", rev = "be500db2b3a9cb3613de0e2c43f9358635c1f309" }
+parley = { git = "https://github.com/RealWhyKnot/Pageframe.git", rev = "PAGEFRAME_COMMIT" }
+parley_engine = { git = "https://github.com/RealWhyKnot/Pageframe.git", rev = "PAGEFRAME_COMMIT" }
+
+[patch."https://github.com/DioxusLabs/anyrender"]
+anyrender_vello = { git = "https://github.com/RealWhyKnot/Pageframe.git", rev = "PAGEFRAME_COMMIT" }
+anyrender_vello_cpu = { git = "https://github.com/RealWhyKnot/Pageframe.git", rev = "PAGEFRAME_COMMIT" }
 ```
 
-Copy the `[patch.crates-io]` and `[patch."https://github.com/DioxusLabs/anyrender"]` sections from this repository's `Cargo.toml`, pointing each `path` at a checkout of Pageframe.
+Cargo uses the patch tables from your workspace root. For a local checkout, use a path to `crates/pageframe` and copy both tables from [Pageframe's Cargo.toml](Cargo.toml). Set each patch path to its directory in that checkout.
 
 You need Rust 1.99 or newer and Python 3, which Stylo's build script uses. On Linux you also need `pkg-config` and `libfontconfig-dev`. [CONTRIBUTING.md](CONTRIBUTING.md) has the full list.
-
-## Status
-
-Pageframe is early, and the API will change. The version number tells you when.
 
 ## Versioning
 
 Pageframe follows [Semantic Versioning](https://semver.org) (`MAJOR.MINOR.PATCH`), starting at `0.1.0`.
 
-Before `1.0.0`, a minor bump (`0.1.0` to `0.2.0`) means something in the API or its behavior broke, and a patch bump (`0.1.0` to `0.1.1`) is safe to take without changes on your side.
+Before `1.0.0`, Pageframe uses a minor bump (`0.1.0` to `0.2.0`) for breaking changes to the API or its behavior. Patch bumps (`0.1.0` to `0.1.1`) keep existing apps compatible.
 
 From `1.0.0` on, a major bump breaks things, a minor bump adds features that keep working with your code, and a patch bump fixes bugs.
 
@@ -133,4 +157,4 @@ Nightly prereleases are tagged like `v0.2.0-beta.20261124.0`: the version the ne
 
 ## License
 
-MIT or Apache-2.0, at your option ([LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)). The vendored Stylo in `vendor/stylo` and some dependencies are MPL-2.0. [docs/licensing.md](docs/licensing.md) explains what that means for an app you ship, and [NOTICE](NOTICE) credits the Blitz authors and the other code included here.
+MIT or Apache-2.0, at your option ([LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)). The vendored Stylo and some dependencies use MPL-2.0. See the [licensing guide](docs/licensing.md) for what to include with your app and [NOTICE](NOTICE) for third-party credits.

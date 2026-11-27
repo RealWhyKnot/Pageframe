@@ -386,23 +386,15 @@ impl<'dom, 'a> PageframeDomPainter<'dom, 'a> {
                     * Affine::translate((x * self.scale, y * self.scale))
                     * cx.inline_axes(is_vertical)
                     * Affine::translate((0.0, f64::from(layout.block_offset) * self.scale));
-                let (text_transform, inline_extent) = if is_vertical {
-                    (
-                        snap_vertical_baseline(text_transform, transform),
-                        layout_box.content_box_height() - subpixel_offset.y,
-                    )
+                let text_transform = if is_vertical {
+                    snap_vertical_baseline(text_transform, transform)
                 } else {
-                    (
-                        text_transform,
-                        layout_box.content_box_width() - subpixel_offset.x,
-                    )
+                    text_transform
                 };
                 let (visible_lines, ellipsis) = line_ellipsis(
                     &styles,
                     &layout.layout,
-                    (f64::from(inline_extent) * self.scale)
-                        .to_f32()
-                        .unwrap_or(0.0),
+                    cx.inline_content_extent(is_vertical),
                     pageframe_dom::util::inherited_clamp_line(node),
                 );
                 crate::text::stroke_text(
@@ -1701,11 +1693,6 @@ impl ElementCx<'_, '_> {
                 y: pos.y + f64::from(subpixel_offset.y),
             };
             let is_vertical = self.style.writing_mode.is_vertical();
-            let inline_extent = if is_vertical {
-                self.frame.content_box.height() - f64::from(subpixel_offset.y) * self.scale
-            } else {
-                self.frame.content_box.width() - f64::from(subpixel_offset.x) * self.scale
-            };
             let transform = self.transform
                 * Affine::translate((origin.x * self.scale, origin.y * self.scale))
                 * self.inline_axes(is_vertical)
@@ -1719,7 +1706,7 @@ impl ElementCx<'_, '_> {
             let (visible_lines, ellipsis) = line_ellipsis(
                 &self.style,
                 &text_layout.layout,
-                inline_extent.to_f32().unwrap_or(0.0),
+                self.inline_content_extent(is_vertical),
                 pageframe_dom::util::inherited_clamp_line(self.node),
             );
 
@@ -1727,37 +1714,37 @@ impl ElementCx<'_, '_> {
         }
     }
 
+    fn inline_content_extent(&self, is_vertical: bool) -> f32 {
+        let content = self.node.layout_data().unsnapped.content_box_size();
+        let extent = if is_vertical {
+            content.height
+        } else {
+            content.width
+        };
+        (f64::from(extent) * self.scale).to_f32().unwrap_or(0.0)
+    }
+
     fn inline_axes(&self, is_vertical: bool) -> Affine {
         if !is_vertical {
             return Affine::IDENTITY;
         }
-        let unsnapped = self.node.layout_data().unsnapped;
+        let content = self.node.layout_data().unsnapped.content_box_size();
         if self.style.writing_mode.line_left_is_bottom() {
-            let content_height = unsnapped.size.height
-                - unsnapped.border.top
-                - unsnapped.border.bottom
-                - unsnapped.padding.top
-                - unsnapped.padding.bottom;
             return Affine::new([
                 0.0,
                 -1.0,
                 1.0,
                 0.0,
                 0.0,
-                f64::from(content_height) * self.scale,
+                f64::from(content.height) * self.scale,
             ]);
         }
-        let content_width = unsnapped.size.width
-            - unsnapped.border.left
-            - unsnapped.border.right
-            - unsnapped.padding.left
-            - unsnapped.padding.right;
         Affine::new([
             0.0,
             1.0,
             -1.0,
             0.0,
-            f64::from(content_width) * self.scale,
+            f64::from(content.width) * self.scale,
             0.0,
         ])
     }

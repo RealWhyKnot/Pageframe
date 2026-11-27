@@ -5,10 +5,12 @@ use anyrender::PaintScene;
 use kurbo::{Affine, BezPath, Cap, Join, Rect, Stroke};
 use pageframe_dom::CopyStyleGetters as _;
 use pageframe_dom::{GaugeRegion, local_name};
+use pageframe_traits::shell::ColorScheme;
 use peniko::Fill;
 use style::dom::TElement as _;
 use style::values::computed::Appearance;
 use style::values::generics::color::ColorOrAuto;
+use style::values::specified::color::ColorSchemeFlags;
 
 const UNZOOM_SLACK: f64 = 1.0 / 1024.0;
 
@@ -18,6 +20,10 @@ const DISABLED_ACCENT: Color = Color::from_rgba8(0xd1, 0xd1, 0xd1, 0xff);
 const DISABLED_BACKGROUND: Color = Color::from_rgba8(0xf8, 0xf8, 0xf8, 0xff);
 const DISABLED_CHECKMARK: Color = Color::from_rgba8(0xed, 0xed, 0xed, 0xff);
 const DARK_FOREGROUND: Color = Color::from_rgba8(0x3b, 0x3b, 0x3b, 0xff);
+const DARK_ACCENT: Color = Color::from_rgba8(0x99, 0xc8, 0xff, 0xff);
+const DARK_BORDER: Color = Color::from_rgba8(0x85, 0x85, 0x85, 0xff);
+const DARK_DISABLED_ACCENT: Color = Color::from_rgba8(0x75, 0x75, 0x75, 0xff);
+const DARK_DISABLED_BORDER: Color = Color::from_rgba8(0x62, 0x62, 0x62, 0xff);
 const MIN_FOREGROUND_CONTRAST: f32 = 3.0;
 const CHECKBOX_RADIUS: f64 = 2.0;
 const BORDER_WIDTH: f64 = 1.0;
@@ -130,7 +136,11 @@ impl ElementCx<'_, '_> {
         let (track_fill, value_fill, track_border) = if self.node.is_disabled() {
             (DISABLED_TRACK_FILL, DISABLED_SLIDER, DISABLED_TRACK_BORDER)
         } else {
-            (TRACK_FILL, self.control_colors().accent, TRACK_BORDER)
+            (
+                TRACK_FILL,
+                self.control_accent(DEFAULT_ACCENT),
+                TRACK_BORDER,
+            )
         };
         let border_box = self.frame.border_box;
         let content = self.frame.content_box;
@@ -205,7 +215,11 @@ impl ElementCx<'_, '_> {
             .min(track.height() / 2.0);
         let shape = track.to_rounded_rect(radius);
         scene.fill(Fill::NonZero, self.transform, TRACK_FILL, None, &shape);
-        let accent = self.control_colors().accent;
+        let accent = if self.node.is_disabled() {
+            DISABLED_ACCENT
+        } else {
+            self.control_accent(DEFAULT_ACCENT)
+        };
         let position = self.element.progress_position();
         let length = match position {
             Some(position) => (rect.width() * position).trunc(),
@@ -334,36 +348,55 @@ impl ElementCx<'_, '_> {
     }
 
     fn control_colors(&self) -> ControlColors {
+        let schemes = self.style.get_inherited_ui().color_scheme_bits();
+        let dark = schemes.contains(ColorSchemeFlags::DARK)
+            && (!schemes.contains(ColorSchemeFlags::LIGHT)
+                || self.context.dom.viewport().color_scheme == ColorScheme::Dark);
         if self.node.is_disabled() {
-            return ControlColors {
-                accent: DISABLED_ACCENT,
-                border: DISABLED_ACCENT,
-                background: DISABLED_BACKGROUND,
-                checked_foreground: DISABLED_CHECKMARK,
-                checked_background: DISABLED_BACKGROUND,
+            return if dark {
+                ControlColors {
+                    accent: DARK_DISABLED_ACCENT,
+                    border: DARK_DISABLED_BORDER,
+                    background: DARK_FOREGROUND,
+                    checked_foreground: DARK_FOREGROUND,
+                    checked_background: DARK_FOREGROUND,
+                }
+            } else {
+                ControlColors {
+                    accent: DISABLED_ACCENT,
+                    border: DISABLED_ACCENT,
+                    background: DISABLED_BACKGROUND,
+                    checked_foreground: DISABLED_CHECKMARK,
+                    checked_background: DISABLED_BACKGROUND,
+                }
             };
         }
-        let accent = match &self.style.get_inherited_ui().accent_color {
-            ColorOrAuto::Auto => DEFAULT_ACCENT,
-            ColorOrAuto::Color(color) => color
-                .resolve_to_absolute(&self.style.get_inherited_text().color)
-                .as_srgb_color(),
-        };
-        let checked_foreground = if contrast_ratio(accent, Color::WHITE) < MIN_FOREGROUND_CONTRAST {
-            DARK_FOREGROUND
+        let (default_accent, border, background, opposite) = if dark {
+            (DARK_ACCENT, DARK_BORDER, DARK_FOREGROUND, Color::WHITE)
         } else {
-            Color::WHITE
+            (DEFAULT_ACCENT, BORDER, Color::WHITE, DARK_FOREGROUND)
+        };
+        let accent = self.control_accent(default_accent);
+        let checked_foreground = if contrast_ratio(accent, background) < MIN_FOREGROUND_CONTRAST {
+            opposite
+        } else {
+            background
         };
         ControlColors {
             accent,
-            border: BORDER,
-            background: Color::WHITE,
+            border,
+            background,
             checked_foreground,
-            checked_background: if checked_foreground == DARK_FOREGROUND {
-                DARK_FOREGROUND
-            } else {
-                Color::WHITE
-            },
+            checked_background: checked_foreground,
+        }
+    }
+
+    fn control_accent(&self, default: Color) -> Color {
+        match &self.style.get_inherited_ui().accent_color {
+            ColorOrAuto::Auto => default,
+            ColorOrAuto::Color(color) => color
+                .resolve_to_absolute(&self.style.get_inherited_text().color)
+                .as_srgb_color(),
         }
     }
 }

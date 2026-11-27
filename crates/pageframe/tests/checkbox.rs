@@ -81,3 +81,28 @@ fn appearance_none_drops_the_native_checkbox_and_radio() {
     assert_eq!(pixel(&buffer, 63, 16), [255, 165, 0, 255]);
     assert_eq!(pixel(&buffer, 70, 10), [255, 165, 0, 255]);
 }
+
+#[test]
+fn dark_color_scheme_themes_native_toggles_and_preserves_custom_paint() {
+    let page = r#"<!doctype html><html style="color-scheme:dark"><style>
+body { margin: 0; background: rgb(16, 17, 18); }
+input { position: absolute; top: 4px; width: 16px; height: 16px; margin: 0; }
+.light { color-scheme: light; }
+.custom { appearance: none; background: rgb(32, 42, 52); border: 2px solid rgb(90, 100, 110); }
+</style><body>
+<input type="checkbox" style="left:4px">
+<input type="radio" style="left:24px">
+<input class="light" type="checkbox" style="left:44px">
+<input class="custom" type="checkbox" style="left:64px">
+<input class="custom" type="checkbox" style="left:84px" checked>
+</body></html>"#;
+    let mut harness = open(App::new((), page));
+    let buffer = render(&mut harness);
+    assert_eq!(pixel(&buffer, 12, 12), [59, 59, 59, 255]);
+    assert_eq!(pixel(&buffer, 32, 12), [59, 59, 59, 255]);
+    assert_eq!(pixel(&buffer, 52, 12), [255, 255, 255, 255]);
+    for left in [64, 84] {
+        assert_eq!(pixel(&buffer, left + 8, 12), [32, 42, 52, 255]);
+        assert_eq!(pixel(&buffer, left, 12), [90, 100, 110, 255]);
+    }
+}

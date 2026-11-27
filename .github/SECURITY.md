@@ -4,11 +4,9 @@ Pageframe is early software that loads HTML, CSS and JavaScript into a desktop a
 
 ## Reporting
 
-**Don't open a public issue for security reports.**
+Report security problems privately through [GitHub Security Advisories](https://github.com/RealWhyKnot/Pageframe/security/advisories/new).
 
-Use [GitHub Security Advisories](https://github.com/RealWhyKnot/Pageframe/security/advisories/new). It's a private channel where we can work out a fix and a disclosure timeline.
-
-I try to acknowledge new reports within **7 days** and give a first assessment within **14 days**. There's no bug bounty.
+I aim to acknowledge reports within 7 days and share an initial assessment within 14 days. Pageframe has no bug bounty.
 
 ## In scope
 
@@ -26,4 +24,4 @@ I try to acknowledge new reports within **7 days** and give a first assessment w
 
 ## Disclosure
 
-I prefer coordinated disclosure: I'll work with the reporter on a fix and a timeline before publishing details. Reporters are credited in the advisory unless they ask not to be named.
+I'll work with you on a fix and a disclosure timeline before publishing details. I'll credit you in the advisory unless you ask to stay anonymous.

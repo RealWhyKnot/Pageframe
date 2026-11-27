@@ -245,6 +245,31 @@ fn text_overflow_ellipsis_replaces_the_cut_off_end() {
 }
 
 #[test]
+fn text_overflow_uses_the_unrounded_width_of_flex_and_block_labels() {
+    for (parent, width) in [("flex", "auto"), ("block", "max-content")] {
+        for offset in ["0px", "0.25px", "0.5px", "0.75px"] {
+            let page = |overflow: &str, width: &str| {
+                format!(
+                    r#"<!doctype html><body style="margin:0;background:white">
+<div style="display:{parent};margin-left:{offset}">
+<span style="display:block;width:{width};min-width:0;font:13px monospace;white-space:nowrap;overflow:hidden;text-overflow:{overflow}">General</span>
+</div></body>"#
+                )
+            };
+            let draw = |overflow, width| render(&mut open(App::new((), &page(overflow, width))));
+            assert!(
+                draw("ellipsis", width) == draw("clip", width),
+                "a {parent} label that fits ellipsized at {offset}"
+            );
+            assert!(
+                draw("ellipsis", "38px") != draw("clip", "38px"),
+                "an overflowing {parent} label did not ellipsize at {offset}"
+            );
+        }
+    }
+}
+
+#[test]
 fn text_overflow_ellipsis_shows_on_a_scaled_page() {
     let mut harness = open(App::new((), &overflow_page("clip")));
     let clipped = render_at_scale(&mut harness, 2);

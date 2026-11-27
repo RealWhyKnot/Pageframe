@@ -46,9 +46,12 @@ Servo user-agent stylesheet
   its header says.
 
 Mozilla Bullet font
-  crates/pageframe-dom/assets/moz-bullet-font.otf is the Mozilla Bullet font
-  by Mats Palmgren for Mozilla, version 1.0. The file has no license notice.
-  See docs/licensing.md.
+  crates/pageframe-dom/assets/moz-bullet-font.otf is a modified copy of the
+  Mozilla Bullet 1.0 font by Mats Palmgren, inherited from Blitz at b6bb45c.
+  https://github.com/DioxusLabs/blitz/blob/b6bb45c550a9490afa6c43468c77535c6d76856d/packages/blitz-dom/assets/moz-bullet-font.otf
+  The bundled OTF has no license notice. Mozilla added a SIL Open Font License
+  notice to its font source in gecko-dev commit 02e33379c. The license for the
+  older OTF is unconfirmed. See docs/licensing.md.
 
 Preact
   https://github.com/preactjs/preact

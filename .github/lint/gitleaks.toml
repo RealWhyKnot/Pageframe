@@ -22,3 +22,9 @@ paths = [
   '''(^wpt/)''',
   '''(^\.github/scripts/)''',
 ]
+
+[[allowlists]]
+description = "Public Guardian HTML fixture imported from Blitz"
+condition = "AND"
+commits = ["e3bb1fc2821348a1178cac14b4980e0ff3907ac8"]
+paths = ['''^examples/assets/guardian\.html$''']

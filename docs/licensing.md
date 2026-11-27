@@ -1,10 +1,10 @@
 # Licensing
 
-Pageframe's own code is MIT OR Apache-2.0. You can use it in a closed-source or commercial app, but not everything it depends on is permissive. Stylo, the CSS engine, and a few crates around it are MPL-2.0, which you can also use in a closed-source app if you make their source available. This page lists what your app pulls in and what each license asks of you when you ship it.
+Pageframe's own code is MIT OR Apache-2.0. You can use it in a closed-source or commercial app. Stylo, the CSS engine, and several dependencies use MPL-2.0. You can include them if you make their source available.
 
 This is a summary of the licenses, not legal advice. Patent and codec rights are a separate question.
 
-The figures below were measured on 24 November 2026 against `Cargo.lock` with every feature on and no target filter. They change when dependencies do.
+The crate counts use the 24 November 2026 `Cargo.lock` with every feature enabled and no target filter.
 
 ## How the check runs
 
@@ -55,17 +55,17 @@ MPL-2.0 works file by file. Your own files stay under your license, and linking 
 - Tell them how to get that source.
 - Keep any changes to those files under the MPL.
 
-Code you copy out of an MPL file into your own file brings the MPL with it. Mozilla's [MPL FAQ](https://www.mozilla.org/en-US/MPL/2.0/FAQ/) explains where a covered file ends and your larger work begins.
+If you copy MPL code into one of your own files, the MPL applies to that file. Mozilla's [MPL FAQ](https://www.mozilla.org/en-US/MPL/2.0/FAQ/) explains where a covered file ends and your larger work begins.
 
-The Stylo in this repository has local changes, which NOTICE lists. Its source is the `vendor/stylo` folder at the commit you build from, and the license text is `vendor/stylo/LICENSE-MPL-2.0`. When you ship, point users at that exact commit, not at a branch that moves.
+[NOTICE](../NOTICE) lists the changes to Stylo. When you ship, point users to [`vendor/stylo`](../vendor/stylo) at the exact commit you built from. The [MPL-2.0 text](../vendor/stylo/LICENSE-MPL-2.0) is in that folder.
 
 ## Files cargo-deny doesn't see
 
-cargo-deny only reads Cargo metadata. These files ship inside `pageframe-dom` and need checking by hand:
+cargo-deny only reads Cargo metadata. Check these files separately when you ship `pageframe-dom`.
 
 - `crates/pageframe-dom/assets/default.css` comes from Servo and is MPL-2.0, as its header says. The same source rules apply.
 - `crates/pageframe-dom/assets/quirks.css` was written for Pageframe from the quirks-mode rules in the HTML Standard and is MIT OR Apache-2.0 like the rest of the repository.
-- `crates/pageframe-dom/assets/moz-bullet-font.otf` is the Mozilla Bullet font, version 1.0, by Mats Palmgren for Mozilla. The file names its author but has no license notice. Firefox's [current copy of the font source](https://searchfox.org/firefox-main/source/layout/style/res/Mozilla_Bullet.bf) declares the SIL Open Font License. Confirm that it covers this version, and include the OFL notice, before you ship it.
+- `crates/pageframe-dom/assets/moz-bullet-font.otf` is a modified Mozilla Bullet 1.0 by Mats Palmgren. Pageframe inherited the OTF from [Blitz at b6bb45c](https://github.com/DioxusLabs/blitz/blob/b6bb45c550a9490afa6c43468c77535c6d76856d/packages/blitz-dom/assets/moz-bullet-font.otf). The OTF has no license notice. The [original Gecko font source](https://github.com/mozilla/gecko-dev/blob/e4d7dd995a62ca5653527792b55c8f6ee6e74b02/layout/style/res/Mozilla_Bullet.bf) had blank license fields. Mozilla [added a SIL Open Font License notice](https://github.com/mozilla/gecko-dev/commit/02e33379c1292f7dcd2b2ff56e01c5461154aaa3) in a later revision. Confirm the license for the bundled OTF before distributing it.
 
 ## Before you ship an app
 

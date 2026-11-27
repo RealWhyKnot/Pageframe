@@ -194,6 +194,21 @@ impl UnsnappedBox {
         border: taffy::Rect::<f32>::ZERO,
         padding: taffy::Rect::<f32>::ZERO,
     };
+
+    pub fn content_box_size(&self) -> taffy::Size<f32> {
+        taffy::Size {
+            width: self.size.width
+                - self.padding.left
+                - self.padding.right
+                - self.border.left
+                - self.border.right,
+            height: self.size.height
+                - self.padding.top
+                - self.padding.bottom
+                - self.border.top
+                - self.border.bottom,
+        }
+    }
 }
 
 impl Default for LayoutData {
