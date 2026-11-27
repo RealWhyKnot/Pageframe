@@ -4,6 +4,7 @@ Changes to Pageframe, newest first, in the [Keep a Changelog](https://keepachang
 
 ## Unreleased
 
-_No notable changes yet._
+### Fixed
+- Polish rendering and prepare public repo (309fd57)
 
 ---
