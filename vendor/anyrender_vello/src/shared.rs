@@ -109,7 +109,7 @@ impl PooledHandle {
         Self { handle, lost }
     }
 
-    fn is_usable(&self) -> bool {
+    pub(crate) fn is_usable(&self) -> bool {
         !self.lost.load(Ordering::Acquire)
     }
 }

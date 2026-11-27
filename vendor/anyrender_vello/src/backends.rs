@@ -10,13 +10,13 @@ pub(crate) struct BackendChoice {
 }
 
 #[cfg(target_os = "windows")]
-const DEFAULT_CHOICE: BackendChoice = BackendChoice {
+pub(crate) const DEFAULT_CHOICE: BackendChoice = BackendChoice {
     primary: Backends::VULKAN.union(Backends::DX12),
     fallback: Some(Backends::GL),
 };
 
 #[cfg(not(target_os = "windows"))]
-const DEFAULT_CHOICE: BackendChoice = BackendChoice {
+pub(crate) const DEFAULT_CHOICE: BackendChoice = BackendChoice {
     primary: Backends::all(),
     fallback: None,
 };

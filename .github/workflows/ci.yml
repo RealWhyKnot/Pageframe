@@ -104,6 +104,22 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      - name: Select DXC from the Windows SDK
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $sdk = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
+          $compiler = Get-ChildItem -LiteralPath $sdk -Directory |
+            Where-Object { ($_.Name -as [version]) -ge [version]'10.0.26100.0' } |
+            Sort-Object { [version]$_.Name } -Descending |
+            ForEach-Object { Join-Path $_.FullName 'x64' } |
+            Where-Object { (Test-Path -LiteralPath (Join-Path $_ 'dxcompiler.dll')) -and
+                           (Test-Path -LiteralPath (Join-Path $_ 'dxil.dll')) } |
+            Select-Object -First 1
+          if (!$compiler) { throw 'Windows SDK 10.0.26100 or later with x64 DXC is required.' }
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value $compiler
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value 'WGPU_DX12_COMPILER=dxc'
+
       - name: Test
         run: cargo test --workspace --all-targets --locked
 

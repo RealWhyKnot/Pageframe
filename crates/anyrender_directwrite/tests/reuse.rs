@@ -6,6 +6,8 @@ use anyrender::{Glyph, NullScenePainter, PaintScene};
 use anyrender_directwrite::{FontSource, GlyphRun, supported};
 use kurbo::Affine;
 use peniko::{Color, FontData};
+use std::sync::Barrier;
+use std::thread;
 use support::{Recorder, system_font};
 
 fn frame(scene: &mut Recorder, font: &FontData, colors: &[Color], oblique: bool) -> Vec<u64> {
@@ -80,11 +82,14 @@ fn synthetic_oblique_runs_get_their_own_glyph_images() {
 #[test]
 fn memory_fonts_paint_on_every_thread() {
     let font = system_font("arial.ttf");
-    let first = frame(&mut Recorder::default(), &font, &[Color::BLACK], false);
-    let second =
-        std::thread::spawn(move || frame(&mut Recorder::default(), &font, &[Color::BLACK], false))
-            .join()
-            .expect("render thread finishes");
-    assert_eq!(first.len(), 8);
-    assert_eq!(second.len(), 8);
+    let barrier = Barrier::new(2);
+    let render = || {
+        barrier.wait();
+        frame(&mut Recorder::default(), &font, &[Color::BLACK], false)
+    };
+    thread::scope(|scope| {
+        let other = scope.spawn(render);
+        assert_eq!(render().len(), 8);
+        assert_eq!(other.join().expect("render thread finishes").len(), 8);
+    });
 }

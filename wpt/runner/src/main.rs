@@ -327,6 +327,7 @@ impl Buffers {
 struct ThreadCtx {
     worker_index: usize,
     run_quarantined: bool,
+    write_pngs: bool,
     viewport: Viewport,
     net_provider: Arc<WptNetProvider<Resource>>,
     navigation_provider: Arc<dyn NavigationProvider>,
@@ -469,6 +470,7 @@ fn main() {
 
     let verbose = env::args().any(|arg| arg == "--verbose" || arg == "-v");
     let run_quarantined = env::args().any(|arg| arg == "--run-quarantined");
+    let write_pngs = !env::args().any(|arg| arg == "--no-pngs");
     let wpt_dir = path::absolute(env::var("WPT_DIR").expect("WPT_DIR is not set")).unwrap();
     info!("WPT_DIR: {}", wpt_dir.display());
     if !wpt_dir.exists() {
@@ -493,10 +495,10 @@ fn main() {
 
     let cargo_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let out_dir = cargo_dir.parent().unwrap().join("output");
-    if fs::exists(&out_dir).unwrap() {
+    if write_pngs && fs::exists(&out_dir).unwrap() {
         fs::remove_dir_all(&out_dir).unwrap();
     }
-    fs::create_dir(&out_dir).unwrap();
+    fs::create_dir_all(&out_dir).unwrap();
 
     let pass_count = AtomicU32::new(0);
     let fail_count = AtomicU32::new(0);
@@ -584,6 +586,7 @@ fn main() {
                     RefCell::new(ThreadCtx {
                         worker_index,
                         run_quarantined,
+                        write_pngs,
                         viewport,
                         net_provider,
                         renderer,

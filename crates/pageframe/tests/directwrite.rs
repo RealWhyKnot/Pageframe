@@ -299,15 +299,52 @@ fn fresh_factories_render_identically() {
 mod gpu {
     use super::*;
     use anyrender_vello::{VelloImageRenderer, wgpu};
+    use std::sync::OnceLock;
+
+    static HAS_ADAPTER: OnceLock<bool> = OnceLock::new();
 
     fn check_row(row: &Row) {
-        let instance = wgpu::Instance::default();
-        if pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .is_err()
-        {
-            return;
+        if *HAS_ADAPTER.get_or_init(|| {
+            let adapter_name = std::env::var("WGPU_ADAPTER_NAME")
+                .ok()
+                .map(|name| name.to_lowercase());
+            let power_preference = wgpu::PowerPreference::from_env();
+            let candidates = match (
+                wgpu::Backends::from_env(),
+                adapter_name.as_deref(),
+                power_preference,
+            ) {
+                (Some(backends), _, _) => [Some(backends), None],
+                (None, Some(_), _)
+                | (
+                    None,
+                    None,
+                    Some(wgpu::PowerPreference::LowPower | wgpu::PowerPreference::HighPerformance),
+                ) => [Some(wgpu::Backends::all()), None],
+                _ => [
+                    Some(wgpu::Backends::VULKAN | wgpu::Backends::DX12),
+                    Some(wgpu::Backends::GL),
+                ],
+            };
+            candidates.into_iter().flatten().any(|backends| {
+                let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                    backends,
+                    ..wgpu::InstanceDescriptor::new_without_display_handle_from_env()
+                });
+                if let Some(name) = adapter_name.as_deref() {
+                    return pollster::block_on(instance.enumerate_adapters(backends))
+                        .into_iter()
+                        .any(|adapter| adapter.get_info().name.to_lowercase().contains(name));
+                }
+                pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: power_preference.unwrap_or_default(),
+                    ..Default::default()
+                }))
+                .is_ok()
+            })
+        }) {
+            super::check_row::<VelloImageRenderer>(row);
         }
-        super::check_row::<VelloImageRenderer>(row);
     }
 
     #[test]

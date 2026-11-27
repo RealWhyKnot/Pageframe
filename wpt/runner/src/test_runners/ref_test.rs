@@ -31,14 +31,15 @@ pub fn process_ref_test(
     mismatch_references: &[String],
     flags: &mut TestFlags,
 ) -> SubtestCounts {
-    let test_out_path = ctx
-        .out_dir
-        .join(format!("{}-test.png", artifact_name(test_relative_path)));
+    let test_out_path = ctx.write_pngs.then(|| {
+        ctx.out_dir
+            .join(format!("{}-test.png", artifact_name(test_relative_path)))
+    });
     render_html_to_buffer(
         ctx,
         BufferKind::Test,
         test_relative_path,
-        &test_out_path,
+        test_out_path.as_deref(),
         test_html,
     );
 
@@ -169,15 +170,17 @@ fn render_reference_and_compare(
     } else {
         format!("-{ref_index}")
     };
-    let ref_out_path = ctx.out_dir.join(format!(
-        "{}-ref{suffix}.png",
-        artifact_name(test_relative_path)
-    ));
+    let ref_out_path = ctx.write_pngs.then(|| {
+        ctx.out_dir.join(format!(
+            "{}-ref{suffix}.png",
+            artifact_name(test_relative_path)
+        ))
+    });
     render_html_to_buffer(
         ctx,
         BufferKind::Ref,
         &ref_relative_path,
-        &ref_out_path,
+        ref_out_path.as_deref(),
         &ref_html,
     );
 
@@ -204,13 +207,15 @@ fn render_reference_and_compare(
     let diff = dify::diff::get_results(test_image, ref_image, 0.1f32, true, None, &None, &None);
 
     if let Some(diff) = diff {
-        let path = ctx.out_dir.join(format!(
-            "{}-diff{suffix}.png",
-            artifact_name(test_relative_path)
-        ));
-        let parent = path.parent().unwrap();
-        fs::create_dir_all(parent).unwrap();
-        diff.1.save_with_format(path, ImageFormat::Png).unwrap();
+        if ctx.write_pngs {
+            let path = ctx.out_dir.join(format!(
+                "{}-diff{suffix}.png",
+                artifact_name(test_relative_path)
+            ));
+            let parent = path.parent().unwrap();
+            fs::create_dir_all(parent).unwrap();
+            diff.1.save_with_format(path, ImageFormat::Png).unwrap();
+        }
         Some(fuzzy_tolerance.is_some() && is_match)
     } else {
         Some(is_match)
@@ -226,7 +231,7 @@ fn render_html_to_buffer(
     ctx: &mut ThreadCtx,
     buffer_kind: BufferKind,
     relative_path: &str,
-    out_path: &Path,
+    out_path: Option<&Path>,
     html: &str,
 ) {
     let mut document = parse_and_resolve_document(ctx, html, relative_path);
@@ -299,7 +304,7 @@ fn has_reftest_wait(document: &BaseDocument) -> bool {
 fn render_document_to_buffer(
     ctx: &mut ThreadCtx,
     buffer_kind: BufferKind,
-    out_path: &Path,
+    out_path: Option<&Path>,
     document: &mut BaseDocument,
 ) {
     // Determine height to render
@@ -327,9 +332,11 @@ fn render_document_to_buffer(
         buf,
     );
 
-    fs::create_dir_all(out_path.parent().unwrap()).unwrap();
-    let mut file = File::create(out_path).unwrap();
-    write_png(&mut file, buf, WIDTH, render_height);
+    if let Some(out_path) = out_path {
+        fs::create_dir_all(out_path.parent().unwrap()).unwrap();
+        let mut file = File::create(out_path).unwrap();
+        write_png(&mut file, buf, WIDTH, render_height);
+    }
 }
 
 // Copied from screenshot.rs

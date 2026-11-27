@@ -68,7 +68,7 @@ jobs:
         run: cargo build --locked -rp wpt
 
       - name: Run WPT tests
-        run: cargo run --locked -rp wpt css svg
+        run: cargo run --locked -rp wpt -- --no-pngs css svg
 
       - name: Compress report
         run: zstd -22 --ultra -o ./wpt/output/wptreport.json.zst ./wpt/output/wptreport.json

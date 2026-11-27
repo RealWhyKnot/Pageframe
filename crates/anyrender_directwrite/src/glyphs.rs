@@ -7,10 +7,7 @@ use std::{
     cell::RefCell,
     collections::{HashMap, hash_map::Entry},
     rc::Rc,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::atomic::{AtomicBool, Ordering},
 };
 use windows::Win32::Graphics::DirectWrite::*;
 
@@ -124,9 +121,8 @@ pub(crate) struct MaskKey {
 }
 
 struct Base {
-    file: IDWriteFontFile,
     profile: FontSource,
-    _memory: Arc<memory::MemoryFile>,
+    memory: Rc<memory::MemoryFile>,
 }
 
 struct CachedFace {
@@ -138,13 +134,13 @@ struct CachedFace {
 type FaceKey = (u64, u32, Box<[i16]>, i32, bool);
 
 struct Cache {
-    factory: IDWriteFactory,
+    loaded: HashMap<u64, CachedFace>,
     bases: HashMap<(u64, u32), Option<Rc<Base>>>,
     faces: HashMap<FaceKey, Option<u64>>,
-    loaded: HashMap<u64, CachedFace>,
     serial: u64,
     masks: HashMap<MaskKey, raster::Mask>,
     bytes: usize,
+    memory: memory::MemoryFiles,
 }
 
 thread_local! {
@@ -152,13 +148,13 @@ thread_local! {
         // SAFETY: The binding supplies the IDWriteFactory interface ID and writable storage for the returned pointer.
         let factory = unsafe { DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED) };
         RefCell::new(factory.ok().map(|factory| Cache {
-            factory,
+            loaded: HashMap::new(),
             bases: HashMap::new(),
             faces: HashMap::new(),
-            loaded: HashMap::new(),
             serial: 0,
             masks: HashMap::new(),
             bytes: 0,
+            memory: memory::MemoryFiles::new(factory),
         }))
     };
 }
@@ -218,12 +214,8 @@ impl GlyphRun<'_> {
             .entry(base_key)
             .or_insert_with(|| {
                 let profile = source()?;
-                let memory = memory::file(&cache.factory, &self.font.data)?;
-                Some(Rc::new(Base {
-                    file: memory.file.clone(),
-                    profile,
-                    _memory: memory,
-                }))
+                let memory = cache.memory.file(&self.font.data)?;
+                Some(Rc::new(Base { profile, memory }))
             })
             .clone()?;
         let bitmap = !base.profile.strikes.is_empty();
@@ -258,8 +250,8 @@ impl GlyphRun<'_> {
                     Vec::new()
                 };
                 let face = raster::open(
-                    &cache.factory,
-                    base.file.clone(),
+                    cache.memory.factory(),
+                    base.memory.file.clone(),
                     self.font.index,
                     simulations,
                     &axes,
@@ -377,7 +369,7 @@ fn paint(
             let mask = match cache.masks.entry(key) {
                 Entry::Occupied(entry) => entry.into_mut(),
                 Entry::Vacant(entry) => {
-                    let mask = raster::mask(&cache.factory, &cached.face, key)?;
+                    let mask = raster::mask(cache.memory.factory(), &cached.face, key)?;
                     cache.bytes += mask.coverage.len();
                     entry.insert(mask)
                 }

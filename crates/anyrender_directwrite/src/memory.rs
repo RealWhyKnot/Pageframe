@@ -1,6 +1,6 @@
 use peniko::{Blob, WeakBlob};
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::rc::Rc;
 use windows::Win32::Graphics::DirectWrite::*;
 use windows::core::Interface as _;
 
@@ -24,23 +24,35 @@ pub(super) struct MemoryFile {
     _registration: Registration,
 }
 
-static FILES: LazyLock<Mutex<HashMap<u64, Arc<MemoryFile>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-fn cached(blob: &Blob<u8>) -> Option<Option<Arc<MemoryFile>>> {
-    let mut files = FILES.lock().ok()?;
-    let hit = files.get(&blob.id()).cloned();
-    if hit.is_none() {
-        files.retain(|_, entry| entry.blob.upgrade().is_some());
-    }
-    drop(files);
-    Some(hit)
+pub(super) struct MemoryFiles {
+    files: HashMap<u64, Rc<MemoryFile>>,
+    factory: IDWriteFactory,
 }
 
-pub(super) fn file(factory: &IDWriteFactory, blob: &Blob<u8>) -> Option<Arc<MemoryFile>> {
-    if let Some(entry) = cached(blob)? {
-        return Some(entry);
+impl MemoryFiles {
+    pub(super) fn new(factory: IDWriteFactory) -> Self {
+        Self {
+            files: HashMap::new(),
+            factory,
+        }
     }
+
+    pub(super) fn factory(&self) -> &IDWriteFactory {
+        &self.factory
+    }
+
+    pub(super) fn file(&mut self, blob: &Blob<u8>) -> Option<Rc<MemoryFile>> {
+        if let Some(file) = self.files.get(&blob.id()) {
+            return Some(Rc::clone(file));
+        }
+        self.files.retain(|_, file| file.blob.upgrade().is_some());
+        let file = Rc::new(create_file(&self.factory, blob)?);
+        self.files.insert(blob.id(), Rc::clone(&file));
+        Some(file)
+    }
+}
+
+fn create_file(factory: &IDWriteFactory, blob: &Blob<u8>) -> Option<MemoryFile> {
     let factory5 = factory.cast::<IDWriteFactory5>().ok()?;
     let size = u32::try_from(blob.len()).ok()?;
     // SAFETY: The live factory creates and registers the loader returned by DirectWrite.
@@ -63,12 +75,9 @@ pub(super) fn file(factory: &IDWriteFactory, blob: &Blob<u8>) -> Option<Arc<Memo
         )
     }
     .ok()?;
-    let entry = Arc::new(MemoryFile {
+    Some(MemoryFile {
         blob: blob.downgrade(),
         file,
         _registration: registration,
-    });
-    Some(Arc::clone(
-        FILES.lock().ok()?.entry(blob.id()).or_insert(entry),
-    ))
+    })
 }
