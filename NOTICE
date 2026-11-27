@@ -8,9 +8,8 @@ licenses mean for an app you ship.
 Blitz
   https://github.com/DioxusLabs/blitz
   Copyright (c) DioxusLabs and the Blitz contributors. MIT OR Apache-2.0.
-  Pageframe started from Blitz at commit b6bb45c. The crates in crates/ other
-  than crates/pageframe, and the code in tests/, wpt/ and docs/, come from
-  Blitz and have been changed since.
+  Pageframe started from Blitz at commit b6bb45c. It includes modified Blitz
+  crates, tests, WPT runner code and documentation.
 
 Stylo
   https://github.com/servo/stylo
@@ -22,6 +21,16 @@ Stylo
   device-pixel snapping for borders. The changed files stay under MPL-2.0, and
   their source is the vendor/stylo folder of this repository. The license text
   is in vendor/stylo/LICENSE-MPL-2.0.
+
+  Stylo vendors three build-time Python packages under
+  vendor/stylo/style/properties/vendored_python/:
+  Mako 1.3.10 (MIT), Copyright 2006-2025 the Mako authors and contributors.
+  toml 0.10.2 (MIT), Copyright 2013-2019 William Pearson,
+  Copyright 2015-2016 Julien Enselme, Copyright 2016 Google Inc.,
+  Copyright 2017 Samuel Vasko, Copyright 2017 Nate Prewitt,
+  Copyright 2017 Jack Evans, Copyright 2019 Filippo Broggini.
+  MarkupSafe (BSD-3-Clause), Copyright 2010 Pallets.
+  The license texts are in the Mako and toml wheels and markupsafe/LICENSE.txt.
 
 Parley
   https://github.com/linebender/parley
@@ -39,19 +48,12 @@ anyrender
 AccessKit
   https://github.com/AccessKit/accesskit
   Copyright (c) the AccessKit contributors. Apache-2.0.
-  crates/accesskit_xplat is based on AccessKit's cross-platform adapter.
+  crates/accesskit_xplat comes from AccessKit's cross-platform adapter.
+  Its license text is in crates/accesskit_xplat/LICENSE-APACHE.
 
 Servo user-agent stylesheet
   crates/pageframe-dom/assets/default.css comes from Servo and is MPL-2.0, as
   its header says.
-
-Mozilla Bullet font
-  crates/pageframe-dom/assets/moz-bullet-font.otf is a modified copy of the
-  Mozilla Bullet 1.0 font by Mats Palmgren, inherited from Blitz at b6bb45c.
-  https://github.com/DioxusLabs/blitz/blob/b6bb45c550a9490afa6c43468c77535c6d76856d/packages/blitz-dom/assets/moz-bullet-font.otf
-  The bundled OTF has no license notice. Mozilla added a SIL Open Font License
-  notice to its font source in gecko-dev commit 02e33379c. The license for the
-  older OTF is unconfirmed. See docs/licensing.md.
 
 Preact
   https://github.com/preactjs/preact

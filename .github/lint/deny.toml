@@ -16,12 +16,10 @@ allow = [
   "BSD-2-Clause",
   "BSD-3-Clause",
   "BSL-1.0",
-  "IJG",
   "ISC",
   "Zlib",
   "0BSD",
   "Unicode-3.0",
-  "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.93
 

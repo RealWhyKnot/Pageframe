@@ -27,7 +27,8 @@
 //  - `tracing`: Enables tracing support.
 
 pub const DEFAULT_CSS: &str = include_str!("../assets/default.css");
-pub const BULLET_FONT: &[u8] = include_bytes!("../assets/moz-bullet-font.otf");
+pub const DISCLOSURE_MARKER_SPACER: &str = util::INLINE_MARGIN_END;
+pub const DISCLOSURE_MARKER_SIZE_EM: f64 = 0.66;
 
 /// The DOM implementation.
 ///

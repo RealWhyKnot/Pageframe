@@ -19,6 +19,7 @@ use taffy::{
 use taffy::{FloatInsets, prelude::TaffyMaxContent};
 
 use crate::layout::LayoutPassState;
+use crate::node::ListItemLayoutPosition;
 use crate::stylo_to_parley;
 use stylo_taffy::CopyStyleGetters;
 
@@ -319,6 +320,29 @@ impl LayoutPassState<'_> {
         } else {
             0.0
         };
+        if let Some(line) = inline_layout.layout.get(0)
+            && let Some(item) = self.nodes[node_id]
+                .element_data()
+                .and_then(|element| element.list_item_data.as_deref())
+                .filter(|item| item.marker.is_disclosure())
+        {
+            let metrics = line.metrics();
+            if line.is_empty() {
+                height = height.max(metrics.line_height);
+            }
+            if matches!(item.position, ListItemLayoutPosition::Inside)
+                && let Some(style) = self.nodes[node_id].primary_styles()
+                && style.writing_mode.is_vertical_lr()
+                && !style.writing_mode.is_sideways()
+                && !line
+                    .items()
+                    .any(|item| matches!(item, parley::PositionedLayoutItem::GlyphRun(_)))
+            {
+                let font_size = style.get_font().font_size.used_size().px();
+                let marker_size = font_size * scale * crate::DISCLOSURE_MARKER_SIZE_EM as f32;
+                height = height.max(metrics.baseline + marker_size.ceil());
+            }
+        }
 
         let line_count = inline_layout.layout.len();
         let mut trailing_empty_line = None;

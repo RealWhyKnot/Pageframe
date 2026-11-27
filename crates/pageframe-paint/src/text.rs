@@ -26,6 +26,8 @@ use crate::color::{Color, ToColorColor as _};
 use crate::image_cache::ImageCache;
 use crate::{FONT_EMBOLDEN_ENABLED, SELECTION_COLOR};
 
+use pageframe_dom::DISCLOSURE_MARKER_SIZE_EM;
+
 #[cfg(target_os = "windows")]
 mod colr;
 mod decoration;
@@ -41,7 +43,7 @@ mod windows;
 use decoration::flush_line_decorations;
 pub(crate) use fragments::{InlineFragment, inline_fragments};
 use fragments::{covers_its_start, push_spacer_holes, relative_shift};
-pub(crate) use runs::stroke_text;
+pub(crate) use runs::{disclosure_symbol, fill_disclosure_symbol, stroke_text};
 pub(crate) use selection::{GroupedRun, SelectionPaint, draw_text_selection, grouped_runs};
 use shadow::blurred_shadow_image;
 pub(crate) use shadow::gaussian_blur;

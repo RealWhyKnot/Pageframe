@@ -43,6 +43,8 @@ The lint checks need Node (`npm ci` runs on first use), PowerShell 7, `shellchec
 
 ## If we agree on a PR
 
+Contributions are licensed under MIT OR Apache-2.0, with edits to vendored MPL-2.0 files licensed under MPL-2.0.
+
 - Link the issue where we settled the approach.
 - Keep the diff small. A "while I'm here" cleanup is its own PR.
 - Follow the surrounding code and `rustfmt.toml`. Don't add code comments unless we agreed on one.

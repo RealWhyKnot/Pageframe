@@ -37,6 +37,7 @@ use crate::sizing::compute_object_fit;
 use crate::text::{DrawTextContext, LineEllipsis, TextPaintOptions};
 use crate::{CustomWidgetSceneMap, SELECTION_COLOR};
 use anyrender::{PaintScene, Scene};
+use pageframe_dom::DISCLOSURE_MARKER_SIZE_EM;
 use pageframe_dom::node::{
     ListItemLayout, ListItemLayoutPosition, Marker, MarkerShape, MarkerSymbol, NodeData,
     RasterImageData, SpecialElementData, TextBrush, TextInputData, TextNodeData,
@@ -1915,10 +1916,13 @@ impl ElementCx<'_, '_> {
             (Marker::Symbol(symbol), ListItemLayoutPosition::Inside) => {
                 self.draw_inside_symbol(scene, origin, symbol);
             }
-            (marker, ListItemLayoutPosition::Outside(layout)) => {
-                self.draw_outside_marker_text(scene, pos, origin, marker, layout);
+            (Marker::Char(marker), ListItemLayoutPosition::Inside) => {
+                self.draw_inside_disclosure_without_run(scene, origin, *marker);
             }
-            (_, ListItemLayoutPosition::Inside) => {}
+            (Marker::Char(_) | Marker::String(_), ListItemLayoutPosition::Outside(layout)) => {
+                self.draw_outside_marker_text(scene, pos, origin, list_item, layout);
+            }
+            (Marker::String(_), ListItemLayoutPosition::Inside) => {}
         }
     }
 
@@ -2098,35 +2102,125 @@ impl ElementCx<'_, '_> {
         }
     }
 
+    fn draw_inside_disclosure_without_run(
+        &self,
+        scene: &mut impl PaintScene,
+        origin: Point,
+        marker: char,
+    ) {
+        let Some(text_layout) = self.element.inline_layout_data.as_ref() else {
+            return;
+        };
+        let Some(line) = text_layout.layout.lines().next() else {
+            return;
+        };
+        if line
+            .items()
+            .any(|item| matches!(item, parley::PositionedLayoutItem::GlyphRun(_)))
+        {
+            return;
+        }
+
+        let metrics = line.metrics();
+        let font_size = f64::from(self.style.get_font().font_size.used_size().px());
+        let size = font_size * self.scale * DISCLOSURE_MARKER_SIZE_EM;
+        let inline_start = f64::from(metrics.inline_min_coord + metrics.offset);
+        let left = if self.is_rtl() {
+            inline_start - size
+        } else {
+            inline_start
+        };
+        let writing_mode = self.style.writing_mode;
+        let baseline = if !writing_mode.is_vertical_lr()
+            && !writing_mode.is_sideways()
+            && (writing_mode.is_vertical() || line.is_empty())
+        {
+            let center = metrics.block_min_coord.midpoint(metrics.block_max_coord);
+            f64::from(center) + (size / 2.0).ceil()
+        } else {
+            f64::from(metrics.baseline)
+        };
+        let start = Point::new(
+            origin.x * self.scale + left,
+            (origin.y + f64::from(text_layout.block_offset)) * self.scale + baseline,
+        );
+        self.draw_disclosure(scene, marker, start, size, self.transform);
+    }
+
+    fn draw_disclosure(
+        &self,
+        scene: &mut impl PaintScene,
+        marker: char,
+        start: Point,
+        size: f64,
+        transform: Affine,
+    ) {
+        let Some(points) =
+            crate::text::disclosure_symbol(marker, self.style.writing_mode, start, size, size)
+        else {
+            return;
+        };
+        let color = self
+            .marker_color()
+            .unwrap_or_else(|| self.style.clone_color().as_srgb_color());
+        crate::text::fill_disclosure_symbol(scene, points, transform, color);
+    }
+
     fn draw_outside_marker_text(
         &self,
         scene: &mut impl PaintScene,
         pos: Point,
         origin: Point,
-        marker: &Marker,
+        list_item: &ListItemLayout,
         layout: &parley::Layout<TextBrush>,
     ) {
         let Some(marker_line) = layout.lines().next() else {
             return;
         };
         let layout_scale = f64::from(layout.scale());
-        let gap = match marker {
-            Marker::Char(_) => DISCLOSURE_OUTSIDE_GAP / self.scale,
-            Marker::Symbol(_) | Marker::String(_) => 0.0,
-        };
+        let mut width = f64::from(layout.full_width());
+        let mut gap = 0.0;
+        let mut block_shift = 0.0;
+        let mut disclosure_without_run = None;
+        let metrics = marker_line.metrics();
+        let marker_baseline = f64::from(metrics.baseline);
+        if let Marker::Char(marker) = list_item.marker {
+            gap = DISCLOSURE_OUTSIDE_GAP / self.scale;
+            if marker_line.items().next().is_none() {
+                width = f64::from(list_item.marker_font_size)
+                    * layout_scale
+                    * DISCLOSURE_MARKER_SIZE_EM;
+                disclosure_without_run = Some(marker);
+            }
+            let writing_mode = self.style.writing_mode;
+            if writing_mode.is_vertical() && !writing_mode.is_sideways() {
+                let line_center =
+                    f64::from(metrics.block_min_coord + metrics.block_max_coord) / 2.0;
+                block_shift = (marker_baseline - line_center) / layout_scale;
+            }
+        }
         let (left, right) = self.border_box_inline_edges(pos);
         let x = if self.is_rtl() {
             right + gap
         } else {
-            left - gap - f64::from(layout.full_width()) / layout_scale
+            left - gap - width / layout_scale
         };
-        let marker_baseline = f64::from(marker_line.metrics().baseline);
         let y = match self.first_line_baseline() {
-            Some(baseline) => origin.y + (baseline - marker_baseline) / layout_scale,
+            Some(baseline) => origin.y + (baseline - marker_baseline) / layout_scale + block_shift,
             None => origin.y,
         };
 
         let transform = self.transform * Affine::translate((x * self.scale, y * self.scale));
+        if let Some(marker) = disclosure_without_run {
+            self.draw_disclosure(
+                scene,
+                marker,
+                Point::new(0.0, marker_baseline),
+                width,
+                transform,
+            );
+            return;
+        }
 
         let mut draw_text_context = self.context.draw_text_context.borrow_mut();
         crate::text::stroke_text(

@@ -517,9 +517,6 @@ impl BaseDocument {
                         )),
                     }),
                 };
-                font_ctx
-                    .collection
-                    .register_fonts(Blob::new(Arc::new(crate::BULLET_FONT) as _), None);
                 crate::script_fallback::prefer_browser_script_fallbacks(&mut font_ctx.collection);
                 font_ctx
             });
@@ -4302,10 +4299,11 @@ mod inline_with_only_block_children_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "system-fonts", not(target_arch = "wasm32")))]
 mod font_face_override_tests {
     use super::*;
     use crate::net::{FontFaceOverrides, Resource, ResourceLoadResponse};
+    use parley::fontique::{GenericFamily, QueryFamily, QueryFont, QueryStatus};
 
     /// Regression-pin for the `@font-face` descriptor-honouring fix.
     ///
@@ -4337,16 +4335,26 @@ mod font_face_override_tests {
             );
         }
 
-        // Drive `load_resource` with a `Resource::Font` whose overrides
-        // assert the CSS-side family name. We use the bullet font as a
-        // valid font payload — its internal `name` table is irrelevant to
-        // the assertion; what matters is whether the override wins.
+        let font_bytes = {
+            let mut ctx = parley::FontContext::new();
+            let mut query = ctx.collection.query(&mut ctx.source_cache);
+            query.set_families([QueryFamily::Generic(GenericFamily::SansSerif)]);
+            let mut bytes = None;
+            query.matches_with(|font: &QueryFont| {
+                bytes = Some(pageframe_traits::net::Bytes::copy_from_slice(
+                    font.blob.as_ref(),
+                ));
+                QueryStatus::Stop
+            });
+            bytes.expect("a system sans-serif font is available")
+        };
+
         let response = ResourceLoadResponse {
             request_id: 0,
             node_id: None,
             resolved_url: Some(String::from("test://aliased-family")),
             result: Ok(Resource::Font(
-                pageframe_traits::net::Bytes::from_static(crate::BULLET_FONT),
+                font_bytes,
                 FontFaceOverrides {
                     family_name: Some(String::from(ALIAS)),
                     weight: Some(800.0),

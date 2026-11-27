@@ -1,4 +1,9 @@
 use super::*;
+use pageframe_dom::{
+    DISCLOSURE_MARKER_SPACER,
+    node::{ListItemLayoutPosition, Marker},
+};
+use style::logical_geometry::WritingMode;
 
 pub(crate) fn stroke_text<'a>(
     scene: &mut impl PaintScene,
@@ -32,15 +37,35 @@ pub(crate) fn stroke_text<'a>(
     stack.clear();
     path_scratch.clear();
     deco_boxes.clear();
-    let trim_root = doc
-        .get_node(inline_root_id)
-        .zip(layout_text)
-        .filter(|_| !flat_ancestors);
+    let root_node = doc.get_node(inline_root_id);
+    let trim_root = root_node.zip(layout_text).filter(|_| !flat_ancestors);
     let ancestors = if flat_ancestors {
         outer::Ancestors::new()
     } else {
         outer::decorating_ancestors(doc, inline_root_id)
     };
+    let disclosure = root_node.and_then(|node| {
+        let list = node.element_data()?.list_item_data.as_deref()?;
+        let Marker::Char(marker) = list.marker else {
+            return None;
+        };
+        let start = match (&list.position, layout_text) {
+            (ListItemLayoutPosition::Inside, Some(text)) => {
+                let after_controls = text.trim_start_matches(pageframe_dom::util::is_bidi_control);
+                after_controls.strip_prefix(DISCLOSURE_MARKER_SPACER)?;
+                text.len() - after_controls.len()
+            }
+            (ListItemLayoutPosition::Outside(_), None) if !decorate => 0,
+            _ => return None,
+        };
+        let range = start..start + DISCLOSURE_MARKER_SPACER.len();
+        let writing_mode = node.primary_styles()?.writing_mode;
+        let color = list
+            .marker_color
+            .as_ref()
+            .map(|color| color.as_srgb_color());
+        Some((range, marker, writing_mode, color))
+    });
 
     // Persistent stack mirroring the ancestor path (inline root -> current run's
     // node) as we walk the runs. The `text-decoration-*` properties are *not*
@@ -154,8 +179,24 @@ pub(crate) fn stroke_text<'a>(
                 let transform = transform
                     * Affine::translate(stack.last().map_or(Vec2::ZERO, |entry| entry.shift));
 
+                let disclosure_marker = disclosure.as_ref().filter(|(range, ..)| {
+                    style.brush.id == inline_root_id && glyph_run.text_range() == *range
+                });
                 let fill_color = brush_override
+                    .or_else(|| disclosure_marker.and_then(|(_, _, _, color)| *color))
                     .unwrap_or_else(|| stack.last().map(|e| e.fill_color).unwrap_or(Color::BLACK));
+                let symbol = disclosure_marker.and_then(|(_, marker, writing_mode, _)| {
+                    disclosure_symbol(
+                        *marker,
+                        *writing_mode,
+                        Point::new(
+                            f64::from(glyph_run.offset()),
+                            f64::from(glyph_run.baseline()),
+                        ),
+                        f64::from(glyph_run.advance()),
+                        f64::from(font_size) * DISCLOSURE_MARKER_SIZE_EM,
+                    )
+                });
 
                 let embolden = if FONT_EMBOLDEN_ENABLED {
                     font_embolden(font_size as f64, fill_color, transform)
@@ -185,32 +226,9 @@ pub(crate) fn stroke_text<'a>(
                         )
                 };
 
-                let disclosure_marker = (run.text_range().start == 0
-                    && font.data.as_ref() == pageframe_dom::BULLET_FONT)
-                    .then(|| doc.get_node(inline_root_id))
-                    .flatten()
-                    .and_then(|node| node.element_data())
-                    .and_then(|element| element.list_item_data.as_deref())
-                    .and_then(|list| match list.marker {
-                        pageframe_dom::node::Marker::Char(marker) => Some(marker),
-                        _ => None,
-                    });
-                #[cfg(target_os = "windows")]
-                let disclosure = disclosure_marker.is_some();
-                let symbol = disclosure_marker.and_then(|marker| {
-                    disclosure_symbol(
-                        doc,
-                        inline_root_id,
-                        marker,
-                        &glyph_run,
-                        font_size,
-                        transform,
-                    )
-                });
-
                 let face = RunFace {
                     #[cfg(target_os = "windows")]
-                    installed: (!disclosure).then_some(doc),
+                    installed: symbol.is_none().then_some(doc),
                     font,
                     font_size,
                     coords: normalized_coords,
@@ -242,8 +260,9 @@ pub(crate) fn stroke_text<'a>(
                         baseline + metrics.descent.abs() as f64 + ink_margin,
                     );
                     #[cfg(target_os = "windows")]
-                    let native_shadow =
-                        std_deviation > 0.0 && windows::renderer(scene, &face, shadow_transform);
+                    let native_shadow = symbol.is_none()
+                        && std_deviation > 0.0
+                        && windows::renderer(scene, &face, shadow_transform);
                     let blurred = (std_deviation > 0.0)
                         .then(|| {
                             blurred_shadow_image(
@@ -266,8 +285,22 @@ pub(crate) fn stroke_text<'a>(
                                         (f64::from(glyph.x) - origin.x).to_bits().hash(hasher);
                                         (f64::from(glyph.y) - origin.y).to_bits().hash(hasher);
                                     }
+                                    symbol
+                                        .map(|points| {
+                                            points.map(|point| {
+                                                [
+                                                    (point.x - origin.x).to_bits(),
+                                                    (point.y - origin.y).to_bits(),
+                                                ]
+                                            })
+                                        })
+                                        .hash(hasher);
                                 },
                                 |scene, offset| {
+                                    if let Some(points) = symbol {
+                                        fill_disclosure_symbol(scene, points, offset, Color::BLACK);
+                                        return;
+                                    }
                                     #[cfg(target_os = "windows")]
                                     if native_shadow
                                         && windows::draw(
@@ -297,14 +330,17 @@ pub(crate) fn stroke_text<'a>(
                             )
                         })
                         .flatten();
-                    match blurred {
-                        Some((image, origin)) => {
+                    match (blurred, symbol) {
+                        (Some((image, origin)), _) => {
                             scene.draw_image(
                                 image.as_ref(),
                                 shadow_transform * Affine::translate(origin),
                             );
                         }
-                        None => fill_glyphs(
+                        (None, Some(points)) => {
+                            fill_disclosure_symbol(scene, points, shadow_transform, shadow.color);
+                        }
+                        (None, None) => fill_glyphs(
                             scene,
                             sampled,
                             sampled_paths,
@@ -317,9 +353,9 @@ pub(crate) fn stroke_text<'a>(
 
                 // Zero-size text is invisible, but hinting can give its glyphs ink.
                 if font_size > 0.0 {
-                    match &symbol {
-                        Some(path) => {
-                            scene.fill(Fill::NonZero, Affine::IDENTITY, fill_color, None, path);
+                    match symbol {
+                        Some(points) => {
+                            fill_disclosure_symbol(scene, points, transform, fill_color);
                         }
                         None => fill_glyphs(
                             scene,
@@ -474,62 +510,62 @@ fn embolden_scale(color: Color) -> f64 {
     prev.1
 }
 
-fn disclosure_symbol(
-    doc: &BaseDocument,
-    root: NodeId,
+pub(crate) fn disclosure_symbol(
     marker: char,
-    glyph_run: &parley::GlyphRun<'_, TextBrush>,
-    font_size: f32,
-    transform: Affine,
-) -> Option<BezPath> {
-    let [scale_x, shear_y, shear_x, scale_y, _, _] = transform.as_coeffs();
-    if shear_y != 0.0
-        || shear_x != 0.0
-        || !scale_x.is_finite()
-        || !scale_y.is_finite()
-        || scale_x <= 0.0
-        || scale_y <= 0.0
-    {
-        return None;
-    }
-    let writing_mode = doc.get_node(root)?.primary_styles()?.writing_mode;
-    if writing_mode.is_vertical() {
-        return None;
-    }
+    writing_mode: WritingMode,
+    start: Point,
+    advance: f64,
+    size: f64,
+) -> Option<[Point; 3]> {
     let ltr = writing_mode.is_bidi_ltr();
     let points = match (marker, ltr) {
+        ('▾', _) if writing_mode.is_vertical_lr() && !writing_mode.is_sideways() => {
+            [(0.0, 0.93), (0.5, 0.07), (1.0, 0.93)]
+        }
         ('▾', _) => [(0.0, 0.07), (0.5, 0.93), (1.0, 0.07)],
         ('▸', true) => [(0.0, 0.0), (0.86, 0.5), (0.0, 1.0)],
         ('▸', false) => [(1.0, 0.0), (0.14, 0.5), (1.0, 1.0)],
         _ => return None,
     };
-    let size = (f64::from(font_size) * 0.66 * 64.0).trunc() / 64.0;
+    let size = (size * 64.0).trunc() / 64.0;
     if !size.is_finite() || size <= 0.0 {
         return None;
     }
-    let start = f64::from(glyph_run.offset());
     let left = if ltr {
-        start
+        start.x
     } else {
-        start + f64::from(glyph_run.advance()) - size
+        start.x + advance - size
     };
-    let origin = Point::new(left, f64::from(glyph_run.baseline()) - size);
-    let mut path = BezPath::new();
-    for (index, (x, y)) in points.into_iter().enumerate() {
-        let device = transform * (origin + Vec2::new(x * size, y * size));
-        let snapped = Point::new(
-            (device.x * 256.0).trunc() / 256.0,
-            (device.y * 4.0 + 0.5).floor() / 4.0,
-        );
-        if !snapped.is_finite() {
-            return None;
-        }
-        if index == 0 {
-            path.move_to(snapped);
+    let origin = Point::new(left, start.y - size);
+    Some(points.map(|(x, y)| origin + Vec2::new(x * size, y * size)))
+}
+
+pub(crate) fn fill_disclosure_symbol(
+    scene: &mut impl PaintScene,
+    points: [Point; 3],
+    transform: Affine,
+    color: Color,
+) {
+    let [scale_x, shear_y, shear_x, scale_y, _, _] = transform.as_coeffs();
+    let snap = shear_y == 0.0 && shear_x == 0.0 && scale_x > 0.0 && scale_y > 0.0;
+    let [start, middle, end] = points.map(|point| {
+        let device = transform * point;
+        if snap {
+            Point::new(
+                (device.x * 256.0).trunc() / 256.0,
+                (device.y * 4.0 + 0.5).floor() / 4.0,
+            )
         } else {
-            path.line_to(snapped);
+            device
         }
+    });
+    if ![start, middle, end].iter().all(|point| point.is_finite()) {
+        return;
     }
+    let mut path = BezPath::new();
+    path.move_to(start);
+    path.line_to(middle);
+    path.line_to(end);
     path.close_path();
-    Some(path)
+    scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &path);
 }

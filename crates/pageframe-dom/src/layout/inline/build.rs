@@ -15,8 +15,8 @@ use style::{
 use stylo_taffy::CopyStyleGetters;
 
 use crate::{
-    NodeData,
-    layout::list::BULLET_FONT_FAMILY,
+    DISCLOSURE_MARKER_SPACER, NodeData,
+    layout::list::DISCLOSURE_MARKER_ADVANCE_EM,
     layout::replaced::is_inline_box_element,
     layout::text_transform::{CaseTransform, TextTransformer},
     node::{ListItemLayout, ListItemLayoutPosition, Marker, TextBrush, TextLayout},
@@ -351,19 +351,14 @@ pub(crate) fn build_inline_layout_into(
                 builder.push_text(&marker.inside_text());
                 builder.pop_style_span();
             }
-            // Bullet glyphs live in the bundled bullet font. The position-outside
-            // path already asks for it; without the same span here a marker like
-            // disclosure-closed (U+25B8) falls back to the element's own font and
-            // renders as a missing glyph.
             Marker::Char(_) => {
                 let mut marker_style = parley_style.clone();
-                marker_style.font_family = BULLET_FONT_FAMILY.into();
-                if marker.is_disclosure() {
-                    marker_style.letter_spacing =
-                        DISCLOSURE_MARKER_GAP_EM * marker_style.font_size / scale;
-                }
+                marker_style.letter_spacing = (DISCLOSURE_MARKER_ADVANCE_EM
+                    + DISCLOSURE_MARKER_GAP_EM / scale)
+                    * marker_style.font_size;
+                marker_style.upright_glyphs = parley::UprightGlyphs::None;
                 builder.push_style_span(marker_style);
-                builder.push_text(&marker.inside_text());
+                builder.push_text(DISCLOSURE_MARKER_SPACER);
                 builder.pop_style_span();
             }
             Marker::String(str) => builder.push_text(str),

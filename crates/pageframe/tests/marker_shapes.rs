@@ -1,8 +1,12 @@
 use anyrender::render_to_buffer;
 use anyrender_vello_cpu::VelloCpuImageRenderer;
 use pageframe::App;
+use pageframe_dom::{DocumentConfig, FontContext};
+use pageframe_html::HtmlDocument;
 use pageframe_paint::paint_scene;
 use pageframe_test_harness::Harness;
+use pageframe_traits::shell::{ColorScheme, Viewport};
+use parley::fontique::{Collection, CollectionOptions};
 use std::fmt::Write as _;
 
 const WIDTH: u32 = 640;
@@ -226,4 +230,188 @@ fn sideways_lr_markers_match_chrome_for_every_shape() {
 #[test]
 fn circle_markers_close_like_chrome_in_every_writing_mode() {
     assert_cells(&circles_page(), 120, 5, [&CIRCLES_1X, &CIRCLES_2X]);
+}
+
+#[test]
+fn vertical_disclosure_markers_match_chrome_direction_and_size() {
+    let page = r#"<!doctype html><style>
+body { margin:0; background:white; font:40px/40px Arial }
+details { position:absolute; top:20px; width:80px; height:90px; color:transparent }
+summary::marker { color:black }
+</style>
+<details style="left:20px;writing-mode:vertical-rl"><summary>X</summary></details>
+<details style="left:120px;writing-mode:vertical-lr"><summary>X</summary></details>
+<details open style="left:220px;writing-mode:vertical-rl"><summary>X</summary></details>
+<details open style="left:320px;writing-mode:vertical-lr"><summary>X</summary></details>"#;
+    let buffer = render(page, 1);
+    let width = usize::try_from(WIDTH).expect("width fits");
+    let dark = |x: usize, y: usize| buffer[(y * width + x) * 4] < 128;
+    let chrome_sizes = [(26, 22), (26, 22), (22, 25), (22, 26)];
+    for (column, (chrome_width, chrome_height)) in chrome_sizes.into_iter().enumerate() {
+        let cell_left = column * 100;
+        let [left, top, right, bottom] =
+            ink(&buffer, 1, [cell_left, 0, cell_left + 100, 120]).expect("marker has ink");
+        assert!(
+            (right - left).abs_diff(chrome_width) <= 2,
+            "width in column {column}"
+        );
+        assert!(
+            (bottom - top).abs_diff(chrome_height) <= 2,
+            "height in column {column}"
+        );
+        let (base, tip) = match column {
+            0 | 1 => (
+                (left..right).filter(|&x| dark(x, top + 2)).count(),
+                (left..right).filter(|&x| dark(x, bottom - 1)).count(),
+            ),
+            2 => (
+                (top..bottom).filter(|&y| dark(right - 3, y)).count(),
+                (top..bottom).filter(|&y| dark(left, y)).count(),
+            ),
+            _ => (
+                (top..bottom).filter(|&y| dark(left + 2, y)).count(),
+                (top..bottom).filter(|&y| dark(right - 1, y)).count(),
+            ),
+        };
+        assert!(base > 2 * tip, "base {base}, tip {tip} in column {column}");
+    }
+}
+
+#[test]
+fn disclosure_markers_match_chrome_when_rotated_or_outside() {
+    let page = r#"<!doctype html><style>
+body { margin:0; background:white; font:40px/40px Arial }
+details { position:absolute; top:20px; width:80px; height:90px; color:transparent }
+summary::marker { color:black }
+</style>
+<details style="left:120px;transform-origin:0 0;transform:rotate(90deg)"><summary>X</summary></details>
+<details style="left:240px"><summary style="list-style-position:outside">X</summary></details>
+<details open style="left:340px"><summary style="list-style-position:outside">X</summary></details>"#;
+    let buffer = render(page, 1);
+    for (left, expected) in [
+        (50, [86, 20, 112, 42]),
+        (150, [206, 28, 228, 53]),
+        (250, [306, 29, 331, 52]),
+    ] {
+        let actual = ink(&buffer, 1, [left, 0, left + 100, 120]).expect("marker has ink");
+        assert!(
+            actual
+                .into_iter()
+                .zip(expected)
+                .all(|(actual, expected)| actual.abs_diff(expected) <= 2),
+            "marker in column starting at {left}: {actual:?}, Chrome: {expected:?}",
+        );
+    }
+}
+
+#[test]
+fn outside_vertical_disclosure_markers_match_chrome_in_both_directions() {
+    let page = r#"<!doctype html><style>
+body { margin:0; background:white; font:40px/40px Arial }
+details { position:absolute; top:40px; width:80px; height:90px; color:transparent }
+summary { list-style-position:outside }
+summary::marker { color:black }
+</style>
+<details open dir="ltr" style="left:20px;writing-mode:vertical-lr"><summary>X</summary></details>
+<details open dir="rtl" style="left:170px;writing-mode:vertical-lr"><summary>X</summary></details>
+<details open dir="ltr" style="left:320px;writing-mode:vertical-rl"><summary>X</summary></details>
+<details open dir="rtl" style="left:470px;writing-mode:vertical-rl"><summary>X</summary></details>
+<details dir="ltr" style="left:20px;top:220px;writing-mode:vertical-lr"><summary>X</summary></details>
+<details dir="rtl" style="left:170px;top:220px;writing-mode:vertical-lr"><summary>X</summary></details>
+<details dir="ltr" style="left:320px;top:220px;writing-mode:vertical-rl"><summary>X</summary></details>
+<details dir="rtl" style="left:470px;top:220px;writing-mode:vertical-rl"><summary>X</summary></details>"#;
+    let buffer = render(page, 1);
+    let chrome = [
+        [26, 6, 48, 32],
+        [176, 138, 198, 164],
+        [370, 7, 392, 32],
+        [520, 139, 542, 164],
+        [26, 188, 52, 210],
+        [177, 320, 202, 343],
+        [366, 188, 392, 210],
+        [517, 320, 542, 343],
+    ];
+    let actual = std::array::from_fn::<_, 8, _>(|index| {
+        let left = index % 4 * 150;
+        let top = index / 4 * 180;
+        ink(&buffer, 1, [left, top, left + 150, top + 180]).expect("marker has ink")
+    });
+    assert!(
+        actual.into_iter().zip(chrome).all(|(actual, expected)| {
+            actual
+                .into_iter()
+                .zip(expected)
+                .all(|(actual, expected)| actual.abs_diff(expected) <= 2)
+        }),
+        "Pageframe: {actual:?}, Chrome: {chrome:?}",
+    );
+}
+
+#[test]
+fn inside_and_outside_disclosure_markers_paint_without_fonts() {
+    let page = r#"<!doctype html><style>
+body { margin:0; padding-top:20px; background:white; font:40px/40px Arial }
+details { margin-left:40px; width:100px; color:transparent }
+summary::marker { color:black }
+.outside summary { list-style-position:outside }
+.vertical { position:absolute; top:60px; margin:0; width:80px; height:100px }
+.rl { left:80px; writing-mode:vertical-rl }
+.lr { left:220px; writing-mode:vertical-lr }
+</style>
+<details><summary id="horizontal">X</summary></details>
+<details open><summary>X</summary></details>
+<details class="outside"><summary>X</summary></details>
+<details open class="outside"><summary>X</summary></details>
+<details class="vertical rl"><summary id="rl">X</summary></details>
+<details class="vertical lr"><summary id="lr">X</summary></details>"#;
+    let mut fonts = FontContext {
+        collection: Collection::new(CollectionOptions {
+            shared: false,
+            system_fonts: false,
+        }),
+        ..Default::default()
+    };
+    assert_eq!(fonts.collection.family_names().next(), None);
+    let mut doc = HtmlDocument::from_html(
+        page,
+        DocumentConfig {
+            font_ctx: Some(fonts),
+            viewport: Some(Viewport::new(WIDTH, HEIGHT, 1.0, ColorScheme::Light)),
+            ..Default::default()
+        },
+    );
+    doc.resolve(0.0);
+    let buffer = render_to_buffer::<VelloCpuImageRenderer, _>(
+        |scene| paint_scene(scene, &mut doc, 1.0, WIDTH, HEIGHT, 0, 0),
+        WIDTH,
+        HEIGHT,
+    );
+    for (label, top, left, right) in [
+        ("inside open", 60, 40, 140),
+        ("outside closed", 100, 0, 40),
+        ("outside open", 140, 0, 40),
+    ] {
+        assert!(
+            ink(&buffer, 1, [left, top, right, top + 40]).is_some(),
+            "{label} marker has no ink"
+        );
+    }
+    for (selector, cell, expected) in [
+        ("#horizontal", [0, 0, 150, 60], [40, 28, 62, 54]),
+        ("#rl", [80, 50, 190, 95], [126, 60, 152, 82]),
+        ("#lr", [200, 50, 320, 95], [240, 60, 266, 82]),
+    ] {
+        let actual = ink(&buffer, 1, cell).expect("marker has ink");
+        assert_eq!(actual, expected, "{selector} marker bounds");
+        let id = doc.query_selector(selector).unwrap().unwrap();
+        let summary = doc.get_client_bounding_rect(id).expect("summary has a box");
+        let [left, top, right, bottom] = actual.map(|edge| f64::from(u32::try_from(edge).unwrap()));
+        assert!(
+            left >= summary.x
+                && top >= summary.y
+                && right <= summary.x + summary.width
+                && bottom <= summary.y + summary.height,
+            "{selector} marker {actual:?} exceeds summary {summary:?}"
+        );
+    }
 }

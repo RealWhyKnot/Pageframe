@@ -157,4 +157,5 @@ Nightly prereleases are tagged like `v0.2.0-beta.20261124.0`: the version the ne
 
 ## License
 
-MIT or Apache-2.0, at your option ([LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)). The vendored Stylo and some dependencies use MPL-2.0. See the [licensing guide](docs/licensing.md) for what to include with your app and [NOTICE](NOTICE) for third-party credits.
+Pageframe is [MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE). The vendored Stylo CSS crates are MPL-2.0.
+See the [licensing guide](docs/licensing.md) for what to ship with your app and [NOTICE](NOTICE) for third-party credits.

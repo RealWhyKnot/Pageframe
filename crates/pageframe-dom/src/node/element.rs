@@ -1149,6 +1149,7 @@ pub struct ListItemLayout {
     pub(crate) ordinal: i32,
     pub marker: Marker,
     pub marker_color: Option<style::color::AbsoluteColor>,
+    pub marker_font_size: f32,
     pub position: ListItemLayoutPosition,
     /// Offset (in physical CSS px) of the unrounded content box origin from the rounded one in
     /// `final_layout`. Paint draws text from the unrounded origin so that it keeps its sub-pixel

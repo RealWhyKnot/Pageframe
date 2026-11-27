@@ -1,75 +1,43 @@
 # Licensing
 
-Pageframe's own code is MIT OR Apache-2.0. You can use it in a closed-source or commercial app. Stylo, the CSS engine, and several dependencies use MPL-2.0. You can include them if you make their source available.
+## Shipping an app with Pageframe
 
-This is a summary of the licenses, not legal advice. Patent and codec rights are a separate question.
+Pageframe's own code is MIT OR Apache-2.0. The default build uses no code under GPL, AGPL or LGPL terms. You can ship Pageframe in a permissively licensed app, a proprietary app or a `GPL-3.0-or-later` app such as Backtrack.
 
-The crate counts use the 24 November 2026 `Cargo.lock` with every feature enabled and no target filter.
-
-## How the check runs
-
-`.github/lint/repo_checks.sh` runs cargo-deny in the `checks` job in CI and in the `pre-push` hook:
+1. Include Pageframe's [NOTICE](../NOTICE), the Pageframe license you choose, and the copyright notices and license texts for the dependencies you ship, including their MIT, Apache-2.0 and BSD terms.
+2. Generate the Cargo notices from your app's manifest, lockfile, features and targets. Copy Pageframe's [about.toml](../about.toml) into your app, set `targets` to the target triples you ship, and run the command below from the app's Cargo package directory with [cargo-about](https://embarkstudios.github.io/cargo-about/) installed. Pass the same feature flags you use for the release build.
+3. In the notices you ship, link to [`vendor/stylo`](../vendor/stylo) and the [Servo stylesheet](../crates/pageframe-dom/assets/default.css) at the exact Pageframe commit or tag you built. Provide the corresponding source for the other MPL-2.0 dependencies you ship. If you changed any MPL files, make your exact versions available under MPL-2.0 and tell recipients where to get them. See the [MPL FAQ](https://www.mozilla.org/en-US/MPL/2.0/FAQ/).
 
 ```sh
-cargo deny --workspace --config .github/lint/deny.toml check
+cargo about generate --locked --fail --format json --output-file third-party-licenses.json
 ```
 
-It checks advisories, bans, licenses and sources for every workspace member, including tests and build and dev dependencies. Install it with `cargo install cargo-deny --locked`.
+Use cargo-about 0.9 or later. It includes local Pageframe and Stylo crates by default.
 
-`.github/lint/deny.toml` allows a fixed list of licenses: MIT, Apache-2.0 (with or without the LLVM exception), BSD-2-Clause, BSD-3-Clause, BSL-1.0 (the Boost Software License), IJG, ISC, Zlib, 0BSD, Unicode-3.0, CDLA-Permissive-2.0 and MPL-2.0. A crate with any other license, or none, fails the check. Git dependencies are allowed only from the DioxusLabs anyrender, taffy and vello repositories, listed in `.github/lint/deny.local.toml`. Before you add a license to the list, read its terms and the crate's license files.
+The JSON includes the collected Cargo license texts. For formatted HTML, pass your [Handlebars template](https://embarkstudios.github.io/cargo-about/cli/generate/index.html) in place of `--format json` and name the output file accordingly. Include required notices for anything you bundle outside Cargo, such as system libraries, fonts and images.
 
-## What the dependency graph contains
+## Maintainer checks
 
-The workspace resolves 646 crates. Almost all of them are MIT, Apache-2.0 or a choice between permissive licenses.
+The CI `checks` job and pre-push hook run cargo-deny with all workspace features enabled.
 
-| License | In a closed-source app | What you owe when you ship |
-| --- | --- | --- |
-| MIT, ISC, BSD-2-Clause, BSD-3-Clause, 0BSD | Allowed, no source needed | Keep the copyright and license notices. BSD-3-Clause also bars using the authors' names to promote your app. |
-| Apache-2.0 | Allowed, no source needed | Include the license and any NOTICE file, and mark files you changed. It grants patent rights, which end if you sue over patents in the work. |
-| BSL-1.0, Zlib | Allowed, no source needed | Keep the notices. Zlib asks you to mark changed source as changed. |
-| Unicode-3.0 | Allowed | Keep the copyright and permission notice with the software or its documentation. |
-| MPL-2.0 | Allowed | Make the source of the MPL files you ship available, changed or not, and tell users where to get it. |
+```sh
+cargo deny --manifest-path Cargo.toml --workspace --config .github/lint/deny.toml check
+```
 
-`OR` in a license field means you pick one. `AND` means all of them apply. A few crates need a second license on top of MIT or Apache-2.0:
+The [active cargo-deny config](../.github/lint/deny.toml) checks advisories, bans, licenses and sources, including test and build dependencies. Its license allowlist covers MIT, Apache-2.0 (including the LLVM exception), BSD-2-Clause, BSD-3-Clause, BSL-1.0, ISC, Zlib, 0BSD, Unicode-3.0 and MPL-2.0. When updating the license allowlist, review the crate's license files and keep `about.toml` in sync.
 
-- `encoding_rs` also needs BSD-3-Clause, and `unicode-ident` also needs Unicode-3.0.
-- The ICU4X crates (`icu_*`, `zerovec`, `yoke`, `tinystr` and others), which Boa uses for `Intl` and text segmentation, are Unicode-3.0 only.
-- `tiny-skia`, `alloc-no-stdlib` and `alloc-stdlib` are BSD-3-Clause only.
-- `blitz-chrome-devtools-frontend` is BSD-3-Clause AND MIT AND Apache-2.0. It's only built with the `embedded-devtools-frontend` feature of `pageframe-shell`.
+Keep approved Git sources in the [local Git source allowlist](../.github/lint/deny.local.toml). `Install-Lint -Force` merges it into `deny.toml` when refreshing the shared lint configs.
 
-`r-efi` offers LGPL-2.1 as one choice among MIT and Apache-2.0, so it doesn't bring in the LGPL. Nothing in the graph requires GPL, AGPL or LGPL.
+In a Cargo license expression, `OR` lets you choose a license and `AND` requires you to comply with each term. For example, `unicode-ident` requires Unicode-3.0 in addition to a choice of MIT or Apache-2.0. `r-efi` offers LGPL-2.1 as an alternative to its permissive licenses. The policy uses a permissive option.
 
-## MPL-2.0 code
+### MPL-2.0 code
 
-These crates are MPL-2.0 only:
+- Most crates in [vendor/stylo](../vendor/stylo) are MPL-2.0. `servo_arc` and `malloc_size_of` are MIT OR Apache-2.0. Stylo's license text is in [LICENSE-MPL-2.0](../vendor/stylo/LICENSE-MPL-2.0).
+- The registry crates `app_units`, `cssparser`, `cssparser-macros`, `dtoa-short` and `uluru` are MPL-2.0. The WPT runner also uses `colored` under MPL-2.0. `stylo_taffy` offers MIT or Apache-2.0 as well as MPL-2.0.
+- MPL-2.0 applies file by file. A file that incorporates MPL code is covered by the MPL. You can distribute a larger work under your app's terms while making the covered files available under MPL-2.0. See [MPL-2.0 sections 3.1 to 3.3](https://www.mozilla.org/en-US/MPL/2.0/).
 
-- The Stylo copy in `vendor/stylo`: `stylo`, `stylo_atoms`, `stylo_derive`, `stylo_dom`, `stylo_static_prefs`, `stylo_traits`, `selectors`, `to_shmem` and `to_shmem_derive`. The `servo_arc` and `malloc_size_of` crates in the same folder are MIT OR Apache-2.0.
-- From crates.io: `app_units`, `cssparser`, `cssparser-macros`, `dtoa-short` and `uluru`.
-- `colored`, which only the WPT runner in `wpt/runner` uses. It isn't part of an app.
+### Files outside Cargo metadata
 
-`stylo_taffy` offers MPL-2.0 alongside MIT and Apache-2.0, so you can take it under MIT or Apache-2.0.
-
-MPL-2.0 works file by file. Your own files stay under your license, and linking MPL code into your binary, statically or not, doesn't change that. What you must do, under sections 3.1 to 3.3 of the [MPL](https://www.mozilla.org/en-US/MPL/2.0/):
-
-- Make the source of every MPL file in your binary available to the people you give it to, even if you didn't change those files.
-- Tell them how to get that source.
-- Keep any changes to those files under the MPL.
-
-If you copy MPL code into one of your own files, the MPL applies to that file. Mozilla's [MPL FAQ](https://www.mozilla.org/en-US/MPL/2.0/FAQ/) explains where a covered file ends and your larger work begins.
-
-[NOTICE](../NOTICE) lists the changes to Stylo. When you ship, point users to [`vendor/stylo`](../vendor/stylo) at the exact commit you built from. The [MPL-2.0 text](../vendor/stylo/LICENSE-MPL-2.0) is in that folder.
-
-## Files cargo-deny doesn't see
-
-cargo-deny only reads Cargo metadata. Check these files separately when you ship `pageframe-dom`.
-
-- `crates/pageframe-dom/assets/default.css` comes from Servo and is MPL-2.0, as its header says. The same source rules apply.
-- `crates/pageframe-dom/assets/quirks.css` was written for Pageframe from the quirks-mode rules in the HTML Standard and is MIT OR Apache-2.0 like the rest of the repository.
-- `crates/pageframe-dom/assets/moz-bullet-font.otf` is a modified Mozilla Bullet 1.0 by Mats Palmgren. Pageframe inherited the OTF from [Blitz at b6bb45c](https://github.com/DioxusLabs/blitz/blob/b6bb45c550a9490afa6c43468c77535c6d76856d/packages/blitz-dom/assets/moz-bullet-font.otf). The OTF has no license notice. The [original Gecko font source](https://github.com/mozilla/gecko-dev/blob/e4d7dd995a62ca5653527792b55c8f6ee6e74b02/layout/style/res/Mozilla_Bullet.bf) had blank license fields. Mozilla [added a SIL Open Font License notice](https://github.com/mozilla/gecko-dev/commit/02e33379c1292f7dcd2b2ff56e01c5461154aaa3) in a later revision. Confirm the license for the bundled OTF before distributing it.
-
-## Before you ship an app
-
-- Generate third-party notices from the crates, features and targets you actually ship. A passing cargo-deny check doesn't produce them.
-- Include the license texts and NOTICE content those crates require, including this repository's NOTICE file.
-- For the MPL files you ship, publish the exact source you built from and tell users where to find it.
-- Check anything Cargo doesn't describe: system libraries, fonts, images and the pages your app loads.
+- [default.css](../crates/pageframe-dom/assets/default.css), the Servo user-agent stylesheet embedded in `pageframe-dom`, is MPL-2.0. [quirks.css](../crates/pageframe-dom/assets/quirks.css) is MIT OR Apache-2.0.
+- Stylo's [vendored Python packages](../vendor/stylo/style/properties/vendored_python) are used during the build. Mako and toml are MIT, and MarkupSafe is BSD-3-Clause. See [NOTICE](../NOTICE) for the attributions and license locations.
+- The `pageframe-script` test fixture includes a copy of [Preact](../crates/pageframe-script/tests/preact_app/vendor) under MIT.

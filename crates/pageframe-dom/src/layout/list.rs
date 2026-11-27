@@ -1,6 +1,5 @@
 use markup5ever::local_name;
 use pageframe_traits::node_id::NodeId;
-use parley::FontFamily;
 use style::computed_values::list_style_type::T as ListStyleType;
 use style::{
     computed_values::list_style_position::T as ListStylePosition, counter_style::CounterStyle,
@@ -10,13 +9,13 @@ use style::{
 use stylo_taffy::CopyStyleGetters;
 
 use crate::{
-    BaseDocument,
+    BaseDocument, DISCLOSURE_MARKER_SPACER,
     layout::{construct::pe_content_text, counter_style},
     node::{ListItemLayout, ListItemLayoutPosition, Marker, MarkerShape, MarkerSymbol},
     stylo_to_parley,
 };
 
-pub(super) const BULLET_FONT_FAMILY: &str = "Bullet, monospace, sans-serif";
+pub(super) const DISCLOSURE_MARKER_ADVANCE_EM: f32 = 0.66;
 
 const NO_BREAK_SPACE: char = '\u{a0}';
 
@@ -340,7 +339,11 @@ fn list_item_layout(
     let layout = if is_outside || matches!(marker, Marker::Symbol(_)) {
         let mut parley_style = stylo_to_parley::style(child_id, text_styles);
         match marker {
-            Marker::Char(_) => parley_style.font_family = FontFamily::from(BULLET_FONT_FAMILY),
+            Marker::Char(_) => {
+                parley_style.letter_spacing +=
+                    DISCLOSURE_MARKER_ADVANCE_EM * parley_style.font_size;
+                parley_style.upright_glyphs = parley::UprightGlyphs::None;
+            }
             Marker::Symbol(_) => parley_style.upright_glyphs = parley::UprightGlyphs::None,
             Marker::String(_) => {}
         }
@@ -360,7 +363,7 @@ fn list_item_layout(
 
         match &marker {
             Marker::Symbol(_) => builder.push_text(&marker.inside_text()),
-            Marker::Char(char) => builder.push_text(char.encode_utf8(&mut [0; 4])),
+            Marker::Char(_) => builder.push_text(DISCLOSURE_MARKER_SPACER),
             Marker::String(text) => builder.push_text(&outside_marker_text(text)),
         };
 
@@ -390,6 +393,7 @@ fn list_item_layout(
         ordinal,
         marker,
         marker_color: marker_styles.as_ref().map(|style| style.clone_color()),
+        marker_font_size: text_styles.get_font().font_size.used_size().px(),
         position,
         content_box_subpixel_offset: taffy::Point::ZERO,
     })
