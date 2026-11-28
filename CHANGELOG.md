@@ -5,8 +5,8 @@ Changes to Pageframe, newest first, in the [Keep a Changelog](https://keepachang
 ## Unreleased
 
 ### Fixed
-
 - Polish rendering and prepare public repo (309fd57)
 - Stabilize Windows CI, WPT, and Dependabot (d65d5a5)
+- Harden media, GPU present, rAF clock, and canvas (ec2cd2b)
 
 ---
