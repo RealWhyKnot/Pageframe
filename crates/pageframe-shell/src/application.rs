@@ -3,9 +3,10 @@ use crate::event::{PageframeShellEvent, PageframeShellProxy};
 use anyrender::WindowRenderer;
 use std::collections::HashMap;
 use std::sync::mpsc::Receiver;
+use web_time::Instant;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
-use winit::event_loop::ActiveEventLoop;
+use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::window::WindowId;
 
 use winit::{
@@ -41,7 +42,7 @@ fn document_contains_id(doc: &pageframe_dom::BaseDocument, doc_id: usize) -> boo
     })
 }
 
-impl<Rend: WindowRenderer> PageframeApplication<Rend> {
+impl<Rend: WindowRenderer + 'static> PageframeApplication<Rend> {
     pub fn new(proxy: PageframeShellProxy, event_queue: Receiver<PageframeShellEvent>) -> Self {
         #[allow(unused_mut)]
         let mut app = PageframeApplication {
@@ -107,12 +108,8 @@ impl<Rend: WindowRenderer> PageframeApplication<Rend> {
                 }
             }
             PageframeShellEvent::ResumeReady { window_id } => {
-                // The renderer fires `on_ready` after it has sent on the
-                // channel, so `complete_resume` should always succeed here.
-                // If a stale event survives a suspend, dropping it is safe.
                 if let Some(window) = self.windows.get_mut(&window_id) {
-                    let ok = window.complete_resume();
-                    debug_assert!(ok, "ResumeReady received but renderer not ready");
+                    window.complete_resume();
                 }
             }
             PageframeShellEvent::RequestRedraw { doc_id } => {
@@ -161,7 +158,7 @@ impl<Rend: WindowRenderer> PageframeApplication<Rend> {
     }
 }
 
-impl<Rend: WindowRenderer> ApplicationHandler for PageframeApplication<Rend> {
+impl<Rend: WindowRenderer + 'static> ApplicationHandler for PageframeApplication<Rend> {
     fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
         // Resume existing windows
         for view in self.windows.values_mut() {
@@ -258,18 +255,24 @@ impl<Rend: WindowRenderer> ApplicationHandler for PageframeApplication<Rend> {
         Some(self)
     }
 
-    #[cfg(target_os = "ios")]
-    fn about_to_wait(&mut self, _event_loop: &dyn ActiveEventLoop) {
+    fn about_to_wait(&mut self, event_loop: &dyn ActiveEventLoop) {
+        let now = Instant::now();
+        let mut next = None;
         for view in self.windows.values_mut() {
+            if let Some(at) = view.retry_render(now) {
+                next = Some(next.map_or(at, |other: Instant| other.min(at)));
+            }
+            #[cfg(target_os = "ios")]
             if view.ios_request_redraw.get() {
                 view.window.request_redraw();
             }
         }
+        event_loop.set_control_flow(next.map_or(ControlFlow::Wait, ControlFlow::WaitUntil));
     }
 }
 
 #[cfg(target_os = "macos")]
-impl<Rend: WindowRenderer> ApplicationHandlerExtMacOS for PageframeApplication<Rend> {
+impl<Rend: WindowRenderer + 'static> ApplicationHandlerExtMacOS for PageframeApplication<Rend> {
     fn standard_key_binding(
         &mut self,
         _event_loop: &dyn ActiveEventLoop,

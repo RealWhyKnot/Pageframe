@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::{
     E_INVALIDARG, E_NOTIMPL, E_POINTER, S_FALSE, S_OK, STG_E_ACCESSDENIED, STG_E_INVALIDFUNCTION,
@@ -43,26 +44,33 @@ fn report_read(pcbread: *mut u32, count: u32) {
 
 impl ISequentialStream_Impl for SourceStream_Impl {
     fn Read(&self, pv: *mut core::ffi::c_void, cb: u32, pcbread: *mut u32) -> HRESULT {
+        report_read(pcbread, 0);
+        if cb == 0 {
+            return S_OK;
+        }
         if pv.is_null() {
             return E_POINTER;
         }
         let Ok(len) = usize::try_from(cb) else {
             return E_INVALIDARG;
         };
-        if self.shared.is_stopped() {
-            report_read(pcbread, 0);
-            return STG_E_READFAULT;
+        if len > isize::MAX.unsigned_abs() {
+            return E_INVALIDARG;
         }
         // SAFETY: COM callers pass a writable buffer of at least `cb` bytes at `pv`, checked non-null above.
         let buffer = unsafe { std::slice::from_raw_parts_mut(pv.cast::<u8>(), len) };
+        let deadline = Instant::now() + Duration::from_secs(10);
         let read = self.with(|source| {
             let mut total = 0;
             while total < buffer.len() {
-                match source.read(&mut buffer[total..]) {
+                if self.shared.is_stopped() {
+                    return Err((total, std::io::ErrorKind::ConnectionAborted.into()));
+                }
+                match source.read_until(&mut buffer[total..], deadline) {
                     Ok(0) => break,
                     Ok(read) => total += read,
                     Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                    Err(error) => return Err(error),
+                    Err(error) => return Err((total, error)),
                 }
             }
             Ok(total)
@@ -72,9 +80,9 @@ impl ISequentialStream_Impl for SourceStream_Impl {
                 report_read(pcbread, u32::try_from(total).unwrap_or(cb));
                 if total < len { S_FALSE } else { S_OK }
             }
-            Err(error) => {
+            Err((total, error)) => {
                 self.shared.record_network(network_failure(&error));
-                report_read(pcbread, 0);
+                report_read(pcbread, u32::try_from(total).unwrap_or(cb));
                 STG_E_READFAULT
             }
         }

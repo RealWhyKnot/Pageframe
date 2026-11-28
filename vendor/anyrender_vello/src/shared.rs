@@ -24,6 +24,17 @@ impl<T> WeakList<T> {
         matches: impl Fn(&T) -> bool,
         make: impl FnOnce() -> T,
     ) -> Arc<T> {
+        match self.try_find_or_insert_with(matches, || Ok::<_, std::convert::Infallible>(make())) {
+            Ok(value) => value,
+            Err(never) => match never {},
+        }
+    }
+
+    fn try_find_or_insert_with<E>(
+        &mut self,
+        matches: impl Fn(&T) -> bool,
+        make: impl FnOnce() -> Result<T, E>,
+    ) -> Result<Arc<T>, E> {
         self.0.retain(|entry| entry.strong_count() > 0);
         if let Some(found) = self
             .0
@@ -31,11 +42,11 @@ impl<T> WeakList<T> {
             .filter_map(Weak::upgrade)
             .find(|entry| matches(entry))
         {
-            return found;
+            return Ok(found);
         }
-        let made = Arc::new(make());
+        let made = Arc::new(make()?);
         self.0.push(Arc::downgrade(&made));
-        made
+        Ok(made)
     }
 
     #[cfg(test)]
@@ -75,7 +86,7 @@ pub(crate) struct SharedRenderer {
 }
 
 impl SharedRenderer {
-    fn new(device: &Device, key: RendererKey) -> Self {
+    fn new(device: &Device, key: RendererKey) -> Result<Self, vello::Error> {
         let vello = VelloRenderer::new(
             device,
             RendererOptions {
@@ -84,12 +95,11 @@ impl SharedRenderer {
                 num_init_threads: DEFAULT_THREADS,
                 pipeline_cache: key.pipeline_cache.clone(),
             },
-        )
-        .expect("Error creating the vello renderer");
-        Self {
+        )?;
+        Ok(Self {
             key,
             vello: Mutex::new(vello),
-        }
+        })
     }
 }
 
@@ -106,6 +116,12 @@ impl PooledHandle {
         handle
             .device
             .set_device_lost_callback(move |_, _| flag.store(true, Ordering::Release));
+        let warned = AtomicBool::new(false);
+        handle.device.on_uncaptured_error(Arc::new(move |error| {
+            if !warned.swap(true, Ordering::Relaxed) {
+                tracing::warn!(%error, "Vello GPU device reported an error");
+            }
+        }));
         Self { handle, lost }
     }
 
@@ -186,7 +202,7 @@ impl DevicePool {
         device: PooledHandle,
         surface: &Surface<'_>,
         key: &RendererKey,
-    ) -> (DeviceHandle, Arc<SharedRenderer>) {
+    ) -> Result<(PooledHandle, Arc<SharedRenderer>), vello::Error> {
         let mut devices = lock(&self.devices);
         devices.retain(PooledDevice::is_usable);
         let index = devices
@@ -206,11 +222,11 @@ impl DevicePool {
                 devices.len() - 1
             });
         let pooled = &mut devices[index];
-        let renderer = pooled.renderers.find_or_insert_with(
+        let renderer = pooled.renderers.try_find_or_insert_with(
             |renderer| renderer.key == *key,
             || SharedRenderer::new(&pooled.device.handle.device, key.clone()),
-        );
-        (pooled.device.handle.clone(), renderer)
+        )?;
+        Ok((pooled.device.clone(), renderer))
     }
 
     #[cfg(test)]

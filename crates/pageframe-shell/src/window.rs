@@ -6,6 +6,8 @@ use crate::convert_events::{
 };
 use crate::event::{PageframeShellEvent, PageframeShellProxy, create_waker};
 use anyrender::WindowRenderer;
+#[cfg(feature = "vello")]
+use anyrender_vello::{FrameStatus, VelloWindowRenderer};
 use pageframe_dom::Document;
 use pageframe_paint::paint_scene;
 use pageframe_traits::events::{
@@ -20,7 +22,7 @@ use atomic_refcell::AtomicRefCell;
 use std::any::Any;
 use std::sync::Arc;
 use std::task::Waker;
-use web_time::Instant;
+use web_time::{Duration, Instant};
 use winit::event::{ButtonSource, ElementState, MouseButton};
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Theme, WindowAttributes, WindowId};
@@ -38,6 +40,17 @@ fn get_safe_area_insets(_window: &dyn Window) -> PhysicalInsets<u32> {
 #[cfg(not(target_os = "macos"))]
 fn get_safe_area_insets(window: &dyn Window) -> PhysicalInsets<u32> {
     window.safe_area()
+}
+
+const FRAME_RETRY: Duration = Duration::from_millis(16);
+const RENDERER_RETRY: Duration = Duration::from_millis(250);
+
+#[derive(PartialEq, Eq)]
+enum FrameOutcome {
+    Presented,
+    Retry(Duration),
+    #[cfg(feature = "vello")]
+    DeviceLost,
 }
 
 pub struct WindowConfig<Rend: WindowRenderer> {
@@ -95,6 +108,8 @@ pub struct View<Rend: WindowRenderer> {
     /// avoid a reference cycle.
     pub active_events: Arc<AtomicRefCell<Vec<PageframePointerEvent>>>,
     pub animation_timer: Option<Instant>,
+    retry_redraw_at: Option<Instant>,
+    surfaces_available: bool,
     pub is_visible: bool,
     pub safe_area_insets: PhysicalInsets<u32>,
 
@@ -131,7 +146,7 @@ impl<Rend: WindowRenderer> Drop for View<Rend> {
     }
 }
 
-impl<Rend: WindowRenderer> View<Rend> {
+impl<Rend: WindowRenderer + 'static> View<Rend> {
     pub fn init(
         config: WindowConfig<Rend>,
         event_loop: &dyn ActiveEventLoop,
@@ -212,6 +227,8 @@ impl<Rend: WindowRenderer> View<Rend> {
             renderer: config.renderer,
             waker: None,
             animation_timer: None,
+            retry_redraw_at: None,
+            surfaces_available: false,
             keyboard_modifiers: Default::default(),
             proxy: proxy.clone(),
             window: winit_window.clone(),
@@ -289,12 +306,17 @@ impl<Rend: WindowRenderer> View<Rend> {
     }
 }
 
-impl<Rend: WindowRenderer> View<Rend> {
+impl<Rend: WindowRenderer + 'static> View<Rend> {
     /// Start resuming the renderer. Dispatches [`PageframeShellEvent::ResumeReady`]
     /// when initialization completes — synchronously on native, asynchronously
     /// on wasm32. The embedder must call [`complete_resume`](Self::complete_resume)
     /// in response.
     pub fn resume(&mut self) {
+        self.surfaces_available = true;
+        self.retry_redraw_at = None;
+        if self.renderer.is_active() || self.renderer.is_pending() {
+            return;
+        }
         let window_id = self.window_id();
         let animation_time = self.current_animation_time();
 
@@ -310,17 +332,27 @@ impl<Rend: WindowRenderer> View<Rend> {
         let height = height + insets.top + insets.bottom;
 
         let proxy = self.proxy.clone();
-        self.renderer
-            .resume(Arc::new(self.window.clone()), width, height, move || {
+        self.renderer.resume(
+            Arc::new(self.window.clone()),
+            width.max(1),
+            height.max(1),
+            move || {
                 proxy.send_event(PageframeShellEvent::ResumeReady { window_id });
-            });
+            },
+        );
     }
 
     /// Finalize a previously-started resume. Should be called in response to a
     /// [`PageframeShellEvent::ResumeReady`] event. Paints the first frame and
     /// installs the doc poll waker. Returns `true` if the renderer is now active.
     pub fn complete_resume(&mut self) -> bool {
+        if !self.surfaces_available || (self.renderer.is_active() && self.waker.is_some()) {
+            return self.renderer.is_active();
+        }
         if !self.renderer.complete_resume() {
+            if !self.renderer.is_pending() {
+                self.retry_redraw_at = Some(Instant::now() + RENDERER_RETRY);
+            }
             return false;
         }
 
@@ -346,24 +378,30 @@ impl<Rend: WindowRenderer> View<Rend> {
             height + insets.top + insets.bottom,
         );
 
-        self.renderer.render(|scene| {
-            paint_scene(
-                scene,
-                &mut inner,
-                scale,
-                width,
-                height,
-                insets.left,
-                insets.top,
-            )
-        });
+        let outcome = Self::render_document(
+            &mut self.renderer,
+            &mut inner,
+            scale,
+            (width, height),
+            insets,
+        );
+        let is_animating = inner.is_animating();
+        drop(inner);
 
-        self.waker = Some(create_waker(&self.proxy, window_id));
-        true
+        self.waker
+            .get_or_insert_with(|| create_waker(&self.proxy, window_id));
+        self.finish_frame(outcome, is_animating);
+        self.renderer.is_active()
     }
 
     pub fn suspend(&mut self) {
+        self.surfaces_available = false;
+        self.retry_redraw_at = None;
         self.waker = None;
+        self.release_renderer();
+    }
+
+    fn release_renderer(&mut self) {
         self.renderer.suspend();
 
         #[cfg(feature = "custom-widget")]
@@ -419,25 +457,73 @@ impl<Rend: WindowRenderer> View<Rend> {
         let is_blocked = inner.has_pending_critical_resources();
         let insets = self.safe_area_insets;
 
-        if !is_blocked && is_visible {
-            self.renderer.render(|scene| {
-                paint_scene(
-                    scene,
-                    &mut inner,
-                    scale,
-                    width,
-                    height,
-                    insets.left,
-                    insets.top,
-                )
-            });
+        if is_blocked || !is_visible || width == 0 || height == 0 || !self.renderer.is_active() {
+            return;
         }
-
+        let outcome = Self::render_document(
+            &mut self.renderer,
+            &mut inner,
+            scale,
+            (width, height),
+            insets,
+        );
         drop(inner);
+        self.finish_frame(outcome, is_animating);
+    }
 
-        if !is_blocked && is_visible && is_animating {
+    fn render_document(
+        renderer: &mut Rend,
+        doc: &mut pageframe_dom::BaseDocument,
+        scale: f64,
+        (width, height): (u32, u32),
+        insets: PhysicalInsets<u32>,
+    ) -> FrameOutcome {
+        #[cfg(feature = "vello")]
+        if let Some(vello) = (renderer as &mut dyn Any).downcast_mut::<VelloWindowRenderer>() {
+            return match vello.render_frame(|scene| {
+                paint_scene(scene, doc, scale, width, height, insets.left, insets.top);
+            }) {
+                FrameStatus::Presented => FrameOutcome::Presented,
+                FrameStatus::Retry => FrameOutcome::Retry(FRAME_RETRY),
+                FrameStatus::Occluded => FrameOutcome::Retry(Duration::from_millis(100)),
+                FrameStatus::DeviceLost => FrameOutcome::DeviceLost,
+            };
+        }
+        let mut outcome = FrameOutcome::Retry(FRAME_RETRY);
+        renderer.render(|scene| {
+            paint_scene(scene, doc, scale, width, height, insets.left, insets.top);
+            outcome = FrameOutcome::Presented;
+        });
+        outcome
+    }
+
+    fn finish_frame(&mut self, outcome: FrameOutcome, is_animating: bool) {
+        self.retry_redraw_at = match outcome {
+            FrameOutcome::Presented => None,
+            FrameOutcome::Retry(delay) => Some(Instant::now() + delay),
+            #[cfg(feature = "vello")]
+            FrameOutcome::DeviceLost => {
+                self.release_renderer();
+                Some(Instant::now() + RENDERER_RETRY)
+            }
+        };
+        if outcome == FrameOutcome::Presented && is_animating {
             self.request_redraw();
         }
+    }
+
+    pub(crate) fn retry_render(&mut self, now: Instant) -> Option<Instant> {
+        let at = self.retry_redraw_at.filter(|_| self.is_visible)?;
+        if at > now {
+            return Some(at);
+        }
+        self.retry_redraw_at = None;
+        if self.renderer.is_active() {
+            self.request_redraw();
+        } else {
+            self.resume();
+        }
+        None
     }
 
     pub fn pointer_coords(&self, position: PhysicalPosition<f64>) -> PointerCoords {

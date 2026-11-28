@@ -13,7 +13,7 @@ use self::windows as backend;
 
 use std::collections::HashMap;
 use std::sync::mpsc::{Sender, channel};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::task::Waker;
 use std::thread::JoinHandle;
 
@@ -63,10 +63,13 @@ impl Player {
 
     fn refuse(url: &Url, waker: Arc<Mutex<Option<Waker>>>) -> Self {
         let shared = Arc::new(Shared::new(waker));
-        shared.fail(Failure::new(
-            MEDIA_ERR_SRC_NOT_SUPPORTED,
-            format!("this page cannot load {url}"),
-        ));
+        tracing::warn!("This page cannot load local media files");
+        shared.update(|inbox| {
+            inbox.error = Some(Failure::new(
+                MEDIA_ERR_SRC_NOT_SUPPORTED,
+                format!("this page cannot load {url}"),
+            ));
+        });
         Self {
             shared,
             commands: None,
@@ -93,7 +96,9 @@ impl Drop for Player {
             return;
         };
         if worker.is_finished() {
-            let _ = worker.join();
+            if worker.join().is_err() {
+                tracing::error!("Media worker panicked");
+            }
             return;
         }
         drop(worker);
@@ -105,7 +110,7 @@ struct Entry {
     connected: bool,
     ready: bool,
     failed: bool,
-    shown: bool,
+    shown: Option<Weak<Vec<u8>>>,
 }
 
 #[derive(Default)]
@@ -117,6 +122,14 @@ pub(crate) struct MediaRegistry {
 }
 
 impl MediaRegistry {
+    pub(crate) fn is_decoded_frame(&self, node_id: NodeId, pixels: &[u8]) -> bool {
+        self.entries
+            .get(&node_id)
+            .and_then(|entry| entry.shown.as_ref())
+            .and_then(Weak::upgrade)
+            .is_some_and(|frame| std::ptr::eq(frame.as_slice(), pixels))
+    }
+
     pub(crate) fn mark(&mut self, node_id: NodeId) {
         if !self.pending.contains(&node_id) {
             self.pending.push(node_id);
@@ -237,7 +250,7 @@ fn node_arg(args: &[JsValue]) -> Option<NodeId> {
 fn remove_entry(ctx: &DomCtx, node_id: NodeId) {
     let entry = ctx.state.borrow_mut().media.entries.remove(&node_id);
     if let Some(entry) = entry {
-        if entry.shown {
+        if entry.shown.is_some() {
             pageframe_dom::media::clear_frame(&mut ctx.doc.borrow_mut(), node_id);
         }
         drop(entry);
@@ -294,7 +307,7 @@ fn open(_: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValu
             connected,
             ready: false,
             failed: false,
-            shown: false,
+            shown: None,
         },
     );
     Ok(JsValue::from(true))
@@ -337,14 +350,24 @@ fn control(_: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsV
             entry.player.send(Command::Pause);
         }
         "seek" => {
-            registry.serial += 1;
-            let serial = registry.serial;
             let target = if value.is_finite() {
                 value.max(0.0)
             } else {
                 0.0
             };
-            shared.timeline().seek(target);
+            let mut timeline = shared.timeline();
+            let mut inbox = shared.inbox();
+            if entry.failed || inbox.error.is_some() {
+                return Ok(JsValue::undefined());
+            }
+            registry.serial += 1;
+            let serial = registry.serial;
+            let target = target.min(timeline.duration);
+            timeline.seek(target, Some(serial));
+            inbox.frame = None;
+            inbox.seeked = None;
+            inbox.ended = false;
+            inbox.looped = false;
             #[cfg(windows)]
             entry.player.send(Command::Seek(target, serial));
             return Ok(count(serial));
@@ -559,6 +582,9 @@ fn collect(ctx: &DomCtx) -> (Vec<Update>, bool) {
             if dropped.contains(&node_id) {
                 continue;
             }
+            if let Some(entry) = state.media.entries.get_mut(&node_id) {
+                entry.shown = Some(Arc::downgrade(&frame.rgba));
+            }
             pageframe_dom::media::present_frame(
                 &mut doc,
                 node_id,
@@ -566,9 +592,6 @@ fn collect(ctx: &DomCtx) -> (Vec<Update>, bool) {
                 frame.height,
                 frame.rgba,
             );
-            if let Some(entry) = state.media.entries.get_mut(&node_id) {
-                entry.shown = true;
-            }
         }
     }
     for node_id in dropped {

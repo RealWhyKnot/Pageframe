@@ -10,10 +10,10 @@ edition = "2024"
 
 [features]
 default = ["gpu", "svg", "accessibility"]
-gpu = ["dep:anyrender_vello"]
-software = ["dep:anyrender_vello_cpu"]
-svg = ["pageframe-dom/svg", "pageframe-paint/svg"]
-accessibility = ["pageframe-dom/accessibility", "pageframe-shell/accessibility"]
+gpu = ["dep:anyrender_vello", "dep:pageframe-paint", "dep:pageframe-shell", "pageframe-shell/vello"]
+software = ["dep:anyrender_vello_cpu", "dep:pageframe-paint", "dep:pageframe-shell"]
+svg = ["pageframe-dom/svg", "pageframe-paint?/svg"]
+accessibility = ["pageframe-dom/accessibility", "pageframe-shell?/accessibility"]
 
 [dependencies]
 anyrender = { workspace = true }
@@ -29,8 +29,8 @@ pageframe-dom = { workspace = true, features = [
     "writing-mode",
 ] }
 pageframe-html = { workspace = true }
-pageframe-paint = { workspace = true, features = ["custom-widget"] }
-pageframe-shell = { workspace = true }
+pageframe-paint = { workspace = true, optional = true, features = ["custom-widget"] }
+pageframe-shell = { workspace = true, optional = true }
 pageframe-traits = { workspace = true }
 pageframe-script = { workspace = true }
 raw-window-handle = { workspace = true }
@@ -55,6 +55,7 @@ winit = { workspace = true }
 
 [dev-dependencies]
 anyrender_vello_cpu = { workspace = true }
+pageframe-paint = { workspace = true, features = ["custom-widget"] }
 pageframe-test-harness = { workspace = true }
 pollster = { workspace = true }
 

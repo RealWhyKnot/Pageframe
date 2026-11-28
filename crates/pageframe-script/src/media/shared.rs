@@ -1,3 +1,5 @@
+#[cfg(windows)]
+use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::Waker;
@@ -64,6 +66,7 @@ pub(crate) struct Timeline {
     pub playing: bool,
     pub ready: bool,
     pub duration: f64,
+    pub seek_serial: Option<u64>,
 }
 
 impl Default for Timeline {
@@ -75,6 +78,7 @@ impl Default for Timeline {
             playing: false,
             ready: false,
             duration: f64::INFINITY,
+            seek_serial: None,
         }
     }
 }
@@ -115,8 +119,9 @@ impl Timeline {
         self.anchor = None;
     }
 
-    pub(crate) fn seek(&mut self, position: f64) {
+    pub(crate) fn seek(&mut self, position: f64, serial: Option<u64>) {
         self.position = position;
+        self.seek_serial = serial;
         self.ready = false;
         self.anchor = None;
     }
@@ -215,16 +220,34 @@ impl Shared {
     }
 
     pub(crate) fn fail(&self, failure: Failure) {
-        {
-            let mut timeline = self.timeline();
-            let now = timeline.now();
-            timeline.finish(now);
+        self.publish_failure(&mut self.timeline(), failure);
+        self.notify();
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn finish_read(
+        &self,
+        serial: Option<u64>,
+        result: Result<(), Failure>,
+    ) -> ControlFlow<()> {
+        let network = self.take_network();
+        let Err(failure) = result else {
+            return ControlFlow::Continue(());
+        };
+        let mut timeline = self.timeline();
+        if self.is_stopped() || timeline.seek_serial != serial {
+            return ControlFlow::Continue(());
         }
-        self.update(|inbox| {
-            if inbox.error.is_none() {
-                inbox.error = Some(failure);
-            }
-        });
+        self.publish_failure(&mut timeline, network.unwrap_or(failure));
+        drop(timeline);
+        self.notify();
+        ControlFlow::Break(())
+    }
+
+    fn publish_failure(&self, timeline: &mut Timeline, failure: Failure) {
+        timeline.finish(timeline.now());
+        tracing::warn!(code = failure.code, reason = %failure.message, "Media playback failed");
+        self.inbox().error.get_or_insert(failure);
     }
 
     pub(crate) fn notify(&self) {
@@ -237,10 +260,12 @@ impl Shared {
     #[cfg(windows)]
     pub(crate) fn socket(&self) -> Arc<TrackedSocket> {
         let socket = Arc::new(TrackedSocket::default());
+        let mut sockets = lock(&self.sockets);
         if self.is_stopped() {
             socket.close();
+        } else {
+            sockets.push(Arc::clone(&socket));
         }
-        lock(&self.sockets).push(Arc::clone(&socket));
         socket
     }
 

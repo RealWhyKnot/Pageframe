@@ -1,16 +1,25 @@
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::sync::Arc;
+use std::time::Instant;
 
 use url::Url;
 
 use super::shared::{Failure, MEDIA_ERR_NETWORK, MEDIA_ERR_SRC_NOT_SUPPORTED, Shared};
+use crate::fetch::FetchError;
 use crate::http::{HttpClient, HttpRequest, TrackedSocket};
 
 const SKIP_LIMIT: u64 = 512 * 1024;
 const PREFIX_LEN: u64 = 4096;
 
 pub(crate) trait ByteSource: Read + Send {
+    fn read_until(&mut self, buf: &mut [u8], deadline: Instant) -> io::Result<usize> {
+        if Instant::now() >= deadline {
+            return Err(io::ErrorKind::TimedOut.into());
+        }
+        self.read(buf)
+    }
+
     fn len(&self) -> u64;
     fn position(&self) -> u64;
     fn set_position(&mut self, position: u64);
@@ -45,7 +54,7 @@ struct FileSource {
 
 impl FileSource {
     fn open(url: &Url) -> Result<Self, Failure> {
-        let missing = || Failure::new(MEDIA_ERR_SRC_NOT_SUPPORTED, format!("cannot open {url}"));
+        let missing = || Failure::new(MEDIA_ERR_SRC_NOT_SUPPORTED, "invalid local media URL");
         let path = url.to_file_path().map_err(|()| missing())?;
         let file = File::open(&path).map_err(|error| {
             Failure::new(
@@ -121,22 +130,35 @@ struct HttpSource {
     prefix: Vec<u8>,
 }
 
-fn read_prefix(reader: &mut dyn Read, len: u64) -> Vec<u8> {
+fn read_prefix(reader: &mut dyn Read, len: u64) -> io::Result<Vec<u8>> {
     let want = usize::try_from(len.min(PREFIX_LEN)).unwrap_or(0);
-    let mut prefix = vec![0; want];
-    let mut filled = 0;
-    while filled < want {
-        match reader.read(&mut prefix[filled..]) {
-            Ok(0) | Err(_) => break,
-            Ok(read) => filled += read,
-        }
-    }
-    prefix.truncate(filled);
-    prefix
+    let mut prefix = Vec::with_capacity(want);
+    reader.take(len.min(PREFIX_LEN)).read_to_end(&mut prefix)?;
+    Ok(prefix)
 }
 
-fn total_length(content_range: &str) -> Option<u64> {
-    content_range.rsplit('/').next()?.trim().parse().ok()
+fn content_range(value: &str) -> Option<(u64, u64, u64)> {
+    let (unit, range) = value.trim().split_once(' ')?;
+    if !unit.eq_ignore_ascii_case("bytes") {
+        return None;
+    }
+    let (span, length) = range.split_once('/')?;
+    let (start, end) = span.split_once('-')?;
+    let (start, end, length) = (start.parse().ok()?, end.parse().ok()?, length.parse().ok()?);
+    (start <= end && end < length).then_some((start, end, length))
+}
+
+fn http_error(error: FetchError) -> io::Error {
+    match error {
+        FetchError::Io(error) => error,
+        FetchError::InvalidData(_) => io::Error::other("invalid HTTP media response"),
+        FetchError::UnsupportedScheme(_) | FetchError::HttpsUnsupported(_) => {
+            io::Error::other("unsupported media redirect scheme")
+        }
+        FetchError::Forbidden(_) | FetchError::Status(_, _) | FetchError::TooLarge(_, _) => {
+            io::Error::other("media request was refused")
+        }
+    }
 }
 
 impl HttpSource {
@@ -145,13 +167,18 @@ impl HttpSource {
         request
             .headers
             .push(("Range".to_string(), "bytes=0-".to_string()));
-        let (response, reader) = client.open_tracked(&request, &socket).map_err(|error| {
-            Failure::new(MEDIA_ERR_SRC_NOT_SUPPORTED, format!("load {url}: {error}"))
-        })?;
-        let (len, ranges) = match response.status {
+        let (response, mut reader) = client
+            .open_media(&request, &socket)
+            .map_err(|error| network_failure(&http_error(error)))?;
+        let (len, prefix_len, ranges) = match response.status {
             206 => {
-                let len = response.header("content-range").and_then(total_length);
-                (len, true)
+                let Some((0, end, len)) = response.header("content-range").and_then(content_range)
+                else {
+                    return Err(network_failure(&io::Error::other(
+                        "invalid initial media byte range",
+                    )));
+                };
+                (Some(len), end + 1, true)
             }
             200 => {
                 let len = response
@@ -160,19 +187,22 @@ impl HttpSource {
                 let ranges = response
                     .header("accept-ranges")
                     .is_some_and(|value| value.to_ascii_lowercase().contains("bytes"));
-                (len, ranges)
+                (len, len.unwrap_or(0), ranges)
             }
             status => {
                 return Err(Failure::new(
                     MEDIA_ERR_SRC_NOT_SUPPORTED,
-                    format!("load {url}: HTTP {status} {}", response.status_text),
+                    format!(
+                        "load media from {}: HTTP {status}",
+                        url.host_str().unwrap_or("unknown host")
+                    ),
                 ));
             }
         };
         let Some(len) = len else {
             return Err(Failure::new(
                 MEDIA_ERR_SRC_NOT_SUPPORTED,
-                format!("load {url}: the server did not report the media length"),
+                "the server did not report the media length",
             ));
         };
         let content_type = response.header("content-type").map(|value| {
@@ -183,8 +213,8 @@ impl HttpSource {
                 .trim()
                 .to_ascii_lowercase()
         });
-        let mut reader = reader;
-        let prefix = read_prefix(&mut *reader, len);
+        let prefix =
+            read_prefix(&mut *reader, prefix_len).map_err(|error| network_failure(&error))?;
         Ok(Self {
             client,
             url: response.url,
@@ -212,17 +242,20 @@ impl HttpSource {
         }
         let (response, reader) = self
             .client
-            .open_tracked(&request, &self.socket)
-            .map_err(|error| io::Error::other(format!("load {}: {error}", self.url)))?;
+            .open_media(&request, &self.socket)
+            .map_err(http_error)?;
         let accepted = match response.status {
-            206 => true,
+            206 => response
+                .header("content-range")
+                .and_then(content_range)
+                .is_some_and(|(first, _, len)| first == start && len == self.len),
             200 => start == 0,
             _ => false,
         };
         if !accepted {
             return Err(io::Error::other(format!(
-                "load {}: HTTP {} for bytes {start}-",
-                self.url, response.status
+                "unexpected HTTP {} response for media bytes {start}-",
+                response.status
             )));
         }
         self.body = Some(Body { at: start, reader });
@@ -287,7 +320,10 @@ impl Read for HttpSource {
             let Some(body) = self.body.as_mut() else {
                 continue;
             };
-            let read = body.reader.read(buf)?;
+            let want = usize::try_from(self.len - self.position)
+                .unwrap_or(usize::MAX)
+                .min(buf.len());
+            let read = body.reader.read(&mut buf[..want])?;
             if read > 0 {
                 let advanced = u64::try_from(read).unwrap_or(0);
                 body.at += advanced;
@@ -300,6 +336,22 @@ impl Read for HttpSource {
 }
 
 impl ByteSource for HttpSource {
+    fn read_until(&mut self, buf: &mut [u8], deadline: Instant) -> io::Result<usize> {
+        if self.socket.is_closed() {
+            return Err(io::ErrorKind::ConnectionAborted.into());
+        }
+        if Instant::now() >= deadline {
+            return Err(io::ErrorKind::TimedOut.into());
+        }
+        self.socket.set_read_deadline(Some(deadline));
+        let result = self.read(buf);
+        self.socket.set_read_deadline(None);
+        if result.is_err() {
+            self.body = None;
+        }
+        result
+    }
+
     fn len(&self) -> u64 {
         self.len
     }
@@ -309,7 +361,7 @@ impl ByteSource for HttpSource {
     }
 
     fn set_position(&mut self, position: u64) {
-        self.position = position.min(self.len);
+        self.position = position;
     }
 
     fn content_type(&self) -> Option<&str> {
@@ -462,6 +514,72 @@ mod tests {
             }
             offset += u64::try_from(size).expect("chunk size");
         }
+    }
+
+    #[test]
+    fn media_http_body_times_out_after_headers() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept test request");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone test socket"));
+            loop {
+                let mut line = String::new();
+                let read = reader
+                    .read_line(&mut line)
+                    .expect("read test request header");
+                if read == 0 || line == "\r\n" {
+                    break;
+                }
+            }
+            stream.write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Length: 1\r\nContent-Range: bytes 0-0/1\r\n\r\n").expect("send test headers");
+            let _ = held.recv_timeout(std::time::Duration::from_secs(15));
+        });
+        let url = Url::parse(&format!("http://{address}/clip.mp4")).unwrap();
+        let client = HttpClient::new();
+        let socket = TrackedSocket::default();
+        let (_, mut body) = client.open_media(&HttpRequest::get(url), &socket).unwrap();
+        let error = body.read(&mut [0]).unwrap_err();
+        drop(release);
+        server.join().unwrap();
+        assert!(matches!(
+            error.kind(),
+            std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+        ));
+    }
+
+    #[test]
+    fn media_read_deadline_limits_socket_wait() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap() == 0 || line == "\r\n" {
+                    break;
+                }
+            }
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4097\r\n\r\n")
+                .unwrap();
+            stream.write_all(&[0; 4096]).unwrap();
+            let _ = held.recv_timeout(std::time::Duration::from_secs(2));
+        });
+        let url = Url::parse(&format!("http://{address}/clip.mp4")).unwrap();
+        let mut source = HttpSource::open(&url, HttpClient::new(), Arc::default()).unwrap();
+        source.set_position(4096);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(100);
+        let error = source.read_until(&mut [0], deadline).unwrap_err();
+        drop(release);
+        server.join().unwrap();
+        assert!(matches!(
+            error.kind(),
+            std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+        ));
     }
 
     #[test]

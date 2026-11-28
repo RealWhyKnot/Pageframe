@@ -9,6 +9,131 @@ const WIDTH: u32 = 200;
 const HEIGHT: u32 = 100;
 const ROW_PIXELS: usize = 200;
 
+fn opaque_pixels(width: u32, height: u32) -> Vec<u8> {
+    (0..width * height)
+        .flat_map(|index| {
+            let [first, second, third, fourth] = index.wrapping_mul(0x9e37_79b9).to_le_bytes();
+            [first, second ^ fourth, third, 255]
+        })
+        .collect()
+}
+
+#[test]
+fn opaque_scaled_draw_matches_general_sampling() {
+    use pageframe_dom::canvas::{Affine, Canvas2D, ImageSource, Rect};
+
+    let image = ImageSource {
+        width: 64,
+        height: 48,
+        premultiplied: &opaque_pixels(64, 48),
+    };
+    let full = Rect::new(0.0, 0.0, 64.0, 48.0);
+    let crop = Rect::new(2.5, 3.25, 60.625, 45.5);
+    let outside = Rect::new(-4.0, -2.0, 58.0, 42.0);
+    for (src, dst, transform) in [
+        (full, Rect::new(-1.0, 2.0, 31.0, 26.0), Affine::IDENTITY),
+        (crop, Rect::new(2.0, -4.0, 43.0, 22.0), Affine::IDENTITY),
+        (outside, Rect::new(0.0, 0.0, 31.0, 22.0), Affine::IDENTITY),
+        (
+            crop,
+            Rect::new(-2.0, 3.0, 25.0, 18.0),
+            Affine::new([-1.0, 0.0, 0.0, 2.0, 31.0, 0.0]),
+        ),
+        (full, Rect::new(6.25, 8.5, 25.75, 22.25), Affine::IDENTITY),
+    ] {
+        for smooth in [false, true] {
+            let mut general = Canvas2D::new(40, 30);
+            general.state_mut().image_smoothing = smooth;
+            general.set_transform(transform);
+            let mut fast = Canvas2D::new(40, 30);
+            fast.state_mut().image_smoothing = smooth;
+            fast.set_transform(transform);
+            if smooth {
+                assert!(general.set_composite("copy"));
+                assert!(fast.set_composite("copy"));
+            }
+            general.draw_image(&image, src, dst);
+            fast.draw_opaque_image(&image, src, dst);
+            for (index, (&actual, &expected)) in fast
+                .premultiplied_pixels()
+                .iter()
+                .zip(general.premultiplied_pixels())
+                .enumerate()
+            {
+                let tolerance = u8::from(smooth && index % 4 != 3);
+                assert!(
+                    actual.abs_diff(expected) <= tolerance,
+                    "channel {index}, {src:?} to {dst:?}, smoothing {smooth}: {actual} versus {expected}",
+                );
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "times 1080p and 1440p opaque canvas draws"]
+fn opaque_video_canvas_copy_benchmark() {
+    use std::io::Write;
+    use std::time::Instant;
+
+    use pageframe_dom::canvas::{Canvas2D, ImageSource, Rect};
+
+    for (width, height) in [(1920, 1080), (2560, 1440)] {
+        let pixels = opaque_pixels(width, height);
+        let image = ImageSource {
+            width,
+            height,
+            premultiplied: &pixels,
+        };
+        let full = Rect::new(0.0, 0.0, f64::from(width), f64::from(height));
+        for divisor in [1, 2] {
+            let (out_width, out_height) = (width / divisor, height / divisor);
+            let dst = Rect::new(0.0, 0.0, f64::from(out_width), f64::from(out_height));
+            let mut before = Canvas2D::new(out_width, out_height);
+            let mut after = Canvas2D::new(out_width, out_height);
+            let mut before_times = [std::time::Duration::ZERO; 7];
+            let mut after_times = before_times;
+            after.draw_opaque_image(&image, full, dst);
+            for (before_time, after_time) in before_times.iter_mut().zip(&mut after_times) {
+                let start = Instant::now();
+                assert!(
+                    std::hint::black_box(&pixels)
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .all(|pixel| pixel[3] == 255)
+                );
+                if divisor == 1 {
+                    before.draw_opaque_image(&image, full, dst);
+                } else {
+                    before.draw_image(&image, full, dst);
+                }
+                *before_time = start.elapsed();
+
+                let start = Instant::now();
+                after.draw_opaque_image(&image, full, dst);
+                *after_time = start.elapsed();
+            }
+            assert!(
+                before
+                    .premultiplied_pixels()
+                    .iter()
+                    .zip(after.premultiplied_pixels())
+                    .all(|(&a, &b)| a.abs_diff(b) <= u8::from(divisor == 2))
+            );
+            before_times.sort_unstable();
+            after_times.sort_unstable();
+            writeln!(
+                std::io::stdout().lock(),
+                "{width}x{height} to {out_width}x{out_height}, median of 7: before {:.3} ms, after {:.3} ms",
+                before_times[3].as_secs_f64() * 1000.0,
+                after_times[3].as_secs_f64() * 1000.0,
+            )
+            .unwrap();
+        }
+    }
+}
+
 const PAGE: &str = r##"<!doctype html><html><head><style>html,body{margin:0;background:#fff}canvas{display:block}</style></head><body><canvas id="c" width="200" height="100"></canvas><script>
 const ctx = document.getElementById("c").getContext("2d");
 ctx.fillStyle = "#101418";

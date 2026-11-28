@@ -91,6 +91,7 @@ pub(crate) struct RuntimeState {
     /// listeners, timer callbacks and promise jobs). Drained with
     /// [`ScriptDocument::take_js_errors`](crate::ScriptDocument::take_js_errors).
     pub uncaught_errors: Vec<String>,
+    pub js_logs: crate::runtime::JsLogLimiter,
     /// Set while a window `error` event is being dispatched for an uncaught
     /// exception, so that exceptions thrown by `error` handlers themselves are
     /// only recorded and not re-dispatched
@@ -133,7 +134,10 @@ impl RuntimeState {
     }
 
     pub fn high_res_now(&self) -> f64 {
-        let now = self.clock.now();
+        self.high_res_time_at(self.clock.now())
+    }
+
+    pub fn high_res_time_at(&self, now: web_time::Instant) -> f64 {
         let elapsed = self
             .time_origin
             .map(|origin| now.saturating_duration_since(origin))

@@ -25,7 +25,7 @@ impl Canvas2D {
         }
     }
 
-    fn shadow_active(&self) -> bool {
+    pub(super) fn shadow_active(&self) -> bool {
         let s = &self.state;
         s.shadow_color.a > 0.0
             && (s.shadow_blur > 0.0 || s.shadow_offset_x != 0.0 || s.shadow_offset_y != 0.0)

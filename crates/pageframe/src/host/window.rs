@@ -1,10 +1,12 @@
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
+#[cfg(feature = "gpu")]
+use std::time::Duration;
 use std::time::Instant;
 
 use anyrender::{WindowHandle, WindowRenderer};
 #[cfg(feature = "gpu")]
-use anyrender_vello::VelloWindowRenderer as Renderer;
+use anyrender_vello::{FrameStatus, VelloWindowRenderer as Renderer};
 #[cfg(not(feature = "gpu"))]
 use anyrender_vello_cpu::VelloCpuWindowRenderer as Renderer;
 use pageframe_dom::Document;
@@ -18,6 +20,8 @@ pub struct PageframeHost<W> {
     session: HostSession,
     window: Arc<W>,
     renderer: Renderer,
+    #[cfg(feature = "gpu")]
+    retry_redraw_at: Option<Instant>,
 }
 
 impl<W: HasWindowHandle + HasDisplayHandle + Send + Sync + 'static> PageframeHost<W> {
@@ -27,6 +31,8 @@ impl<W: HasWindowHandle + HasDisplayHandle + Send + Sync + 'static> PageframeHos
             session,
             window,
             renderer: Renderer::new(),
+            #[cfg(feature = "gpu")]
+            retry_redraw_at: None,
         };
         host.resume();
         Ok(host)
@@ -76,6 +82,10 @@ impl<W: HasWindowHandle + HasDisplayHandle + Send + Sync + 'static> PageframeHos
 
     pub fn suspend(&mut self) {
         self.renderer.suspend();
+        #[cfg(feature = "gpu")]
+        {
+            self.retry_redraw_at = None;
+        }
     }
 
     pub fn handle_input(&mut self, event: HostInputEvent) -> bool {
@@ -89,15 +99,37 @@ impl<W: HasWindowHandle + HasDisplayHandle + Send + Sync + 'static> PageframeHos
     }
 
     pub fn set_hidden(&mut self, hidden: bool) -> bool {
-        self.session.set_hidden(hidden)
+        let changed = self.session.set_hidden(hidden);
+        #[cfg(feature = "gpu")]
+        if !hidden && self.retry_redraw_at.is_some() {
+            self.session.request_redraw();
+        }
+        changed
     }
 
     pub fn poll(&mut self) -> bool {
-        self.session.poll()
+        let redraw = self.session.poll();
+        #[cfg(feature = "gpu")]
+        if !self.session.is_hidden() && self.retry_redraw_at.is_some_and(|at| at <= Instant::now())
+        {
+            self.retry_redraw_at = None;
+            if self.renderer.is_active() || self.resume() {
+                return true;
+            }
+            self.retry_redraw_at = Some(Instant::now() + Duration::from_millis(250));
+        }
+        redraw
     }
 
     pub fn next_wake(&self) -> Option<Instant> {
-        self.session.next_wake()
+        let wake = self.session.next_wake();
+        #[cfg(feature = "gpu")]
+        let wake = if self.session.is_hidden() {
+            wake
+        } else {
+            wake.into_iter().chain(self.retry_redraw_at).min()
+        };
+        wake
     }
 
     pub fn redraw(&mut self) {
@@ -105,6 +137,8 @@ impl<W: HasWindowHandle + HasDisplayHandle + Send + Sync + 'static> PageframeHos
             return;
         }
         let time = self.session.animation_time();
+        #[cfg(feature = "gpu")]
+        let status;
         let animating = {
             let mut inner = self.session.document_mut().inner_mut();
             inner.resolve(time);
@@ -116,10 +150,32 @@ impl<W: HasWindowHandle + HasDisplayHandle + Send + Sync + 'static> PageframeHos
                 return;
             }
             let scale = inner.viewport().scale_f64();
+            #[cfg(feature = "gpu")]
+            {
+                status = self.renderer.render_frame(|scene| {
+                    paint_scene(scene, &mut inner, scale, width, height, 0, 0)
+                });
+            }
+            #[cfg(not(feature = "gpu"))]
             self.renderer
                 .render(|scene| paint_scene(scene, &mut inner, scale, width, height, 0, 0));
             inner.is_animating()
         };
+        #[cfg(feature = "gpu")]
+        {
+            self.retry_redraw_at = match status {
+                FrameStatus::Presented => None,
+                FrameStatus::Retry => Some(Instant::now() + Duration::from_millis(16)),
+                FrameStatus::Occluded => Some(Instant::now() + Duration::from_millis(100)),
+                FrameStatus::DeviceLost => {
+                    self.renderer.suspend();
+                    Some(Instant::now() + Duration::from_millis(250))
+                }
+            };
+            if self.retry_redraw_at.is_some() {
+                return;
+            }
+        }
         if animating {
             self.session.request_redraw();
         }

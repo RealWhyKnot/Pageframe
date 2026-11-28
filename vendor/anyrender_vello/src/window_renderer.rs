@@ -7,14 +7,17 @@ use peniko::{Color, ImageData};
 use rustc_hash::FxHashMap;
 use std::future::Future;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use vello::{AaConfig, RenderParams, Scene as VelloScene};
+use web_time::{Duration, Instant};
 use wgpu::{
-    Backends, CompositeAlphaMode, CreateSurfaceError, Features, Instance, Limits, PipelineCache,
-    PresentMode, Surface, Texture, TextureFormat, TextureUsages,
+    Backends, CompositeAlphaMode, CreateSurfaceError, CurrentSurfaceTexture, Features, Instance,
+    Limits, PipelineCache, PresentMode, Surface, Texture, TextureFormat, TextureUsages,
+    TextureView, util::TextureBlitter,
 };
 use wgpu_context::{
-    AlphaConversion, DeviceHandle, SurfaceRenderer, SurfaceRendererConfiguration,
-    TextureConfiguration, WgpuContextError,
+    AlphaConversion, AlphaConvertBlitter, DeviceHandle, SurfaceRenderer,
+    SurfaceRendererConfiguration, WgpuContextError,
 };
 
 use crate::VelloScenePainter;
@@ -38,6 +41,31 @@ fn spawn_init<F: Future<Output = ()>>(f: F) {
 struct ActiveRenderState {
     renderer: Arc<SharedRenderer>,
     render_surface: SurfaceRenderer<'static>,
+    device: PooledHandle,
+    target: TextureView,
+    blitter: SurfaceBlitter,
+    pending_size: Option<(u32, u32)>,
+    recovery: Option<SurfaceRecovery>,
+    submitted: Arc<AtomicBool>,
+}
+
+#[derive(Clone, Copy)]
+enum SurfaceRecovery {
+    Reconfigure,
+    Recreate,
+}
+
+enum SurfaceBlitter {
+    Convert(AlphaConvertBlitter),
+    Copy(TextureBlitter),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FrameStatus {
+    Presented,
+    Retry,
+    Occluded,
+    DeviceLost,
 }
 
 struct InitOutput {
@@ -49,7 +77,7 @@ struct InitOutput {
 enum RenderState {
     Suspended,
     Pending {
-        receiver: oneshot::Receiver<InitOutput>,
+        receiver: oneshot::Receiver<Result<InitOutput, String>>,
     },
     Active(ActiveRenderState),
 }
@@ -165,6 +193,7 @@ pub struct VelloWindowRenderer {
 
     // Resources
     texture_handles: FxHashMap<ResourceId, ImageData>,
+    last_warning: Option<Instant>,
 }
 
 impl VelloWindowRenderer {
@@ -187,6 +216,7 @@ impl VelloWindowRenderer {
             window_handle: None,
             scene: VelloScene::new(),
             texture_handles: FxHashMap::default(),
+            last_warning: None,
         }
     }
 
@@ -377,8 +407,6 @@ impl WindowRenderer for VelloWindowRenderer {
         // Each `resume` must be preceded by `suspend` (or be the first call after
         // construction).
         if !matches!(self.render_state, RenderState::Suspended) {
-            // #[cfg(feature = "tracing")]
-            // tracing::warn!("WindowRenderer::resume called from non-Suspended state");
             return;
         }
 
@@ -419,95 +447,110 @@ impl WindowRenderer for VelloWindowRenderer {
             .and_then(|surface| pool.compatible_device(surface));
 
         spawn_init(async move {
-            let (surface, device) = match (surface, existing_device) {
-                (Ok(surface), Some(device)) => (surface, device),
-                (surface, _) => {
-                    let (surface, device_handle) = connect_surface(
-                        instance,
-                        surface,
-                        fallback,
-                        extra_features,
-                        override_limits,
-                    )
-                    .await
-                    .expect("Error creating DeviceHandle");
-                    (surface, PooledHandle::watch(device_handle))
+            let initialized = async {
+                let (surface, device) = match (surface, existing_device) {
+                    (Ok(surface), Some(device)) => (surface, device),
+                    (surface, _) => {
+                        let (surface, device_handle) = connect_surface(
+                            instance,
+                            surface,
+                            fallback,
+                            extra_features,
+                            override_limits,
+                        )
+                        .await
+                        .map_err(|error| format!("connect GPU device: {error:?}"))?;
+                        (surface, PooledHandle::watch(device_handle))
+                    }
+                };
+                let pool = pool.for_instance(device.handle.instance.clone());
+                let (device, renderer) = pool
+                    .attach(device, &surface, &renderer_key)
+                    .map_err(|error| format!("create Vello renderer: {error}"))?;
+
+                let adapter = &device.handle.adapter;
+                let caps = surface.get_capabilities(adapter);
+                let mut alpha_modes = caps.alpha_modes;
+
+                if !alpha_modes.contains(&composite_alpha_mode) {
+                    alpha_modes.sort_unstable_by(
+                        |first: &CompositeAlphaMode, second: &CompositeAlphaMode| {
+                            let first_num = match *first {
+                                CompositeAlphaMode::PreMultiplied => 0,
+                                CompositeAlphaMode::PostMultiplied => 1,
+                                CompositeAlphaMode::Opaque
+                                | CompositeAlphaMode::Inherit
+                                | CompositeAlphaMode::Auto => 2,
+                            };
+                            let second_num = match *second {
+                                CompositeAlphaMode::PreMultiplied => 0,
+                                CompositeAlphaMode::PostMultiplied => 1,
+                                CompositeAlphaMode::Opaque
+                                | CompositeAlphaMode::Inherit
+                                | CompositeAlphaMode::Auto => 2,
+                            };
+                            first_num.cmp(&second_num)
+                        },
+                    );
+                    composite_alpha_mode = alpha_modes
+                        .first()
+                        .copied()
+                        .ok_or("surface did not report any alpha modes")?;
                 }
-            };
-            let pool = pool.for_instance(device.handle.instance.clone());
-            let (device_handle, renderer) = pool.attach(device, &surface, &renderer_key);
 
-            let adapter = &device_handle.adapter;
-            let caps = surface.get_capabilities(adapter);
-            let mut alpha_modes = caps.alpha_modes;
+                #[cfg(not(target_vendor = "apple"))]
+                let needs_alpha_conversion =
+                    composite_alpha_mode == CompositeAlphaMode::PreMultiplied;
+                #[cfg(target_vendor = "apple")]
+                let needs_alpha_conversion = composite_alpha_mode
+                    == CompositeAlphaMode::PostMultiplied
+                    || composite_alpha_mode == CompositeAlphaMode::PreMultiplied;
 
-            if !alpha_modes.contains(&composite_alpha_mode) {
-                alpha_modes.sort_unstable_by(
-                    |first: &CompositeAlphaMode, second: &CompositeAlphaMode| {
-                        let first_num = match *first {
-                            CompositeAlphaMode::PreMultiplied => 0,
-                            CompositeAlphaMode::PostMultiplied => 1,
-                            CompositeAlphaMode::Opaque
-                            | CompositeAlphaMode::Inherit
-                            | CompositeAlphaMode::Auto => 2,
-                        };
-                        let second_num = match *second {
-                            CompositeAlphaMode::PreMultiplied => 0,
-                            CompositeAlphaMode::PostMultiplied => 1,
-                            CompositeAlphaMode::Opaque
-                            | CompositeAlphaMode::Inherit
-                            | CompositeAlphaMode::Auto => 2,
-                        };
-                        first_num.cmp(&second_num)
+                let render_surface = SurfaceRenderer::new(
+                    surface,
+                    SurfaceRendererConfiguration {
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                        formats: vec![TextureFormat::Rgba8Unorm, TextureFormat::Bgra8Unorm],
+                        width,
+                        height,
+                        present_mode: PresentMode::AutoVsync,
+                        desired_maximum_frame_latency,
+                        alpha_mode: composite_alpha_mode,
+                        view_formats: vec![],
                     },
-                );
-                composite_alpha_mode = alpha_modes
-                    .first()
-                    .copied()
-                    .expect("Surface didn't report any alpha modes");
+                    None,
+                    device.handle.clone(),
+                )
+                .map_err(|error| format!("configure render surface: {error}"))?;
+
+                let target = frame_target(&render_surface);
+                let format = render_surface.config.format;
+                let blitter = if needs_alpha_conversion {
+                    SurfaceBlitter::Convert(AlphaConvertBlitter::new(
+                        render_surface.device(),
+                        format,
+                        AlphaConversion::Premultiply,
+                    ))
+                } else {
+                    SurfaceBlitter::Copy(TextureBlitter::new(render_surface.device(), format))
+                };
+
+                Ok(InitOutput {
+                    active: ActiveRenderState {
+                        renderer,
+                        render_surface,
+                        device,
+                        target,
+                        blitter,
+                        pending_size: None,
+                        recovery: None,
+                        submitted: Arc::new(AtomicBool::new(false)),
+                    },
+                    pool,
+                })
             }
-
-            #[cfg(not(target_vendor = "apple"))]
-            let texture_config = Some(TextureConfiguration {
-                usage: TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING,
-                format: TextureFormat::Rgba8Unorm,
-                alpha_conversion: (composite_alpha_mode == CompositeAlphaMode::PreMultiplied)
-                    .then_some(AlphaConversion::Premultiply),
-            });
-            // TODO: Remove below once gfx-rs/wgpu#9896 gets fixed
-            #[cfg(target_vendor = "apple")]
-            let texture_config = Some(TextureConfiguration {
-                usage: TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING,
-                format: TextureFormat::Rgba8Unorm,
-                alpha_conversion: (composite_alpha_mode == CompositeAlphaMode::PostMultiplied
-                    || composite_alpha_mode == CompositeAlphaMode::PreMultiplied)
-                    .then_some(AlphaConversion::Premultiply),
-            });
-
-            let render_surface = SurfaceRenderer::new(
-                surface,
-                SurfaceRendererConfiguration {
-                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                    formats: vec![TextureFormat::Rgba8Unorm, TextureFormat::Bgra8Unorm],
-                    width,
-                    height,
-                    present_mode: PresentMode::AutoVsync,
-                    desired_maximum_frame_latency,
-                    alpha_mode: composite_alpha_mode,
-                    view_formats: vec![],
-                },
-                texture_config,
-                device_handle,
-            )
-            .expect("Error creating SurfaceRenderer");
-
-            let _ = sender.send(InitOutput {
-                active: ActiveRenderState {
-                    renderer,
-                    render_surface,
-                },
-                pool,
-            });
+            .await;
+            let _ = sender.send(initialized);
             on_ready();
         });
     }
@@ -517,12 +560,21 @@ impl WindowRenderer for VelloWindowRenderer {
             RenderState::Active { .. } => true,
             RenderState::Suspended => false,
             RenderState::Pending { receiver } => match receiver.try_recv() {
-                Ok(Some(InitOutput { active, pool })) => {
+                Ok(Some(Ok(InitOutput { active, pool }))) => {
                     self.wgpu_context.adopt(pool);
                     self.render_state = RenderState::Active(active);
                     true
                 }
-                _ => false,
+                Ok(Some(Err(error))) => {
+                    warn_render(&mut self.last_warning, error, "resume renderer");
+                    self.render_state = RenderState::Suspended;
+                    false
+                }
+                Ok(None) => false,
+                Err(_) => {
+                    self.render_state = RenderState::Suspended;
+                    false
+                }
             },
         }
     }
@@ -540,20 +592,124 @@ impl WindowRenderer for VelloWindowRenderer {
 
     fn set_size(&mut self, width: u32, height: u32) {
         if let RenderState::Active(active) = &mut self.render_state {
-            active.render_surface.resize(width, height);
-        };
+            let config = &active.render_surface.config;
+            active.pending_size = ((width, height) != (config.width, config.height))
+                .then_some((width.max(1), height.max(1)));
+        }
     }
 
     fn render<F: FnOnce(&mut Self::ScenePainter<'_>)>(&mut self, draw_fn: F) {
+        self.render_frame(draw_fn);
+    }
+}
+
+fn frame_target(surface: &SurfaceRenderer<'_>) -> TextureView {
+    surface
+        .device()
+        .create_texture(&wgpu::TextureDescriptor {
+            label: Some("Vello window render target"),
+            size: wgpu::Extent3d {
+                width: surface.config.width,
+                height: surface.config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: TextureFormat::Rgba8Unorm,
+            usage: TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        })
+        .create_view(&wgpu::TextureViewDescriptor::default())
+}
+
+fn warn_render(last_warning: &mut Option<Instant>, error: impl std::fmt::Debug, stage: &str) {
+    let now = Instant::now();
+    if last_warning.is_none_or(|last| now.duration_since(last) >= Duration::from_secs(5)) {
+        *last_warning = Some(now);
+        tracing::warn!(?error, stage, "Vello window frame failed");
+    }
+}
+
+impl VelloWindowRenderer {
+    pub fn render_frame<F: for<'a> FnOnce(&mut VelloScenePainter<'a, 'a>)>(
+        &mut self,
+        draw_fn: F,
+    ) -> FrameStatus {
         let RenderState::Active(state) = &mut self.render_state else {
-            return;
+            return FrameStatus::Retry;
+        };
+        let render_surface = &mut state.render_surface;
+        let queue_empty = match render_surface.device().poll(wgpu::PollType::Poll) {
+            Ok(status) => status.is_queue_empty(),
+            Err(error) => {
+                warn_render(&mut self.last_warning, error, "poll");
+                false
+            }
+        };
+        if !state.device.is_usable() {
+            warn_render(&mut self.last_warning, (), "device lost");
+            return FrameStatus::DeviceLost;
+        }
+        if state.submitted.load(Ordering::Acquire) {
+            return FrameStatus::Retry;
+        }
+
+        if state.recovery.is_some() || state.pending_size.is_some() {
+            if !queue_empty && !cfg!(target_arch = "wasm32") {
+                return FrameStatus::Retry;
+            }
+            if matches!(state.recovery, Some(SurfaceRecovery::Recreate)) {
+                let Some(window) = self.window_handle.as_ref() else {
+                    return FrameStatus::DeviceLost;
+                };
+                match state
+                    .device
+                    .handle
+                    .instance
+                    .create_surface(Arc::clone(window))
+                {
+                    Ok(surface) => {
+                        let config = &render_surface.config;
+                        let capabilities = surface.get_capabilities(&state.device.handle.adapter);
+                        if !capabilities.formats.contains(&config.format)
+                            || !capabilities.alpha_modes.contains(&config.alpha_mode)
+                        {
+                            return FrameStatus::DeviceLost;
+                        }
+                        render_surface.surface = surface;
+                    }
+                    Err(error) => {
+                        warn_render(&mut self.last_warning, error, "recreate surface");
+                        return FrameStatus::Retry;
+                    }
+                }
+            }
+            if let Some((width, height)) = state.pending_size.take() {
+                render_surface.resize(width, height);
+                state.target = frame_target(render_surface);
+            } else {
+                render_surface.set_present_mode(render_surface.config.present_mode);
+            }
+            state.recovery = None;
+        }
+
+        let surface_texture = match render_surface.surface.get_current_texture() {
+            CurrentSurfaceTexture::Success(texture)
+            | CurrentSurfaceTexture::Suboptimal(texture) => texture,
+            CurrentSurfaceTexture::Occluded => return FrameStatus::Occluded,
+            error => {
+                state.recovery = match error {
+                    CurrentSurfaceTexture::Outdated => Some(SurfaceRecovery::Reconfigure),
+                    CurrentSurfaceTexture::Lost => Some(SurfaceRecovery::Recreate),
+                    _ => None,
+                };
+                warn_render(&mut self.last_warning, error, "acquire surface frame");
+                return FrameStatus::Retry;
+            }
         };
 
-        let render_surface = &mut state.render_surface;
-
         debug_timer!(timer, feature = "log_frame_times");
-
-        // Regenerate the vello scene
         draw_fn(&mut VelloScenePainter {
             inner: &mut self.scene,
             renderer: Some(&state.renderer.vello),
@@ -562,53 +718,58 @@ impl WindowRenderer for VelloWindowRenderer {
         });
         timer.record_time("cmd");
 
-        let Ok(texture_view) = render_surface.target_texture_view() else {
-            // Skip frame in case of error trying to get current surface texture
-            render_surface.clear_surface_texture();
-            self.scene.reset();
-            return;
-        };
-
-        {
+        let result = {
             let mut renderer = lock(&state.renderer.vello);
             for handle in self.texture_handles.values() {
                 renderer.mark_override_image_dirty(handle);
             }
-            renderer
-                .render_to_texture(
-                    render_surface.device(),
-                    render_surface.queue(),
-                    &self.scene,
-                    &texture_view,
-                    &RenderParams {
-                        base_color: self.config.base_color,
-                        width: render_surface.config.width,
-                        height: render_surface.config.height,
-                        antialiasing_method: self.config.antialiasing_method,
-                    },
-                )
-                .expect("failed to render to texture");
+            renderer.render_to_texture(
+                render_surface.device(),
+                render_surface.queue(),
+                &self.scene,
+                &state.target,
+                &RenderParams {
+                    base_color: self.config.base_color,
+                    width: render_surface.config.width,
+                    height: render_surface.config.height,
+                    antialiasing_method: self.config.antialiasing_method,
+                },
+            )
+        };
+        self.scene.reset();
+        if let Err(error) = result {
+            warn_render(&mut self.last_warning, error, "render to texture");
+            return FrameStatus::Retry;
         }
         timer.record_time("render");
 
-        drop(texture_view);
-
-        if render_surface.maybe_blit_and_present().is_err() {
-            self.scene.reset();
-            return;
+        let device = render_surface.device();
+        let queue = render_surface.queue();
+        let view = surface_texture
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Vello window blit"),
+        });
+        match &state.blitter {
+            SurfaceBlitter::Convert(blitter) => {
+                blitter.copy(device, &mut encoder, &state.target, &view)
+            }
+            SurfaceBlitter::Copy(blitter) => {
+                blitter.copy(device, &mut encoder, &state.target, &view)
+            }
+        }
+        queue.submit([encoder.finish()]);
+        queue.present(surface_texture);
+        state.submitted.store(true, Ordering::Release);
+        let submitted = Arc::clone(&state.submitted);
+        queue.on_submitted_work_done(move || submitted.store(false, Ordering::Release));
+        if let Err(error) = device.poll(wgpu::PollType::Poll) {
+            warn_render(&mut self.last_warning, error, "maintain device");
         }
         timer.record_time("present");
-
-        render_surface
-            .device()
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
-
-        timer.record_time("wait");
         timer.print_times("vello: ");
-
-        // Empty the Vello scene (memory optimisation)
-        self.scene.reset();
+        FrameStatus::Presented
     }
 }
 
@@ -1012,6 +1173,45 @@ mod tests {
             let pixels = read_back(&renderer, &scene);
             assert!(pixels.chunks(4).any(|pixel| pixel != [255, 255, 255, 255]));
             pixels
+        }
+
+        #[test]
+        #[ignore = "needs a GPU adapter"]
+        fn repeated_presentations_reuse_gpu_allocations() {
+            static REGISTRY: Registry = Mutex::new(WeakList::new());
+            let mut renderer = open(&REGISTRY, VelloRendererOptions::default());
+            let gpu = device(&renderer).device.clone();
+            let content = content(37);
+            let (mut warm_allocations, mut warm_bytes) = (0, 0);
+            for frame in 0..90 {
+                let scene = scene(&content);
+                let deadline = Instant::now() + Duration::from_secs(10);
+                loop {
+                    match renderer.render_frame(|painter| painter.inner.append(&scene, None)) {
+                        FrameStatus::Presented => break,
+                        FrameStatus::Retry => std::thread::yield_now(),
+                        status => panic!("Hidden window could not present: {status:?}"),
+                    }
+                    assert!(Instant::now() < deadline, "GPU frame did not finish");
+                }
+                while active(&renderer).submitted.load(Ordering::Acquire) {
+                    gpu.poll(wgpu::PollType::Poll).expect("poll GPU device");
+                    assert!(Instant::now() < deadline, "GPU submission did not finish");
+                    std::thread::yield_now();
+                }
+                if frame == 19 || frame == 89 {
+                    let report = gpu
+                        .generate_allocator_report()
+                        .expect("GPU allocation report");
+                    let allocations = report.allocations.len();
+                    let bytes = report.total_allocated_bytes;
+                    if frame == 19 {
+                        (warm_allocations, warm_bytes) = (allocations, bytes);
+                    } else {
+                        assert_eq!((allocations, bytes), (warm_allocations, warm_bytes));
+                    }
+                }
+            }
         }
 
         #[test]

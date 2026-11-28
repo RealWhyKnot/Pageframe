@@ -54,7 +54,7 @@ impl<Rend: WindowRenderer> DocumentProvider for WindowsDocumentProvider<'_, Rend
     }
 }
 
-impl<Rend: WindowRenderer> PageframeApplication<Rend> {
+impl<Rend: WindowRenderer + 'static> PageframeApplication<Rend> {
     /// Opt-in Chrome DevTools Protocol server: enabled by setting the
     /// PAGEFRAME_CDP_PORT environment variable to the port to listen on
     pub(crate) fn start_cdp_server_from_env(&mut self) {

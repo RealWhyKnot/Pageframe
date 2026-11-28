@@ -306,8 +306,10 @@ dependencies = [
  "peniko",
  "pollster",
  "rustc-hash 2.1.3",
+ "tracing",
  "vello",
  "wasm-bindgen-futures",
+ "web-time",
  "wgpu",
  "wgpu_context",
 ]
@@ -3463,6 +3465,7 @@ dependencies = [
  "accesskit_xplat",
  "android-activity",
  "anyrender",
+ "anyrender_vello",
  "atomic_refcell",
  "data-url",
  "futures-util",

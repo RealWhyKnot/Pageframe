@@ -10,7 +10,7 @@ use crate::http::HttpClient;
 pub(crate) const SUPPORTED: bool = false;
 
 pub(crate) fn spawn(
-    url: Url,
+    _: Url,
     http: HttpClient,
     commands: Receiver<Command>,
     shared: Arc<Shared>,
@@ -21,7 +21,7 @@ pub(crate) fn spawn(
             drop((http, commands));
             shared.fail(Failure::new(
                 MEDIA_ERR_SRC_NOT_SUPPORTED,
-                format!("cannot play {url}: media playback is not supported on this platform"),
+                "media playback is not supported on this platform",
             ));
         })
 }

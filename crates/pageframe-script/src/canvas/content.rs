@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -10,7 +11,8 @@ use pageframe_dom::canvas::{
     Canvas2D, Gradient, GradientKind, ImageSource, Rgba, TextMetrics, with_fonts,
 };
 use pageframe_dom::canvas::{MAX_AREA, Rect};
-use pageframe_dom::{NodeId, local_name};
+use pageframe_dom::local_name;
+use pageframe_dom::node::RasterImageData;
 
 use super::ops::{apply, arg, finite, index_size, nums, required};
 use super::{GradientData, bytes_value, canvas_of, gradient_object};
@@ -252,7 +254,7 @@ pub(super) fn add_color_stop(
 
 enum Pixels {
     Canvas(Rc<RefCell<Canvas2D>>),
-    Image(u32, u32, Vec<u8>),
+    Image(RasterImageData, bool),
 }
 
 fn image_source(value: &JsValue, context: &mut Context) -> JsResult<Option<Pixels>> {
@@ -268,17 +270,21 @@ fn image_source(value: &JsValue, context: &mut Context) -> JsResult<Option<Pixel
     if let Some((_, canvas)) = ctx.state.borrow().canvas.contexts.get(&node_id) {
         return Ok(Some(Pixels::Canvas(Rc::clone(canvas))));
     }
-    Ok(element_pixels(&ctx.doc.borrow(), node_id))
-}
-
-fn element_pixels(doc: &pageframe_dom::BaseDocument, node_id: NodeId) -> Option<Pixels> {
-    let element = doc.get_node(node_id)?.element_data()?;
-    if element.name.local == local_name!("canvas") {
-        return None;
-    }
-    let raster = element.raster_image_data()?;
-    let data = ImageSource::premultiply(raster.data.as_ref());
-    Some(Pixels::Image(raster.width, raster.height, data))
+    let doc = ctx.doc.borrow();
+    Ok(doc
+        .get_node(node_id)
+        .and_then(|node| node.element_data())
+        .filter(|element| element.name.local != local_name!("canvas"))
+        .and_then(|element| {
+            let raster = element.raster_image_data()?;
+            let known_opaque = element.name.local == local_name!("video")
+                && ctx
+                    .state
+                    .borrow()
+                    .media
+                    .is_decoded_frame(node_id, raster.data.as_ref());
+            Some(Pixels::Image(raster.clone(), known_opaque))
+        }))
 }
 
 fn draw_rects(args: &[JsValue], size: (f64, f64), context: &mut Context) -> JsResult<(Rect, Rect)> {
@@ -315,13 +321,22 @@ pub(super) fn draw_image(
         draw_rects(args, (0.0, 0.0), context)?;
         return Ok(JsValue::undefined());
     };
-    let (width, height, data) = match source {
+    let (width, height, data, opaque) = match &source {
         Pixels::Canvas(canvas) => {
             let canvas = canvas.borrow();
             let pixels = canvas.premultiplied_pixels().to_vec();
-            (canvas.width(), canvas.height(), pixels)
+            (canvas.width(), canvas.height(), Cow::Owned(pixels), false)
         }
-        Pixels::Image(w, h, data) => (w, h, data),
+        Pixels::Image(raster, known_opaque) => {
+            let pixels = raster.data.as_ref();
+            let opaque = *known_opaque || pixels.as_chunks::<4>().0.iter().all(|px| px[3] == 255);
+            let data = if opaque {
+                Cow::Borrowed(pixels)
+            } else {
+                Cow::Owned(ImageSource::premultiply(pixels))
+            };
+            (raster.width, raster.height, data, opaque)
+        }
     };
     let size = (f64::from(width), f64::from(height));
     let (src, dst) = draw_rects(args, size, context)?;
@@ -330,7 +345,11 @@ pub(super) fn draw_image(
         height,
         premultiplied: &data,
     };
-    target.borrow_mut().draw_image(&image, src, dst);
+    if opaque {
+        target.borrow_mut().draw_opaque_image(&image, src, dst);
+    } else {
+        target.borrow_mut().draw_image(&image, src, dst);
+    }
     Ok(JsValue::undefined())
 }
 

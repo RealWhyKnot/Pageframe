@@ -20,6 +20,8 @@ vello = { version = "0.11", features = ["wgpu"] }
 wgpu = "30"
 rustc-hash = "2"
 futures-channel = "0.3"
+tracing = "0.1"
+web-time = "1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pollster = "0.4"

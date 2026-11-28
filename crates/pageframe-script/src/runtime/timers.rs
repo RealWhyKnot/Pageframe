@@ -6,6 +6,7 @@ use web_time::{Duration, Instant};
 
 use super::{ScriptRuntime, events::report_js_error};
 use crate::dom::dom_ctx;
+use crate::timers::TimerArgs;
 
 impl ScriptRuntime {
     /// The deadline of the soonest pending timer (if any)
@@ -23,19 +24,23 @@ impl ScriptRuntime {
 
     /// Run all timers that are currently due. Returns `true` if any JavaScript was run.
     pub fn run_due_timers(&mut self) -> bool {
-        let due = {
+        let (due, timestamp) = {
             let mut state = self.ctx.state.borrow_mut();
             let now = state.clock.now();
-            state.timers.take_due(now)
+            (state.timers.take_due(now), state.high_res_time_at(now))
         };
         if due.is_empty() {
             return false;
         }
         for timer in due {
-            if let Err(error) =
-                timer
-                    .callback
-                    .call(&JsValue::undefined(), &timer.args, &mut self.context)
+            let frame_args = [JsValue::from(timestamp)];
+            let args = match &timer.args {
+                TimerArgs::Values(values) => values.as_slice(),
+                TimerArgs::FrameTimestamp => &frame_args,
+            };
+            if let Err(error) = timer
+                .callback
+                .call(&JsValue::undefined(), args, &mut self.context)
             {
                 report_js_error(&self.ctx, &mut self.context, "timer callback", &error);
             }
@@ -84,7 +89,9 @@ pub(super) fn set_timeout(
     };
     let mut state = ctx.state.borrow_mut();
     let now = state.clock.now();
-    let id = state.timers.add(now, delay, None, callback, rest);
+    let id = state
+        .timers
+        .add(now, delay, None, callback, TimerArgs::Values(rest));
     Ok(JsValue::from(id as f64))
 }
 
@@ -99,7 +106,9 @@ pub(super) fn set_interval(
     };
     let mut state = ctx.state.borrow_mut();
     let now = state.clock.now();
-    let id = state.timers.add(now, delay, Some(delay), callback, rest);
+    let id = state
+        .timers
+        .add(now, delay, Some(delay), callback, TimerArgs::Values(rest));
     Ok(JsValue::from(id as f64))
 }
 
@@ -116,8 +125,6 @@ pub(super) fn request_animation_frame(
     else {
         return Ok(JsValue::from(0));
     };
-    // Approximate the next frame as ~16ms away
-    let timestamp = JsValue::from(16.0);
     let mut state = ctx.state.borrow_mut();
     let now = state.clock.now();
     let id = state.timers.add(
@@ -125,7 +132,7 @@ pub(super) fn request_animation_frame(
         Duration::from_millis(16),
         None,
         callback,
-        vec![timestamp],
+        TimerArgs::FrameTimestamp,
     );
     Ok(JsValue::from(id as f64))
 }

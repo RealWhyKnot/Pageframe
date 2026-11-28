@@ -10,7 +10,13 @@ pub(crate) struct Timer {
     /// `Some` for `setInterval` timers, which reschedule themselves.
     pub interval: Option<Duration>,
     pub callback: JsObject,
-    pub args: Vec<JsValue>,
+    pub args: TimerArgs,
+}
+
+#[derive(Clone)]
+pub(crate) enum TimerArgs {
+    Values(Vec<JsValue>),
+    FrameTimestamp,
 }
 
 #[derive(Default)]
@@ -26,7 +32,7 @@ impl TimerQueue {
         delay: Duration,
         interval: Option<Duration>,
         callback: JsObject,
-        args: Vec<JsValue>,
+        args: TimerArgs,
     ) -> u64 {
         self.next_id += 1;
         let id = self.next_id;

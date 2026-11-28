@@ -28,6 +28,7 @@ devtools = ["dep:pageframe-devtools", "dep:webbrowser"]
 # paste into Chrome.
 embedded-devtools-frontend = ["devtools", "pageframe-devtools/embedded-frontend"]
 custom-widget = ["pageframe-dom/custom-widget"]
+vello = ["dep:anyrender_vello"]
 
 [dependencies]
 # Pageframe dependencies
@@ -36,6 +37,7 @@ pageframe-dom = { workspace = true }
 pageframe-paint = { workspace = true }
 pageframe-devtools = { workspace = true, optional = true }
 anyrender = { workspace = true }
+anyrender_vello = { workspace = true, optional = true }
 
 # Windowing & Input
 winit = { workspace = true }

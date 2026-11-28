@@ -282,23 +282,35 @@ fn timers_run_on_poll() {
 }
 
 #[test]
-fn request_animation_frame_runs_on_poll() {
+fn request_animation_frame_uses_the_performance_clock() {
     let mut doc = doc_from_html(
         r#"
         <html><body>
             <div id="out">pending</div>
             <script>
-                requestAnimationFrame(() => {
-                    document.getElementById("out").textContent = "frame";
+                requestAnimationFrame(first => {
+                    const firstNow = performance.now();
+                    requestAnimationFrame(second => {
+                        const secondNow = performance.now();
+                        document.getElementById("out").textContent = JSON.stringify([
+                            first === firstNow,
+                            second === secondNow,
+                            second > first,
+                        ]);
+                    });
                 });
             </script>
         </body></html>
         "#,
     );
 
-    std::thread::sleep(std::time::Duration::from_millis(30));
-    doc.poll(None);
-    assert_eq!(text_of_selector(&doc, "#out"), "frame");
+    doc = doc.without_timer_thread().with_virtual_time();
+    for _ in 0..2 {
+        let deadline = doc.clock_now() + std::time::Duration::from_millis(25);
+        doc.advance_clock_to(deadline);
+        assert!(doc.poll(None));
+    }
+    assert_eq!(text_of_selector(&doc, "#out"), "[true,true,true]");
 }
 
 #[test]

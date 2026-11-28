@@ -190,6 +190,14 @@ fn a_video_loads_metadata_and_paints_its_first_frame() {
         "the canvas shows the copied frame"
     );
 
+    page.run("ctx.clearRect(0, 0, 160, 120); ctx.drawImage(v, 0, 0, 80, 60);");
+    let frame = page.render();
+    assert!(is_red(pixel(&frame, 40, 150)), "the scaled frame is red");
+    assert!(
+        !is_red(pixel(&frame, 100, 150)),
+        "the scaled frame fits the destination"
+    );
+
     let requests = server.requests();
     assert!(
         requests
@@ -292,6 +300,24 @@ fn seeking_back_to_the_start_shows_the_first_frame_again() {
     page.wait_for("log.filter((name) => name === 'seeked').length === 2");
     let start = pixel(&page.render(), 80, 60);
     assert!(is_red(start), "after seeking back {start:?}");
+    page.assert_clean();
+}
+
+#[test]
+fn rapid_seeks_publish_only_the_latest_target() {
+    let server = serve();
+    let mut page = Page::open(VIDEO_PAGE, &server.base);
+    page.wait_for("v.readyState === 4");
+    page.run(
+        "for (let i = 0; i < 20; i++) v.currentTime = i % 2 === 0 ? 1.5 : 0; v.currentTime = 1.5;",
+    );
+    page.wait_for("!v.seeking && log.includes('seeked')");
+    assert_eq!(page.query("v.currentTime === 1.5"), "true");
+    assert_eq!(
+        page.query("log.filter(name => name === 'seeked').length"),
+        "1"
+    );
+    assert!(is_blue(pixel(&page.render(), 80, 60)));
     page.assert_clean();
 }
 

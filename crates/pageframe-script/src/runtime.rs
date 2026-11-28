@@ -11,7 +11,9 @@ use boa_runtime::Console;
 use boa_runtime::console::{ConsoleState, Logger};
 use pageframe_dom::BaseDocument;
 use url::Url;
+use web_time::{Duration, Instant};
 
+use crate::dom::dom_ctx;
 use crate::fetch::ScriptFetcher;
 use crate::state::{DomCtx, ReadyState};
 use bootstrap::{BOOTSTRAP_JS, GEOMETRY_JS};
@@ -27,8 +29,31 @@ mod net;
 mod timers;
 mod window;
 
-/// Console logger which routes all console output to `tracing` at
-/// `debug` level (target `js_console`), keeping stdout/stderr clean.
+const JS_LOG_BURST: u8 = 5;
+const JS_LOG_WINDOW: Duration = Duration::from_secs(1);
+
+#[derive(Default)]
+pub(crate) struct JsLogLimiter {
+    resets_at: Option<Instant>,
+    emitted: u8,
+    suppressed: u64,
+}
+
+impl JsLogLimiter {
+    fn admit(&mut self, now: Instant) -> Option<u64> {
+        if self.resets_at.is_none_or(|deadline| now >= deadline) {
+            self.resets_at = Some(now + JS_LOG_WINDOW);
+            self.emitted = 0;
+        }
+        if self.emitted == JS_LOG_BURST {
+            self.suppressed = self.suppressed.saturating_add(1);
+            return None;
+        }
+        self.emitted += 1;
+        Some(std::mem::take(&mut self.suppressed))
+    }
+}
+
 #[derive(Debug, Trace, Finalize)]
 struct TracingLogger;
 
@@ -45,12 +70,22 @@ impl Logger for TracingLogger {
         self.log(msg, state, context)
     }
 
-    fn warn(&self, msg: String, state: &ConsoleState, context: &mut Context) -> JsResult<()> {
-        self.log(msg, state, context)
+    fn warn(&self, msg: String, _: &ConsoleState, context: &mut Context) -> JsResult<()> {
+        let ctx = dom_ctx(context)?;
+        let admitted = ctx.state.borrow_mut().js_logs.admit(Instant::now());
+        if let Some(suppressed) = admitted {
+            tracing::warn!(target: "js_console", suppressed, "{msg}");
+        }
+        Ok(())
     }
 
-    fn error(&self, msg: String, state: &ConsoleState, context: &mut Context) -> JsResult<()> {
-        self.log(msg, state, context)
+    fn error(&self, msg: String, _: &ConsoleState, context: &mut Context) -> JsResult<()> {
+        let ctx = dom_ctx(context)?;
+        let admitted = ctx.state.borrow_mut().js_logs.admit(Instant::now());
+        if let Some(suppressed) = admitted {
+            tracing::error!(target: "js_console", suppressed, "{msg}");
+        }
+        Ok(())
     }
 }
 
@@ -154,5 +189,24 @@ impl ScriptRuntime {
     /// Set the value exposed as `document.readyState`
     pub fn set_ready_state(&mut self, ready_state: ReadyState) {
         self.ctx.state.borrow_mut().ready_state = ready_state;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Duration, Instant, JS_LOG_BURST, JS_LOG_WINDOW, JsLogLimiter};
+
+    #[test]
+    fn javascript_logs_cap_bursts_and_report_suppressed_messages() {
+        let start = Instant::now();
+        let mut limiter = JsLogLimiter::default();
+        for _ in 0..JS_LOG_BURST {
+            assert_eq!(limiter.admit(start), Some(0));
+        }
+        for _ in 0..100 {
+            assert_eq!(limiter.admit(start + Duration::from_millis(999)), None);
+        }
+        assert_eq!(limiter.admit(start + JS_LOG_WINDOW), Some(100));
+        assert_eq!(limiter.admit(start + JS_LOG_WINDOW), Some(0));
     }
 }

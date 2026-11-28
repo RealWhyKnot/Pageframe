@@ -120,19 +120,16 @@ impl Track {
     }
 
     fn mix(&self, out: &mut [f32]) -> usize {
-        let (now, speed) = {
-            let timeline = self.shared.timeline();
-            if !timeline.advancing() {
-                return 0;
-            }
-            (timeline.now(), timeline.rate)
-        };
-        let gain = self.shared.gain();
-        let mut queue = self.queue();
-        if queue.head_time() > now + LEAD {
+        let timeline = self.shared.timeline();
+        if self.shared.is_stopped() || !timeline.advancing() {
             return 0;
         }
-        queue.mix_into(out, gain, speed)
+        let gain = self.shared.gain();
+        let mut queue = self.queue();
+        if queue.head_time() > timeline.now() + LEAD {
+            return 0;
+        }
+        queue.mix_into(out, gain, timeline.rate)
     }
 }
 
@@ -167,7 +164,13 @@ pub(super) fn attach(track: &Arc<Track>) {
     let spawned = std::thread::Builder::new()
         .name("pageframe-audio".to_string())
         .spawn(run);
-    mixer.running = spawned.is_ok();
+    match spawned {
+        Ok(_) => mixer.running = true,
+        Err(error) => {
+            mixer.tracks.pop();
+            tracing::warn!(%error, "Could not start media audio mixer");
+        }
+    }
 }
 
 pub(super) fn detach(track: &Arc<Track>) {
@@ -265,23 +268,37 @@ impl Drop for Output {
 
 fn run() {
     // SAFETY: this thread initialises COM once and balances it with CoUninitialize before exiting.
-    let initialised = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok();
-    let mut output = Output::open().ok();
+    if let Err(error) = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.ok() {
+        tracing::warn!(%error, "Could not initialize media audio COM");
+        mixer().running = false;
+        return;
+    }
     let mut scratch = Vec::new();
+    let mut output = None;
+    let mut retry_at = std::time::Instant::now();
     while let Some(tracks) = live_tracks() {
-        if let Some(device) = &output {
-            if device.render(&tracks, &mut scratch).is_err() {
-                output = None;
+        if output.is_none() && std::time::Instant::now() >= retry_at {
+            match Output::open() {
+                Ok(device) => output = Some(device),
+                Err(error) => {
+                    tracing::warn!(%error, "Could not open media audio output");
+                    retry_at = std::time::Instant::now() + Duration::from_secs(5);
+                }
             }
+        }
+        if let Some(device) = &output
+            && let Err(error) = device.render(&tracks, &mut scratch)
+        {
+            tracing::warn!(%error, "Media audio output failed");
+            output = None;
+            retry_at = std::time::Instant::now() + Duration::from_secs(5);
         }
         drop(tracks);
         std::thread::sleep(MIX_INTERVAL);
     }
     drop(output);
-    if initialised {
-        // SAFETY: balances the successful CoInitializeEx above on the same thread.
-        unsafe { CoUninitialize() };
-    }
+    // SAFETY: balances the successful CoInitializeEx above on the same thread.
+    unsafe { CoUninitialize() };
 }
 
 #[cfg(test)]

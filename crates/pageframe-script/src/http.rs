@@ -1,7 +1,7 @@
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{Shutdown, TcpStream, ToSocketAddrs};
-use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Duration;
+use std::io::{self, BufRead, BufReader, Read, Write};
+use std::net::{IpAddr, Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::time::{Duration, Instant};
 
 use url::Url;
 
@@ -13,30 +13,55 @@ const MAX_HEADER_BYTES: usize = 64 * 1024;
 const MAX_CHUNK_LINE_BYTES: usize = 4096;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const READ_TIMEOUT: Duration = Duration::from_secs(30);
+const MEDIA_READ_TIMEOUT: Duration = Duration::from_secs(5);
+const MEDIA_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 pub const MAX_RESPONSE_BYTES: u64 = 256 * 1024 * 1024;
 
-struct SharedStream(Arc<TcpStream>);
+struct SharedStream {
+    stream: Arc<TcpStream>,
+    media: Option<(TrackedSocket, Duration)>,
+}
 
 impl Read for SharedStream {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        (&*self.0).read(buf)
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if let Some((socket, timeout)) = &self.media {
+            self.stream
+                .set_read_timeout(Some(socket.remaining(*timeout)?))?;
+        }
+        (&*self.stream).read(buf)
+    }
+}
+
+impl Write for SharedStream {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if let Some((socket, timeout)) = &self.media {
+            self.stream
+                .set_write_timeout(Some(socket.remaining(*timeout)?))?;
+        }
+        (&*self.stream).write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        (&*self.stream).flush()
     }
 }
 
 #[derive(Clone, Copy)]
 enum BodyWait<'a> {
     Timed,
-    Unbounded,
-    Tracked(&'a TrackedSocket),
+    Unbounded(Option<&'a TrackedSocket>),
+    #[cfg(windows)]
+    Media(&'a TrackedSocket),
 }
 
-#[derive(Default)]
-pub(crate) struct TrackedSocket(Mutex<SocketSlot>);
+#[derive(Clone, Default)]
+pub(crate) struct TrackedSocket(Arc<Mutex<SocketSlot>>);
 
 #[derive(Default)]
 struct SocketSlot {
     closed: bool,
-    stream: Option<Arc<TcpStream>>,
+    stream: Weak<TcpStream>,
+    read_deadline: Option<Instant>,
 }
 
 impl TrackedSocket {
@@ -45,7 +70,7 @@ impl TrackedSocket {
         if slot.closed {
             return Err(FetchError::Io(std::io::ErrorKind::ConnectionAborted.into()));
         }
-        slot.stream = Some(Arc::clone(stream));
+        slot.stream = Arc::downgrade(stream);
         Ok(())
     }
 
@@ -53,7 +78,7 @@ impl TrackedSocket {
         let stream = {
             let mut slot = self.0.lock().unwrap_or_else(PoisonError::into_inner);
             slot.closed = true;
-            slot.stream.take()
+            std::mem::take(&mut slot.stream).upgrade()
         };
         if let Some(stream) = stream {
             let _ = stream.shutdown(Shutdown::Both);
@@ -63,6 +88,33 @@ impl TrackedSocket {
     pub(crate) fn is_closed(&self) -> bool {
         self.0.lock().unwrap_or_else(PoisonError::into_inner).closed
     }
+
+    #[cfg(windows)]
+    pub(crate) fn set_read_deadline(&self, deadline: Option<Instant>) {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .read_deadline = deadline;
+    }
+
+    fn remaining(&self, timeout: Duration) -> io::Result<Duration> {
+        let slot = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if slot.closed {
+            return Err(io::ErrorKind::ConnectionAborted.into());
+        }
+        if let Some(deadline) = slot.read_deadline {
+            return remaining(deadline).map(|remaining| remaining.min(timeout));
+        }
+        Ok(timeout)
+    }
+}
+
+fn remaining(deadline: Instant) -> io::Result<Duration> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err(io::ErrorKind::TimedOut.into());
+    }
+    Ok(remaining)
 }
 
 #[derive(Clone, Debug)]
@@ -189,7 +241,7 @@ impl HttpClient {
         &self,
         request: &HttpRequest,
     ) -> Result<(HttpResponse, Box<dyn Read + Send>), FetchError> {
-        self.follow(request, BodyWait::Unbounded)
+        self.follow(request, BodyWait::Unbounded(None))
     }
 
     pub(crate) fn open_tracked(
@@ -197,7 +249,16 @@ impl HttpClient {
         request: &HttpRequest,
         socket: &TrackedSocket,
     ) -> Result<(HttpResponse, Box<dyn Read + Send>), FetchError> {
-        self.follow(request, BodyWait::Tracked(socket))
+        self.follow(request, BodyWait::Unbounded(Some(socket)))
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn open_media(
+        &self,
+        request: &HttpRequest,
+        socket: &TrackedSocket,
+    ) -> Result<(HttpResponse, Box<dyn Read + Send>), FetchError> {
+        self.follow(request, BodyWait::Media(socket))
     }
 
     fn follow(
@@ -278,27 +339,45 @@ impl HttpClient {
             .host_str()
             .ok_or_else(|| FetchError::InvalidData(format!("{url} has no host")))?;
         let port = url.port_or_known_default().unwrap_or(80);
-        let stream = Arc::new(connect(host, port)?);
-        if let BodyWait::Tracked(socket) = &wait {
+        let (socket, media_socket) = match wait {
+            BodyWait::Timed => (None, None),
+            BodyWait::Unbounded(socket) => (socket, None),
+            #[cfg(windows)]
+            BodyWait::Media(socket) => (Some(socket), Some(socket)),
+        };
+        let stream = Arc::new(if let Some(socket) = media_socket {
+            connect_media(host, port, socket).map_err(FetchError::Io)?
+        } else {
+            connect(host, port, socket)?
+        });
+        if let Some(socket) = socket {
             socket.track(&stream)?;
         }
+        let read_timeout = if media_socket.is_some() {
+            self.read_timeout.min(MEDIA_READ_TIMEOUT)
+        } else {
+            self.read_timeout
+        };
         stream
-            .set_read_timeout(Some(self.read_timeout))
+            .set_read_timeout(Some(read_timeout))
             .and_then(|()| stream.set_write_timeout(Some(self.read_timeout)))
             .map_err(FetchError::Io)?;
         let mut message = request_head(request, self.cookie_header(url)).into_bytes();
         message.extend_from_slice(&request.body);
-        let mut writer = &*stream;
-        writer
+        let mut stream = SharedStream {
+            stream,
+            media: media_socket.map(|socket| (socket.clone(), read_timeout)),
+        };
+        stream
             .write_all(&message)
-            .and_then(|()| writer.flush())
+            .and_then(|()| stream.flush())
             .map_err(FetchError::Io)?;
-        let mut reader = BufReader::new(SharedStream(stream));
+        let mut reader = BufReader::new(stream);
         let (status, status_text, headers) = read_head(&mut reader)?;
-        if matches!(wait, BodyWait::Unbounded | BodyWait::Tracked(_)) {
+        if matches!(wait, BodyWait::Unbounded(_)) {
             reader
                 .get_ref()
-                .0
+                .stream
                 .set_read_timeout(None)
                 .map_err(FetchError::Io)?;
         }
@@ -331,11 +410,62 @@ impl HttpClient {
     }
 }
 
-fn connect(host: &str, port: u16) -> Result<TcpStream, FetchError> {
+fn connect_media(host: &str, port: u16, socket: &TrackedSocket) -> io::Result<TcpStream> {
+    let deadline = Instant::now() + socket.remaining(MEDIA_CONNECT_TIMEOUT)?;
+    let wait = || socket.remaining(remaining(deadline)?);
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    let addresses = if let Ok(address) = host.parse::<IpAddr>() {
+        vec![SocketAddr::new(address, port)]
+    } else {
+        let host = host.to_owned();
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        std::thread::Builder::new()
+            .name("pageframe-media-dns".to_string())
+            .spawn(move || {
+                let addresses = (host.as_str(), port)
+                    .to_socket_addrs()
+                    .map(Iterator::collect::<Vec<_>>);
+                let _ = sender.send(addresses);
+            })?;
+        loop {
+            match receiver.recv_timeout(wait()?.min(Duration::from_millis(50))) {
+                Ok(addresses) => break addresses?,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(io::Error::other("media DNS lookup ended"));
+                }
+            }
+        }
+    };
+    let mut last_error = io::Error::new(io::ErrorKind::NotFound, "no address for media host");
+    for address in addresses {
+        match TcpStream::connect_timeout(&address, wait()?) {
+            Ok(stream) => {
+                wait()?;
+                let _ = stream.set_nodelay(true);
+                return Ok(stream);
+            }
+            Err(error) => last_error = error,
+        }
+    }
+    wait()?;
+    Err(last_error)
+}
+
+fn connect(host: &str, port: u16, socket: Option<&TrackedSocket>) -> Result<TcpStream, FetchError> {
+    let check_open = || {
+        if socket.is_some_and(TrackedSocket::is_closed) {
+            Err(FetchError::Io(std::io::ErrorKind::ConnectionAborted.into()))
+        } else {
+            Ok(())
+        }
+    };
+    check_open()?;
     let host = host.trim_start_matches('[').trim_end_matches(']');
     let addresses = (host, port).to_socket_addrs().map_err(FetchError::Io)?;
     let mut last_error = None;
     for address in addresses {
+        check_open()?;
         match TcpStream::connect_timeout(&address, CONNECT_TIMEOUT) {
             Ok(stream) => {
                 let _ = stream.set_nodelay(true);
@@ -582,5 +712,39 @@ impl ScriptFetcher for HttpClient {
 
     fn http_client(&self) -> Option<HttpClient> {
         Some(self.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{HttpClient, HttpRequest, TrackedSocket};
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+    use std::sync::Weak;
+    use url::Url;
+
+    #[test]
+    fn event_source_socket_has_no_body_read_timeout() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(&mut stream);
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap() != 0 && line != "\r\n" {
+                line.clear();
+            }
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n")
+                .unwrap();
+        });
+        let socket = TrackedSocket::default();
+        let url = Url::parse(&format!("http://{address}/events")).unwrap();
+        let (_, _body) = HttpClient::new()
+            .open_tracked(&HttpRequest::get(url), &socket)
+            .unwrap();
+        let stream = Weak::upgrade(&socket.0.lock().unwrap().stream).unwrap();
+        assert_eq!(stream.read_timeout().unwrap(), None);
+        server.join().unwrap();
     }
 }

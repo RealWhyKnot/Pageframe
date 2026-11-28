@@ -18,13 +18,17 @@ use crate::state::{DomCtx, Listener};
 /// steps) so that `window.onerror` / `addEventListener("error")` handlers
 /// observe it.
 pub(crate) fn report_js_error(ctx: &DomCtx, context: &mut Context, what: &str, error: &JsError) {
-    #[cfg(feature = "tracing")]
-    tracing::error!("Uncaught JS error in {what}: {error}");
-    let already_dispatching = {
+    let (already_dispatching, admitted) = {
         let mut state = ctx.state.borrow_mut();
         state.record_error(format!("Uncaught JS error in {what}: {error}"));
-        std::mem::replace(&mut state.dispatching_error_event, true)
+        (
+            std::mem::replace(&mut state.dispatching_error_event, true),
+            state.js_logs.admit(web_time::Instant::now()),
+        )
     };
+    if let Some(suppressed) = admitted {
+        tracing::error!(suppressed, "Uncaught JS error in {what}: {error}");
+    }
     if already_dispatching {
         return;
     }
